@@ -1,0 +1,209 @@
+/* Neumorphic Design System for Invoice Generator App */
+
+:root {
+  /* Base colors for light mode */
+  --nm-background: rgba(194, 224, 249, 0.8);
+  --nm-text-primary: #31344b;
+  --nm-text-secondary: #44476a;
+  --nm-accent: #5c6ef8;
+  --nm-accent-secondary: #f8d15c;
+  
+  /* Shadow colors */
+  --nm-shadow-light: rgba(252, 252, 255, 0.9);
+  --nm-shadow-dark: rgba(171, 209, 243, 0.6);
+  
+  /* Distances */
+  --nm-distance-sm: 2px;
+  --nm-distance-md: 4px;
+  --nm-distance-lg: 8px;
+  
+  /* Border radius */
+  --nm-radius-sm: 8px;
+  --nm-radius-md: 26px;
+  --nm-radius-lg: 26px;
+  --nm-radius-full: 9999px;
+}
+
+.dark {
+  /* Base colors for dark mode */
+  --nm-background: #2d3748;
+  --nm-text-primary: #f8fafc;
+  --nm-text-secondary: #94a3b8;
+  --nm-accent: #5c6ef8;
+  --nm-accent-secondary: #f8d15c;
+  --nm-primary: #5c6ef8;
+  --nm-primary-light: #8a97fa;
+  --nm-primary-dark: #2e45f5;
+  --nm-accent-light: #fae08c;
+  --nm-accent-dark: #f6c22c;
+  
+  /* Shadow colors for dark mode */
+  --nm-shadow-light: #3a4a61;
+  --nm-shadow-dark: #1e2533;
+}
+
+/* Neumorphic Base Styles */
+.nm-base {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  color: var(--nm-text-primary);
+}
+
+/* Neumorphic Flat Surface */
+.nm-flat {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  border-radius: var(--nm-radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Neumorphic Raised Effect */
+.nm-raised {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  border-radius: 0;
+  box-shadow: 
+    var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Neumorphic Pressed Effect */
+.nm-pressed {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  border-radius: var(--nm-radius-md);
+  box-shadow: 
+    inset var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    inset calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Neumorphic Concave Effect */
+.nm-concave {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  border-radius: var(--nm-radius-md);
+  box-shadow: 
+    var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Neumorphic Convex Effect */
+.nm-convex {
+  background: var(--nm-background);
+  backdrop-filter: blur(10px);
+  border-radius: var(--nm-radius-md);
+  box-shadow: 
+    var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+/* Neumorphic Button */
+.nm-button {
+  background-color: var(--nm-background);
+  color: var(--nm-text-primary);
+  border-radius: var(--nm-radius-md);
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+  box-shadow: 
+    var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+}
+
+.nm-button:hover {
+  box-shadow: 
+    var(--nm-distance-sm) var(--nm-distance-sm) var(--nm-distance-md) var(--nm-shadow-dark),
+    calc(var(--nm-distance-sm) * -1) calc(var(--nm-distance-sm) * -1) var(--nm-distance-md) var(--nm-shadow-light);
+}
+
+.nm-button:active {
+  box-shadow: 
+    inset var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    inset calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+}
+
+/* Neumorphic Input */
+.nm-input {
+  background-color: var(--nm-background);
+  border-radius: var(--nm-radius-md);
+  padding: 0.75rem 1rem;
+  color: var(--nm-text-primary);
+  box-shadow: 
+    inset var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    inset calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.nm-input:focus {
+  outline: none;
+  box-shadow: 
+    inset var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-md) var(--nm-shadow-dark),
+    inset calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-md) var(--nm-shadow-light),
+    0 0 0 3px rgba(92, 110, 248, 0.2);
+}
+
+/* Neumorphic Card */
+.nm-card {
+  background-color: var(--nm-background);
+  border-radius: var(--nm-radius-lg);
+  padding: 1.5rem;
+  box-shadow: 
+    var(--nm-distance-lg) var(--nm-distance-lg) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-lg) * -1) calc(var(--nm-distance-lg) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Neumorphic Badge */
+.nm-badge {
+  background-color: var(--nm-background);
+  border-radius: var(--nm-radius-full);
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--nm-accent);
+  box-shadow: 
+    var(--nm-distance-sm) var(--nm-distance-sm) var(--nm-distance-md) var(--nm-shadow-dark),
+    calc(var(--nm-distance-sm) * -1) calc(var(--nm-distance-sm) * -1) var(--nm-distance-md) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Neumorphic Circle */
+.nm-circle {
+  background-color: var(--nm-background);
+  border-radius: 50%;
+  box-shadow: 
+    var(--nm-distance-md) var(--nm-distance-md) var(--nm-distance-lg) var(--nm-shadow-dark),
+    calc(var(--nm-distance-md) * -1) calc(var(--nm-distance-md) * -1) var(--nm-distance-lg) var(--nm-shadow-light);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Utility classes for spacing */
+.nm-p-4 {
+  padding: 1rem;
+}
+
+.nm-p-6 {
+  padding: 1.5rem;
+}
+
+.nm-p-8 {
+  padding: 2rem;
+}
+
+/* Utility classes for margin */
+.nm-m-4 {
+  margin: 1rem;
+}
+
+.nm-m-6 {
+  margin: 1.5rem;
+}
+
+.nm-m-8 {
+  margin: 2rem;
+}
