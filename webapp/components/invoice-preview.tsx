@@ -3,8 +3,9 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Download, Send, Shield } from "lucide-react"
+import { Download, Send, Shield, Wallet } from "lucide-react"
 import Image from "next/image"
+import { CryptoPayment } from "@/components/crypto-payment"
 
 interface InvoiceItem {
   id: string
@@ -30,9 +31,10 @@ interface InvoicePreviewProps {
   items: InvoiceItem[]
   onDownloadPDF: () => void
   onSendInvoice: () => void
+  showPayment?: boolean
 }
 
-export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoice }: InvoicePreviewProps) {
+export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoice, showPayment = false }: InvoicePreviewProps) {
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
   const tax = subtotal * 0.1 // 10% tax
   const total = subtotal + tax
@@ -158,19 +160,39 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoic
       </Card>
 
       {/* Action Buttons */}
-      <div className="flex justify-center space-x-4">
-        <Button onClick={onDownloadPDF} variant="neumorphic" className="text-white">
-          <div className="nm-icon-container-sm mr-2">
-            <Download className="h-4 w-4" />
+      <div className="space-y-6">
+        <div className="flex justify-center space-x-4">
+          <Button onClick={onDownloadPDF} variant="neumorphic" className="text-white">
+            <div className="nm-icon-container-sm mr-2">
+              <Download className="h-4 w-4" />
+            </div>
+            Download PDF
+          </Button>
+          <Button onClick={onSendInvoice} variant="neumorphic" className="bg-secondary text-black font-medium">
+            <div className="nm-icon-container-sm mr-2">
+              <Send className="h-4 w-4" />
+            </div>
+            Send Invoice
+          </Button>
+        </div>
+
+        {/* Crypto Payment Section */}
+        {showPayment && (
+          <div className="max-w-md mx-auto">
+            <CryptoPayment
+              amount={total}
+              currency="USD"
+              onPaymentComplete={(txHash) => {
+                console.log('Payment completed:', txHash)
+                // Handle payment completion
+              }}
+              onPaymentError={(error) => {
+                console.error('Payment error:', error)
+                // Handle payment error
+              }}
+            />
           </div>
-          Download PDF
-        </Button>
-        <Button onClick={onSendInvoice} variant="neumorphic" className="bg-secondary text-black font-medium">
-          <div className="nm-icon-container-sm mr-2">
-            <Send className="h-4 w-4" />
-          </div>
-          Send Invoice
-        </Button>
+        )}
       </div>
     </div>
   )

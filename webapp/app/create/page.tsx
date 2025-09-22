@@ -11,6 +11,7 @@ import { Plus, Trash2, Sparkles, Eye } from "lucide-react"
 import { InvoicePreview } from "@/components/invoice-preview"
 import { generateInvoicePDF, sendInvoiceEmail } from "@/lib/pdf-generator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { CryptoPayment } from "@/components/crypto-payment"
 
 interface InvoiceItem {
   id: string
