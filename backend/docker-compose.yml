@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/invoisio
+      - JWT_SECRET=your-jwt-secret
+      - STARKNET_RPC_URL=https://your-starknet-rpc
+      - OPENAI_API_KEY=your-openai-api-key
+      - PORT=3001
+      - CORS_ORIGIN=http://localhost:3000
+    depends_on:
+      - db
+
+  db:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=invoisio
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
