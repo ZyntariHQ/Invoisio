@@ -8,6 +8,8 @@ import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Wallet, Shield, CheckCircle, Clock, AlertCircle, Copy } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 
 interface CryptoPaymentProps {
   amount: number
@@ -31,6 +33,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
   const [walletAddress, setWalletAddress] = useState<string>('')
   const [txHash, setTxHash] = useState<string>('')
   const [convertedAmount, setConvertedAmount] = useState<number>(0)
+  const [recipientAddress, setRecipientAddress] = useState<string>('')
   const { toast } = useToast()
 
   // Mock conversion rates (in real app, fetch from API)
@@ -75,6 +78,18 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
   }
 
   const processPayment = async () => {
+    // Basic recipient validation
+    if (!recipientAddress || recipientAddress.trim().length < 10) {
+      setPaymentStatus('failed')
+      const errorMsg = 'Please enter a valid recipient wallet address'
+      onPaymentError?.(errorMsg)
+      toast({
+        title: "Invalid Address",
+        description: errorMsg,
+        variant: "destructive"
+      })
+      return
+    }
     setPaymentStatus('processing')
     
     try {
@@ -89,7 +104,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
       onPaymentComplete?.(mockTxHash)
       toast({
         title: "Payment Successful",
-        description: `Transaction: ${mockTxHash.slice(0, 10)}...`,
+        description: `Sent to ${recipientAddress.slice(0, 10)}... | Tx: ${mockTxHash.slice(0, 10)}...`,
       })
     } catch (error) {
       setPaymentStatus('failed')
@@ -155,6 +170,17 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Recipient Address */}
+        <div className="space-y-2">
+          <Label>Recipient Wallet Address</Label>
+          <Input
+            placeholder="0x..."
+            value={recipientAddress}
+            onChange={(e) => setRecipientAddress(e.target.value)}
+            className="nm-input"
+          />
+        </div>
+
         {/* Token Selection */}
         <div className="space-y-2">
           <label className="text-sm font-medium">Payment Token</label>
@@ -226,6 +252,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
             <Button
               onClick={processPayment}
               className="w-full"
+              disabled={!recipientAddress}
               variant="default"
             >
               <Shield className="h-4 w-4 mr-2" />

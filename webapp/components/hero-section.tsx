@@ -38,10 +38,10 @@ export function HeroSection() {
                    Create Invoice
                    <ArrowRight className="ml-2 w-5 h-5" />
                  </Link>
-                 <a href="#features" className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
+                 <Link href="/payment" className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
                    <FileText className="mr-2 w-5 h-5" />
-                   Key Features
-                 </a>
+                   Make payment
+                 </Link>
                </div>
              </div>
           </div>
