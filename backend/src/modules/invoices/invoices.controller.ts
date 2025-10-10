@@ -14,27 +14,32 @@ import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import { GetUser } from '../../common/decorators/get-user.decorator';
+import { ApiBearerAuth, ApiTags, ApiQuery, ApiOperation } from '@nestjs/swagger';
 
+@ApiTags('Invoices')
+@ApiBearerAuth()
 @Controller('api/invoices')
 @UseGuards(JwtAuthGuard)
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
-  @Post('create')
-  create(@Body() createInvoiceDto: CreateInvoiceDto) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  @Post()
+  @ApiOperation({ summary: 'Create invoice' })
+  create(@GetUser('sub') userId: string, @Body() createInvoiceDto: CreateInvoiceDto) {
     return this.invoicesService.create(userId, createInvoiceDto);
   }
 
   @Get()
+  @ApiOperation({ summary: 'List invoices' })
+  @ApiQuery({ name: 'status', required: false })
+  @ApiQuery({ name: 'search', required: false })
   findAll(
+    @GetUser('sub') userId: string,
     @Query() paginationDto: PaginationDto,
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
     return this.invoicesService.findAll(
       userId,
       paginationDto.page,
@@ -45,23 +50,24 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  @ApiOperation({ summary: 'Get invoice by id' })
+  findOne(@GetUser('sub') userId: string, @Param('id') id: string) {
     return this.invoicesService.findOne(userId, id);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  @ApiOperation({ summary: 'Update invoice' })
+  update(
+    @GetUser('sub') userId: string,
+    @Param('id') id: string,
+    @Body() updateInvoiceDto: UpdateInvoiceDto,
+  ) {
     return this.invoicesService.update(userId, id, updateInvoiceDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  @ApiOperation({ summary: 'Delete invoice' })
+  remove(@GetUser('sub') userId: string, @Param('id') id: string) {
     return this.invoicesService.remove(userId, id);
   }
 }
