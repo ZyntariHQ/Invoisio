@@ -38,8 +38,8 @@ export function PaymentStatus({
 
   const openExplorer = () => {
     if (txHash) {
-      // Mock Starknet explorer URL (replace with actual explorer)
-      const explorerUrl = `https://starkscan.co/tx/${txHash}`
+      // Base explorer URL (adjust for network)
+      const explorerUrl = `https://basescan.org/tx/${txHash}`
       window.open(explorerUrl, '_blank')
     }
   }

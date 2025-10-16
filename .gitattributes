@@ -1,0 +1,21 @@
+# Normalize line endings to LF across the repo
+* text=auto eol=lf
+
+# Do not apply line ending conversions to vendored deps and build outputs
+node_modules/** -text
+hardhat/artifacts/** -text
+hardhat/cache/** -text
+
+# Common binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.svg -text
+
+# Explicitly keep scripts with CRLF if needed on Windows
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 import { FileText, BarChart3, PieChart, Bell, Wallet, Menu, X } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
+import { useEvmWallet } from "@/hooks/use-evm-wallet"
+import { WalletConnectModal } from "@/components/wallet-connect-modal"
 
 const navigation = []
 
@@ -16,6 +18,8 @@ export function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
+  const { isConnected, displayAddress, connect } = useEvmWallet()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -153,9 +157,10 @@ export function Navigation() {
                variant="neumorphic"
                size="sm"
                className="text-primary flex items-center space-x-1 nm-convex rounded-full px-4"
+               onClick={() => setIsWalletModalOpen(true)}
              >
                <Wallet className="h-4 w-4" />
-               <span>Connect Wallet</span>
+               <span>{isConnected && displayAddress ? displayAddress : "Connect Wallet"}</span>
              </Button>
           </div>
 
@@ -212,12 +217,14 @@ export function Navigation() {
                 variant="neumorphic"
                 size="sm"
                 className="w-full text-primary flex items-center justify-center space-x-2 nm-convex rounded-lg px-4"
+                onClick={() => { setIsWalletModalOpen(true); setIsMenuOpen(false) }}
               >
                 <Wallet className="h-4 w-4" />
-                <span>Connect Wallet</span>
+                <span>{isConnected && displayAddress ? displayAddress : "Connect Wallet"}</span>
               </Button>
            </div>
          )}
+         <WalletConnectModal open={isWalletModalOpen} onOpenChange={setIsWalletModalOpen} onConnect={connect} />
        </div>
      </nav>
    )

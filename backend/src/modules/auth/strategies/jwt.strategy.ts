@@ -14,7 +14,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    // Expose `sub` directly on req.user for easy access via `req.user.sub`
-    return { sub: payload.sub, walletAddress: payload.walletAddress };
+    return { userId: payload.sub, walletAddress: payload.walletAddress };
   }
 }

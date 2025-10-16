@@ -1,195 +1,172 @@
-# 🧾 Invoisio - Privacy-Focused AI Invoice Generator
+# 🧾 Invoisio — Privacy‑Focused AI Invoice Generator on Base
 
-> **Effortless, Private Invoicing for Freelancers**
+> Effortless, private invoicing for freelancers and small businesses
 
-A modern, privacy-first invoice generation platform built for freelancers and small businesses. Powered by AI automation, secured with zero-knowledge proofs, and integrated with Starknet blockchain technology for seamless cryptocurrency payments.
+Invoisio is a modern, privacy‑first invoice platform. It pairs AI‑assisted invoice creation with seamless crypto payments on Base (EVM). A minimal PaymentRouter smart contract forwards funds to merchants and emits events your backend listens to for reliable, off‑chain reconciliation.
 
-![Next.js](https://img.shields.io/badge/Next.js-14.2.16-black?style=for-the-badge&logo=next.js)
+![Next.js](https://img.shields.io/badge/Next.js-14.2.16-black?style=for-the-badge&logo=nextdotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1.9-38B2AC?style=for-the-badge&logo=tailwind-css)
-![Starknet](https://img.shields.io/badge/Starknet-Ready-purple?style=for-the-badge)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-^3.x-38B2AC?style=for-the-badge&logo=tailwindcss)
+![Hardhat](https://img.shields.io/badge/Hardhat-Toolbox-yellow?style=for-the-badge&logo=ethereum)
+![Base](https://img.shields.io/badge/Base-Sepolia-0052FF?style=for-the-badge&logo=coinbase)
 
-## ✨ Key Features
+## ✨ Highlights
 
-### 🤖 **AI-Powered Automation**
-- Automatically generate professional invoices with smart templates
-- Adaptive templates that adjust to your business needs and client preferences
-- Intelligent data extraction and formatting
+- AI‑assisted invoice creation with clean, responsive UI
+- Wallet‑based authentication; no passwords
+- Crypto payments on Base: ETH and USDC via a PaymentRouter
+- Real‑time backend reconciliation by watching on‑chain events
+- Privacy‑first mindset; collect only what’s necessary
 
-### 🔒 **Privacy-First with Zero-Knowledge Proofs**
-- Your financial data stays completely private
-- Zero-knowledge proofs maintain transparency without exposing sensitive information
-- Decentralized identity management through wallet authentication
+## 🏗️ Monorepo Structure
 
-### 💰 **Cryptocurrency Payments**
-- Accept crypto payments seamlessly with built-in wallet integration
-- Real-time conversion rates and multi-currency support
-- Starknet blockchain integration for secure, fast transactions
-
-### 🎨 **Modern UI/UX**
-- Beautiful, responsive design with neumorphic styling
-- Dark/light theme support
-- Mobile-first approach with intuitive navigation
+```
+./
+├── webapp/     # Next.js 14 app (frontend UI)
+├── backend/    # NestJS API (auth, invoices, payment matching)
+├── contracts/  # Solidity sources (PaymentRouter)
+└── hardhat/    # Hardhat project (compile/deploy/ABI)
+```
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
-- Node.js 18+ 
-- npm, yarn, or pnpm
-- A Starknet-compatible wallet (Argent X, Braavos)
+- Node.js 18+
+- pnpm or npm
+- An EVM wallet (MetaMask, Coinbase Wallet)
+- Base Sepolia test ETH for deployment/testing
 
-### Installation
+### 1) Deploy PaymentRouter to Base
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/invoice-generator-landing.git
-   cd invoice-generator-landing
+1. Configure Hardhat environment (`hardhat/.env`):
+   ```env
+   PRIVATE_KEY=0xYOUR_DEPLOYER_PRIVATE_KEY
+   RPC_URL=https://sepolia.base.org
+   RPC_URL_MAINNET=https://mainnet.base.org
    ```
-
-2. **Install dependencies**
+2. Install and compile:
    ```bash
+   cd hardhat
    npm install
-   # or
-   yarn install
-   # or
-   pnpm install
+   npx hardhat compile
    ```
-
-3. **Start the development server**
+3. Deploy to Base Sepolia:
    ```bash
-   npm run dev
-   # or
-   yarn dev
-   # or
-   pnpm dev
+   npx hardhat run scripts/deploy.js --network baseSepolia
+   # Note the printed PaymentRouter address
    ```
 
-4. **Open your browser**
-   Navigate to [http://localhost:3000](http://localhost:3000) to see the application.
-
-## 🏗️ Project Structure
-
+The router emits:
 ```
-invoice-generator-landing/
-├── app/                    # Next.js App Router
-│   ├── clients/           # Client management pages
-│   ├── create/            # Invoice creation page
-│   ├── dashboard/         # User dashboard
-│   ├── invoices/          # Invoice management
-│   ├── layout.tsx         # Root layout
-│   └── page.tsx           # Landing page
-├── components/            # Reusable UI components
-│   ├── ui/               # Shadcn/ui components
-│   ├── features-section.tsx
-│   ├── hero-section.tsx
-│   ├── navigation.tsx
-│   └── ...
-├── hooks/                # Custom React hooks
-├── lib/                  # Utility functions
-├── public/               # Static assets
-└── styles/               # Global styles
+event PaymentReceived(
+  bytes32 indexed invoiceId,
+  address indexed payer,
+  address indexed token,     // address(0) for ETH; ERC20 address for tokens
+  address merchant,
+  uint256 amount
+);
 ```
 
-## 🛠️ Tech Stack
+### 2) Configure Backend (NestJS)
 
-### Frontend
-- **Framework**: Next.js 14.2.16 with App Router
-- **Language**: TypeScript 5.0
-- **Styling**: Tailwind CSS 4.1.9 with custom neumorphic design
-- **UI Components**: Radix UI primitives with Shadcn/ui
-- **Icons**: Lucide React
-- **Animations**: Custom CSS animations with Tailwind
+Create `backend/.env` and set:
+```env
+# Base network
+EVM_RPC_URL=https://sepolia.base.org
+EVM_CHAIN_ID=84532       # 8453 for Base mainnet
 
-### State Management & Forms
-- **Forms**: React Hook Form with Zod validation
-- **State**: React hooks (useState, useEffect)
+# Payments
+EVM_ROUTER_ADDRESS=0x... # from Hardhat deploy
+EVM_USDC_ADDRESS=0x...   # optional: Base Sepolia USDC address
+EVM_MERCHANT_ADDRESS=0x... # optional default merchant (if not per‑invoice)
 
-### Development Tools
-- **Package Manager**: npm/yarn/pnpm
-- **Linting**: ESLint with Next.js configuration
-- **Type Checking**: TypeScript strict mode
+# Database, auth, etc.
+DATABASE_URL=postgresql://...
+JWT_SECRET=...
+```
+Then:
+```bash
+cd backend
+npm install
+npx prisma generate
+npx prisma migrate dev
+npm run start:dev
+```
+The `EvmWatcherService` listens for:
+- Router `PaymentReceived` events (ETH and USDC)
+- ERC20 `Transfer` events (USDC)
+- Direct ETH transfers in new blocks (matches by merchant address)
 
-## 📱 Available Scripts
+### 3) Run the Frontend (Next.js)
 
 ```bash
-# Development
-npm run dev          # Start development server
-npm run build        # Build for production
-npm run start        # Start production server
-npm run lint         # Run ESLint
-
-# Type checking
-npx tsc --noEmit     # Check TypeScript types
+cd webapp
+npm install
+npm run dev
+# open http://localhost:3000
 ```
+The frontend uses `WalletConnectModal` and `use-evm-wallet` to connect a wallet. When paying:
+- ETH: call `router.payETH(merchant, invoiceId)` with `value` set in the transaction
+- USDC: `approve(router, amount)` then `router.payERC20(usdc, merchant, amount, invoiceId)`
 
 ## 🔐 Authentication
 
-The application uses **wallet-based authentication** for a seamless Web3 experience:
+- Wallet signature flow; no passwords
+- Users own their identity via their wallet
+- Minimal data collection to preserve privacy
 
-- **No traditional passwords** - Enhanced security through wallet signatures
-- **One-click authentication** - Connect wallet to access all features
-- **Decentralized identity** - Users own their authentication method
-- **Privacy-focused** - No email or personal data required initially
+## 📚 Development Scripts
 
-### Supported Wallets
-- Argent X
-- Braavos
-- Other Starknet-compatible wallets
+- Frontend:
+  - `npm run dev` — start Next.js dev server
+  - `npm run build` — production build
+  - `npm run start` — run built app
+- Backend:
+  - `npm run start:dev` — run NestJS in watch mode
+  - `npm run test` / `npm run test:e2e` — tests
+- Contracts/Hardhat:
+  - `npx hardhat compile` — compile contracts
+  - `npx hardhat run scripts/deploy.js --network baseSepolia` — deploy router
 
-## 🎨 Design System
+## 🧩 Tech Stack
 
-The application features a custom **neumorphic design system** with:
+- Next.js 14, TypeScript, Tailwind CSS (neumorphic styling)
+- Radix UI + shadcn/ui components
+- NestJS + Prisma (PostgreSQL)
+- Hardhat + Ethers (contracts and deploy)
 
-- **Soft shadows and highlights** for depth perception
-- **Consistent spacing and typography** using Geist font family
-- **Accessible color palette** with dark/light theme support
-- **Responsive breakpoints** for all device sizes
+## 🗺️ Roadmap
 
-## 🔮 Upcoming Features
-
-- [ ] **Backend API Integration** - Full CRUD operations for invoices
-- [ ] **Starknet Smart Contracts** - On-chain invoice verification
-- [ ] **AI Invoice Generation** - Advanced template suggestions
-- [ ] **Multi-currency Support** - Fiat and crypto payment options
-- [ ] **Client Portal** - Dedicated client payment interface
-- [ ] **Analytics Dashboard** - Business insights and reporting
-- [ ] **Email Integration** - Automated invoice delivery
-- [ ] **PDF Export** - Professional invoice downloads
+- [ ] Full invoice CRUD and client portal
+- [ ] Advanced AI invoice suggestions
+- [ ] Multi‑currency improvements and fiat on‑ramps
+- [ ] Analytics dashboard and reporting
+- [ ] PDF export and email delivery
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+1. Fork the repo
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit: `git commit -m "feat: add amazing feature"`
+4. Push: `git push origin feature/amazing-feature`
+5. Open a PR
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT — see `LICENSE`.
 
 ## 🙏 Acknowledgments
 
-- [Next.js](https://nextjs.org/) for the amazing React framework
-- [Tailwind CSS](https://tailwindcss.com/) for utility-first styling
-- [Radix UI](https://www.radix-ui.com/) for accessible component primitives
-- [Starknet](https://starknet.io/) for blockchain infrastructure
-- [Lucide](https://lucide.dev/) for beautiful icons
-
-## 📞 Support
-
-- **Documentation**: [Coming Soon]
-- **Issues**: [GitHub Issues](https://github.com/yourusername/invoice-generator-landing/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/invoice-generator-landing/discussions)
+- https://base.org/ — Base L2 by Coinbase
+- https://nextjs.org/ — React framework
+- https://tailwindcss.com/ — utility‑first styling
+- https://www.radix-ui.com/ — accessible primitives
+- https://hardhat.org/ — Ethereum development environment
 
 ---
 
 <div align="center">
-  <p>Built with ❤️ for the freelance community</p>
-  <p>
-    <a href="#-invoisio---privacy-focused-ai-invoice-generator">Back to Top</a>
-  </p>
+  <p>Built with ❤️ for freelancers on Base</p>
+  <p><a href="#-invoisio-%E2%80%94-privacy%E2%80%91focused-ai-invoice-generator-on-base">Back to Top</a></p>
 </div>

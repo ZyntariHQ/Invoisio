@@ -2,12 +2,12 @@
 
 > **Effortless, Private Invoicing for Freelancers**
 
-A modern, privacy-first invoice generation platform built for freelancers and small businesses. Powered by AI automation, secured with zero-knowledge proofs, and integrated with Starknet blockchain technology for seamless cryptocurrency payments.
+A modern, privacy-first invoice generation platform built for freelancers and small businesses. Powered by AI automation and integrated with EVM (Base) blockchain technology for seamless cryptocurrency payments.
 
 ![Next.js](https://img.shields.io/badge/Next.js-14.2.16-black?style=for-the-badge&logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.1.9-38B2AC?style=for-the-badge&logo=tailwind-css)
-![Starknet](https://img.shields.io/badge/Starknet-Ready-purple?style=for-the-badge)
+![Base](https://img.shields.io/badge/Base-Ready-blue?style=for-the-badge)
 
 ## ✨ Key Features
 
@@ -24,7 +24,7 @@ A modern, privacy-first invoice generation platform built for freelancers and sm
 ### 💰 **Cryptocurrency Payments**
 - Accept crypto payments seamlessly with built-in wallet integration
 - Real-time conversion rates and multi-currency support
-- Starknet blockchain integration for secure, fast transactions
+- Base (EVM) integration for secure, fast transactions
 
 ### 🎨 **Modern UI/UX**
 - Beautiful, responsive design with neumorphic styling
@@ -37,7 +37,7 @@ A modern, privacy-first invoice generation platform built for freelancers and sm
 
 - Node.js 18+ 
 - npm, yarn, or pnpm
-- A Starknet-compatible wallet (Argent X, Braavos)
+- An EVM wallet (MetaMask, Coinbase Wallet)
 
 ### Installation
 
@@ -133,9 +133,9 @@ The application uses **wallet-based authentication** for a seamless Web3 experie
 - **Privacy-focused** - No email or personal data required initially
 
 ### Supported Wallets
-- Argent X
-- Braavos
-- Other Starknet-compatible wallets
+- MetaMask
+- Coinbase Wallet
+- Other EVM-compatible wallets
 
 ## 🎨 Design System
 
@@ -149,7 +149,7 @@ The application features a custom **neumorphic design system** with:
 ## 🔮 Upcoming Features
 
 - [ ] **Backend API Integration** - Full CRUD operations for invoices
-- [ ] **Starknet Smart Contracts** - On-chain invoice verification
+- [ ] **Base Smart Contracts** - On-chain invoice verification
 - [ ] **AI Invoice Generation** - Advanced template suggestions
 - [ ] **Multi-currency Support** - Fiat and crypto payment options
 - [ ] **Client Portal** - Dedicated client payment interface
@@ -176,7 +176,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [Next.js](https://nextjs.org/) for the amazing React framework
 - [Tailwind CSS](https://tailwindcss.com/) for utility-first styling
 - [Radix UI](https://www.radix-ui.com/) for accessible component primitives
-- [Starknet](https://starknet.io/) for blockchain infrastructure
+- [Base](https://base.org/) for blockchain infrastructure
 - [Lucide](https://lucide.dev/) for beautiful icons
 
 ## 📞 Support
