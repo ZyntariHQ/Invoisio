@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ArrowRight, FileText, Shield, Zap, Lock } from "lucide-react"
+import { ArrowRight, CreditCard, Shield, Zap, Lock } from "lucide-react"
 import Link from "next/link"
 
 export function HeroSection() {
@@ -14,7 +14,7 @@ export function HeroSection() {
         style={{ animationDelay: "1s" }}
       />
 
-      <div className="relative z-10 container mx-auto px-4 text-center">
+      <div className="relative container mx-auto px-4 text-center">
         <div className="max-w-4xl mx-auto animate-fade-in-up">
           {/* Main Headline */}
           <div className="p-8 mb-8">
@@ -39,11 +39,11 @@ export function HeroSection() {
                    <ArrowRight className="ml-2 w-5 h-5" />
                  </Link>
                  <Link href="/payment" className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
-                   <FileText className="mr-2 w-5 h-5" />
-                   Make payment
+                   <CreditCard className="mr-2 w-5 h-5" />
+                   Payment
                  </Link>
-               </div>
              </div>
+           </div>
           </div>
         </div>
       </div>

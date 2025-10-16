@@ -2,6 +2,7 @@ import { Controller, Post, Get, Body, Headers, UseGuards } from '@nestjs/common'
 import { AuthService } from './auth.service';
 import { ConnectWalletDto } from './dto/connect-wallet.dto';
 import { VerifySignatureDto } from './dto/verify-signature.dto';
+import { RequestNonceDto } from './dto/request-nonce.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 
 @Controller('api/auth/wallet')
@@ -28,5 +29,10 @@ export class AuthController {
   @Post('verify-signature')
   verifySignature(@Body() verifySignatureDto: VerifySignatureDto) {
     return this.authService.verifySignature(verifySignatureDto);
+  }
+
+  @Post('nonce')
+  requestNonce(@Body() dto: RequestNonceDto) {
+    return this.authService.requestNonce(dto.walletAddress);
   }
 }

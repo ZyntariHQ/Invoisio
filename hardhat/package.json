@@ -1,0 +1,15 @@
+{
+  "name": "invoisio-hardhat",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "compile": "npx hardhat compile",
+    "deploy:baseSepolia": "npx hardhat run --network baseSepolia scripts/deploy.js",
+    "deploy:base": "npx hardhat run --network base scripts/deploy.js"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.6"
+  }
+}

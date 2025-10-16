@@ -8,6 +8,7 @@ import {
   Delete,
   UseGuards,
   Query,
+  Req,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
@@ -21,20 +22,19 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Post('create')
-  create(@Body() createInvoiceDto: CreateInvoiceDto) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  create(@Req() req: any, @Body() createInvoiceDto: CreateInvoiceDto) {
+    const userId = req.user?.userId;
     return this.invoicesService.create(userId, createInvoiceDto);
   }
 
   @Get()
   findAll(
+    @Req() req: any,
     @Query() paginationDto: PaginationDto,
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+    const userId = req.user?.userId;
     return this.invoicesService.findAll(
       userId,
       paginationDto.page,
@@ -45,23 +45,20 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  findOne(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.userId;
     return this.invoicesService.findOne(userId, id);
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  update(@Req() req: any, @Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
+    const userId = req.user?.userId;
     return this.invoicesService.update(userId, id, updateInvoiceDto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    // In a real implementation, you would get the userId from the JWT token
-    const userId = 'user-id-from-jwt';
+  remove(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.userId;
     return this.invoicesService.remove(userId, id);
   }
 }
