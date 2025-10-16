@@ -57,6 +57,16 @@ Invoisio is a modern, privacy‑first invoice platform. It pairs AI‑assisted i
    # Note the printed PaymentRouter address
    ```
 
+4. Prove a transaction on Base Sepolia (required for submission):
+   ```bash
+   # Set envs (can be in hardhat/.env)
+   set ROUTER_ADDRESS=0xDeployedRouter
+   set MERCHANT_ADDRESS=0xYourMerchant
+   # optional: set INVOICE_ID=0x...
+   npx hardhat run scripts/tx-demo.js --network baseSepolia
+   # Copy the Basescan link printed by the script
+   ```
+
 The router emits:
 ```
 event PaymentReceived(
@@ -128,6 +138,25 @@ The frontend uses `WalletConnectModal` and `use-evm-wallet` to connect a wallet.
 - Contracts/Hardhat:
   - `npx hardhat compile` — compile contracts
   - `npx hardhat run scripts/deploy.js --network baseSepolia` — deploy router
+  - `npx hardhat run scripts/tx-demo.js --network baseSepolia` — send demo payment
+
+## 🧩 Basenames & Base Account Kit (recommended)
+
+To make onboarding easy and show identity, integrate Basenames and Base Account Kit:
+
+- Basenames (human‑readable names on Base):
+  - Install: `npm i @coinbase/onchainkit`
+  - Use Identity helpers/components to resolve/display a Basename for the connected address.
+  - Fallback to shortened address if no Basename.
+
+- Base Account Kit (4337 smart wallets on Base):
+  - Enable Smart Wallet to reduce friction and allow sponsored transactions.
+  - Add Account Kit provider in the frontend and surface a "Connect" button using the kit’s components.
+  - Keep our custom router flow; sign and submit via the smart wallet.
+
+Document your integration (screenshots + short notes) in the submission and link to:
+ - Basename shown in the UI
+ - Smart wallet address used to submit the demo payment
 
 ## 🧩 Tech Stack
 
@@ -143,6 +172,17 @@ The frontend uses `WalletConnectModal` and `use-evm-wallet` to connect a wallet.
 - [ ] Multi‑currency improvements and fiat on‑ramps
 - [ ] Analytics dashboard and reporting
 - [ ] PDF export and email delivery
+
+## ✅ Hackathon Submission Checklist
+
+- Onchain: Router deployed on Base Sepolia, with at least one `payETH` or `payERC20` tx
+- Proof links: Basescan contract address + tx hash (from `tx-demo.js` output)
+- Technicality: Backend watcher logs showing matched payment, frontend invoice marked paid
+- Originality: Clear privacy‑first value prop (AI + minimal data)
+- Viability: Target customer profile defined (freelancers, small businesses)
+- Specific: Demo focuses on privacy‑preserving invoice + payment
+- Practicality: Public repo, easy local run, no special hardware
+- Wow Factor: End‑to‑end flow within the timeframe with clean UX
 
 ## 🤝 Contributing
 

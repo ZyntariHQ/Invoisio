@@ -35,3 +35,26 @@ npm run deploy:baseSepolia
 ```
 
 > Note: You can start without deploying this contract. Direct ETH/USDC transfers to `EVM_MERCHANT_ADDRESS` work fine, and the backend watcher will detect payments.
+
+## Deployment Records (Base)
+
+Fill these in for submission:
+
+- Network: Base Sepolia (`chainId=84532`)
+- Router address: `0x____________________________`
+- USDC address (optional): `0x____________________________`
+- Default merchant (optional): `0x____________________________`
+
+### Proof of Transaction
+
+- Demo payment tx hash: `0x________________________________________`
+- Basescan link: `https://sepolia.basescan.org/tx/0x________________________________________`
+- Block: `_______`
+
+Generate via:
+```bash
+cd hardhat
+set ROUTER_ADDRESS=0xDeployedRouter
+set MERCHANT_ADDRESS=0xYourMerchant
+npx hardhat run scripts/tx-demo.js --network baseSepolia
+```
