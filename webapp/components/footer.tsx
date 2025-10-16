@@ -12,8 +12,8 @@ export function Footer() {
             <div className="md:col-span-2">
               <h3 className="font-heading text-2xl font-bold text-primary mb-4">Invoisio</h3>
               <p className="text-muted-foreground mb-6 max-w-md">
-                Privacy-focused AI invoice generator for freelancers. Built on Starknet with zero-knowledge proofs for
-                ultimate data protection.
+                Privacy-focused AI invoice generator for freelancers. Built on Base (EVM) with a focus on
+                secure, seamless crypto payments.
               </p>
 
               {/* Social Links */}
@@ -96,7 +96,7 @@ export function Footer() {
           {/* Bottom Bar */}
           <div className="pt-8 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-sm text-muted-foreground">© 2024 InvoiceZK. All rights reserved.</p>
-            <p className="text-sm text-muted-foreground">Built with ❤️ on Starknet</p>
+            <p className="text-sm text-muted-foreground">Built with ❤️ on Base</p>
           </div>
         </div>
       </div>

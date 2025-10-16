@@ -8,38 +8,33 @@ import {
   Delete,
   UseGuards,
   Query,
+  Req,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PaginationDto } from '../../common/dto/pagination.dto';
-import { GetUser } from '../../common/decorators/get-user.decorator';
-import { ApiBearerAuth, ApiTags, ApiQuery, ApiOperation } from '@nestjs/swagger';
 
-@ApiTags('Invoices')
-@ApiBearerAuth()
 @Controller('api/invoices')
 @UseGuards(JwtAuthGuard)
 export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Create invoice' })
-  create(@GetUser('sub') userId: string, @Body() createInvoiceDto: CreateInvoiceDto) {
+  @Post('create')
+  create(@Req() req: any, @Body() createInvoiceDto: CreateInvoiceDto) {
+    const userId = req.user?.userId;
     return this.invoicesService.create(userId, createInvoiceDto);
   }
 
   @Get()
-  @ApiOperation({ summary: 'List invoices' })
-  @ApiQuery({ name: 'status', required: false })
-  @ApiQuery({ name: 'search', required: false })
   findAll(
-    @GetUser('sub') userId: string,
+    @Req() req: any,
     @Query() paginationDto: PaginationDto,
     @Query('status') status?: string,
     @Query('search') search?: string,
   ) {
+    const userId = req.user?.userId;
     return this.invoicesService.findAll(
       userId,
       paginationDto.page,
@@ -50,24 +45,20 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get invoice by id' })
-  findOne(@GetUser('sub') userId: string, @Param('id') id: string) {
+  findOne(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.userId;
     return this.invoicesService.findOne(userId, id);
   }
 
   @Put(':id')
-  @ApiOperation({ summary: 'Update invoice' })
-  update(
-    @GetUser('sub') userId: string,
-    @Param('id') id: string,
-    @Body() updateInvoiceDto: UpdateInvoiceDto,
-  ) {
+  update(@Req() req: any, @Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
+    const userId = req.user?.userId;
     return this.invoicesService.update(userId, id, updateInvoiceDto);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete invoice' })
-  remove(@GetUser('sub') userId: string, @Param('id') id: string) {
+  remove(@Req() req: any, @Param('id') id: string) {
+    const userId = req.user?.userId;
     return this.invoicesService.remove(userId, id);
   }
 }

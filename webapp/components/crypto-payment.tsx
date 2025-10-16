@@ -20,7 +20,6 @@ type PaymentStatus = 'idle' | 'connecting' | 'connected' | 'processing' | 'compl
 
 const SUPPORTED_TOKENS = [
   { symbol: 'ETH', name: 'Ethereum', icon: '⟠' },
-  { symbol: 'STRK', name: 'Starknet Token', icon: '⬟' },
   { symbol: 'USDC', name: 'USD Coin', icon: '💵' },
   { symbol: 'USDT', name: 'Tether USD', icon: '💰' }
 ]
@@ -36,7 +35,6 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
   // Mock conversion rates (in real app, fetch from API)
   const conversionRates = {
     ETH: 0.0004, // 1 USD = 0.0004 ETH
-    STRK: 0.5,   // 1 USD = 0.5 STRK
     USDC: 1,     // 1 USD = 1 USDC
     USDT: 1      // 1 USD = 1 USDT
   }
@@ -50,7 +48,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
     setPaymentStatus('connecting')
     
     try {
-      // Mock wallet connection (replace with actual Starknet wallet integration)
+      // Mock wallet connection (replace with actual EVM wallet integration)
       await new Promise(resolve => setTimeout(resolve, 2000))
       
       // Mock wallet address
@@ -78,7 +76,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
     setPaymentStatus('processing')
     
     try {
-      // Mock payment processing (replace with actual Starknet transaction)
+      // Mock payment processing (replace with actual Base (EVM) transaction)
       await new Promise(resolve => setTimeout(resolve, 3000))
       
       // Mock transaction hash
@@ -150,7 +148,7 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
           <Shield className="h-5 w-5 text-primary" />
           <span>Crypto Payment</span>
           <Badge variant="secondary" className="ml-auto">
-            Starknet
+            Base (EVM)
           </Badge>
         </CardTitle>
       </CardHeader>

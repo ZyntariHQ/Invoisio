@@ -7,13 +7,14 @@ This is the backend for the Invoisio application, built with NestJS.
 - Wallet-based authentication
 - Invoice CRUD operations
 - AI-powered invoice generation
-- Starknet payment initiation and status tracking
+ - EVM (Base chain) payment initiation and status tracking
 
 ## Prerequisites
 
 - Node.js 18+
 - PostgreSQL
 - pnpm (preferred) or npm
+ - An EVM wallet (MetaMask or Coinbase Wallet)
 
 ## Setup
 
@@ -23,6 +24,8 @@ This is the backend for the Invoisio application, built with NestJS.
    ```
 
 2. Fill in the environment variables in the `.env` file.
+   - `EVM_RPC_URL` (e.g., `https://sepolia.base.org`)
+   - `EVM_CHAIN_ID` (Base Sepolia: `84532`, Base mainnet: `8453`)
 
 3. Install dependencies:
    ```bash

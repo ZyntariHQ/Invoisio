@@ -1,0 +1,44 @@
+# Ignore Node.js dependencies everywhere
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+
+# Editor/IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build outputs and coverage
+dist/
+build/
+coverage/
+.tmp/
+tmp/
+
+# Next.js
+.next/
+out/
+.vercel/
+
+# Hardhat build artifacts
+hardhat/artifacts/
+hardhat/cache/
+
+# Backend (NestJS) build outputs
+backend/dist/
+
+# Misc
+*.swp
+*.swo

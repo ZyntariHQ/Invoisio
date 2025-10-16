@@ -7,7 +7,7 @@ import dynamic from "next/dynamic"
 // Dynamically import Lottie to avoid SSR issues
 const Lottie = dynamic(() => import('lottie-react'), { ssr: false })
 
-export function WhyStarknetSection() {
+export function WhyBaseSection() {
   // Import the Lottie animation data
   const lottieData = require('/public/assest/inviosio.json')
 
@@ -39,7 +39,7 @@ export function WhyStarknetSection() {
                 </Card>
               </div>
 
-              {/* Right Side - Lottie Animation */}
+              {/* Right Side - Animation */}
               <div className="flex justify-center lg:justify-end">
                 <div className="relative">
                   <div className="relative w-96 h-96 md:w-[500px] md:h-[500px]">

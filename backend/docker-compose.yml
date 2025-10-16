@@ -8,8 +8,10 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:password@db:5432/invoisio
       - JWT_SECRET=your-jwt-secret
-      - STARKNET_RPC_URL=https://your-starknet-rpc
+      - EVM_RPC_URL=https://sepolia.base.org
+      - EVM_CHAIN_ID=84532
       - OPENAI_API_KEY=your-openai-api-key
+      - OPENAI_MODEL=gpt-4o-mini
       - PORT=3001
       - CORS_ORIGIN=http://localhost:3000
     depends_on:

@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
 import { Navigation } from "@/components/navigation"
 import { ThemeProvider } from "@/components/theme-provider"
+import { ServiceWorkerRegister } from "@/components/service-worker-register"
 import "./globals.css"
 
 const inter = Inter({
@@ -25,8 +26,17 @@ export const metadata: Metadata = {
   description:
     "Create and send professional invoices easily with our intuitive invoice generator — streamline your billing process today.",
   generator: "v0.app",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#0ea5e9",
   icons: {
     icon: "/assest/invoisio_logo.svg",
+    apple: "/assest/invoisio_logo.png",
+    shortcut: "/assest/invoisio_logo.png",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Invoisio",
   },
 }
 
@@ -42,6 +52,7 @@ export default function RootLayout({
           <Navigation />
           <Suspense fallback={null}>{children}</Suspense>
           <Analytics />
+          <ServiceWorkerRegister />
         </ThemeProvider>
       </body>
     </html>
