@@ -6,8 +6,8 @@ dotenv.config();
 async function main() {
   console.log("🚀 Starting deployment...");
 
-  // Connect to Sepolia network
-  const connection = await hre.network.connect({ network: "sepolia" });
+  // Connect to Mainnet network
+  const connection = await hre.network.connect({ network: "mainnet" });
 
   // Get Viem instance
   const { viem } = connection;
