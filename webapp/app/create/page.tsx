@@ -133,6 +133,54 @@ export default function CreateInvoicePage() {
     }
   }
 
+  const handleSendEmail = async () => {
+    try {
+      const errors = validateInvoice()
+      if (errors.length) {
+        toast({
+          title: "Cannot send invoice",
+          description: errors[0],
+          variant: "destructive",
+        })
+        return
+      }
+      await sendInvoiceEmail(invoiceData as any, items as any)
+      toast({ title: "Email draft opened", description: "Review and send to your client." })
+    } catch (error) {
+      console.error("Error sending email:", error)
+      toast({
+        title: "Error sending email",
+        description: "Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleSendWhatsApp = async () => {
+    try {
+      const errors = validateInvoice()
+      if (errors.length) {
+        toast({
+          title: "Cannot share invoice",
+          description: errors[0],
+          variant: "destructive",
+        })
+        return
+      }
+      const message = `Invoice ${invoiceData.invoiceNumber || ''} total $${total.toFixed(2)}. Due ${invoiceData.dueDate || ''}.`
+      const url = `https://wa.me/?text=${encodeURIComponent(message)}`
+      window.open(url, "_blank")
+      toast({ title: "WhatsApp opened", description: "Select a contact to share the invoice." })
+    } catch (error) {
+      console.error("Error preparing WhatsApp share:", error)
+      toast({
+        title: "Error opening WhatsApp",
+        description: "Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -355,7 +403,28 @@ export default function CreateInvoicePage() {
 
                 <div className="space-y-2">
                   <Button
-                    onClick={() => setShowPreview(true)}
+                    onClick={() => {
+                      const errors = validateInvoice()
+                      if (errors.length) {
+                        toast({
+                          title: "Cannot preview invoice",
+                          description: errors[0],
+                          variant: "destructive",
+                        })
+                        return
+                      }
+                      try {
+                        window.localStorage.setItem("invoice-preview", JSON.stringify({ invoiceData, items }))
+                        window.open("/preview", "_blank")
+                      } catch (e) {
+                        console.error("Failed to open preview", e)
+                        toast({
+                          title: "Failed to open preview",
+                          description: "Please try again.",
+                          variant: "destructive",
+                        })
+                      }
+                    }}
                     variant="default"
                     className="w-full"
                   >
@@ -384,7 +453,7 @@ export default function CreateInvoicePage() {
 
         {/* Preview Dialog */}
         <Dialog open={showPreview} onOpenChange={setShowPreview}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className="w-[92vw] sm:w-[85vw] lg:w-[70vw] max-w-4xl max-h-[90vh] overflow-y-auto p-0 z-[100010]">
             <DialogHeader>
               <DialogTitle>Invoice Preview</DialogTitle>
             </DialogHeader>
@@ -392,7 +461,8 @@ export default function CreateInvoicePage() {
               invoiceData={invoiceData as any}
               items={items as any}
               onDownloadPDF={handleDownloadPDF}
-              onSendInvoice={handleSendInvoice}
+              onSendEmail={handleSendEmail}
+              onSendWhatsApp={handleSendWhatsApp}
             />
           </DialogContent>
         </Dialog>

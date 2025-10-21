@@ -56,7 +56,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`font-sans ${inter.variable} ${poppins.variable} antialiased`}>
+      <head>
+        <meta name="mobile-web-app-capable" content="yes" />
+      </head>
+      <body suppressHydrationWarning className={`font-sans ${inter.variable} ${poppins.variable} antialiased`}>
         <Providers>
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
             <Navigation />

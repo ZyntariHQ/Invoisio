@@ -172,7 +172,7 @@ export default function PaymentPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Image src="/Base_Logo_0.svg" alt="Base" width={112} height={28} className="h-6 w-auto" />
+                  <Image src="/Base_Logo_0.svg" alt="Base" width={112} height={28} className="h-6 w-auto" style={{ width: 'auto' }} />
                 </div>
                 <div className="flex items-center space-x-2">
                   {getStatusIcon()}
