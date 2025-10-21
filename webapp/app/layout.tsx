@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from "next"
 import { Inter, Poppins } from "next/font/google"
 import { Analytics } from "@vercel/analytics/next"
 import { Suspense } from "react"
-import { Navigation } from "@/components/navigation"
+// import { Navigation } from "@/components/navigation"
 import { Footer } from "@/components/footer"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ServiceWorkerRegister } from "@/components/service-worker-register"
@@ -13,6 +13,7 @@ import Providers from "@/app/providers"
 import "@coinbase/onchainkit/styles.css"
 
 const ClientToaster = dynamic(() => import("@/components/ui/toaster").then(m => m.Toaster), { ssr: false })
+const AppNavigation = dynamic(() => import("@/components/navigation").then(m => m.Navigation), { ssr: false })
 
 const inter = Inter({
   subsets: ["latin"],
@@ -62,8 +63,8 @@ export default function RootLayout({
       <body suppressHydrationWarning className={`font-sans ${inter.variable} ${poppins.variable} antialiased`}>
         <Providers>
           <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange>
-            <Navigation />
-            <Suspense fallback={null}>{children}</Suspense>
+            <AppNavigation />
+            {children}
             <Footer />
             <Analytics />
             <ServiceWorkerRegister />
