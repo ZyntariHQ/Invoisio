@@ -6,58 +6,42 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Wallet } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useEvmWallet } from "@/hooks/use-evm-wallet"
+import { useConnect, useDisconnect, useAccount } from "wagmi"
 
 type WalletKey = "metamask" | "coinbase"
 
 type WalletConnectModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onConnect: () => Promise<string | null>
 }
 
-export function WalletConnectModal({ open, onOpenChange, onConnect }: WalletConnectModalProps) {
+export function WalletConnectModal({ open, onOpenChange }: WalletConnectModalProps) {
   const { toast } = useToast()
-  const { isConnected, disconnect } = useEvmWallet()
+  const { isConnected, address } = useAccount()
+  const { connectAsync, connectors } = useConnect()
+  const { disconnect } = useDisconnect()
 
   const selectWallet = async (key: WalletKey) => {
     try {
-      const eth = (window as any).ethereum
-      let provider = undefined as any
-
-      // Prefer a specific provider if multiple are injected, otherwise use the single injected provider.
-      if (eth?.providers?.length) {
-        if (key === "metamask") {
-          provider = eth.providers.find((p: any) => p.isMetaMask) || eth.providers[0]
-        } else if (key === "coinbase") {
-          provider = eth.providers.find((p: any) => p.isCoinbaseWallet) || eth.providers[0]
-        }
-      } else if (eth) {
-        provider = eth
-      }
-
-      if (!provider) {
+      const targetId = key === "metamask" ? "metaMask" : "coinbaseWallet"
+      const connector = connectors.find((c) => c.id === targetId)
+      if (!connector) {
         const installUrl = key === "metamask"
           ? "https://metamask.io/download/"
           : "https://www.coinbase.com/wallet/downloads"
         window.open(installUrl, "_blank")
         return
       }
-
-      ;(window as any).ethereum = provider
-      const addr = await onConnect()
-      if (!addr) {
-        toast({ title: "Connection failed", description: "No account returned or user rejected", variant: "destructive" })
-        return
-      }
+      const result = await connectAsync({ connector })
       onOpenChange(false)
+      const addr = (result as any)?.accounts?.[0] || address || ""
       toast({
         title: "Wallet connected successfully",
-        description: `Connected to ${addr.slice(0, 6)}…${addr.slice(-4)}`,
+        description: addr ? `Connected to ${addr.slice(0, 6)}…${addr.slice(-4)}` : "Connected",
         progress: 100,
       })
     } catch (err: any) {
-      console.error("Wallet select error:", err)
+      console.error("Wallet connect error:", err)
       toast({ title: "Connection Failed", description: err?.message || "Unable to connect", variant: "destructive" })
     }
   }

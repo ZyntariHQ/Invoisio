@@ -8,12 +8,11 @@ import { cn } from "@/lib/utils"
 import { FileText, BarChart3, PieChart, Bell, Wallet as WalletIcon, Menu, X } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
-import { useEvmWallet } from "@/hooks/use-evm-wallet"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { WalletConnectModal } from "@/components/wallet-connect-modal"
-import { Wallet as OnchainWallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from "@coinbase/onchainkit/wallet"
-import { Identity, Avatar, Name, Address } from "@coinbase/onchainkit/identity"
+import { useAccount, useDisconnect } from "wagmi"
 import dynamic from "next/dynamic"
+import { Wallet as OnchainWallet, ConnectWallet } from "@coinbase/onchainkit/wallet"
+import { Avatar } from "@coinbase/onchainkit/identity"
 
 const navigation = []
 const WalletHeader = dynamic(() => import("@/components/wallet-header").then(m => m.WalletHeader), { ssr: false })
@@ -23,8 +22,8 @@ export function Navigation() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
-  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
-  const { isConnected, displayAddress, connect } = useEvmWallet()
+  const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
+  const { disconnect } = useDisconnect()
 
   const isMobile = useIsMobile()
 
@@ -48,6 +47,12 @@ export function Navigation() {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [])
+
+  useEffect(() => {
+    if (isMobile && wagmiIsConnected) {
+      setIsMenuOpen(false)
+    }
+  }, [isMobile, wagmiIsConnected])
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 py-2" style={{ borderRadius: '0', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', background: 'var(--background)', borderBottom: '1px solid rgba(0, 0, 0, 0.1)' }}>
@@ -274,19 +279,29 @@ export function Navigation() {
                   </Link>
                 </Button>
               )}
-              <Button
-                variant="neumorphic"
-                size="sm"
-                className="w-full text-primary flex items-center justify-center space-x-2 nm-convex rounded-lg px-4"
-                onClick={() => { setIsWalletModalOpen(true); setIsMenuOpen(false) }}
-              >
-                <WalletIcon className="h-4 w-4" />
-                <span>{isConnected && displayAddress ? displayAddress : "Connect Wallet"}</span>
-              </Button>
+              <div className="flex flex-col items-center gap-2" onClick={() => setIsMenuOpen(false)}>
+                <OnchainWallet>
+                  <ConnectWallet
+                    className="inline-flex items-center gap-2 nm-convex rounded-lg px-4 h-9"
+                  >
+                    <Avatar className="h-4 w-4" />
+                    <span className="text-black dark:!text-white">{wagmiIsConnected && wagmiAddress ? `${wagmiAddress.slice(0,6)}…${wagmiAddress.slice(-4)}` : "Connect Wallet"}</span>
+                  </ConnectWallet>
+                </OnchainWallet>
+                {wagmiIsConnected && (
+                  <Button
+                    variant="neumorphic"
+                    size="sm"
+                    className="w-full nm-convex rounded-lg"
+                    onClick={async () => { await disconnect(); setIsMenuOpen(false); }}
+                  >
+                    Disconnect Wallet
+                  </Button>
+                )}
+              </div>
            </div>
          )}
-         <WalletConnectModal open={isWalletModalOpen} onOpenChange={setIsWalletModalOpen} onConnect={connect} />
-       </div>
-     </nav>
-   )
- }
+        </div>
+      </nav>
+    )
+}

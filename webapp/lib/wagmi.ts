@@ -10,6 +10,7 @@ export const wagmiConfig = createConfig({
       preference: 'smartWalletOnly',
       version: '4',
     }),
+    // MetaMask intentionally omitted to prevent SSR crashes with SDK
   ],
   // Disable SSR to avoid useConfig context mismatches during server render
   ssr: false,
