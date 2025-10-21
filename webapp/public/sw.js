@@ -24,6 +24,17 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const url = new URL(request.url);
+
+  // Ignore non-HTTP(S) schemes (e.g., chrome-extension:, data:, file:)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    return; // Do not attempt caching or intercepting
+  }
+
+  // Bypass Next.js internals/HMR and RSC endpoints to avoid dev breakage
+  if (url.pathname.startsWith('/_next/')) {
+    return; // Let network handle framework assets
+  }
 
   // Navigation requests: network-first with offline fallback
   if (request.mode === 'navigate') {
@@ -33,13 +44,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Static assets: cache-first, then network and cache
+  // Only cache GET requests
+  if (request.method !== 'GET') {
+    return; // pass-through
+  }
+
+  // Static assets and regular GETs: cache-first, then network and cache
   event.respondWith(
     caches.match(request).then((cached) => {
       if (cached) return cached;
       return fetch(request).then((response) => {
         const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        // Only cache successful, safe responses
+        if (response.ok && (response.type === 'basic' || response.type === 'cors')) {
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(request, copy).catch(() => {});
+          });
+        }
         return response;
       }).catch(() => cached);
     })

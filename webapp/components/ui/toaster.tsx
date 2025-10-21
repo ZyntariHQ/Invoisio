@@ -23,6 +23,14 @@ export function Toaster() {
               {description && (
                 <ToastDescription>{description}</ToastDescription>
               )}
+              {typeof props.progress === "number" && (
+                <div className="mt-2 w-full h-1 rounded bg-muted">
+                  <div
+                    className="h-1 rounded bg-primary transition-[width] duration-300 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, props.progress))}%` }}
+                  />
+                </div>
+              )}
             </div>
             {action}
             <ToastClose />

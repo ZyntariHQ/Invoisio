@@ -1,6 +1,7 @@
 "use client"
 
 import { Github, Twitter, MessageCircle } from "lucide-react"
+import Image from "next/image"
 
 export function Footer() {
   return (
@@ -95,8 +96,18 @@ export function Footer() {
 
           {/* Bottom Bar */}
           <div className="pt-8 border-t border-border/50 flex flex-col md:flex-row justify-between items-center gap-4">
-            <p className="text-sm text-muted-foreground">© 2024 InvoiceZK. All rights reserved.</p>
-            <p className="text-sm text-muted-foreground">Built with ❤️ on Base</p>
+            <p className="text-sm text-muted-foreground">© {new Date().getFullYear()} Invoisio. All rights reserved.</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-2">
+              Built with <span aria-label="love">❤️</span> on
+              <a
+                href="https://base.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 hover:text-primary"
+              >
+                <Image src="/Base_Logo_0.svg" alt="Base" width={60} height={16} className="h-4 w-auto" />
+              </a>
+            </p>
           </div>
         </div>
       </div>

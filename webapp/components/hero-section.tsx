@@ -1,7 +1,7 @@
 "use client"
 
 import { Button } from "@/components/ui/button"
-import { ArrowRight, CreditCard, Shield, Zap, Lock } from "lucide-react"
+import { FileText, Wallet, Shield, Zap, Lock } from "lucide-react"
 import Link from "next/link"
 
 export function HeroSection() {
@@ -33,14 +33,14 @@ export function HeroSection() {
 
             {/* CTA Buttons */}
              <div className="flex justify-center">
-               <div className="nm-flat rounded-lg p-4 flex flex-col sm:flex-row gap-4 items-center">
+               <div className="nm-flat rounded-lg p-4 flex flex-row flex-wrap gap-4 items-center justify-center">
                  <Link href="/create" className="nm-button bg-accent text-accent-foreground font-semibold text-lg flex items-center">
                    Create Invoice
-                   <ArrowRight className="ml-2 w-5 h-5" />
+                   <FileText className="ml-2 w-5 h-5" />
                  </Link>
                  <Link href="/payment" className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
-                   <CreditCard className="mr-2 w-5 h-5" />
-                   Payment
+                   Make Payment
+                   <Wallet className="ml-2 w-5 h-5" />
                  </Link>
              </div>
            </div>

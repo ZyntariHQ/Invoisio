@@ -6,21 +6,23 @@ import { Bot, Shield, CreditCard } from "lucide-react"
 const features = [
   {
     icon: Bot,
-    title: "AI-Powered Automation",
+    title: "AI-Assisted Invoicing",
     description:
-      "Automatically generate professional invoices with smart templates that adapt to your business needs and client preferences.",
+      "Create polished invoices in seconds. Smart templates, autofill details, and accurate totals—ready to send or export.",
     color: "text-primary",
   },
   {
     icon: Shield,
-    title: "Privacy-First with ZK Proofs",
-    description: "Your financial data stays private with zero-knowledge proofs while maintaining full transparency.",
+    title: "Privacy-First by Design",
+    description:
+      "Collect only what’s necessary. Wallet sign-in keeps accounts secure without passwords, and you control your data.",
     color: "text-primary",
   },
   {
     icon: CreditCard,
-    title: "Crypto Payments",
-    description: "Accept cryptocurrency payments seamlessly with built-in wallet integration and real-time conversion rates.",
+    title: "Crypto Payments on Base",
+    description:
+      "Accept ETH and USDC with a built-in wallet flow. Fast, low-cost transactions and clear payment status.",
     color: "text-primary",
   },
 ]

@@ -5,13 +5,18 @@ import Image from "next/image"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { FileText, BarChart3, PieChart, Bell, Wallet, Menu, X } from "lucide-react"
+import { FileText, BarChart3, PieChart, Bell, Wallet as WalletIcon, Menu, X } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
 import { useEvmWallet } from "@/hooks/use-evm-wallet"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { WalletConnectModal } from "@/components/wallet-connect-modal"
+import { Wallet as OnchainWallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from "@coinbase/onchainkit/wallet"
+import { Identity, Avatar, Name, Address } from "@coinbase/onchainkit/identity"
+import dynamic from "next/dynamic"
 
 const navigation = []
+const WalletHeader = dynamic(() => import("@/components/wallet-header").then(m => m.WalletHeader), { ssr: false })
 
 export function Navigation() {
   const pathname = usePathname()
@@ -20,6 +25,8 @@ export function Navigation() {
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
   const { isConnected, displayAddress, connect } = useEvmWallet()
+
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -67,12 +74,12 @@ export function Navigation() {
             </Link>
           </div>
 
-          <div className="hidden md:flex items-center space-x-8">
+          <div className={cn("items-center space-x-8", !isMobile ? "flex" : "hidden")}>
             {/* Navigation links removed */}
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex nm-flat rounded-lg p-2 items-center space-x-3">
+          <div className={cn("nm-flat rounded-lg p-2 items-center space-x-3", !isMobile ? "flex" : "hidden")}>
             <div className="relative notification-dropdown">
               <Button
                 variant="neumorphic"
@@ -152,20 +159,38 @@ export function Navigation() {
                  <PieChart className="h-5 w-5" />
                </Link>
              </Button>
+            {/* Route-specific quick nav icons */}
+            {pathname?.startsWith("/create") && (
+              <Button
+                variant="neumorphic"
+                size="icon"
+                className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
+                asChild
+              >
+                <Link href="/payment">
+                  <WalletIcon className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
+            {pathname?.startsWith("/payment") && (
+              <Button
+                variant="neumorphic"
+                size="icon"
+                className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
+                asChild
+              >
+                <Link href="/create">
+                  <FileText className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
             <ThemeToggle />
-            <Button
-               variant="neumorphic"
-               size="sm"
-               className="text-primary flex items-center space-x-1 nm-convex rounded-full px-4"
-               onClick={() => setIsWalletModalOpen(true)}
-             >
-               <Wallet className="h-4 w-4" />
-               <span>{isConnected && displayAddress ? displayAddress : "Connect Wallet"}</span>
-             </Button>
+            {/* Wallet header (client-only, dynamic) */}
+            <WalletHeader />
           </div>
 
           {/* Mobile Navigation */}
-          <div className="md:hidden flex items-center space-x-2">
+          <div className={cn("items-center space-x-2", isMobile ? "flex" : "hidden")}>
             <ThemeToggle />
             <Button
                variant="neumorphic"
@@ -179,31 +204,31 @@ export function Navigation() {
         </div>
 
         {/* Mobile Menu */}
-         {isMenuOpen && (
-           <div className="md:hidden mt-4 nm-flat rounded-lg p-4 space-y-3">
-             <Button
-                variant="neumorphic"
-                size="sm"
-                className="w-full justify-start nm-convex rounded-lg text-muted-foreground hover:text-primary relative"
-                onClick={() => {
-                  setIsNotificationOpen(!isNotificationOpen)
-                  setIsMenuOpen(false)
-                }}
-              >
-                <div className="flex items-center space-x-2">
-                  <Bell className="h-5 w-5" />
-                  <span>Notifications</span>
-                </div>
-                <span className="absolute top-2 left-8 h-2 w-2 bg-red-500 rounded-full"></span>
-              </Button>
-              <Button
-                variant="neumorphic"
-                size="sm"
-                className={cn(
-                   "w-full justify-start nm-convex rounded-lg",
-                   pathname === "/dashboard"
-                     ? "bg-primary text-primary-foreground"
-                     : "text-muted-foreground"
+         {isMobile && isMenuOpen && (
+         <div className="mt-4 nm-flat rounded-lg p-4 space-y-3">
+           <Button
+              variant="neumorphic"
+              size="sm"
+              className="w-full justify-start nm-convex rounded-lg text-muted-foreground hover:text-primary relative"
+              onClick={() => {
+                setIsNotificationOpen(!isNotificationOpen)
+                setIsMenuOpen(false)
+              }}
+            >
+              <div className="flex items-center space-x-2">
+                <Bell className="h-5 w-5" />
+                <span>Notifications</span>
+              </div>
+              <span className="absolute top-2 left-8 h-2 w-2 bg-red-500 rounded-full"></span>
+            </Button>
+            <Button
+              variant="neumorphic"
+              size="sm"
+              className={cn(
+                 "w-full justify-start nm-convex rounded-lg",
+                 pathname === "/dashboard"
+                   ? "bg-primary text-primary-foreground"
+                   : "text-muted-foreground"
                  )}
                 asChild
                 onClick={() => setIsMenuOpen(false)}
@@ -213,13 +238,49 @@ export function Navigation() {
                   <span>Dashboard</span>
                 </Link>
               </Button>
+              {/* Route-specific quick nav in mobile menu */}
+              {pathname?.startsWith("/create") && (
+                <Button
+                  variant="neumorphic"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start nm-convex rounded-lg",
+                    "text-muted-foreground"
+                  )}
+                  asChild
+                  onClick={() => setIsMenuOpen(false)}
+                  style={{ background: "var(--nm-background)" }}
+               >
+                  <Link href="/payment" className="flex items-center space-x-2">
+                    <WalletIcon className="h-5 w-5" />
+                    <span>Payment</span>
+                  </Link>
+                </Button>
+              )}
+              {pathname?.startsWith("/payment") && (
+                <Button
+                  variant="neumorphic"
+                  size="sm"
+                  className={cn(
+                    "w-full justify-start nm-convex rounded-lg",
+                    "text-muted-foreground"
+                  )}
+                  asChild
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  <Link href="/create" className="flex items-center space-x-2">
+                    <FileText className="h-5 w-5" />
+                    <span>Create</span>
+                  </Link>
+                </Button>
+              )}
               <Button
                 variant="neumorphic"
                 size="sm"
                 className="w-full text-primary flex items-center justify-center space-x-2 nm-convex rounded-lg px-4"
                 onClick={() => { setIsWalletModalOpen(true); setIsMenuOpen(false) }}
               >
-                <Wallet className="h-4 w-4" />
+                <WalletIcon className="h-4 w-4" />
                 <span>{isConnected && displayAddress ? displayAddress : "Connect Wallet"}</span>
               </Button>
            </div>
