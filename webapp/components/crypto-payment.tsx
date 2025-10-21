@@ -8,6 +8,7 @@ import { Separator } from "@/components/ui/separator"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Wallet, Shield, CheckCircle, Clock, AlertCircle, Copy } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useAccount, useConnect } from "wagmi"
 
 interface CryptoPaymentProps {
   amount: number
@@ -31,6 +32,8 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
   const [txHash, setTxHash] = useState<string>('')
   const [convertedAmount, setConvertedAmount] = useState<number>(0)
   const { toast } = useToast()
+  const { address, isConnected } = useAccount()
+  const { connectAsync, connectors } = useConnect()
 
   // Mock conversion rates (in real app, fetch from API)
   const conversionRates = {
@@ -44,25 +47,39 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
     setConvertedAmount(amount * rate)
   }, [amount, selectedToken])
 
+  // Sync UI with wagmi account state
+  useEffect(() => {
+    if (isConnected && address) {
+      setWalletAddress(address)
+      setPaymentStatus(prev => (prev === 'processing' || prev === 'completed') ? prev : 'connected')
+    } else {
+      setWalletAddress('')
+      setPaymentStatus(prev => (prev === 'processing' || prev === 'completed') ? prev : 'idle')
+    }
+  }, [isConnected, address])
+
   const connectWallet = async () => {
     setPaymentStatus('connecting')
     
     try {
-      // Mock wallet connection (replace with actual EVM wallet integration)
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Mock wallet address
-      const mockAddress = '0x1234...abcd'
-      setWalletAddress(mockAddress)
+      // Programmatic connect using wagmi Coinbase connector
+      const coinbaseConnector = connectors.find(c => c.id === 'coinbaseWallet' || c.name?.toLowerCase().includes('coinbase'))
+      if (!coinbaseConnector) {
+        throw new Error('Coinbase connector not available')
+      }
+
+      const result: any = await connectAsync({ connector: coinbaseConnector })
+      const connectedAddress = result?.account ?? result?.address ?? address ?? ''
+      setWalletAddress(connectedAddress)
       setPaymentStatus('connected')
       
       toast({
         title: "Wallet Connected",
-        description: `Connected to ${mockAddress}`,
+        description: `Connected to ${connectedAddress ? connectedAddress.slice(0, 6) + '...' + connectedAddress.slice(-4) : 'Coinbase'}`,
       })
     } catch (error) {
       setPaymentStatus('failed')
-      const errorMsg = 'Failed to connect wallet'
+      const errorMsg = (error as Error)?.message || 'Failed to connect wallet'
       onPaymentError?.(errorMsg)
       toast({
         title: "Connection Failed",

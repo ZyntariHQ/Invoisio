@@ -16,6 +16,10 @@ export interface InvoiceData {
   clientAddress: string
   notes: string
   currency: string
+  // New optional field: merchant wallet address to include on the PDF/email
+  merchantWalletAddress?: string
+  // Optional editable tax rate (%)
+  taxRate?: number
 }
 
 export async function generateInvoicePDF(invoiceData: InvoiceData, items: InvoiceItem[]): Promise<void> {
@@ -27,7 +31,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
   }
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
-  const tax = subtotal * 0.1
+  const tax = subtotal * ((invoiceData.taxRate ?? 10) / 100)
   const total = subtotal + tax
 
   // Generate HTML content for PDF
@@ -89,7 +93,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
           display: grid; 
           grid-template-columns: 1fr 1fr; 
           gap: 40px; 
-          margin-bottom: 40px;
+          margin-bottom: 20px;
         }
         .bill-to h3 { 
           font-weight: 600; 
@@ -118,6 +122,29 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
         .date-value { 
           color: #333; 
           font-weight: 500;
+        }
+        .pay-to { 
+          background: #f8f9fa; 
+          border: 1px solid #dee2e6; 
+          padding: 12px; 
+          border-radius: 8px; 
+          margin-bottom: 30px;
+        }
+        .pay-to-title { 
+          font-weight: 600; 
+          margin-bottom: 6px; 
+          color: #333;
+        }
+        .pay-to-sub { 
+          font-size: 12px; 
+          color: #666; 
+          margin-bottom: 6px;
+        }
+        .pay-to-address { 
+          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; 
+          word-break: break-all; 
+          font-size: 13px; 
+          color: #333;
         }
         .items-table { 
           width: 100%; 
@@ -174,6 +201,8 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
         .notes p { 
           color: #666; 
           white-space: pre-line;
+          word-break: break-word;
+          overflow-wrap: anywhere;
         }
         .footer { 
           border-top: 1px solid #dee2e6; 
@@ -189,6 +218,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
           align-items: center; 
           gap: 4px;
         }
+        @page { margin: 0; }
         @media print {
           body { padding: 20px; }
           .no-print { display: none; }
@@ -199,35 +229,34 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
       <div class="header">
         <div>
           <div class="logo">
-            <div class="logo-icon"></div>
-            <div class="company-name">Invoisio</div>
+            <img src="/assest/invoisio_logo.svg" alt="Invoisio" style="height:28px;" />
+            <span class="company-name">Invoisio</span>
           </div>
           <div class="tagline">Privacy-First AI Invoice Generator</div>
         </div>
         <div style="text-align: right;">
-          <div class="invoice-title">INVOICE</div>
           <div class="invoice-number">${invoiceData.invoiceNumber}</div>
         </div>
       </div>
 
-      <div class="details-grid">
-        <div class="bill-to">
-          <h3>Bill To:</h3>
-          <p class="client-name">${invoiceData.clientName}</p>
-          <p>${invoiceData.clientEmail}</p>
-          <p style="white-space: pre-line;">${invoiceData.clientAddress}</p>
+      <div class="invoice-dates">
+        <div class="date-row">
+          <span class="date-label">Issue Date:</span>
+          <span class="date-value">${new Date(invoiceData.issueDate).toLocaleDateString()}</span>
         </div>
-        <div class="invoice-dates">
-          <div class="date-row">
-            <span class="date-label">Issue Date:</span>
-            <span class="date-value">${new Date(invoiceData.issueDate).toLocaleDateString()}</span>
-          </div>
-          <div class="date-row">
-            <span class="date-label">Due Date:</span>
-            <span class="date-value">${new Date(invoiceData.dueDate).toLocaleDateString()}</span>
-          </div>
+        <div class="date-row">
+          <span class="date-label">Due Date:</span>
+          <span class="date-value">${new Date(invoiceData.dueDate).toLocaleDateString()}</span>
         </div>
       </div>
+
+      ${invoiceData.merchantWalletAddress ? `
+        <div class="pay-to">
+          <div class="pay-to-title">Pay To (Base)</div>
+          <div class="pay-to-sub">Send ETH/USDC on Base to this address</div>
+          <div class="pay-to-address">${invoiceData.merchantWalletAddress}</div>
+        </div>
+      ` : ""}
 
       <table class="items-table">
         <thead>
@@ -260,7 +289,7 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
           <span class="total-value">$${subtotal.toFixed(2)}</span>
         </div>
         <div class="total-row">
-          <span class="total-label">Tax (10%):</span>
+          <span class="total-label">Tax (${invoiceData.taxRate ?? 10}%):</span>
           <span class="total-value">$${tax.toFixed(2)}</span>
         </div>
         <div class="total-row final-total">
@@ -281,10 +310,10 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
       }
 
       <div class="footer">
-        <div class="security-badge">
-          <span>🛡️ Secured with Zero-Knowledge Proofs</span>
-        </div>
-        <span>Generated by Invoisio</span>
+        <div></div>
+        <span style="display:inline-flex;align-items:center;gap:6px;">
+          Powered by <img src="/Base_Logo_0.svg" alt="Base" style="height:16px;" />
+        </span>
       </div>
     </body>
     </html>
@@ -293,6 +322,11 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
   // Write content and trigger print
   printWindow.document.write(htmlContent)
   printWindow.document.close()
+  // Try to neutralize print header text
+  try {
+    printWindow.document.title = " ";
+    printWindow.history.replaceState(null, " ", " ")
+  } catch {}
 
   // Wait for content to load, then print
   printWindow.onload = () => {
@@ -305,7 +339,9 @@ export async function generateInvoicePDF(invoiceData: InvoiceData, items: Invoic
 
 export async function sendInvoiceEmail(invoiceData: InvoiceData, items: InvoiceItem[]): Promise<void> {
   // Simulate sending email - in a real app, this would call your backend API
-  const total = items.reduce((sum, item) => sum + item.amount, 0) * 1.1 // Including tax
+  const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
+  const tax = subtotal * ((invoiceData.taxRate ?? 10) / 100)
+  const total = subtotal + tax // Including tax
 
   const subject = `Invoice ${invoiceData.invoiceNumber} from Invoisio`
   const body = `Dear ${invoiceData.clientName},
@@ -316,13 +352,14 @@ Invoice Details:
 - Issue Date: ${new Date(invoiceData.issueDate).toLocaleDateString()}
 - Due Date: ${new Date(invoiceData.dueDate).toLocaleDateString()}
 - Amount: $${total.toFixed(2)} ${invoiceData.currency}
+${invoiceData.merchantWalletAddress ? `- Pay To (Base): ${invoiceData.merchantWalletAddress}\n  Send ETH/USDC on Base to this address.` : ""}
 
-This invoice was generated using ZeroInvoice, ensuring your privacy with zero-knowledge proofs.
+This invoice was generated with Invoisio. Your data is processed privately.
 
 Thank you for your business!
 
 Best regards,
-ZeroInvoice Team`
+Invoisio Team`
 
   // Open email client with pre-filled content
   const mailtoLink = `mailto:${invoiceData.clientEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`

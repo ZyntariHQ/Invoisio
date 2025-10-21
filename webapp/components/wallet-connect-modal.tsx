@@ -6,32 +6,34 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Wallet } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { useEvmWallet } from "@/hooks/use-evm-wallet"
 
 type WalletKey = "metamask" | "coinbase"
 
 type WalletConnectModalProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onConnect: () => Promise<void>
+  onConnect: () => Promise<string | null>
 }
 
 export function WalletConnectModal({ open, onOpenChange, onConnect }: WalletConnectModalProps) {
   const { toast } = useToast()
+  const { isConnected, disconnect } = useEvmWallet()
 
   const selectWallet = async (key: WalletKey) => {
     try {
       const eth = (window as any).ethereum
-      let provider = eth
+      let provider = undefined as any
 
+      // Prefer a specific provider if multiple are injected, otherwise use the single injected provider.
       if (eth?.providers?.length) {
-        if (key === "metamask") provider = eth.providers.find((p: any) => p.isMetaMask)
-        if (key === "coinbase") provider = eth.providers.find((p: any) => p.isCoinbaseWallet)
-      } else if (eth) {
-        const matches = {
-          metamask: !!eth.isMetaMask,
-          coinbase: !!eth.isCoinbaseWallet,
+        if (key === "metamask") {
+          provider = eth.providers.find((p: any) => p.isMetaMask) || eth.providers[0]
+        } else if (key === "coinbase") {
+          provider = eth.providers.find((p: any) => p.isCoinbaseWallet) || eth.providers[0]
         }
-        if (!matches[key]) provider = undefined
+      } else if (eth) {
+        provider = eth
       }
 
       if (!provider) {
@@ -43,9 +45,17 @@ export function WalletConnectModal({ open, onOpenChange, onConnect }: WalletConn
       }
 
       ;(window as any).ethereum = provider
-      await onConnect()
+      const addr = await onConnect()
+      if (!addr) {
+        toast({ title: "Connection failed", description: "No account returned or user rejected", variant: "destructive" })
+        return
+      }
       onOpenChange(false)
-      toast({ title: "Wallet Connected", description: "You are ready to transact." })
+      toast({
+        title: "Wallet connected successfully",
+        description: `Connected to ${addr.slice(0, 6)}…${addr.slice(-4)}`,
+        progress: 100,
+      })
     } catch (err: any) {
       console.error("Wallet select error:", err)
       toast({ title: "Connection Failed", description: err?.message || "Unable to connect", variant: "destructive" })
@@ -55,8 +65,9 @@ export function WalletConnectModal({ open, onOpenChange, onConnect }: WalletConn
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-[9990] bg-black/50 backdrop-blur-sm" />
-        <Dialog.Content className="fixed z-[10000] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] max-w-md nm-flat rounded-xl p-6 border border-border">
+        <Dialog.Overlay className="fixed inset-0 z-[100000] bg-black/50 backdrop-blur-sm" />
+        <Dialog.Content className="fixed inset-0 z-[100010] flex items-center justify-center p-4">
+          <div className="w-[92vw] max-w-md nm-flat rounded-xl p-6 border border-border">
           <div className="flex items-center space-x-2 mb-4">
             <Wallet className="h-5 w-5 text-primary" />
             <Dialog.Title className="font-semibold">Select a Wallet</Dialog.Title>
@@ -77,9 +88,24 @@ export function WalletConnectModal({ open, onOpenChange, onConnect }: WalletConn
           <Separator className="my-4" />
           <p className="text-xs text-muted-foreground">Don’t have a wallet? We’ll open the install page.</p>
 
+          {isConnected && (
+            <Button
+              variant="outline"
+              className="mt-4 w-full"
+              onClick={async () => {
+                await disconnect()
+                toast({ title: "Wallet disconnected", description: "You are now disconnected.", progress: 100 })
+                onOpenChange(false)
+              }}
+            >
+              Disconnect Wallet
+            </Button>
+          )}
+
           <Dialog.Close asChild>
             <Button variant="outline" className="mt-4 w-full">Close</Button>
           </Dialog.Close>
+          </div>
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
