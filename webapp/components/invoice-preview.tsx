@@ -3,9 +3,10 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Download, Send, Shield, Wallet } from "lucide-react"
+import { Download, Send, Shield, Wallet, Copy } from "lucide-react"
 import Image from "next/image"
 import { CryptoPayment } from "@/components/crypto-payment"
+import { useToast } from "@/hooks/use-toast"
 
 interface InvoiceItem {
   id: string
@@ -24,6 +25,10 @@ interface InvoiceData {
   clientAddress: string
   notes: string
   currency: string
+  // New optional field: merchant wallet address to display
+  merchantWalletAddress?: string
+  // Optional editable tax rate (%)
+  taxRate?: number
 }
 
 interface InvoicePreviewProps {
@@ -36,8 +41,19 @@ interface InvoicePreviewProps {
 
 export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoice, showPayment = false }: InvoicePreviewProps) {
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
-  const tax = subtotal * 0.1 // 10% tax
+  const tax = subtotal * ((invoiceData.taxRate ?? 10) / 100)
   const total = subtotal + tax
+  const { toast } = useToast()
+
+  const handleCopyAddress = async () => {
+    if (!invoiceData.merchantWalletAddress) return
+    try {
+      await navigator.clipboard.writeText(invoiceData.merchantWalletAddress)
+      toast({ title: "Wallet address copied", description: "Paste to your wallet app" })
+    } catch (e) {
+      toast({ title: "Copy failed", description: "Please try again", variant: "destructive" })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -55,28 +71,17 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoic
                   height={40}
                   className="object-contain"
                 />
-                <h1 className="text-2xl font-bold text-primary">Invoisio</h1>
+                <span className="text-xl font-semibold tracking-tight">Invoisio</span>
               </div>
               <p className="text-sm text-gray-600">Privacy-First AI Invoice Generator</p>
             </div>
             <div className="text-right">
-              <div className="nm-badge inline-block px-4 py-2 mb-2">
-                <h2 className="text-2xl font-bold">INVOICE</h2>
-              </div>
               <p className="text-muted-foreground">{invoiceData.invoiceNumber}</p>
             </div>
           </div>
 
-          {/* Invoice Details */}
-          <div className="grid grid-cols-2 gap-8 mb-8">
-            <div className="nm-flat p-4 rounded-lg">
-              <h3 className="font-semibold mb-2">Bill To:</h3>
-              <div className="text-foreground">
-                <p className="font-medium">{invoiceData.clientName}</p>
-                <p className="text-sm">{invoiceData.clientEmail}</p>
-                <p className="text-sm whitespace-pre-line">{invoiceData.clientAddress}</p>
-              </div>
-            </div>
+          {/* Invoice Dates */}
+          <div className="mb-8">
             <div className="nm-flat p-4 rounded-lg">
               <div className="space-y-2">
                 <div className="flex justify-between">
@@ -90,6 +95,29 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoic
               </div>
             </div>
           </div>
+
+          {/* Merchant Wallet */}
+          {invoiceData.merchantWalletAddress && (
+            <div className="mb-8 nm-flat p-4 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="nm-icon-container-sm">
+                    <Wallet className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <div className="font-semibold">Pay To (Base)</div>
+                    <div className="text-xs text-muted-foreground">Send ETH/USDC on Base to this address</div>
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={handleCopyAddress} className="text-foreground">
+                  <Copy className="h-4 w-4 mr-2" /> Copy
+                </Button>
+              </div>
+              <div className="mt-3 text-foreground font-mono break-all text-sm">
+                {invoiceData.merchantWalletAddress}
+              </div>
+            </div>
+          )}
 
           {/* Items Table */}
           <div className="mb-8 nm-flat p-4 rounded-lg">
@@ -123,7 +151,7 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoic
                 <span className="text-foreground">${subtotal.toFixed(2)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Tax (10%):</span>
+                <span className="text-muted-foreground">Tax ({invoiceData.taxRate ?? 10}%):</span>
                 <span className="text-foreground">${tax.toFixed(2)}</span>
               </div>
               <Separator className="my-2" />
@@ -140,20 +168,24 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendInvoic
           {invoiceData.notes && (
             <div className="mb-8 nm-flat p-4 rounded-lg">
               <h3 className="font-semibold mb-2">Notes:</h3>
-              <p className="text-foreground text-sm whitespace-pre-line">{invoiceData.notes}</p>
+              <p className="text-foreground text-sm whitespace-pre-line break-words">{invoiceData.notes}</p>
             </div>
           )}
 
           {/* Footer */}
           <div className="border-t border-border pt-4">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <div />
               <div className="flex items-center space-x-2">
-                <div className="nm-icon-container-sm">
-                  <Shield className="h-3 w-3" />
-                </div>
-                <span>Secured with Zero-Knowledge Proofs</span>
+                <span>Generated by</span>
+                <Image
+                  src="/assest/invoisio_logo.svg"
+                  alt="Invoisio Logo"
+                  width={16}
+                  height={16}
+                  className="object-contain"
+                />
               </div>
-              <span>Generated by Invoisio</span>
             </div>
           </div>
         </CardContent>

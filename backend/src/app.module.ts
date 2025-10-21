@@ -26,7 +26,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
         EVM_RPC_URL: Joi.string().uri().default('https://sepolia.base.org'),
         EVM_CHAIN_ID: Joi.number().default(84532),
         EVM_MERCHANT_ADDRESS: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).optional(),
-        EVM_USDC_ADDRESS: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).required(),
+        EVM_USDC_ADDRESS: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).optional(),
         EVM_ROUTER_ADDRESS: Joi.string().pattern(/^0x[a-fA-F0-9]{40}$/).optional(),
         OPENAI_API_KEY: Joi.string().required(),
         OPENAI_MODEL: Joi.string().default('gpt-4o-mini'),

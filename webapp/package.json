@@ -1,5 +1,5 @@
 {
-  "name": "my-v0-project",
+  "name": "invoisio",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@coinbase/onchainkit": "^0.38.18",
+    "@coinbase/wallet-sdk": "^4.3.7",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
@@ -40,6 +42,7 @@
     "@remix-run/react": "latest",
     "@sveltejs/kit": "latest",
     "@vercel/analytics": "latest",
+    "@wagmi/connectors": "^6.0.1",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -51,6 +54,8 @@
     "lottie-react": "^2.4.1",
     "lucide-react": "^0.454.0",
     "next": "14.2.16",
+    "wagmi": "2.18.1",
+    "viem": "^2.9.23",
     "next-themes": "^0.4.6",
     "react": "^18",
     "react-day-picker": "9.8.0",
@@ -65,7 +70,8 @@
     "vaul": "^0.9.9",
     "vue": "latest",
     "vue-router": "latest",
-    "zod": "3.25.67"
+    "zod": "3.25.67",
+    "zustand": "^4.5.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",

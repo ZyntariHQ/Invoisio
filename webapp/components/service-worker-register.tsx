@@ -4,6 +4,8 @@ import { useEffect } from "react"
 
 export function ServiceWorkerRegister() {
   useEffect(() => {
+    // Only register SW in production to avoid dev cache issues
+    if (process.env.NODE_ENV !== "production") return
     if (typeof window !== "undefined" && "serviceWorker" in navigator) {
       const register = () => {
         navigator.serviceWorker

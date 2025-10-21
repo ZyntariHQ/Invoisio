@@ -4,11 +4,12 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Wallet, ArrowRight, Shield, Copy, CheckCircle, AlertCircle, Clock } from "lucide-react"
-import { useEvmWallet } from "@/hooks/use-evm-wallet"
+import { Wallet, ArrowRight, Copy, CheckCircle, AlertCircle, Clock } from "lucide-react"
+// import { useEvmWallet } from "@/hooks/use-evm-wallet"
 import { useToast } from "@/hooks/use-toast"
 import { WalletConnectModal } from "@/components/wallet-connect-modal"
+import { useAccount, useConnect, useDisconnect } from "wagmi"
+import Image from "next/image"
 
 type SendStatus = 'idle' | 'connecting' | 'ready' | 'sending' | 'sent' | 'failed'
 
@@ -45,7 +46,10 @@ function encodeErc20Transfer(to: string, amountHex: string) {
 }
 
 export default function PaymentPage() {
-  const { isConnected, address, displayAddress, connect, disconnect } = useEvmWallet()
+  // const { isConnected, address, displayAddress, connect, disconnect } = useEvmWallet()
+  const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
+  const { connectors, connectAsync } = useConnect()
+  const { disconnectAsync } = useDisconnect()
   const { toast } = useToast()
   const [status, setStatus] = useState<SendStatus>('idle')
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false)
@@ -53,34 +57,37 @@ export default function PaymentPage() {
   const [recipient, setRecipient] = useState<string>('')
   const [amount, setAmount] = useState<string>('')
   const [tokenContractAddress, setTokenContractAddress] = useState<string>('')
-  const [chainIdHex, setChainIdHex] = useState<string>('')
   const [txHash, setTxHash] = useState<string>('')
+
+  const displayAddress = wagmiAddress ? `${wagmiAddress.slice(0, 6)}…${wagmiAddress.slice(-4)}` : ''
 
   const tokenMeta = useMemo(() => TOKENS.find(t => t.symbol === selectedToken)!, [selectedToken])
 
   useEffect(() => {
-    const init = async () => {
-      try {
-        const eth = (window as any).ethereum
-        if (!eth) return
-        const cid = await eth.request({ method: 'eth_chainId' })
-        setChainIdHex(cid)
-        if (isConnected) setStatus('ready')
-      } catch {
-        // ignore
-      }
-    }
-    init()
-  }, [isConnected])
+    if (wagmiIsConnected) setStatus('ready')
+  }, [wagmiIsConnected])
 
   const handleConnect = async () => {
-    setStatus('connecting')
-    setIsWalletModalOpen(true)
+    try {
+      setStatus('connecting')
+      const coinbase = connectors.find((c) => c.id === 'coinbaseWallet' || c.name?.toLowerCase().includes('coinbase'))
+      if (!coinbase) {
+        toast({ title: 'No connector', description: 'Coinbase connector not available', variant: 'destructive' })
+        setStatus('failed')
+        return
+      }
+      await connectAsync({ connector: coinbase })
+      setStatus('ready')
+      toast({ title: 'Wallet connected', description: displayAddress ? `Connected: ${displayAddress}` : 'Connected', progress: 100 })
+    } catch (err: any) {
+      setStatus('failed')
+      toast({ title: 'Connection failed', description: err?.message || 'Unable to connect', variant: 'destructive' })
+    }
   }
 
   const handleSend = async () => {
     try {
-      if (!isConnected || !address) {
+      if (!wagmiIsConnected || !wagmiAddress) {
         toast({ title: 'Wallet not connected', description: 'Please connect your wallet first', variant: 'destructive' })
         return
       }
@@ -104,7 +111,7 @@ export default function PaymentPage() {
       if (selectedToken === 'ETH') {
         const valueHex = toUnitsHex(amount, tokenMeta.decimals)
         const tx = {
-          from: address,
+          from: wagmiAddress,
           to: recipient,
           value: valueHex,
         }
@@ -125,7 +132,7 @@ export default function PaymentPage() {
       const amountHex = toUnitsHex(amount, tokenMeta.decimals)
       const data = encodeErc20Transfer(recipient, amountHex)
       const tx = {
-        from: address,
+        from: wagmiAddress,
         to: tokenContractAddress,
         data,
         value: '0x0',
@@ -151,6 +158,11 @@ export default function PaymentPage() {
     }
   }
 
+  // Replace init effect: no chainId read or display
+  useEffect(() => {
+    if (wagmiIsConnected) setStatus('ready')
+  }, [wagmiIsConnected])
+
   return (
     <>
     <main className="min-h-screen bg-background py-16">
@@ -160,22 +172,18 @@ export default function PaymentPage() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
-                  <Shield className="h-5 w-5 text-primary" />
-                  <span>Send Payment</span>
+                  <Image src="/Base_Logo_0.svg" alt="Base" width={112} height={28} className="h-6 w-auto" />
                 </div>
                 <div className="flex items-center space-x-2">
                   {getStatusIcon()}
                   <span className="text-sm text-muted-foreground">
-                    {isConnected ? `Connected: ${displayAddress}` : 'Not connected'}
+                    {wagmiIsConnected ? `Connected: ${displayAddress}` : 'Not connected'}
                   </span>
                 </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="text-sm text-muted-foreground">Chain ID</div>
-                <div className="text-sm">{chainIdHex || '—'}</div>
-              </div>
+              {/* Removed Chain ID row */}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -203,21 +211,6 @@ export default function PaymentPage() {
                 </div>
               </div>
 
-              {selectedToken !== 'ETH' && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Token Contract Address (Base)</label>
-                  <input
-                    className="nm-input"
-                    placeholder="0x..."
-                    value={tokenContractAddress}
-                    onChange={(e) => setTokenContractAddress(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">Enter the ERC20 contract address on Base for {selectedToken}.</p>
-                </div>
-              )}
-
-              <Separator />
-
               <div className="space-y-2">
                 <label className="text-sm font-medium">Recipient Address</label>
                 <div className="flex items-center space-x-2">
@@ -236,16 +229,16 @@ export default function PaymentPage() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {!isConnected ? (
-                  <Button onClick={() => setIsWalletModalOpen(true)} className="w-full nm-button bg-primary text-primary-foreground">
+                {!wagmiIsConnected ? (
+                  <Button onClick={handleConnect} className="w-full nm-button bg-primary text-primary-foreground">
                     Connect Wallet
                   </Button>
                 ) : (
-                  <Button onClick={disconnect} variant="outline" className="w-full">
+                  <Button onClick={async () => { await disconnectAsync(); setStatus('idle'); toast({ title: 'Wallet disconnected', description: 'You are now disconnected.', progress: 100 }); }} variant="outline" className="w-full">
                     Disconnect
                   </Button>
                 )}
-                <Button onClick={handleSend} disabled={!isConnected || status === 'sending'} className="w-full nm-button bg-accent text-accent-foreground">
+                <Button onClick={handleSend} disabled={!wagmiIsConnected || status === 'sending'} className="w-full nm-button bg-accent text-accent-foreground">
                   Send Payment
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Button>
@@ -264,19 +257,7 @@ export default function PaymentPage() {
         </div>
       </div>
     </main>
-    <WalletConnectModal
-      open={isWalletModalOpen}
-      onOpenChange={(o) => {
-        setIsWalletModalOpen(o)
-        if (!o && !isConnected && status === 'connecting') {
-          setStatus('idle')
-        }
-      }}
-      onConnect={async () => {
-        await connect()
-        setStatus('ready')
-      }}
-    />
+    {/* WalletConnectModal not used as connect is programmatic via wagmi */}
     </>
   )
 }

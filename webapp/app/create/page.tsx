@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,6 +12,10 @@ import { InvoicePreview } from "@/components/invoice-preview"
 import { generateInvoicePDF, sendInvoiceEmail } from "@/lib/pdf-generator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CryptoPayment } from "@/components/crypto-payment"
+import { useToast } from "@/hooks/use-toast"
+import { useEvmWallet } from "@/hooks/use-evm-wallet"
+import { useInvoiceStore } from "@/hooks/use-invoice-store"
+import { useAccount } from "wagmi"
 
 interface InvoiceItem {
   id: string
@@ -22,53 +26,30 @@ interface InvoiceItem {
 }
 
 export default function CreateInvoicePage() {
-  const [items, setItems] = useState<InvoiceItem[]>([{ id: "1", description: "", quantity: 1, rate: 0, amount: 0 }])
+  const { address } = useEvmWallet()
+  const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
+  const {
+    items,
+    invoiceData,
+    addItem,
+    removeItem,
+    updateItem,
+    setItems,
+    setInvoiceData,
+    showPreview,
+    setShowPreview,
+    setMerchantWalletAddress,
+  } = useInvoiceStore()
 
-  const [invoiceData, setInvoiceData] = useState({
-    invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-    issueDate: new Date().toISOString().split("T")[0],
-    dueDate: "",
-    clientName: "",
-    clientEmail: "",
-    clientAddress: "",
-    notes: "",
-    currency: "USD",
-  })
+  useEffect(() => {
+    const resolved = wagmiAddress || address || ""
+    setMerchantWalletAddress(resolved)
+  }, [wagmiAddress, address, setMerchantWalletAddress])
 
-  const [showPreview, setShowPreview] = useState(false)
-
-  const addItem = () => {
-    const newItem: InvoiceItem = {
-      id: Date.now().toString(),
-      description: "",
-      quantity: 1,
-      rate: 0,
-      amount: 0,
-    }
-    setItems([...items, newItem])
-  }
-
-  const removeItem = (id: string) => {
-    setItems(items.filter((item) => item.id !== id))
-  }
-
-  const updateItem = (id: string, field: keyof InvoiceItem, value: string | number) => {
-    setItems(
-      items.map((item) => {
-        if (item.id === id) {
-          const updatedItem = { ...item, [field]: value }
-          if (field === "quantity" || field === "rate") {
-            updatedItem.amount = updatedItem.quantity * updatedItem.rate
-          }
-          return updatedItem
-        }
-        return item
-      }),
-    )
-  }
+  const { toast } = useToast()
 
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
-  const tax = subtotal * 0.1 // 10% tax
+  const tax = subtotal * ((invoiceData.taxRate ?? 0) / 100)
   const total = subtotal + tax
 
   const generateWithAI = () => {
@@ -91,22 +72,64 @@ export default function CreateInvoicePage() {
     setItems(updatedItems)
   }
 
+  const validateInvoice = (): string[] => {
+    const errors: string[] = []
+    if (!invoiceData.invoiceNumber?.trim()) errors.push("Invoice number is required.")
+    if (!invoiceData.issueDate) errors.push("Issue date is required.")
+    if (!invoiceData.dueDate) errors.push("Due date is required.")
+    // Client name and email no longer required
+    // Client address no longer required; default text will be used
+    if (!items.length) errors.push("Add at least one invoice item.")
+    items.forEach((item, idx) => {
+      if (!item.description?.trim()) errors.push(`Item ${idx + 1}: description required.`)
+      if (!item.quantity || item.quantity <= 0) errors.push(`Item ${idx + 1}: quantity must be > 0.`)
+      if (item.rate === undefined || item.rate < 0) errors.push(`Item ${idx + 1}: rate must be ≥ 0.`)
+    })
+    return errors
+  }
+
   const handleDownloadPDF = async () => {
     try {
-      await generateInvoicePDF(invoiceData, items)
+      const errors = validateInvoice()
+      if (errors.length) {
+        toast({
+          title: "Missing invoice details",
+          description: errors[0],
+          variant: "destructive",
+        })
+        return
+      }
+      await generateInvoicePDF(invoiceData as any, items as any)
     } catch (error) {
       console.error("Error generating PDF:", error)
-      alert("Error generating PDF. Please try again.")
+      toast({
+        title: "Error generating PDF",
+        description: "Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
   const handleSendInvoice = async () => {
     try {
-      await sendInvoiceEmail(invoiceData, items)
-      alert("Invoice email opened in your default email client!")
+      const errors = validateInvoice()
+      if (errors.length) {
+        toast({
+          title: "Cannot send invoice",
+          description: errors[0],
+          variant: "destructive",
+        })
+        return
+      }
+      await sendInvoiceEmail(invoiceData as any, items as any)
+      toast({ title: "Email draft opened", description: "Review and send to your client." })
     } catch (error) {
       console.error("Error sending invoice:", error)
-      alert("Error sending invoice. Please try again.")
+      toast({
+        title: "Error sending invoice",
+        description: "Please try again.",
+        variant: "destructive",
+      })
     }
   }
 
@@ -166,7 +189,7 @@ export default function CreateInvoicePage() {
             </Card>
 
             {/* Client Information */}
-            <Card id="client-information">
+            <Card id="client-information" className="hidden">
               <CardHeader>
                 <CardTitle>Client Information</CardTitle>
               </CardHeader>
@@ -250,9 +273,9 @@ export default function CreateInvoicePage() {
                     <div className="col-span-2">
                       <Label className="text-sm">Amount</Label>
                       <Input
-                        value={`$${item.amount.toFixed(2)}`}
-                        readOnly
-                        className="opacity-70"
+                        type="number"
+                        value={item.amount}
+                        onChange={(e) => updateItem(item.id, "amount", Number.parseFloat(e.target.value) || 0)}
                       />
                     </div>
                     <div className="col-span-1">
@@ -311,9 +334,17 @@ export default function CreateInvoicePage() {
                     <span className="text-muted-foreground">Subtotal:</span>
                     <span className="text-foreground">${subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Tax (10%):</span>
-                    <span className="text-foreground">${tax.toFixed(2)}</span>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Tax (%):</span>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        className="w-20 h-8 text-right"
+                        value={invoiceData.taxRate}
+                        onChange={(e) => setInvoiceData({ ...invoiceData, taxRate: Number.parseFloat(e.target.value) || 0 })}
+                      />
+                      <span className="text-muted-foreground">= ${tax.toFixed(2)}</span>
+                    </div>
                   </div>
                   <Separator />
                   <div className="flex justify-between font-semibold">
@@ -341,7 +372,7 @@ export default function CreateInvoicePage() {
                 </div>
 
                 <div className="text-xs text-muted-foreground space-y-1">
-                  <p>• Zero-knowledge proof will be generated</p>
+                  <p>• Privacy-preserving generation</p>
                   <p>• Client data remains private</p>
                   <p>• Blockchain verification included</p>
                 </div>
@@ -358,8 +389,8 @@ export default function CreateInvoicePage() {
               <DialogTitle>Invoice Preview</DialogTitle>
             </DialogHeader>
             <InvoicePreview
-              invoiceData={invoiceData}
-              items={items}
+              invoiceData={invoiceData as any}
+              items={items as any}
               onDownloadPDF={handleDownloadPDF}
               onSendInvoice={handleSendInvoice}
             />
