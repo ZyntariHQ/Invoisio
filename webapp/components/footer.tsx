@@ -105,7 +105,7 @@ export function Footer() {
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 hover:text-primary"
               >
-                <Image src="/Base_Logo_0.svg" alt="Base" width={60} height={16} className="h-4 w-auto" />
+                <Image src="/Base_Logo_0.svg" alt="Base" width={60} height={16} className="h-4 w-auto" style={{ width: 'auto' }} />
               </a>
             </p>
           </div>
