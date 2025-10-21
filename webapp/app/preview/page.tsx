@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { InvoicePreview } from "@/components/invoice-preview"
 import { generateInvoicePDF, sendInvoiceEmail, type InvoiceData, type InvoiceItem } from "@/lib/pdf-generator"
+// import Loader from "@/components/loader"
 // removed modal components
 
 export default function PreviewPage() {
@@ -30,6 +31,7 @@ export default function PreviewPage() {
     const total = subtotal + tax
     return { subtotal, tax, total }
   }, [items, invoiceData])
+
 
   if (!invoiceData) {
     // Avoid flashing an empty-state message; rely on validation in Create page
