@@ -58,7 +58,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   const themeCookie = cookies().get("theme")?.value
-  const htmlClass = themeCookie === "dark" ? "dark" : undefined
+  const htmlClass = themeCookie === "dark" ? "dark" : "light"
 
   return (
     <html lang="en" className={htmlClass} suppressHydrationWarning>
