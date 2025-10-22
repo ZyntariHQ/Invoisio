@@ -2,14 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { InvoicePreview } from "@/components/invoice-preview"
-import { generateInvoicePDF, sendInvoiceEmail, type InvoiceData, type InvoiceItem } from "@/lib/pdf-generator"
-// import Loader from "@/components/loader"
-// removed modal components
+import { generateInvoicePDF, shareInvoicePDF, type InvoiceData, type InvoiceItem } from "@/lib/pdf-generator"
 
 export default function PreviewPage() {
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
-  // no modal needed
 
   useEffect(() => {
     try {
@@ -32,9 +29,7 @@ export default function PreviewPage() {
     return { subtotal, tax, total }
   }, [items, invoiceData])
 
-
   if (!invoiceData) {
-    // Avoid flashing an empty-state message; rely on validation in Create page
     return null
   }
 
@@ -47,31 +42,12 @@ export default function PreviewPage() {
     }
   }
 
-  // inline icons are shown within the preview component; no modal toggle
-
-  const handleSendEmail = async () => {
+  const handleSharePDF = async () => {
     try {
-      await sendInvoiceEmail(invoiceData, items)
+      await shareInvoicePDF(invoiceData, items)
     } catch (err) {
       console.error(err)
-      alert("Unable to open email client. Please try again.")
-    }
-  }
-
-  const handleSendWhatsApp = async () => {
-    try {
-      const msg = `Invoice ${invoiceData.invoiceNumber}\n` +
-        `Amount: $${totals.total.toFixed(2)} ${invoiceData.currency}\n` +
-        `Issue: ${new Date(invoiceData.issueDate).toLocaleDateString()}\n` +
-        `Due: ${new Date(invoiceData.dueDate).toLocaleDateString()}\n` +
-        (invoiceData.merchantWalletAddress ? `Pay To (Base): ${invoiceData.merchantWalletAddress}\n` : "") +
-        `\nThis invoice was generated with Invoisio.`
-
-      const url = `https://wa.me/?text=${encodeURIComponent(msg)}`
-      window.open(url, "_blank")
-    } catch (err) {
-      console.error(err)
-      alert("Unable to open WhatsApp. Please try again.")
+      alert("Unable to share the PDF. The file will be downloaded instead.")
     }
   }
 
@@ -81,8 +57,7 @@ export default function PreviewPage() {
         invoiceData={invoiceData}
         items={items}
         onDownloadPDF={handleDownloadPDF}
-        onSendEmail={handleSendEmail}
-        onSendWhatsApp={handleSendWhatsApp}
+        onSharePDF={handleSharePDF}
         showPayment={false}
       />
     </div>

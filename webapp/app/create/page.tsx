@@ -469,8 +469,6 @@ export default function CreateInvoicePage() {
               invoiceData={invoiceData as any}
               items={items as any}
               onDownloadPDF={handleDownloadPDF}
-              onSendEmail={handleSendEmail}
-              onSendWhatsApp={handleSendWhatsApp}
             />
           </DialogContent>
         </Dialog>
