@@ -30,7 +30,8 @@ COPY --from=builder /app/prisma ./prisma
 # Remove dev dependencies to slim image
 RUN npm prune --production
 
-EXPOSE 3001
+# Render exposes port 10000
+EXPOSE 10000
 
 # Start compiled app
 CMD ["node", "dist/main"]
