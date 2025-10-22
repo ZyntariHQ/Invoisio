@@ -12,10 +12,12 @@ import { InvoicePreview } from "@/components/invoice-preview"
 import { generateInvoicePDF, sendInvoiceEmail } from "@/lib/pdf-generator"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { CryptoPayment } from "@/components/crypto-payment"
+// import Loader from "@/components/loader"
 import { useToast } from "@/hooks/use-toast"
 import { useEvmWallet } from "@/hooks/use-evm-wallet"
 import { useInvoiceStore } from "@/hooks/use-invoice-store"
 import { useAccount } from "wagmi"
+import { useAppLoader } from "@/components/loader-provider"
 
 interface InvoiceItem {
   id: string
@@ -28,6 +30,7 @@ interface InvoiceItem {
 export default function CreateInvoicePage() {
   const { address } = useEvmWallet()
   const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
+  const { withLoader } = useAppLoader()
   const {
     items,
     invoiceData,
@@ -40,6 +43,8 @@ export default function CreateInvoicePage() {
     setShowPreview,
     setMerchantWalletAddress,
   } = useInvoiceStore()
+
+
 
   useEffect(() => {
     const resolved = wagmiAddress || address || ""
@@ -403,7 +408,7 @@ export default function CreateInvoicePage() {
 
                 <div className="space-y-2">
                   <Button
-                    onClick={() => {
+                    onClick={async () => {
                       const errors = validateInvoice()
                       if (errors.length) {
                         toast({
@@ -414,8 +419,11 @@ export default function CreateInvoicePage() {
                         return
                       }
                       try {
-                        window.localStorage.setItem("invoice-preview", JSON.stringify({ invoiceData, items }))
-                        window.open("/preview", "_blank")
+                        await withLoader(async () => {
+                          window.localStorage.setItem("invoice-preview", JSON.stringify({ invoiceData, items }))
+                          window.open("/preview", "_blank")
+                          await new Promise((res) => setTimeout(res, 250))
+                        })
                       } catch (e) {
                         console.error("Failed to open preview", e)
                         toast({
@@ -461,12 +469,10 @@ export default function CreateInvoicePage() {
               invoiceData={invoiceData as any}
               items={items as any}
               onDownloadPDF={handleDownloadPDF}
-              onSendEmail={handleSendEmail}
-              onSendWhatsApp={handleSendWhatsApp}
             />
           </DialogContent>
         </Dialog>
-      </main>
-    </div>
-  )
-}
+        </main>
+     </div>
+   )
+ }

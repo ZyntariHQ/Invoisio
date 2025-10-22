@@ -3,8 +3,22 @@
 import { Button } from "@/components/ui/button"
 import { FileText, Wallet, Shield, Zap, Lock } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { useAppLoader } from "@/components/loader-provider"
 
 export function HeroSection() {
+  const router = useRouter()
+  const { withLoader } = useAppLoader()
+
+  const handlePaymentClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault()
+    await withLoader(async () => {
+      router.push("/payment")
+      // tiny delay to let loader be visible
+      await new Promise((res) => setTimeout(res, 250))
+    })
+  }
+
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden" style={{ background: 'var(--nm-background)' }}>
       {/* Background Elements */}
@@ -38,7 +52,7 @@ export function HeroSection() {
                    Create Invoice
                    <FileText className="ml-2 w-5 h-5" />
                  </Link>
-                 <Link href="/payment" className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
+                 <Link href="/payment" onClick={handlePaymentClick} className="nm-button bg-primary text-primary-foreground font-semibold text-lg flex items-center">
                    Make Payment
                    <Wallet className="ml-2 w-5 h-5" />
                  </Link>
