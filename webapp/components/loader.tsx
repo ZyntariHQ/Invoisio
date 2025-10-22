@@ -15,12 +15,12 @@ export function Loader({ fullscreen = false }: { fullscreen?: boolean }) {
           justify-content: center;
           z-index: 100050;
           /* solid background to fully cover UI while loading */
-          background: var(--nm-bg, #f0f3f7);
+          background: var(--background);
           pointer-events: all;
         }
-        /* honor dark theme when present */
+        /* match app dark background color */
         :global(html.dark) .nm-loader-overlay {
-          background: var(--nm-bg-dark, #0b0f14);
+          background: var(--background);
         }
         .nm-loader-inline {
           display: flex;

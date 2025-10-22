@@ -2,10 +2,10 @@
 
 import Link from "next/link"
 import Image from "next/image"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { FileText, BarChart3, PieChart, Bell, Wallet as WalletIcon, Menu, X } from "lucide-react"
+import { FileText, BarChart3, PieChart, Bell, Wallet as WalletIcon, Menu, X, Home } from "lucide-react"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -13,12 +13,15 @@ import { useAccount, useDisconnect } from "wagmi"
 import dynamic from "next/dynamic"
 import { Wallet as OnchainWallet, ConnectWallet } from "@coinbase/onchainkit/wallet"
 import { Avatar } from "@coinbase/onchainkit/identity"
+import { useAppLoader } from "@/components/loader-provider"
 
 const navigation = []
 const WalletHeader = dynamic(() => import("@/components/wallet-header").then(m => m.WalletHeader), { ssr: false })
 
 export function Navigation() {
   const pathname = usePathname()
+  const router = useRouter()
+  const { withLoader } = useAppLoader()
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
@@ -53,6 +56,20 @@ export function Navigation() {
       setIsMenuOpen(false)
     }
   }, [isMobile, wagmiIsConnected])
+
+  const goToPayment = async () => {
+    await withLoader(async () => {
+      router.push("/payment")
+      await new Promise((res) => setTimeout(res, 250))
+    })
+  }
+
+  const goToCreate = async () => {
+    await withLoader(async () => {
+      router.push("/create")
+      await new Promise((res) => setTimeout(res, 250))
+    })
+  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 py-2" style={{ borderRadius: '0', boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)', background: 'var(--background)', borderBottom: '1px solid rgba(0, 0, 0, 0.1)' }}>
@@ -95,8 +112,6 @@ export function Navigation() {
                 <Bell className="h-5 w-5" />
                 <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full text-xs flex items-center justify-center text-white"></span>
               </Button>
-              
-              {/* Notification Dropdown */}
               {isNotificationOpen && (
                 <div className="absolute right-0 top-12 w-80 bg-background border border-border rounded-lg shadow-lg z-50 nm-flat">
                   <div className="p-4 border-b border-border">
@@ -149,22 +164,67 @@ export function Navigation() {
                 </div>
               )}
             </div>
-             <Button
-               variant="neumorphic"
-               size="icon"
-               className={cn(
+            {/* Home icon */}
+            {pathname !== "/" && (
+              <Button
+                 variant="neumorphic"
+                 size="icon"
+                 className={cn(
+                    "w-9 h-9 rounded-full nm-convex",
+                    pathname === "/"
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground"
+                  )}
+                 asChild
+              >
+                <Link href="/">
+                  <Home className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
+
+            {pathname !== "/dashboard" && (
+              <Button
+                variant="neumorphic"
+                size="icon"
+                className={cn(
                   "w-9 h-9 rounded-full nm-convex",
                   pathname === "/dashboard"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground"
                 )}
-               asChild
-             >
-               <Link href="/dashboard">
-                 <PieChart className="h-5 w-5" />
-               </Link>
-             </Button>
+                asChild
+              >
+                <Link href="/dashboard">
+                  <PieChart className="h-5 w-5" />
+                </Link>
+              </Button>
+            )}
             {/* Route-specific quick nav icons */}
+            {pathname === "/dashboard" && (
+              <>
+                <Button
+                  variant="neumorphic"
+                  size="icon"
+                  className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
+                  asChild
+                >
+                  <Link href="/payment" onClick={(e) => { e.preventDefault(); goToPayment(); }}>
+                    <WalletIcon className="h-5 w-5" />
+                  </Link>
+                </Button>
+                <Button
+                  variant="neumorphic"
+                  size="icon"
+                  className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
+                  asChild
+                >
+                  <Link href="/create" onClick={(e) => { e.preventDefault(); goToCreate(); }}>
+                    <FileText className="h-5 w-5" />
+                  </Link>
+                </Button>
+              </>
+            )}
             {pathname?.startsWith("/create") && (
               <Button
                 variant="neumorphic"
@@ -172,7 +232,7 @@ export function Navigation() {
                 className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
                 asChild
               >
-                <Link href="/payment">
+                <Link href="/payment" onClick={(e) => { e.preventDefault(); goToPayment(); }}>
                   <WalletIcon className="h-5 w-5" />
                 </Link>
               </Button>
@@ -184,7 +244,7 @@ export function Navigation() {
                 className={cn("w-9 h-9 rounded-full nm-convex", "text-muted-foreground")}
                 asChild
               >
-                <Link href="/create">
+                <Link href="/create" onClick={(e) => { e.preventDefault(); goToCreate(); }}>
                   <FileText className="h-5 w-5" />
                 </Link>
               </Button>
@@ -197,6 +257,9 @@ export function Navigation() {
           {/* Mobile Navigation */}
           <div className={cn("items-center space-x-2", isMobile ? "flex" : "hidden")}>
             <ThemeToggle />
+            <div className="relative notification-dropdown">
+              {/* ... existing bell button and dropdown ... */}
+            </div>
             <Button
                variant="neumorphic"
                size="icon"
@@ -211,21 +274,28 @@ export function Navigation() {
         {/* Mobile Menu */}
          {isMobile && isMenuOpen && (
          <div className="mt-4 nm-flat rounded-lg p-4 space-y-3">
-           <Button
+            {/* Home */}
+            {pathname !== "/" && (
+            <Button
               variant="neumorphic"
               size="sm"
-              className="w-full justify-start nm-convex rounded-lg text-muted-foreground hover:text-primary relative"
-              onClick={() => {
-                setIsNotificationOpen(!isNotificationOpen)
-                setIsMenuOpen(false)
-              }}
-            >
-              <div className="flex items-center space-x-2">
-                <Bell className="h-5 w-5" />
-                <span>Notifications</span>
-              </div>
-              <span className="absolute top-2 left-8 h-2 w-2 bg-red-500 rounded-full"></span>
-            </Button>
+              className={cn(
+                 "w-full justify-start nm-convex rounded-lg",
+                 pathname === "/"
+                   ? "bg-primary text-primary-foreground"
+                   : "text-muted-foreground"
+                 )}
+                asChild
+                onClick={() => setIsMenuOpen(false)}
+              >
+                <Link href="/" className="flex items-center space-x-2">
+                  <Home className="h-5 w-5" />
+                  <span>Home</span>
+                </Link>
+              </Button>
+            )}
+            {/* Dashboard */}
+            {pathname !== "/dashboard" && (
             <Button
               variant="neumorphic"
               size="sm"
@@ -243,6 +313,7 @@ export function Navigation() {
                   <span>Dashboard</span>
                 </Link>
               </Button>
+            )}
               {/* Route-specific quick nav in mobile menu */}
               {pathname?.startsWith("/create") && (
                 <Button
@@ -256,7 +327,7 @@ export function Navigation() {
                   onClick={() => setIsMenuOpen(false)}
                   style={{ background: "var(--nm-background)" }}
                >
-                  <Link href="/payment" className="flex items-center space-x-2">
+                  <Link href="/payment" onClick={(e) => { e.preventDefault(); goToPayment(); }} className="flex items-center space-x-2">
                     <WalletIcon className="h-5 w-5" />
                     <span>Payment</span>
                   </Link>
@@ -273,11 +344,45 @@ export function Navigation() {
                   asChild
                   onClick={() => setIsMenuOpen(false)}
                 >
-                  <Link href="/create" className="flex items-center space-x-2">
+                  <Link href="/create" onClick={(e) => { e.preventDefault(); goToCreate(); }} className="flex items-center space-x-2">
                     <FileText className="h-5 w-5" />
                     <span>Create</span>
                   </Link>
                 </Button>
+              )}
+              {pathname === "/dashboard" && (
+                <>
+                  <Button
+                    variant="neumorphic"
+                    size="sm"
+                    className={cn(
+                      "w-full justify-start nm-convex rounded-lg",
+                      "text-muted-foreground"
+                    )}
+                    asChild
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Link href="/payment" onClick={(e) => { e.preventDefault(); goToPayment(); }} className="flex items-center space-x-2">
+                      <WalletIcon className="h-5 w-5" />
+                      <span>Payment</span>
+                    </Link>
+                  </Button>
+                  <Button
+                    variant="neumorphic"
+                    size="sm"
+                    className={cn(
+                      "w-full justify-start nm-convex rounded-lg",
+                      "text-muted-foreground"
+                    )}
+                    asChild
+                    onClick={() => setIsMenuOpen(false)}
+                  >
+                    <Link href="/create" onClick={(e) => { e.preventDefault(); goToCreate(); }} className="flex items-center space-x-2">
+                      <FileText className="h-5 w-5" />
+                      <span>Create</span>
+                    </Link>
+                  </Button>
+                </>
               )}
               <div className="flex flex-col items-center gap-2" onClick={() => setIsMenuOpen(false)}>
                 <OnchainWallet>

@@ -3,7 +3,7 @@
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
-import { Download, Shield, Wallet, Copy, Mail, MessageCircle } from "lucide-react"
+import { Download, Share2 } from "lucide-react"
 import Image from "next/image"
 import { CryptoPayment } from "@/components/crypto-payment"
 import { useToast } from "@/hooks/use-toast"
@@ -35,12 +35,11 @@ interface InvoicePreviewProps {
   invoiceData: InvoiceData
   items: InvoiceItem[]
   onDownloadPDF: () => void
-  onSendEmail?: () => void
-  onSendWhatsApp?: () => void
+  onSharePDF?: () => void
   showPayment?: boolean
 }
 
-export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendEmail, onSendWhatsApp, showPayment = false }: InvoicePreviewProps) {
+export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSharePDF, showPayment = false }: InvoicePreviewProps) {
   const subtotal = items.reduce((sum, item) => sum + item.amount, 0)
   const tax = subtotal * ((invoiceData.taxRate ?? 10) / 100)
   const total = subtotal + tax
@@ -103,7 +102,7 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendEmail,
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="nm-icon-container-sm">
-                    <Wallet className="h-4 w-4" />
+                    {/* wallet icon removed to reduce clutter */}
                   </div>
                   <div>
                     <div className="font-semibold">Pay To (Base)</div>
@@ -111,7 +110,7 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendEmail,
                   </div>
                 </div>
                 <Button variant="ghost" size="sm" onClick={handleCopyAddress} className="text-foreground">
-                  <Copy className="h-4 w-4 mr-2" /> Copy
+                  Copy
                 </Button>
               </div>
               <div className="mt-3 text-foreground font-mono break-all text-sm">
@@ -193,19 +192,18 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendEmail,
       </Card>
 
       {/* Action Buttons */}
-        <div className="space-y-6">
+      <div className="space-y-6">
         <div className="flex justify-center gap-4">
           <Button onClick={onDownloadPDF} variant="neumorphic" aria-label="Download PDF" className="rounded-full h-12 w-12 p-0 flex items-center justify-center">
             <Download className="h-5 w-5" />
           </Button>
-          <Button onClick={onSendEmail} variant="neumorphic" aria-label="Send via Email" className="rounded-full h-12 w-12 p-0 flex items-center justify-center">
-            <Mail className="h-5 w-5" />
-          </Button>
-          <Button onClick={onSendWhatsApp} variant="neumorphic" aria-label="Send via WhatsApp" className="rounded-full h-12 w-12 p-0 flex items-center justify-center">
-            <MessageCircle className="h-5 w-5" />
-          </Button>
+          {onSharePDF && (
+            <Button onClick={onSharePDF} variant="neumorphic" aria-label="Share PDF" className="rounded-full h-12 w-12 p-0 flex items-center justify-center">
+              <Share2 className="h-5 w-5" />
+            </Button>
+          )}
         </div>
-      
+
         {/* Crypto Payment Section */}
         {showPayment && (
           <div className="max-w-md mx-auto">
@@ -214,11 +212,9 @@ export function InvoicePreview({ invoiceData, items, onDownloadPDF, onSendEmail,
               currency="USD"
               onPaymentComplete={(txHash) => {
                 console.log('Payment completed:', txHash)
-                // Handle payment completion
               }}
               onPaymentError={(error) => {
                 console.error('Payment error:', error)
-                // Handle payment error
               }}
             />
           </div>

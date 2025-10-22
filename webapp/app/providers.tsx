@@ -12,6 +12,9 @@ export default function Providers({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    // Remove SSR boot overlay once app mounts
+    const boot = document.getElementById('nm-boot-loader')
+    if (boot) boot.remove()
     const t = setTimeout(() => setReady(true), 3000)
     return () => clearTimeout(t)
   }, [])
