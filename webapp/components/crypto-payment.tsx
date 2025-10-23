@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Wallet, Shield, CheckCircle, Clock, AlertCircle, Copy } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useAccount, useConnect } from "wagmi"
+import api from "@/lib/api"
 
 interface CryptoPaymentProps {
   amount: number
@@ -35,17 +36,41 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
   const { address, isConnected } = useAccount()
   const { connectAsync, connectors } = useConnect()
 
-  // Mock conversion rates (in real app, fetch from API)
-  const conversionRates = {
-    ETH: 0.0004, // 1 USD = 0.0004 ETH
-    USDC: 1,     // 1 USD = 1 USDC
-    USDT: 1      // 1 USD = 1 USDT
-  }
+  const [rates, setRates] = useState<Record<string, number>>({ ETH: 0.0004, USDC: 1, USDT: 1 })
 
   useEffect(() => {
-    const rate = conversionRates[selectedToken as keyof typeof conversionRates]
+    let mounted = true
+    const fetchRates = async () => {
+      try {
+        const r: any = await api.payments.rates()
+        let rateForToken: number | undefined
+        const token = selectedToken
+        if (r && typeof r === 'object') {
+          if (typeof r[token] === 'number') {
+            rateForToken = r[token]
+          } else if (r?.rates && typeof r.rates[token]?.USD === 'number') {
+            rateForToken = r.rates[token].USD
+          } else if (typeof r[token]?.USD === 'number') {
+            rateForToken = r[token].USD
+          } else if (typeof r?.USD?.[token] === 'number') {
+            rateForToken = r.USD[token]
+          }
+        }
+        if (mounted) {
+          setRates(prev => ({ ...prev, [token]: rateForToken ?? prev[token] ?? 0 }))
+        }
+      } catch (e) {
+        console.warn('Failed to load payment rates; using fallback.', e)
+      }
+    }
+    fetchRates()
+    return () => { mounted = false }
+  }, [selectedToken])
+
+  useEffect(() => {
+    const rate = rates[selectedToken] ?? 0
     setConvertedAmount(amount * rate)
-  }, [amount, selectedToken])
+  }, [amount, selectedToken, rates])
 
   // Sync UI with wagmi account state
   useEffect(() => {
@@ -215,57 +240,44 @@ export function CryptoPayment({ amount, currency = 'USD', onPaymentComplete, onP
           </div>
           {walletAddress && (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               onClick={() => copyToClipboard(walletAddress)}
-              className="h-6 px-2"
             >
-              <Copy className="h-3 w-3" />
+              <Copy className="h-4 w-4 mr-2" />
+              Copy Address
             </Button>
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="space-y-2">
-          {paymentStatus === 'idle' || paymentStatus === 'failed' || paymentStatus === 'connecting' ? (
-            <Button
-              onClick={connectWallet}
-              disabled={paymentStatus === 'connecting'}
-              className="w-full"
-              variant="default"
-            >
-              <Wallet className="h-4 w-4 mr-2" />
-              {paymentStatus === 'connecting' ? 'Connecting...' : 'Connect Wallet'}
+        {/* Actions */}
+        <div className="flex items-center space-x-2">
+          {!isConnected ? (
+            <Button onClick={connectWallet} className="nm-button bg-primary text-primary-foreground">
+              Connect Wallet
             </Button>
-          ) : paymentStatus === 'connected' ? (
-            <Button
-              onClick={processPayment}
-              className="w-full"
-              variant="default"
-            >
-              <Shield className="h-4 w-4 mr-2" />
-              Pay {convertedAmount.toFixed(6)} {selectedToken}
+          ) : (
+            <Button onClick={processPayment} disabled={paymentStatus === 'processing'} className="nm-button bg-accent text-accent-foreground">
+              Pay Now
             </Button>
-          ) : paymentStatus === 'processing' ? (
-            <Button disabled className="w-full">
-              <Clock className="h-4 w-4 mr-2 animate-spin" />
-              Processing Payment...
-            </Button>
-          ) : paymentStatus === 'completed' ? (
-            <div className="space-y-2">
-              <Button disabled className="w-full bg-green-500 hover:bg-green-500">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Payment Completed
-              </Button>
-              {txHash && (
-                <div className="text-xs text-muted-foreground">
-                  <p>Transaction Hash:</p>
-                  <p className="font-mono break-all">{txHash}</p>
-                </div>
-              )}
-            </div>
-          ) : null}
+          )}
         </div>
+
+        {/* Payment Status */}
+        {paymentStatus === 'completed' ? (
+          <div className="nm-flat p-3 rounded-lg">
+            <Button variant="default" className="flex-1">
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Payment Completed
+            </Button>
+            {txHash && (
+              <div className="text-xs text-muted-foreground">
+                <p>Transaction Hash:</p>
+                <p className="font-mono break-all">{txHash}</p>
+              </div>
+            )}
+          </div>
+        ) : null}
 
         {/* Privacy Notice */}
         <div className="text-xs text-muted-foreground bg-muted/50 p-3 rounded-lg">

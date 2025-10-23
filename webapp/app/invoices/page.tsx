@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Search, Filter, Download, Send, Eye, MoreHorizontal, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
+import api from "@/lib/api"
+import Link from "next/link"
 
 interface Invoice {
   id: string
@@ -80,6 +82,37 @@ export default function InvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>(mockInvoices)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+
+  useEffect(() => {
+    let mounted = true
+    const fetchInvoices = async () => {
+      try {
+        const res = await api.invoices.list()
+        const resAny = res as any
+        const data = Array.isArray(resAny)
+          ? resAny
+          : Array.isArray(resAny?.items)
+            ? resAny.items
+            : []
+        const mapped: Invoice[] = data.map((inv: any) => ({
+          id: String(inv.id ?? inv._id ?? inv.invoiceId ?? inv.number ?? Math.random()),
+          number: String(inv.number ?? inv.invoiceNumber ?? `INV-${inv.id ?? inv._id ?? "N/A"}`),
+          clientName: String(inv.clientName ?? inv.client?.name ?? inv.customerName ?? "Unknown"),
+          clientEmail: String(inv.clientEmail ?? inv.client?.email ?? inv.customerEmail ?? ""),
+          amount: Number(inv.total ?? inv.amount ?? 0),
+          status: ((inv.status ?? "draft") as Invoice["status"]),
+          issueDate: String(inv.issueDate ?? inv.createdAt ?? new Date().toISOString()),
+          dueDate: String(inv.dueDate ?? inv.paymentDueDate ?? inv.issueDate ?? new Date().toISOString()),
+          paidDate: inv.paidDate ? String(inv.paidDate) : undefined,
+        }))
+        if (mounted && mapped.length) setInvoices(mapped)
+      } catch (e) {
+        console.warn("Failed to load invoices from API; using mock.", e)
+      }
+    }
+    fetchInvoices()
+    return () => { mounted = false }
+  }, [])
 
   const filteredInvoices = invoices.filter((invoice) => {
     const matchesSearch =
@@ -256,8 +289,10 @@ export default function InvoicesPage() {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-end space-x-2">
-                          <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
-                            <Eye className="h-4 w-4" />
+                          <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white" asChild>
+                            <Link href={`/invoices/${invoice.id}`}>
+                              <Eye className="h-4 w-4" />
+                            </Link>
                           </Button>
                           <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
                             <Download className="h-4 w-4" />

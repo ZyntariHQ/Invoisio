@@ -18,6 +18,7 @@ import { useEvmWallet } from "@/hooks/use-evm-wallet"
 import { useInvoiceStore } from "@/hooks/use-invoice-store"
 import { useAccount } from "wagmi"
 import { useAppLoader } from "@/components/loader-provider"
+import api from "@/lib/api"
 
 interface InvoiceItem {
   id: string
@@ -28,7 +29,7 @@ interface InvoiceItem {
 }
 
 export default function CreateInvoicePage() {
-  const { address } = useEvmWallet()
+  const { address, connect, isConnected } = useEvmWallet()
   const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
   const { withLoader } = useAppLoader()
   const {
@@ -57,24 +58,73 @@ export default function CreateInvoicePage() {
   const tax = subtotal * ((invoiceData.taxRate ?? 0) / 100)
   const total = subtotal + tax
 
-  const generateWithAI = () => {
-    // AI generation simulation
-    const aiDescriptions = [
-      "Website Development - Frontend React Components",
-      "UI/UX Design - Mobile App Interface",
-      "Backend API Development - User Authentication",
-      "Database Design - PostgreSQL Schema",
-    ]
+  const generateWithAI = async () => {
+    try {
+      const payload: any = {
+        clientInfo: `${invoiceData.clientName || "Client"}${invoiceData.clientEmail ? ` <${invoiceData.clientEmail}>` : ""}`,
+        projectDescription: invoiceData.notes || items.map(i => i.description).join("; "),
+        hourlyRate: Math.round(items.length ? (items.reduce((sum, i) => sum + (i.rate || 0), 0) / items.length) : (invoiceData.taxRate || 50))
+      }
 
-    const updatedItems = items.map((item, index) => ({
-      ...item,
-      description: aiDescriptions[index] || item.description,
-      rate: 75 + index * 25,
-      quantity: 8 + index * 2,
-      amount: (75 + index * 25) * (8 + index * 2),
-    }))
+      // Proactively ensure auth before hitting AI endpoint
+      if (!isConnected || !address) {
+        toast({ title: "Login required", description: "Connect wallet to use AI." })
+        const addr = await withLoader(async () => await connect())
+        if (!addr) {
+          toast({ title: "Not connected", description: "AI generation skipped.", variant: "destructive" })
+          return
+        }
+      }
 
-    setItems(updatedItems)
+      try {
+        const res: any = await api.ai.generateInvoice(payload)
+        const draftItems = Array.isArray(res?.items) ? res.items : []
+        if (draftItems.length) {
+          const updatedItems = draftItems.map((d: any, idx: number) => ({
+            id: items[idx]?.id || `${Date.now()}_${idx}`,
+            description: String(d.description || items[idx]?.description || "Service"),
+            quantity: Number(d.quantity ?? items[idx]?.quantity ?? 1),
+            rate: Number(d.unitPrice ?? items[idx]?.rate ?? 0),
+            amount: Number(d.quantity ?? 1) * Number(d.unitPrice ?? 0),
+          }))
+          setItems(updatedItems)
+          toast({ title: "AI generated draft", description: "Line items updated." })
+        } else {
+          toast({ title: "AI returned no items", description: "Using your current items.", variant: "destructive" })
+        }
+      } catch (e: any) {
+        const msg = String(e?.message || '')
+        if (msg.includes('401')) {
+          // Retry once after a wallet connect/auth refresh
+          const addr = await withLoader(async () => await connect())
+          if (addr) {
+            const res2: any = await api.ai.generateInvoice(payload)
+            const draftItems = Array.isArray(res2?.items) ? res2.items : []
+            if (draftItems.length) {
+              const updatedItems = draftItems.map((d: any, idx: number) => ({
+                id: items[idx]?.id || `${Date.now()}_${idx}`,
+                description: String(d.description || items[idx]?.description || "Service"),
+                quantity: Number(d.quantity ?? items[idx]?.quantity ?? 1),
+                rate: Number(d.unitPrice ?? items[idx]?.rate ?? 0),
+                amount: Number(d.quantity ?? 1) * Number(d.unitPrice ?? 0),
+              }))
+              setItems(updatedItems)
+              toast({ title: "AI generated draft", description: "Line items updated." })
+            } else {
+              toast({ title: "AI returned no items", description: "Using your current items.", variant: "destructive" })
+            }
+          } else {
+            toast({ title: "Not connected", description: "AI generation skipped.", variant: "destructive" })
+          }
+        } else {
+          console.error("AI generate failed", e)
+          toast({ title: "AI generation failed", description: e?.message || "Please try again.", variant: "destructive" })
+        }
+      }
+    } catch (e: any) {
+      console.error("AI generate failed", e)
+      toast({ title: "AI generation failed", description: e?.message || "Please try again.", variant: "destructive" })
+    }
   }
 
   const validateInvoice = (): string[] => {
@@ -104,6 +154,68 @@ export default function CreateInvoicePage() {
         })
         return
       }
+
+      // Immediately open a printable preview in a new tab
+      try {
+        window.localStorage.setItem("invoice-preview", JSON.stringify({ invoiceData, items }))
+        window.open("/preview?print=1", "_blank")
+      } catch (e) {
+        console.error("Failed to open preview", e)
+      }
+
+      // Prepare payload for backend save
+      const payload = {
+        clientName: invoiceData.clientName || "Unknown",
+        clientEmail: invoiceData.clientEmail || undefined,
+        currency: invoiceData.currency || "USD",
+        items: items.map(i => ({
+          description: i.description,
+          quantity: i.quantity,
+          unitPrice: i.rate,
+          taxRate: invoiceData.taxRate || 0,
+        }))
+      }
+
+      // Check both wallet connection state and token presence
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('evm_auth_token') : null
+      
+      let savedId: string | undefined
+      const trySave = async () => {
+        const res: any = await api.invoices.create(payload)
+        savedId = res?.invoice?.id || res?.id
+        toast({ title: "Invoice saved", description: savedId ? `ID: ${savedId}` : "Saved to backend." })
+      }
+
+      try {
+        // Use the existing isConnected from useEvmWallet hook at component level
+        if (!isConnected || !address) {
+          toast({ title: "Login required", description: "Connect wallet to save invoice." })
+          const addr = await withLoader(async () => await connect())
+          if (!addr) {
+            toast({ title: "Not connected", description: "Invoice will not be saved.", variant: "destructive" })
+          } else {
+            await withLoader(trySave)
+          }
+        } else {
+          await withLoader(trySave)
+        }
+      } catch (e: any) {
+        const msg = String(e?.message || '')
+        if (msg.includes('401')) {
+          toast({ title: "Session expired", description: "Reconnecting wallet…" })
+          const addr = await withLoader(async () => await connect())
+          if (addr) {
+            await withLoader(trySave)
+          } else {
+            toast({ title: "Not connected", description: "Invoice will not be saved.", variant: "destructive" })
+          }
+        } else {
+          console.error("Save failed", e)
+          toast({ title: "Failed to save invoice", description: e?.message || "Please try again.", variant: "destructive" })
+        }
+      }
+
+      // Also download PDF in current tab for convenience
       await generateInvoicePDF(invoiceData as any, items as any)
     } catch (error) {
       console.error("Error generating PDF:", error)
@@ -183,6 +295,59 @@ export default function CreateInvoicePage() {
         description: "Please try again.",
         variant: "destructive",
       })
+    }
+  }
+
+  const handleCreateInvoice = async () => {
+    try {
+      const errors = validateInvoice()
+      if (errors.length) {
+        toast({ title: "Cannot save invoice", description: errors[0], variant: "destructive" })
+        return
+      }
+
+      // Check authentication before attempting to save
+      if (!isConnected || !address) {
+        toast({ title: "Login required", description: "Connect wallet to save invoice." })
+        const addr = await withLoader(async () => await connect())
+        if (!addr) {
+          toast({ title: "Not connected", description: "Invoice will not be saved.", variant: "destructive" })
+          return
+        }
+      }
+
+      const payload = {
+        clientName: invoiceData.clientName || "Unknown",
+        clientEmail: invoiceData.clientEmail || undefined,
+        currency: invoiceData.currency || "USD",
+        items: items.map(i => ({
+          description: i.description,
+          quantity: i.quantity,
+          unitPrice: i.rate,
+          taxRate: invoiceData.taxRate || 0,
+        }))
+      }
+      const res: any = await withLoader(async () => await api.invoices.create(payload))
+      const id = res?.invoice?.id || res?.id
+      toast({ title: "Invoice saved", description: id ? `ID: ${id}` : "Saved to backend." })
+      if (id) {
+        try { window.open(`/invoices/${id}`, "_self") } catch {}
+      }
+    } catch (e: any) {
+      const msg = String(e?.message || '')
+      if (msg.includes('401')) {
+        toast({ title: "Session expired", description: "Reconnecting wallet…" })
+        const addr = await withLoader(async () => await connect())
+        if (addr) {
+          // Retry the save after reconnecting
+          await handleCreateInvoice()
+        } else {
+          toast({ title: "Not connected", description: "Invoice will not be saved.", variant: "destructive" })
+        }
+      } else {
+        console.error("Create invoice failed", e)
+        toast({ title: "Failed to save invoice", description: e?.message || "Please try again.", variant: "destructive" })
+      }
     }
   }
 
@@ -446,6 +611,7 @@ export default function CreateInvoicePage() {
                   >
                     Generate & Download PDF
                   </Button>
+
                 </div>
 
                 <div className="text-xs text-muted-foreground space-y-1">
