@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import api from '@/lib/api'
 
 export type EvmWalletState = {
   address: string | null
@@ -27,10 +28,50 @@ export function useEvmWallet() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const stored = window.localStorage.getItem('evm_wallet_address')
-    if (stored) {
-      setGlobalEvmWalletState({ address: stored, connected: true })
+    const addr = window.localStorage.getItem('evm_wallet_address')
+    const token = window.localStorage.getItem('evm_auth_token')
+    if (addr) {
+      // Only consider connected when a valid auth token exists
+      setGlobalEvmWalletState({ address: addr, connected: Boolean(token) })
     }
+  }, [])
+
+  // Reflect server-side session state on load
+  useEffect(() => {
+    let cancelled = false
+    const checkStatus = async () => {
+      try {
+        const token = typeof window !== 'undefined' ? window.localStorage.getItem('evm_auth_token') : null
+        // Only call status when we actually have an auth token
+        if (!token) {
+          return
+        }
+        const status = await api.auth.wallet.status()
+        const addr = (status as any)?.walletAddress || (typeof window !== 'undefined' ? window.localStorage.getItem('evm_wallet_address') : null)
+        const connected = Boolean((status as any)?.connected ?? addr)
+        if (!cancelled) {
+          if (connected && addr) {
+            if ((status as any)?.token && typeof window !== 'undefined') {
+              window.localStorage.setItem('evm_auth_token', (status as any).token)
+            }
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem('evm_wallet_address', addr)
+            }
+            setGlobalEvmWalletState({ address: addr, connected: true })
+          } else {
+            if (typeof window !== 'undefined') {
+              window.localStorage.removeItem('evm_wallet_address')
+              window.localStorage.removeItem('evm_auth_token')
+            }
+            setGlobalEvmWalletState({ address: null, connected: false })
+          }
+        }
+      } catch (e) {
+        // Leave client state as-is on failure
+      }
+    }
+    checkStatus()
+    return () => { cancelled = true }
   }, [])
 
   const connect = useCallback(async () => {
@@ -79,47 +120,79 @@ export function useEvmWallet() {
         }
       }
 
+      // Persist address but do not mark as connected until auth succeeds
       window.localStorage.setItem('evm_wallet_address', addr)
-      setGlobalEvmWalletState({ address: addr, connected: true })
+      setGlobalEvmWalletState({ address: addr, connected: false })
 
       // Wallet-as-login: SIWE handshake with backend
       try {
-        const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3001').replace(/\/$/, '')
-        const nonceRes = await fetch(`${API_BASE}/api/auth/wallet/nonce`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ walletAddress: addr }),
-        })
-        if (nonceRes.ok) {
-          const { nonce, chainId, domain } = await nonceRes.json()
-          const issuedAt = new Date().toISOString()
-          const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-          const d = domain || new URL(origin).hostname
-          const msg =
-            `${d} wants you to sign in with your Ethereum account:\n${addr}\n\n` +
-            `URI: ${origin}\n` +
-            `Version: 1\n` +
-            `Chain ID: ${chainId ?? 84532}\n` +
-            `Nonce: ${nonce}\n` +
-            `Issued At: ${issuedAt}`
-          const sig = await eth.request({ method: 'personal_sign', params: [msg, addr] })
-          const connectRes = await fetch(`${API_BASE}/api/auth/wallet/connect`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ walletAddress: addr, signature: sig, message: msg }),
-          })
-          if (connectRes.ok) {
-            const json = await connectRes.json()
-            if (json?.token) {
-              window.localStorage.setItem('evm_auth_token', json.token)
+        const { nonce, chainId, domain } = await api.auth.wallet.nonce(addr)
+        const issuedAt = new Date().toISOString()
+        const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+        const d = domain || new URL(origin).hostname
+        const msg =
+          `${d} wants you to sign in with your Ethereum account:\n${addr}\n\n` +
+          `URI: ${origin}\n` +
+          `Version: 1\n` +
+          `Chain ID: ${chainId ?? 84532}\n` +
+          `Nonce: ${nonce}\n` +
+          `Issued At: ${issuedAt}`
+
+        // Try multiple signing parameter orders for broad wallet compatibility
+        const toHex = (s: string) => '0x' + Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, '0')).join('')
+        let sig: string | undefined
+        try {
+          sig = await eth.request({ method: 'personal_sign', params: [msg, addr] })
+        } catch (e1: any) {
+          try {
+            sig = await eth.request({ method: 'personal_sign', params: [addr, msg] })
+          } catch (e2: any) {
+            try {
+              sig = await eth.request({ method: 'personal_sign', params: [toHex(msg), addr] })
+            } catch (e3: any) {
+              try {
+                sig = await eth.request({ method: 'eth_sign', params: [addr, toHex(msg)] })
+              } catch (e4: any) {
+                console.warn('Signing failed using multiple methods:', e1?.message || e1, e2?.message || e2, e3?.message || e3, e4?.message || e4)
+                throw e4 || e3 || e2 || e1
+              }
             }
           }
         }
+        if (!sig) throw new Error('Signature not obtained')
+
+        const connectRes = await api.auth.wallet.connect({ walletAddress: addr, signature: sig, message: msg })
+        if (connectRes?.token) {
+          window.localStorage.setItem('evm_auth_token', connectRes.token)
+          // Verify token works against a guarded endpoint
+          try {
+            const st = await api.auth.wallet.status()
+            if (st && st.connected) {
+              setGlobalEvmWalletState({ address: addr, connected: true })
+              return addr
+            } else {
+              // Guard rejected: clear token and treat as not connected
+              window.localStorage.removeItem('evm_auth_token')
+              setGlobalEvmWalletState({ address: addr, connected: false })
+              throw new Error('Authentication failed: status check not connected')
+            }
+          } catch (e) {
+            window.localStorage.removeItem('evm_auth_token')
+            setGlobalEvmWalletState({ address: addr, connected: false })
+            throw e
+          }
+        } else {
+          // No token returned -> treat as not connected for app features
+          window.localStorage.removeItem('evm_auth_token')
+          setGlobalEvmWalletState({ address: addr, connected: false })
+          throw new Error('Authentication token not issued')
+        }
       } catch (e: any) {
         console.warn('Wallet login handshake failed:', e?.message || e)
+        window.localStorage.removeItem('evm_auth_token')
+        setGlobalEvmWalletState({ address: addr, connected: false })
+        throw e
       }
-
-      return addr
     } catch (err) {
       console.error('Failed to connect EVM wallet:', err)
       return null
@@ -127,6 +200,14 @@ export function useEvmWallet() {
   }, [])
 
   const disconnect = useCallback(async () => {
+    try {
+      const addr = globalEvmWalletState.address
+      if (addr) {
+        await api.auth.wallet.disconnect(addr)
+      }
+    } catch (e) {
+      // ignore
+    }
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem('evm_wallet_address')
       window.localStorage.removeItem('evm_auth_token')

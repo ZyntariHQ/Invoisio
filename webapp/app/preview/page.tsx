@@ -1,12 +1,14 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useSearchParams } from "next/navigation"
 import { InvoicePreview } from "@/components/invoice-preview"
 import { generateInvoicePDF, shareInvoicePDF, type InvoiceData, type InvoiceItem } from "@/lib/pdf-generator"
 
 export default function PreviewPage() {
   const [invoiceData, setInvoiceData] = useState<InvoiceData | null>(null)
   const [items, setItems] = useState<InvoiceItem[]>([])
+  const params = useSearchParams()
 
   useEffect(() => {
     try {
@@ -20,6 +22,17 @@ export default function PreviewPage() {
       console.error("Failed to parse preview cache", e)
     }
   }, [])
+
+  useEffect(() => {
+    const shouldPrint = params?.get("print") === "1"
+    if (shouldPrint && invoiceData && items.length) {
+      // Auto-generate the PDF when requested via query
+      generateInvoicePDF(invoiceData, items).catch((err) => {
+        console.error(err)
+        alert("Unable to generate the PDF automatically. Please allow popups and try again.")
+      })
+    }
+  }, [params, invoiceData, items])
 
   const totals = useMemo(() => {
     const subtotal = items.reduce((sum, item) => sum + (item?.amount ?? 0), 0)

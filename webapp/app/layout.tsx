@@ -13,6 +13,7 @@ import Providers from "@/app/providers"
 import "@coinbase/onchainkit/styles.css"
 import { cookies } from "next/headers"
 import ThemeCookieSync from "@/components/theme-cookie-sync"
+import { BasenameProvider } from "@/hooks/use-basename"
 
 const ClientToaster = dynamic(() => import("@/components/ui/toaster").then(m => m.Toaster), { ssr: false })
 const AppNavigation = dynamic(() => import("@/components/navigation").then(m => m.Navigation), { ssr: false })
@@ -58,7 +59,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   const themeCookie = cookies().get("theme")?.value
-  const htmlClass = themeCookie === "dark" ? "dark" : undefined
+  const htmlClass = themeCookie === "dark" ? "dark" : "light"
 
   return (
     <html lang="en" className={htmlClass} suppressHydrationWarning>
@@ -71,16 +72,20 @@ export default function RootLayout({
           <div className="nm-boot-spinner" />
         </div>
         <Providers>
-          <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange storageKey="theme">
-            {/* Keep cookie in sync with active theme so SSR class stays correct */}
-            <ThemeCookieSync />
-            <AppNavigation />
-            {children}
-            <Footer />
-            <Analytics />
-            <ServiceWorkerRegister />
-            <ClientToaster />
-          </ThemeProvider>
+          {/* Basename context for global identity display */}
+          {/** Wrap the app to expose resolved Basename via useBasenameContext */}
+          <BasenameProvider>
+            <ThemeProvider attribute="class" defaultTheme="light" enableSystem disableTransitionOnChange storageKey="theme">
+              {/* Keep cookie in sync with active theme so SSR class stays correct */}
+              <ThemeCookieSync />
+              <AppNavigation />
+              {children}
+              <Footer />
+              <Analytics />
+              <ServiceWorkerRegister />
+              <ClientToaster />
+            </ThemeProvider>
+          </BasenameProvider>
         </Providers>
       </body>
     </html>

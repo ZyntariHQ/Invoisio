@@ -9,11 +9,13 @@ import { FileText, BarChart3, PieChart, Bell, Wallet as WalletIcon, Menu, X, Hom
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useState, useEffect } from "react"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useAccount, useDisconnect } from "wagmi"
+import { useAccount } from "wagmi"
 import dynamic from "next/dynamic"
 import { Wallet as OnchainWallet, ConnectWallet } from "@coinbase/onchainkit/wallet"
 import { Avatar } from "@coinbase/onchainkit/identity"
 import { useAppLoader } from "@/components/loader-provider"
+import api from "@/lib/api"
+import { useEvmWallet } from "@/hooks/use-evm-wallet"
 
 const navigation = []
 const WalletHeader = dynamic(() => import("@/components/wallet-header").then(m => m.WalletHeader), { ssr: false })
@@ -26,7 +28,9 @@ export function Navigation() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isNotificationOpen, setIsNotificationOpen] = useState(false)
   const { address: wagmiAddress, isConnected: wagmiIsConnected } = useAccount()
-  const { disconnect } = useDisconnect()
+  const { disconnect, address } = useEvmWallet()
+  const [unreadCount, setUnreadCount] = useState<number>(0)
+  const [notifications, setNotifications] = useState<any[]>([])
 
   const isMobile = useIsMobile()
 
@@ -56,6 +60,52 @@ export function Navigation() {
       setIsMenuOpen(false)
     }
   }, [isMobile, wagmiIsConnected])
+
+  // Poll unread notifications count
+  useEffect(() => {
+    let active = true
+    const fetchUnread = async () => {
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('evm_auth_token') : null
+      if (!token) { if (active) setUnreadCount(0); return }
+      try {
+        const res: any = await api.notifications.unreadCount()
+        const c = typeof res === 'number' ? res : (res?.count ?? 0)
+        if (active) setUnreadCount(c)
+      } catch {
+        if (active) setUnreadCount(0)
+      }
+    }
+    fetchUnread()
+    const id = setInterval(fetchUnread, 15000)
+    return () => { active = false; clearInterval(id) }
+  }, [])
+
+  const fetchNotifications = async () => {
+    const token = typeof window !== 'undefined' ? window.localStorage.getItem('evm_auth_token') : null
+    if (!token) { setNotifications([]); return }
+    try {
+      const res: any[] = await api.notifications.list()
+      setNotifications(Array.isArray(res) ? res : [])
+    } catch (e) {
+      setNotifications([])
+    }
+  }
+
+  useEffect(() => {
+    if (isNotificationOpen) {
+      fetchNotifications()
+    }
+  }, [isNotificationOpen])
+
+  const markRead = async (id: string) => {
+    const token = typeof window !== 'undefined' ? window.localStorage.getItem('evm_auth_token') : null
+    if (!token) { return }
+    try {
+      await api.notifications.markRead(id)
+      setNotifications((prev) => prev.map(n => n.id === id ? { ...n, read: true } : n))
+      setUnreadCount((c) => Math.max(0, c - 1))
+    } catch {}
+  }
 
   const goToPayment = async () => {
     await withLoader(async () => {
@@ -110,7 +160,11 @@ export function Navigation() {
                 onClick={() => setIsNotificationOpen(!isNotificationOpen)}
               >
                 <Bell className="h-5 w-5" />
-                <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full text-xs flex items-center justify-center text-white"></span>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-h-5 min-w-5 px-1 py-0.5 bg-red-500 rounded-full text-[10px] flex items-center justify-center text-white">
+                    {unreadCount}
+                  </span>
+                )}
               </Button>
               {isNotificationOpen && (
                 <div className="absolute right-0 top-12 w-80 bg-background border border-border rounded-lg shadow-lg z-50 nm-flat">
@@ -118,47 +172,31 @@ export function Navigation() {
                     <h3 className="font-semibold text-foreground">Notifications</h3>
                   </div>
                   <div className="max-h-96 overflow-y-auto">
-                    {/* Sample Notifications */}
-                    <div className="p-4 border-b border-border/50 hover:bg-muted/50 cursor-pointer">
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">Invoice #INV-001 has been paid</p>
-                          <p className="text-xs text-muted-foreground mt-1">2 minutes ago</p>
+                    {notifications.length === 0 && (
+                      <div className="p-4 text-sm text-muted-foreground">No notifications</div>
+                    )}
+                    {notifications.map((n) => (
+                      <div key={n.id} className="p-4 border-b border-border/50 hover:bg-muted/50">
+                        <div className="flex items-start gap-3">
+                          <div className={cn("w-2 h-2 rounded-full mt-2 flex-shrink-0", n.read ? "bg-transparent" : "bg-blue-500")}></div>
+                          <div className="flex-1">
+                            <p className="text-sm font-medium text-foreground">{n.title || n.message || "Notification"}</p>
+                            {n.createdAt && (
+                              <p className="text-xs text-muted-foreground mt-1">{new Date(n.createdAt).toLocaleString()}</p>
+                            )}
+                          </div>
+                          {!n.read && (
+                            <Button size="sm" variant="ghost" className="text-primary" onClick={() => markRead(n.id)}>
+                              Mark read
+                            </Button>
+                          )}
                         </div>
                       </div>
-                    </div>
-                    <div className="p-4 border-b border-border/50 hover:bg-muted/50 cursor-pointer">
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">New client registration</p>
-                          <p className="text-xs text-muted-foreground mt-1">1 hour ago</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 border-b border-border/50 hover:bg-muted/50 cursor-pointer">
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-yellow-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">Invoice #INV-002 is overdue</p>
-                          <p className="text-xs text-muted-foreground mt-1">3 hours ago</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="p-4 hover:bg-muted/50 cursor-pointer">
-                      <div className="flex items-start gap-3">
-                        <div className="w-2 h-2 bg-purple-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium text-foreground">System maintenance scheduled</p>
-                          <p className="text-xs text-muted-foreground mt-1">1 day ago</p>
-                        </div>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                   <div className="p-4 border-t border-border">
-                    <button className="text-sm text-primary hover:text-primary/80 font-medium w-full text-center">
-                      View all notifications
+                    <button className="text-sm text-primary hover:text-primary/80 font-medium w-full text-center" onClick={fetchNotifications}>
+                      Refresh
                     </button>
                   </div>
                 </div>
@@ -390,7 +428,7 @@ export function Navigation() {
                     className="inline-flex items-center gap-2 nm-convex rounded-lg px-4 h-9"
                   >
                     <Avatar className="h-4 w-4" />
-                    <span className="text-black dark:!text-white">{wagmiIsConnected && wagmiAddress ? `${wagmiAddress.slice(0,6)}…${wagmiAddress.slice(-4)}` : "Connect Wallet"}</span>
+                    <span className="text-black dark:!text-white">{wagmiIsConnected && (wagmiAddress || address) ? `${(wagmiAddress || address)!.slice(0,6)}…${(wagmiAddress || address)!.slice(-4)}` : "Connect Wallet"}</span>
                   </ConnectWallet>
                 </OnchainWallet>
                 {wagmiIsConnected && (
