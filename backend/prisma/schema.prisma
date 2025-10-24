@@ -11,46 +11,61 @@ datasource db {
 }
 
 model User {
-  id             String    @id @default(uuid())
-  walletAddress  String    @unique
+  id             String          @id @default(uuid())
+  walletAddress  String          @unique
   nonce          String?
   nonceExpiresAt DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
   invoices       Invoice[]
   payments       Payment[]
   notifications  Notification[]
 }
 
 model Invoice {
-  id            String     @id @default(uuid())
-  userId        String
-  user          User       @relation(fields: [userId], references: [id])
-  invoiceNumber String     @unique
-  clientName    String
-  clientEmail   String?
-  currency      String?
-  status        String     @default("draft")
-  items         Json
-  subtotal      Decimal
-  tax           Decimal
-  total         Decimal
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  payments      Payment[]
+  id                     String     @id @default(uuid())
+  userId                 String
+  user                   User       @relation(fields: [userId], references: [id])
+
+  invoiceNumber          String     @unique
+  clientName             String
+  clientEmail            String?
+  clientAddress          String?    
+  notes                  String?   
+  currency               String?    @default("USDC")
+  merchantWalletAddress  String?   
+  taxRate                Decimal?   
+  issueDate              DateTime?  
+  dueDate                DateTime?  
+
+  status                 String     @default("draft") 
+  items                  Json       
+
+  subtotal               Decimal    @default(0)
+  tax                    Decimal    @default(0)
+  total                  Decimal    @default(0)
+
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+
+  payments               Payment[]
 }
 
 model Payment {
   id              String   @id @default(uuid())
   invoiceId       String
   invoice         Invoice  @relation(fields: [invoiceId], references: [id])
+
   userId          String
   user            User     @relation(fields: [userId], references: [id])
+
   merchantAddress String?
   token           String
   amount          String
   transactionHash String?
   status          String   @default("pending")
+
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -59,10 +74,12 @@ model Notification {
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id])
+
   title       String
   description String?
   type        String?
   read        Boolean  @default(false)
   metadata    Json?
+
   createdAt   DateTime @default(now())
 }

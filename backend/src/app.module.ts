@@ -14,6 +14,7 @@ import { InvoicesModule } from './modules/invoices/invoices.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { AiModule } from './modules/ai/ai.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     PaymentsModule,
     AiModule,
     NotificationsModule,
+    UsersModule,
   ],
   providers: [],
 })
