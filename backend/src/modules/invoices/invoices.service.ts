@@ -1,62 +1,39 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class InvoicesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(userId: string, createInvoiceDto: CreateInvoiceDto) {
-    // Calculate totals
-    let subtotal = 0;
-    const items = createInvoiceDto.items.map(item => {
-      const itemTotal = item.quantity * item.unitPrice;
-      subtotal += itemTotal;
-      return {
-        ...item,
-        total: itemTotal,
-      };
-    });
+  async create(userId: string, dto: CreateInvoiceDto) {
+    const { items, ...rest } = dto;
 
-    const tax = createInvoiceDto.items.reduce((acc, item) => {
-      if (item.taxRate) {
-        return acc + (item.quantity * item.unitPrice * item.taxRate) / 100;
-      }
-      return acc;
-    }, 0);
-
+    const subtotal = items.reduce((sum, item) => sum + item.amount, 0);
+    const tax = (Number(dto.taxRate || 0) / 100) * subtotal;
     const total = subtotal + tax;
 
-    // Generate unique invoice number
-    const invoiceNumber = `INV-${Date.now()}`;
-
-    const invoice = await this.prisma.invoice.create({
+    return this.prisma.invoice.create({
       data: {
+        ...rest,
         userId,
-        invoiceNumber,
-        clientName: createInvoiceDto.clientName,
-        clientEmail: createInvoiceDto.clientEmail,
-        currency: createInvoiceDto.currency,
-        status: 'draft',
         items: JSON.stringify(items),
-        subtotal: subtotal.toString(),
-        tax: tax.toString(),
-        total: total.toString(),
+        subtotal,
+        tax,
+        total,
       },
     });
-
-    return {
-      invoice: {
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        subtotal: parseFloat(invoice.subtotal.toString()),
-        tax: parseFloat(invoice.tax.toString()),
-        total: parseFloat(invoice.total.toString()),
-        status: invoice.status,
-      },
-    };
   }
+
+  async findAllByUser(userId: string) {
+    return this.prisma.invoice.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
 
   async findAll(userId: string, page: number = 1, limit: number = 10, status?: string, search?: string) {
     const where: any = { userId };
@@ -97,84 +74,64 @@ export class InvoicesService {
     };
   }
 
-  async findOne(userId: string, id: string) {
+  async findOne(id: string, userId: string) {
     const invoice = await this.prisma.invoice.findFirst({
-      where: {
-        id,
-        userId,
-      },
+      where: { id, userId },
+      include: { payments: true },
     });
 
-    if (!invoice) {
-      throw new Error('Invoice not found');
-    }
-
-    return {
-      invoice: {
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        clientName: invoice.clientName,
-        items: JSON.parse(invoice.items as string),
-        subtotal: parseFloat(invoice.subtotal.toString()),
-        tax: parseFloat(invoice.tax.toString()),
-        total: parseFloat(invoice.total.toString()),
-        status: invoice.status,
-      },
-    };
+    if (!invoice) throw new NotFoundException('Invoice not found');
+    return invoice;
   }
 
-  async update(userId: string, id: string, updateInvoiceDto: UpdateInvoiceDto) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: {
-        id,
-        userId,
+  async update(id: string, userId: string, dto: UpdateInvoiceDto) {
+    const existing = await this.prisma.invoice.findFirst({
+      where: { id, userId },
+      // ✅ Explicitly include taxRate so we can use it
+      select: {
+        id: true,
+        subtotal: true,
+        tax: true,
+        total: true,
+        taxRate: true,
+        items: true,
       },
     });
-
-    if (!invoice) {
-      throw new Error('Invoice not found');
+  
+    if (!existing) throw new NotFoundException('Invoice not found');
+  
+    const { items, taxRate } = dto;
+  
+    // Convert decimals properly
+    let subtotal = new Prisma.Decimal(existing.subtotal);
+    let tax = new Prisma.Decimal(existing.tax);
+    let total = new Prisma.Decimal(existing.total);
+    let rate = new Prisma.Decimal(taxRate ?? existing.taxRate ?? 0);
+  
+    if (items && items.length > 0) {
+      subtotal = new Prisma.Decimal(items.reduce((sum, item) => sum + item.amount, 0));
+      tax = subtotal.mul(rate).div(100);
+      total = subtotal.add(tax);
     }
-
-    const updatedInvoice = await this.prisma.invoice.update({
+  
+    return this.prisma.invoice.update({
       where: { id },
       data: {
-        clientName: updateInvoiceDto.clientName,
-        clientEmail: updateInvoiceDto.clientEmail,
-        currency: updateInvoiceDto.currency,
-        status: updateInvoiceDto.status,
+        ...dto,
+        items: (items ?? existing.items ?? Prisma.DbNull) as Prisma.InputJsonValue,
+        subtotal,
+        tax,
+        total,
+        taxRate: rate,
+        updatedAt: new Date(),
       },
     });
-
-    return {
-      invoice: {
-        id: updatedInvoice.id,
-        invoiceNumber: updatedInvoice.invoiceNumber,
-        clientName: updatedInvoice.clientName,
-        items: JSON.parse(updatedInvoice.items as string),
-        subtotal: parseFloat(updatedInvoice.subtotal.toString()),
-        tax: parseFloat(updatedInvoice.tax.toString()),
-        total: parseFloat(updatedInvoice.total.toString()),
-        status: updatedInvoice.status,
-      },
-    };
   }
 
-  async remove(userId: string, id: string) {
-    const invoice = await this.prisma.invoice.findFirst({
-      where: {
-        id,
-        userId,
-      },
-    });
+  async remove(id: string, userId: string) {
+    const invoice = await this.prisma.invoice.findFirst({ where: { id, userId } });
+    if (!invoice) throw new NotFoundException('Invoice not found');
 
-    if (!invoice) {
-      throw new Error('Invoice not found');
-    }
-
-    await this.prisma.invoice.delete({
-      where: { id },
-    });
-
-    return { success: true };
+    return this.prisma.invoice.delete({ where: { id } });
   }
 }

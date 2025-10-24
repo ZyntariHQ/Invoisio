@@ -2,11 +2,13 @@
 
 import * as Dialog from "@radix-ui/react-dialog"
 import Image from "next/image"
+import { useEffect, useState } from 'react';
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Wallet } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useConnect, useDisconnect, useAccount } from "wagmi"
+import { useAuthStore } from "@/hooks/use-auth-store";
 
 type WalletKey = "metamask" | "coinbase"
 
@@ -45,6 +47,18 @@ export function WalletConnectModal({ open, onOpenChange }: WalletConnectModalPro
       toast({ title: "Connection Failed", description: err?.message || "Unable to connect", variant: "destructive" })
     }
   }
+
+  const { login, logout, checkAuth, user } = useAuthStore();
+
+  
+  useEffect(() => {
+    if(isConnected) {
+      login(address as string);
+      checkAuth();
+    } else {
+      logout();
+    }
+  },[isConnected, address, login, logout, checkAuth])
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>

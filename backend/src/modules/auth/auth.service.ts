@@ -1,16 +1,21 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { ConnectWalletDto } from './dto/connect-wallet.dto';
 import { VerifySignatureDto } from './dto/verify-signature.dto';
 import { randomBytes } from 'crypto';
 import { SiweMessage } from 'siwe';
+import { UsersService } from '../users/users.service';
+import { ConfigService } from '@nestjs/config';
+
 
 @Injectable()
 export class AuthService {
   constructor(
     private jwtService: JwtService,
     private prisma: PrismaService,
+    private usersService: UsersService,
+    private config: ConfigService,
   ) {}
 
   async requestNonce(walletAddress: string) {
@@ -25,20 +30,17 @@ export class AuthService {
         nonceExpiresAt: expiresAt,
       },
     });
-    // Return EVM chain details for SIWE (Base chain defaults)
     const chainId = parseInt(process.env.EVM_CHAIN_ID || '84532', 10);
     const domain = 'invoisio.app';
     return { nonce, expiresAt: user.nonceExpiresAt, chainId, domain };
   }
 
   async connectWallet(connectWalletDto: ConnectWalletDto) {
-    // Require prior nonce issuance
     const existing = await this.prisma.user.findUnique({ where: { walletAddress: connectWalletDto.walletAddress } });
     if (!existing || !existing.nonce) {
       throw new BadRequestException('Nonce required. Request nonce first.');
     }
 
-    // Verify signature before connecting
     await this.verifySignature({
       walletAddress: connectWalletDto.walletAddress,
       signature: connectWalletDto.signature,
@@ -67,9 +69,47 @@ export class AuthService {
     return { success: true };
   }
 
-  async getWalletStatus() {
-    return { connected: true };
-  }
+    async loginByWallet(walletAddress: string) {
+      walletAddress = walletAddress.toLowerCase();
+  
+      const user = await this.usersService.findOrCreateByWalletAddress(walletAddress);
+  
+      const payload = { sub: user.id, walletAddress };
+      const accessToken = await this.jwtService.signAsync(payload, {
+        secret: this.config.get('JWT_SECRET'),
+        expiresIn: '15m',
+      });
+      const refreshToken = await this.jwtService.signAsync(payload, {
+        secret: this.config.get('JWT_REFRESH_SECRET'),
+        expiresIn: '7d',
+      });
+  
+      return { accessToken, refreshToken, user };
+    }
+
+    async refresh(refreshToken: string) {
+      try {
+        const payload = await this.jwtService.verifyAsync(refreshToken, {
+          secret: this.config.get('JWT_REFRESH_SECRET'),
+        });
+  
+        const accessToken = await this.jwtService.signAsync(
+          { sub: payload.sub, walletAddress: payload.walletAddress },
+          { secret: this.config.get('JWT_SECRET'), expiresIn: '15m' },
+        );
+  
+        return { accessToken };
+      } catch {
+        throw new UnauthorizedException('Invalid refresh token');
+      }
+    }
+  
+    /**
+     * Wallet status
+     */
+    getWalletStatus(user: any) {
+      return { walletAddress: user.walletAddress, userId: user.userId };
+    }
 
   async verifySignature(verifySignatureDto: VerifySignatureDto) {
     const { walletAddress, signature, message } = verifySignatureDto;
@@ -82,7 +122,6 @@ export class AuthService {
       throw new BadRequestException('Nonce expired. Request a new nonce.');
     }
 
-    // Verify SIWE message signature (EVM / Base chain)
     let parsed: SiweMessage;
     try {
       parsed = new SiweMessage(message);
@@ -90,12 +129,10 @@ export class AuthService {
       throw new BadRequestException('Invalid SIWE message');
     }
 
-    // Ensure nonce matches the one issued by the server
     if (!parsed.nonce || parsed.nonce !== user.nonce) {
       throw new BadRequestException('Nonce mismatch');
     }
 
-    // Optional: enforce chainId if present
     const expectedChainId = parseInt(process.env.EVM_CHAIN_ID || '84532', 10);
     if (parsed.chainId && parsed.chainId !== expectedChainId) {
       throw new BadRequestException('Invalid chain for signature');
@@ -105,12 +142,10 @@ export class AuthService {
     if (!verification.success) {
       throw new BadRequestException('Signature invalid');
     }
-    // Ensure address matches the walletAddress provided
     if (parsed.address?.toLowerCase() !== walletAddress.toLowerCase()) {
       throw new BadRequestException('Address mismatch');
     }
 
-    // Clear nonce on success to prevent replay
     await this.prisma.user.update({
       where: { walletAddress },
       data: { nonce: null, nonceExpiresAt: null },

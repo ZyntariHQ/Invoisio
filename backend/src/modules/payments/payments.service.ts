@@ -194,4 +194,22 @@ export class PaymentsService {
       verified: dto.verify ?? false,
     };
   }
+
+
+  async findAllByUser(userId: string) {
+    return this.prisma.payment.findMany({
+      where: { userId },
+      include: { invoice: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  
+  async findAllByInvoice(invoiceId: string) {
+    return this.prisma.payment.findMany({
+      where: { invoiceId },
+      include: { user: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  
 }

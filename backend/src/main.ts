@@ -5,6 +5,10 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { ConfigService } from '@nestjs/config';
 import { setupSwagger } from '../docs/swagger';
+import cookieParser from 'cookie-parser';
+import csurf from 'csurf';
+
+
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,10 +17,33 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   
   // Enable CORS
+  // app.enableCors({
+  //   origin: configService.get('app.corsOrigin'),
+  // });
+
   app.enableCors({
-    origin: configService.get('app.corsOrigin'),
+    origin: [
+      'http://localhost:3000', 
+      'https://invoisio-roan.vercel.app'
+    ], // or use your deployed frontend URL
+    credentials: true, // Needed if you're using cookies
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
   });
+
   
+  app.use(cookieParser());
+
+   app.use(
+    csurf({
+      cookie: {
+        key: '_csrf',
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax', // Important for cross-origin
+      },
+    }),
+  );
   // Global validation pipe
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

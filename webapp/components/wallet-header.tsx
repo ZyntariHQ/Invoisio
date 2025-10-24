@@ -3,9 +3,22 @@
 import { Wallet as OnchainWallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from "@coinbase/onchainkit/wallet"
 import { Avatar, Name, Address, Identity } from "@coinbase/onchainkit/identity"
 import { useAccount } from "wagmi"
+import { useAuthStore } from "@/hooks/use-auth-store"
+import { useEffect } from "react"
 
 export function WalletHeader() {
-  const { address: wagmiAddress, isConnected: isWagmiConnected } = useAccount()
+  const { address: wagmiAddress, isConnected: isWagmiConnected } = useAccount();
+  const { login, logout, checkAuth, user } = useAuthStore();
+
+  useEffect(() => {
+    if(isWagmiConnected) {
+      login(wagmiAddress as string);
+      checkAuth
+
+    } else {
+      logout();
+    }
+  },[isWagmiConnected, wagmiAddress, login, logout, checkAuth])
 
   return (
     <OnchainWallet>

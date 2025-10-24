@@ -9,12 +9,14 @@ import {
   UseGuards,
   Query,
   Req,
+  Patch,
 } from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { CreateInvoiceDto } from './dto/create-invoice.dto';
 import { UpdateInvoiceDto } from './dto/update-invoice.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PaginationDto } from '../../common/dto/pagination.dto';
+import type { RequestWithUser } from '../../types/request-with-user';
 
 @Controller('api/invoices')
 @UseGuards(JwtAuthGuard)
@@ -22,10 +24,16 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Post('create')
-  create(@Req() req: any, @Body() createInvoiceDto: CreateInvoiceDto) {
-    const userId = req.user?.userId;
+  create(@Req() req: RequestWithUser, @Body() createInvoiceDto: CreateInvoiceDto) {
+    const userId = req.user?.id;
     return this.invoicesService.create(userId, createInvoiceDto);
   }
+
+  @Get('user/:id')
+  async findAllByUser(@Param('id') userId: string) {
+    return this.invoicesService.findAllByUser(userId);
+  }
+  
 
   @Get()
   findAll(
@@ -44,21 +52,21 @@ export class InvoicesController {
     );
   }
 
-  @Get(':id')
-  findOne(@Req() req: any, @Param('id') id: string) {
-    const userId = req.user?.userId;
-    return this.invoicesService.findOne(userId, id);
-  }
-
-  @Put(':id')
-  update(@Req() req: any, @Param('id') id: string, @Body() updateInvoiceDto: UpdateInvoiceDto) {
-    const userId = req.user?.userId;
-    return this.invoicesService.update(userId, id, updateInvoiceDto);
-  }
-
-  @Delete(':id')
-  remove(@Req() req: any, @Param('id') id: string) {
-    const userId = req.user?.userId;
-    return this.invoicesService.remove(userId, id);
-  }
+   @Get(':id')
+   async findOne(@Param('id') id: string, @Req() req: RequestWithUser) {
+     const userId = req.user?.id;
+     return this.invoicesService.findOne(id, userId);
+   }
+ 
+   @Patch(':id')
+   async update(@Param('id') id: string, @Req() req: RequestWithUser, @Body() dto: UpdateInvoiceDto) {
+     const userId = req.user?.id;
+     return this.invoicesService.update(id, userId, dto);
+   }
+ 
+   @Delete(':id')
+   async remove(@Param('id') id: string, @Req() req: RequestWithUser) {
+     const userId = req.user?.id;
+     return this.invoicesService.remove(id, userId);
+   }
 }

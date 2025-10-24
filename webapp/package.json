@@ -9,7 +9,7 @@
     "start": "next start"
   },
   "dependencies": {
-    "@coinbase/onchainkit": "^0.38.18",
+    "@coinbase/onchainkit": "^0.38.19",
     "@coinbase/wallet-sdk": "^4.3.7",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
@@ -42,8 +42,9 @@
     "@remix-run/react": "latest",
     "@sveltejs/kit": "latest",
     "@vercel/analytics": "latest",
-    "@wagmi/connectors": "^6.0.1",
+    "@wagmi/connectors": "^6.1.0",
     "autoprefixer": "^10.4.20",
+    "axios": "^1.12.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
@@ -67,10 +68,10 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
-    "viem": "^2.9.23",
+    "viem": "^2.38.3",
     "vue": "latest",
     "vue-router": "latest",
-    "wagmi": "2.18.1",
+    "wagmi": "^2.18.2",
     "zod": "3.25.67",
     "zustand": "^4.5.0"
   },
