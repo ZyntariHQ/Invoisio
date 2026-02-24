@@ -25,6 +25,9 @@ Invoisio is being adapted to run with grant programs on **GrantFox (grantfox.xyz
 ./
 ├── webapp/         # Next.js 14 app (frontend UI)
 ├── backend/        # New Stellar-first NestJS API (invoices, payments, Soroban integration)
+├── smart-contracts/ # Soroban smart contracts (Rust · stellar contract init)
+│   └── contracts/
+│       └── invoice-payment/   # Invoice payment tracking contract
 └── legacy/         # All legacy code kept during migration
     ├── backend-legacy/ # Original backend kept as reference during migration
     └── legacy-evm/     # EVM prototype (Solidity + Hardhat)
@@ -105,16 +108,31 @@ The frontend handles:
 
 ## 🔧 Soroban (Stellar smart contracts)
 
-Invoisio is being migrated to use **Soroban** for smart contract logic on Stellar. The current live flow relies on native **Payment** operations plus memos for matching, and Soroban will be used for more advanced features such as richer on‑chain events and programmable invoice/payment rules.
+The `smart-contracts/` workspace contains Rust-based Soroban contracts built with the official `stellar contract init` template.
+
+### `invoice-payment` contract (live in `smart-contracts/contracts/invoice-payment/`)
+
+Tracks invoice payments on-chain so the backend can reconcile Soroban events with native Horizon payment streams.
+
+| Method | Description |
+|--------|-------------|
+| `initialize(admin)` | One-time setup; sets the backend service account as admin. |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | Persist record + emit `("payment","recorded")` event. |
+| `get_payment(invoice_id)` | Return stored `PaymentRecord`. |
+| `has_payment(invoice_id)` | Non-panicking existence check. |
+
+Every `record_payment` emits a Soroban event carrying the full `PaymentRecord`, enabling any indexer to subscribe via `stellar events` CLI or the Soroban RPC `getEvents` endpoint.
 
 - Native Stellar payments:
   - Destination: `MERCHANT_PUBLIC_KEY`
   - Asset: XLM or USDC on Stellar
   - Memo: `MEMO_PREFIX + <invoiceId>` for off‑chain matching
-- Soroban (planned/under development):
-  - Rust‑based Soroban contract to log invoice/payment state
-  - Events that backends can index alongside Horizon payment streams
+- Soroban (`smart-contracts/`):
+  - `invoice-payment` contract records and indexes payment state
+  - Events consumers can stream: topics `("payment", "recorded")`
   - Future room for programmable discounts, escrow, or milestone payments
+
+See [`smart-contracts/README.md`](smart-contracts/README.md) for full build, deploy, and invocation instructions.
 
 ## 📚 Development Scripts
 
@@ -125,6 +143,12 @@ Invoisio is being migrated to use **Soroban** for smart contract logic on Stella
 - Backend:
   - `npm run start:dev` — run NestJS in watch mode
   - `npm run test` / `npm run test:e2e` — tests
+- Soroban contracts (`smart-contracts/`):
+  - `stellar contract build` — compile to WASM
+  - `cargo test` — run all unit tests (no network needed)
+  - `make deploy` — deploy to Stellar testnet (from `contracts/invoice-payment/`)
+  - `make invoke-record-payment CONTRACT_ID=<id> ...` — call contract on testnet
+  - See [`smart-contracts/README.md`](smart-contracts/README.md) for full details
 - Legacy contracts/Hardhat (EVM prototype, optional):
   - `npx hardhat compile` — compile contracts
   - `npx hardhat run scripts/deploy.js --network baseSepolia` — deploy router
