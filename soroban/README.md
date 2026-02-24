@@ -115,14 +115,18 @@ stellar events \
 
 All commands run from `smart-contracts/contracts/invoice-payment/`.
 
+### 1 - 
+
+```bash
+rustup target add wasm32v1-none
+```
+
 ### 1 — Build
 
 ```sh
 # From workspace root (smart-contracts/)
 stellar contract build
 # WASM: target/wasm32v1-none/release/invoice_payment.wasm
-
-rustup target add wasm32v1-none
 
 make build   # same + prints file size
 ```
