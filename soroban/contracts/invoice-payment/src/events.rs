@@ -1,6 +1,10 @@
-use soroban_sdk::{symbol_short, Env};
-
+use soroban_sdk::{contractevent, Env};
 use crate::storage::PaymentRecord;
+
+#[contractevent]
+pub struct PaymentRecorded {
+    pub record: PaymentRecord,
+}
 
 /// Emit a `("payment", "recorded")` Soroban event carrying the full
 /// [`PaymentRecord`] as event data.
@@ -31,11 +35,5 @@ use crate::storage::PaymentRecord;
 /// path alongside Horizon native-payment polling. Both paths are independent:
 /// the backend may consume either or both without breaking existing invoices.
 pub fn emit_payment_recorded(env: &Env, record: PaymentRecord) {
-    env.events().publish(
-        // Topics tuple — both values are 9-char Symbols (fits symbol_short!)
-        (symbol_short!("payment"), symbol_short!("recorded")),
-        // Data — the full PaymentRecord is embedded so consumers don't need
-        // a follow-up `get_payment` call.
-        record,
-    );
+    PaymentRecorded { record }.publish(env);
 }

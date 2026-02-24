@@ -7,7 +7,7 @@ use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, String};
 // TTL / Helpers
 
 /// Deploy the contract and call `initialize`, returning the client and admin.
-fn setup(env: &Env) -> (InvoicePaymentContractClient, Address) {
+fn setup(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
     let admin = Address::generate(env);
     let contract_id = env.register(InvoicePaymentContract, ());
     let client = InvoicePaymentContractClient::new(env, &contract_id);
@@ -307,6 +307,7 @@ fn test_set_admin_requires_new_admin_auth() {
             contract: &client.address,
             fn_name: "set_admin",
             args: (new_admin.clone(),).into_val(&env),
+            sub_invokes: &[],
         },
     }]);
 

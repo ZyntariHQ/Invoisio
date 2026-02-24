@@ -42,7 +42,7 @@ pub enum DataKey {
 /// - **Other tokens**: the token's own smallest unit
 ///   (USDC on Stellar uses 7 decimal places).
 #[contracttype]
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PaymentRecord {
     /// Unique invoice identifier.
     ///

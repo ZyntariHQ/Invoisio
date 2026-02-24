@@ -122,6 +122,8 @@ All commands run from `smart-contracts/contracts/invoice-payment/`.
 stellar contract build
 # WASM: target/wasm32v1-none/release/invoice_payment.wasm
 
+rustup target add wasm32v1-none
+
 make build   # same + prints file size
 ```
 
