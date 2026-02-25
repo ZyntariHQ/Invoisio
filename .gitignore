@@ -42,3 +42,8 @@ backend/dist/
 # Misc
 *.swp
 *.swo
+
+.agents/
+.claude/
+github/
+skip-lock.json/

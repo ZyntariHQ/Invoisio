@@ -1,0 +1,20 @@
+[package]
+name    = "invoice-payment"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+description = "Soroban smart contract for Invoisio invoice payment tracking on Stellar"
+license     = "MIT"
+
+# cdylib → WASM artifact deployed on-chain
+# lib    → used by the test harness (native target)
+[lib]
+crate-type = ["lib", "cdylib"]
+doctest    = false
+
+[dependencies]
+soroban-sdk = { workspace = true }
+
+[dev-dependencies]
+soroban-sdk = { workspace = true, features = ["testutils"] }
