@@ -1,0 +1,38 @@
+name: Soroban Contract CI
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'soroban/**'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'soroban/**'
+
+jobs:
+  test:
+    name: Test and Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./soroban
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cargo Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: soroban
+
+      - name: Run Tests
+        run: cargo test
+
+      - name: Build WASM
+        run: cargo build --target wasm32-unknown-unknown --release
