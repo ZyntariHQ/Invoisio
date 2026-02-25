@@ -97,7 +97,9 @@ Every `record_payment` call publishes:
 
 ```
 Topics : (Symbol "payment", Symbol "recorded")
-Data   : PaymentRecord { invoice_id, payer, asset_code, asset_issuer, amount, timestamp }
+Data   : PaymentRecorded { 
+           record: PaymentRecord { invoice_id, payer, asset_code, asset_issuer, amount, timestamp }
+         }
 ```
 
 Subscribe via:

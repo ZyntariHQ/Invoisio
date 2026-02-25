@@ -292,6 +292,67 @@ fn test_token_without_issuer_returns_error() {
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
 
+// Events
+
+#[test]
+fn test_record_payment_emits_payment_recorded_event() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-event-test");
+    let payer = Address::generate(&env);
+
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+
+    // env.events().all() returns events from the LAST contract invocation only.
+    // We must assert BEFORE making any further contract call (e.g. get_payment),
+    // otherwise the buffer is overwritten with that call's (empty) events.
+    //
+    // The expected PaymentRecord is constructed manually using the same values
+    // passed to record_payment; timestamp is sourced from the ledger as-is (default test Env starts at 0).
+    //
+    // #[contractevent] on `PaymentRecorded { record: PaymentRecord }` generates:
+    //   • topics : [Symbol("payment_recorded")]  — struct name in lower_snake_case
+    //   • data   : Map { "record" => PaymentRecord }  — all fields keyed by name
+    let expected_record = PaymentRecord {
+        invoice_id: invoice_id.clone(),
+        payer: payer.clone(),
+        asset_code: String::from_str(&env, "XLM"),
+        asset_issuer: String::from_str(&env, ""),
+        amount: 10_000_000i128,
+        timestamp: env.ledger().timestamp(),
+    };
+
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "payment_recorded").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "record"), expected_record)
+                ]
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
 // Admin — set_admin co-sign
 
 #[test]
