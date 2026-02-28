@@ -74,8 +74,7 @@ fn test_record_payment_xlm_stores_record() {
     let record = client.get_payment(&invoice_id);
     assert_eq!(record.invoice_id, invoice_id);
     assert_eq!(record.payer, payer);
-    assert_eq!(record.asset_code, String::from_str(&env, "XLM"));
-    assert_eq!(record.asset_issuer, String::from_str(&env, ""));
+    assert_eq!(record.asset, Asset::Native);
     assert_eq!(record.amount, 10_000_000i128);
 }
 
@@ -102,8 +101,10 @@ fn test_record_payment_usdc_stores_issuer() {
     );
 
     let record = client.get_payment(&invoice_id);
-    assert_eq!(record.asset_code, String::from_str(&env, "USDC"));
-    assert_eq!(record.asset_issuer, issuer);
+    assert_eq!(record.asset, Asset::Token(
+        String::from_str(&env, "USDC"),
+        issuer.clone(),
+    ));
     assert_eq!(record.amount, 50_000_000i128);
 }
 
@@ -327,8 +328,7 @@ fn test_record_payment_emits_payment_recorded_event() {
     let expected_record = PaymentRecord {
         invoice_id: invoice_id.clone(),
         payer: payer.clone(),
-        asset_code: String::from_str(&env, "XLM"),
-        asset_issuer: String::from_str(&env, ""),
+        asset: Asset::Native,
         amount: 10_000_000i128,
         timestamp: env.ledger().timestamp(),
     };
@@ -375,4 +375,182 @@ fn test_set_admin_requires_new_admin_auth() {
     // Without new_admin's auth the host must reject the call.
     let result = client.try_set_admin(&new_admin);
     assert!(result.is_err());
+}
+// Multi-asset support tests
+
+#[test]
+fn test_asset_enum_native_xlm() {
+    let env = Env::default();
+    let native = Asset::Native;
+    
+    // Verify Native variant doesn't have code/issuer fields
+    match native {
+        Asset::Native => assert!(true), // Native variant exists
+        Asset::Token(_, _) => panic!("Expected Native variant"),
+    }
+}
+
+#[test]
+fn test_asset_enum_token_with_code_and_issuer() {
+    let env = Env::default();
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let token = Asset::Token(code.clone(), issuer.clone());
+    
+    match token {
+        Asset::Token(c, i) => {
+            assert_eq!(c, code);
+            assert_eq!(i, issuer);
+        }
+        Asset::Native => panic!("Expected Token variant"),
+    }
+}
+
+#[test]
+fn test_record_payment_multiple_asset_types() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    
+    // Record XLM payment
+    client.record_payment(
+        &String::from_str(&env, "invoisio-xlm-001"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128, // 1 XLM
+    );
+    
+    // Record USDC payment
+    let usdc_issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+    client.record_payment(
+        &String::from_str(&env, "invoisio-usdc-001"),
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &usdc_issuer,
+        &50_000_000i128, // 5 USDC
+    );
+    
+    // Record another token payment (e.g., EURT)
+    let eurt_issuer = String::from_str(
+        &env,
+        "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S",
+    );
+    client.record_payment(
+        &String::from_str(&env, "invoisio-eurt-001"),
+        &payer,
+        &String::from_str(&env, "EURT"),
+        &eurt_issuer,
+        &100_000_000i128, // 10 EURT
+    );
+    
+    // Verify all payments were recorded with correct asset types
+    let xlm_record = client.get_payment(&String::from_str(&env, "invoisio-xlm-001"));
+    assert_eq!(xlm_record.asset, Asset::Native);
+    
+    let usdc_record = client.get_payment(&String::from_str(&env, "invoisio-usdc-001"));
+    assert_eq!(usdc_record.asset, Asset::Token(
+        String::from_str(&env, "USDC"),
+        usdc_issuer.clone(),
+    ));
+    
+    let eurt_record = client.get_payment(&String::from_str(&env, "invoisio-eurt-001"));
+    assert_eq!(eurt_record.asset, Asset::Token(
+        String::from_str(&env, "EURT"),
+        eurt_issuer.clone(),
+    ));
+    
+    // Verify payment count
+    assert_eq!(client.payment_count(), 3);
+}
+
+#[test]
+fn test_asset_validation_backward_compatibility() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    
+    // Test that empty asset_code is still rejected
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-empty-asset"),
+        &payer,
+        &String::from_str(&env, ""),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+    
+    // Test that non-XLM asset without issuer is still rejected
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-no-issuer-2"),
+        &payer,
+        &String::from_str(&env, "BTC"),
+        &String::from_str(&env, ""),
+        &100_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+    
+    // Test that XLM with issuer is rejected (issuer must be empty for XLM)
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-xlm-with-issuer"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, "GABC123"),
+        &10_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_asset_enum_serialization_deserialization() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "invoisio-serde-test");
+    
+    // Record a payment
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    
+    // Retrieve and verify the asset is correctly deserialized
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(record.asset, Asset::Native);
+    
+    // Record a token payment
+    let token_invoice_id = String::from_str(&env, "invoisio-token-serde-test");
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+    
+    client.record_payment(
+        &token_invoice_id,
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &issuer,
+        &50_000_000i128,
+    );
+    
+    let token_record = client.get_payment(&token_invoice_id);
+    match token_record.asset {
+        Asset::Token(code, stored_issuer) => {
+            assert_eq!(code, String::from_str(&env, "USDC"));
+            assert_eq!(stored_issuer, issuer);
+        }
+        Asset::Native => panic!("Expected Token variant"),
+    }
 }
