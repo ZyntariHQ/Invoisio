@@ -7,7 +7,7 @@ pub mod storage;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
-pub use storage::{DataKey, PaymentRecord};
+pub use storage::{Asset, DataKey, PaymentRecord};
 
 use events::emit_payment_recorded;
 use storage::{
@@ -137,10 +137,18 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
-        // Non-XLM assets require an issuer; XLM (native) must have none.
+        // Asset validation:
+        // - XLM (native) must have an empty issuer
+        // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.len() == 0;
+        
+        if is_xlm && !issuer_empty {
+            // XLM with issuer is invalid
+            return Err(ContractError::InvalidAsset);
+        }
         if !is_xlm && issuer_empty {
+            // Token without issuer is invalid
             return Err(ContractError::InvalidAsset);
         }
 
@@ -154,21 +162,27 @@ impl InvoicePaymentContract {
             return Err(ContractError::PaymentAlreadyRecorded);
         }
 
-        // 5. Build and persist the record (also bumps persistent TTL).
+        // 5. Build the asset enum based on parameters.
+        let asset = if is_xlm {
+            Asset::Native
+        } else {
+            Asset::Token(asset_code.clone(), asset_issuer.clone())
+        };
+
+        // 6. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
             invoice_id,
             payer,
-            asset_code,
-            asset_issuer,
+            asset,
             amount,
             timestamp: env.ledger().timestamp(),
         };
         set_payment(&env, &record);
 
-        // 5. Increment running counter (also bumps instance TTL).
+        // 7. Increment running counter (also bumps instance TTL).
         bump_count(&env);
 
-        // 6. Emit Soroban event — off-chain indexers subscribe to these topics.
+        // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(&env, record);
 
         Ok(())

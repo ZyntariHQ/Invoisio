@@ -29,13 +29,25 @@ pub enum DataKey {
 
 // Data structures
 
+/// Asset type enum for multi-asset support.
+///
+/// This enum distinguishes between native XLM and Stellar-issued tokens,
+/// providing a type-safe way to handle different asset types in the contract.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub enum Asset {
+    /// Native XLM asset (no issuer required).
+    Native,
+    /// Stellar-issued token with code and issuer.
+    /// Format: (asset_code, issuer_address)
+    /// Example: ("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+    Token(String, String),
+}
+
 /// On-chain snapshot of a single invoice payment.
 ///
 /// ## Asset encoding
-/// | Asset   | `asset_code` | `asset_issuer`       |
-/// |---------|-------------|----------------------|
-/// | XLM     | `"XLM"`     | `""` (empty string)  |
-/// | USDC    | `"USDC"`    | issuer public key    |
+/// Uses the [`Asset`] enum to provide type-safe multi-asset support.
 ///
 /// ## Amount units
 /// - **XLM**: stroops — 1 XLM = 10 000 000 stroops.
@@ -53,11 +65,8 @@ pub struct PaymentRecord {
     /// Stellar account address that sent the payment.
     pub payer: Address,
 
-    /// Asset code, e.g. `"XLM"` or `"USDC"`.
-    pub asset_code: String,
-
-    /// Asset issuer public key. Empty string `""` for the native XLM asset.
-    pub asset_issuer: String,
+    /// Asset type and details.
+    pub asset: Asset,
 
     /// Payment amount in the asset's smallest unit (must be > 0).
     pub amount: i128,

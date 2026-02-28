@@ -84,12 +84,18 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 pub struct PaymentRecord {
     pub invoice_id:   String,   // e.g. "invoisio-abc123"
     pub payer:        Address,  // Stellar account that paid
-    pub asset_code:   String,   // "XLM" or "USDC"
-    pub asset_issuer: String,   // "" for XLM; issuer pubkey for tokens
-    pub amount:       i128,     // stroops for XLM; 7-decimal for tokens
+    pub asset:        Asset,    // Native XLM or Token(code, issuer)
+    pub amount:       i128,     // stroops for XLM; token-specific decimals
     pub timestamp:    u64,      // ledger Unix timestamp at recording time
 }
+
+pub enum Asset {
+    Native,                     // XLM
+    Token(String, String),      // (asset_code, issuer_address)
+}
 ```
+
+**Multi-Asset Support**: The contract supports both native XLM and any Stellar-issued token (USDC, EURT, etc.) through the `Asset` enum. See [MULTI_ASSET_SUPPORT.md](contracts/invoice-payment/MULTI_ASSET_SUPPORT.md) for detailed documentation.
 
 ### Emitted event
 
@@ -155,7 +161,7 @@ ADMIN=$(stellar keys address invoisio-admin)
 make invoke-initialize CONTRACT_ID=$(cat .contract-id) ADMIN=$ADMIN
 ```
 
-### 5 — Record a payment
+### 5 — Record a payment (XLM)
 
 ```sh
 make invoke-record-payment \
@@ -167,6 +173,21 @@ make invoke-record-payment \
   AMOUNT=10000000
 # Returns: null  (void)
 ```
+
+**Record a token payment (USDC)**:
+
+```sh
+make invoke-record-payment \
+  CONTRACT_ID=$(cat .contract-id) \
+  INVOICE_ID=invoisio-usdc-001 \
+  PAYER=GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX \
+  ASSET_CODE=USDC \
+  ASSET_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 \
+  AMOUNT=50000000
+# Returns: null  (void)
+```
+
+See [examples/multi_asset_demo.sh](contracts/invoice-payment/examples/multi_asset_demo.sh) for a complete demo.
 
 ### 6 — Verify
 
