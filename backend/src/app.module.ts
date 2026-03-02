@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import * as Joi from "joi";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 
 // Configuration
 import appConfig from "./config/app.config";
@@ -10,6 +10,9 @@ import stellarConfig from "./config/stellar.config";
 import { HealthModule } from "./health/health.module";
 import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
+import { AuthModule } from "./auth/auth.module";
+import { UsersModule } from "./users/user.module";
+import { TypeOrmModule } from "@nestjs/typeorm";
 
 /**
  * Root application module
@@ -22,6 +25,35 @@ import { StellarModule } from "./stellar/stellar.module";
  */
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [".env", ".env.example"],
+    }),
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        if (process.env.NODE_ENV === "test") {
+          return {
+            type: "sqlite",
+            database: ":memory:",
+            autoLoadEntities: true,
+            synchronize: true,
+          };
+        }
+
+        return {
+          type: "postgres",
+          host: configService.get<string>("DATABASE_HOST"),
+          port: parseInt(configService.get<string>("DATABASE_PORT")!, 10),
+          username: configService.get<string>("DATABASE_USER"),
+          password: configService.get<string>("DATABASE_PASSWORD"),
+          database: configService.get<string>("DATABASE_NAME"),
+          autoLoadEntities: true,
+          synchronize: true,
+        };
+      },
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig, stellarConfig],
@@ -47,6 +79,8 @@ import { StellarModule } from "./stellar/stellar.module";
     HealthModule,
     InvoicesModule,
     StellarModule,
+    AuthModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
