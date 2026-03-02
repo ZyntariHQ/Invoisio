@@ -1,11 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Controller, Get } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 /**
  * Health check controller
  * Provides basic service status for monitoring and load balancers
  */
-@Controller('health')
+@Controller("health")
 export class HealthController {
   constructor(private readonly configService: ConfigService) {}
 
@@ -15,15 +15,17 @@ export class HealthController {
    */
   @Get()
   checkHealth() {
-    const stellarConfig = this.configService.get('stellar');
-    const appConfig = this.configService.get('app');
-    
+    const stellarConfig = this.configService.get("stellar");
+    const appConfig = this.configService.get("app");
+
     // Determine network from passphrase
-    const network = stellarConfig?.networkPassphrase?.includes('Test') ? 'testnet' : 'mainnet';
-    
+    const network = stellarConfig?.networkPassphrase?.includes("Test")
+      ? "testnet"
+      : "mainnet";
+
     return {
       ok: true,
-      version: appConfig?.version || '0.0.1',
+      version: appConfig?.version || "0.0.1",
       network,
       timestamp: new Date().toISOString(),
     };

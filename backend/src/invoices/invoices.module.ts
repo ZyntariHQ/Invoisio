@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
-import { InvoicesController } from './invoices.controller';
-import { InvoicesService } from './invoices.service';
+import { Module } from "@nestjs/common";
+import { InvoicesController } from "./invoices.controller";
+import { InvoicesService } from "./invoices.service";
 
 /**
  * Invoices module

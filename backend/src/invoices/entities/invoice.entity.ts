@@ -22,22 +22,22 @@ export class Invoice {
   amount: number;
 
   /** Asset code for payment: 'XLM' or 'USDC' */
-  asset: 'XLM' | 'USDC';
+  asset: "XLM" | "USDC";
 
-  /** 
+  /**
    * Stellar memo for payment matching
    * Format: {MEMO_PREFIX}{invoiceId} (e.g., "invoisio-abc123")
    */
   memo: string;
 
-  /** 
+  /**
    * Invoice status
    * - pending: Awaiting payment
    * - paid: Payment received and confirmed
    * - overdue: Past due date without payment
    * - cancelled: Invoice cancelled by merchant
    */
-  status: 'pending' | 'paid' | 'overdue' | 'cancelled';
+  status: "pending" | "paid" | "overdue" | "cancelled";
 
   /** Destination Stellar public key for payment */
   destination: string;

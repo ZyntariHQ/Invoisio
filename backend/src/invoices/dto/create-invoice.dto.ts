@@ -1,4 +1,11 @@
-import { IsString, IsNumber, IsEmail, IsOptional, IsIn, Min } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsEmail,
+  IsOptional,
+  IsIn,
+  Min,
+} from "class-validator";
 
 /**
  * DTO for creating a new invoice
@@ -22,8 +29,8 @@ export class CreateInvoiceDto {
   amount: number;
 
   @IsString()
-  @IsIn(['XLM', 'USDC'])
-  asset: 'XLM' | 'USDC';
+  @IsIn(["XLM", "USDC"])
+  asset: "XLM" | "USDC";
 
   @IsString()
   @IsOptional()

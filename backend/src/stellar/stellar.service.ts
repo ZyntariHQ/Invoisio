@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 /**
  * Stellar service for Horizon API interactions
- * 
+ *
  * Note: This is a stub implementation for the initial bootstrap.
  * Future iterations will integrate with:
  * - Horizon API for payment streaming
@@ -21,7 +21,7 @@ export class StellarService {
    * @returns Stellar configuration object
    */
   getConfig() {
-    return this.configService.get('stellar');
+    return this.configService.get("stellar");
   }
 
   /**
@@ -30,7 +30,7 @@ export class StellarService {
    */
   getHorizonUrl(): string {
     const config = this.getConfig();
-    return config?.horizonUrl || 'https://horizon-testnet.stellar.org';
+    return config?.horizonUrl || "https://horizon-testnet.stellar.org";
   }
 
   /**
@@ -39,7 +39,7 @@ export class StellarService {
    */
   getMerchantPublicKey(): string {
     const config = this.getConfig();
-    return config?.merchantPublicKey || '';
+    return config?.merchantPublicKey || "";
   }
 
   /**
@@ -48,7 +48,7 @@ export class StellarService {
    */
   getNetworkPassphrase(): string {
     const config = this.getConfig();
-    return config?.networkPassphrase || 'Test SDF Network ; September 2015';
+    return config?.networkPassphrase || "Test SDF Network ; September 2015";
   }
 
   /**
@@ -56,7 +56,7 @@ export class StellarService {
    * @returns true if using testnet
    */
   isTestnet(): boolean {
-    return this.getNetworkPassphrase().includes('Test');
+    return this.getNetworkPassphrase().includes("Test");
   }
 
   /**
@@ -65,13 +65,18 @@ export class StellarService {
    * @param publicKey - Stellar public key
    * @returns Mock balance data
    */
-  async getAccountBalance(publicKey: string): Promise<{ asset: string; balance: string }[]> {
+  async getAccountBalance(
+    publicKey: string,
+  ): Promise<{ asset: string; balance: string }[]> {
     this.logger.log(`Stub: Getting balance for ${publicKey}`);
-    
+
     // Return mock data for now
     return [
-      { asset: 'XLM', balance: '1000.0000000' },
-      { asset: 'USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', balance: '500.0000000' },
+      { asset: "XLM", balance: "1000.0000000" },
+      {
+        asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        balance: "500.0000000",
+      },
     ];
   }
 
@@ -81,8 +86,8 @@ export class StellarService {
    * @param callback - Function to call when payment is received
    */
   async watchPayments(callback: (payment: any) => void): Promise<void> {
-    this.logger.log('Stub: Starting payment watch (not implemented)');
-    
+    this.logger.log("Stub: Starting payment watch (not implemented)");
+
     // This will be implemented to:
     // 1. Connect to Horizon stream
     // 2. Listen for payments to MERCHANT_PUBLIC_KEY
@@ -96,9 +101,11 @@ export class StellarService {
    * @param memo - Payment memo to verify
    * @returns Mock verification result
    */
-  async verifyPayment(memo: string): Promise<{ found: boolean; amount?: string; asset?: string }> {
+  async verifyPayment(
+    memo: string,
+  ): Promise<{ found: boolean; amount?: string; asset?: string }> {
     this.logger.log(`Stub: Verifying payment with memo ${memo}`);
-    
+
     // Return mock data for now
     return {
       found: false,
@@ -112,7 +119,7 @@ export class StellarService {
    */
   generateMemo(invoiceId: string): string {
     const config = this.getConfig();
-    const prefix = config?.memoPrefix || 'invoisio-';
+    const prefix = config?.memoPrefix || "invoisio-";
     return `${prefix}${invoiceId}`;
   }
 
@@ -123,8 +130,8 @@ export class StellarService {
    */
   parseMemo(memo: string): string | null {
     const config = this.getConfig();
-    const prefix = config?.memoPrefix || 'invoisio-';
-    
+    const prefix = config?.memoPrefix || "invoisio-";
+
     if (memo.startsWith(prefix)) {
       return memo.slice(prefix.length);
     }
