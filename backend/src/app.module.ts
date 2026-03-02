@@ -27,21 +27,32 @@ import { TypeOrmModule } from "@nestjs/typeorm";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: ['.env', '.env.example'],
+      envFilePath: [".env", ".env.example"],
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: "postgres",
-        host: configService.get<string>("DATABASE_HOST"),
-        port: parseInt(configService.get<string>("DATABASE_PORT")!, 10),
-        username: configService.get<string>("DATABASE_USER"),
-        password: configService.get<string>("DATABASE_PASSWORD"),
-        database: configService.get<string>("DATABASE_NAME"),
-        autoLoadEntities: configService.get<string>("DATABASE_LOAD") === "true",
-        synchronize: configService.get<string>("DATABASE_SYNC") === "true",
-      }),
+      useFactory: (configService: ConfigService) => {
+        if (process.env.NODE_ENV === "test") {
+          return {
+            type: "sqlite",
+            database: ":memory:",
+            autoLoadEntities: true,
+            synchronize: true,
+          };
+        }
+
+        return {
+          type: "postgres",
+          host: configService.get<string>("DATABASE_HOST"),
+          port: parseInt(configService.get<string>("DATABASE_PORT")!, 10),
+          username: configService.get<string>("DATABASE_USER"),
+          password: configService.get<string>("DATABASE_PASSWORD"),
+          database: configService.get<string>("DATABASE_NAME"),
+          autoLoadEntities: true,
+          synchronize: true,
+        };
+      },
     }),
     ConfigModule.forRoot({
       isGlobal: true,
