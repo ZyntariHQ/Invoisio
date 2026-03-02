@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { StellarService } from "../stellar/stellar.service";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -15,7 +16,10 @@ import { v4 as uuidv4 } from "uuid";
 export class InvoicesService {
   private invoices: Map<string, Invoice> = new Map();
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly stellarService: StellarService,
+  ) {
     // Pre-populate with sample invoices for demonstration
     this.seedSampleInvoices();
   }
@@ -45,13 +49,9 @@ export class InvoicesService {
   /**
    * Create a new invoice
    * @param dto - Create invoice DTO
-   * @returns The created invoice
+   * @returns The created invoice including payment instructions
    */
   create(dto: CreateInvoiceDto): Invoice {
-    const stellarConfig = this.configService.get("stellar");
-    const merchantPublicKey = stellarConfig?.merchantPublicKey || "";
-    const memoPrefix = stellarConfig?.memoPrefix || "invoisio-";
-
     const id = uuidv4();
     const now = new Date();
 
@@ -62,10 +62,12 @@ export class InvoicesService {
       clientEmail: dto.clientEmail,
       description: dto.description || "",
       amount: dto.amount,
-      asset: dto.asset,
-      memo: `${memoPrefix}${id}`,
+      asset_code: dto.asset_code.toUpperCase(),
+      asset_issuer: dto.asset_issuer,
+      memo: this.generateMemoId(),
+      memo_type: "ID",
       status: "pending",
-      destination: dto.destination || merchantPublicKey,
+      destination_address: this.stellarService.getMerchantPublicKey(),
       createdAt: now,
       updatedAt: now,
       dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
@@ -91,7 +93,7 @@ export class InvoicesService {
 
   /**
    * Find invoice by memo (for payment matching)
-   * @param memo - Stellar memo string
+   * @param memo - Stellar memo ID string
    * @returns Invoice or undefined if not found
    */
   findByMemo(memo: string): Invoice | undefined {
@@ -101,14 +103,25 @@ export class InvoicesService {
   }
 
   /**
+   * Generate a unique Stellar MEMO_ID (uint64) for unambiguous payment matching.
+   * Combines current timestamp (ms) shifted by 16 bits with a random 16-bit suffix
+   * to minimise collision probability across concurrent requests.
+   * @returns String representation of the uint64 integer
+   */
+  private generateMemoId(): string {
+    const timestamp = Date.now(); // ~41 bits
+    const random = Math.floor(Math.random() * 65536); // 16 bits
+    // Result fits comfortably within Number.MAX_SAFE_INTEGER (~53 bits)
+    return String(timestamp * 65536 + random);
+  }
+
+  /**
    * Seed sample invoices for demonstration purposes
    */
   private seedSampleInvoices(): void {
-    const stellarConfig = this.configService.get("stellar");
     const merchantPublicKey =
-      stellarConfig?.merchantPublicKey ||
+      this.stellarService.getMerchantPublicKey() ||
       "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
-    const memoPrefix = stellarConfig?.memoPrefix || "invoisio-";
 
     const sampleInvoices: Invoice[] = [
       {
@@ -118,10 +131,12 @@ export class InvoicesService {
         clientEmail: "billing@acme.com",
         description: "Web development services - March 2026",
         amount: 1500.0,
-        asset: "USDC",
-        memo: `${memoPrefix}550e8400-e29b-41d4-a716-446655440000`,
+        asset_code: "USDC",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        memo: this.generateMemoId(),
+        memo_type: "ID",
         status: "pending",
-        destination: merchantPublicKey,
+        destination_address: merchantPublicKey,
         createdAt: new Date("2026-03-01T10:00:00Z"),
         updatedAt: new Date("2026-03-01T10:00:00Z"),
         dueDate: new Date("2026-03-31T23:59:59Z"),
@@ -133,10 +148,11 @@ export class InvoicesService {
         clientEmail: "payments@techstart.io",
         description: "Consulting services - Q1 2026",
         amount: 5000.0,
-        asset: "XLM",
-        memo: `${memoPrefix}550e8400-e29b-41d4-a716-446655440001`,
+        asset_code: "XLM",
+        memo: this.generateMemoId(),
+        memo_type: "ID",
         status: "paid",
-        destination: merchantPublicKey,
+        destination_address: merchantPublicKey,
         createdAt: new Date("2026-02-15T14:30:00Z"),
         updatedAt: new Date("2026-02-20T09:15:00Z"),
         dueDate: new Date("2026-03-15T23:59:59Z"),
@@ -148,10 +164,12 @@ export class InvoicesService {
         clientEmail: "accounts@globalsolutions.com",
         description: "API integration project",
         amount: 3200.5,
-        asset: "USDC",
-        memo: `${memoPrefix}550e8400-e29b-41d4-a716-446655440002`,
+        asset_code: "USDC",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        memo: this.generateMemoId(),
+        memo_type: "ID",
         status: "overdue",
-        destination: merchantPublicKey,
+        destination_address: merchantPublicKey,
         createdAt: new Date("2026-01-10T08:00:00Z"),
         updatedAt: new Date("2026-02-10T16:45:00Z"),
         dueDate: new Date("2026-02-10T23:59:59Z"),

@@ -3,7 +3,10 @@ import {
   IsNumber,
   IsEmail,
   IsOptional,
-  IsIn,
+  IsAlphanumeric,
+  IsNotEmpty,
+  ValidateIf,
+  Matches,
   Min,
 } from "class-validator";
 
@@ -28,11 +31,20 @@ export class CreateInvoiceDto {
   @Min(0.0000001)
   amount: number;
 
-  @IsString()
-  @IsIn(["XLM", "USDC"])
-  asset: "XLM" | "USDC";
+  /** Asset code for payment (e.g. 'XLM', 'USDC', or any valid Stellar asset code) */
+  @IsAlphanumeric()
+  @IsNotEmpty()
+  asset_code: string;
 
-  @IsString()
-  @IsOptional()
-  destination?: string;
+  /**
+   * Issuing account for the asset.
+   * Required for all non-native assets (i.e. when asset_code !== 'XLM').
+   * Must be a valid Stellar public key (G... 56 chars).
+   */
+  @ValidateIf((o: CreateInvoiceDto) => o.asset_code?.toUpperCase() !== "XLM")
+  @IsNotEmpty({ message: "asset_issuer is required for non-XLM assets" })
+  @Matches(/^G[A-Z2-7]{55}$/, {
+    message: "asset_issuer must be a valid Stellar public key",
+  })
+  asset_issuer?: string;
 }

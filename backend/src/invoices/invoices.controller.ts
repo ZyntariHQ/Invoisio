@@ -1,14 +1,14 @@
-import { Controller, Get, Post, Body, Param, Patch } from "@nestjs/common";
+import { Controller, Get, Post, Body, Param, Patch, UseGuards } from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { Invoice } from "./entities/invoice.entity";
+import { AuthGuard } from "../auth/auth.guard";
 
 /**
  * Invoices controller
  * Manages invoice creation, retrieval, and status updates
  *
  * Future enhancements:
- * - Add authentication guards (JWT)
  * - Add pagination for list endpoint
  * - Add filtering by status, date range
  * - Integrate with StellarModule for payment verification
@@ -38,10 +38,12 @@ export class InvoicesController {
 
   /**
    * Create a new invoice
+   * Requires a valid JWT Bearer token.
    * @param dto - Create invoice data
-   * @returns The created invoice
+   * @returns The created invoice including payment instructions
    */
   @Post()
+  @UseGuards(AuthGuard)
   create(@Body() dto: CreateInvoiceDto): Invoice {
     return this.invoicesService.create(dto);
   }
