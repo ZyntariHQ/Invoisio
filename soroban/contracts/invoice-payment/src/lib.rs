@@ -7,11 +7,16 @@ pub mod storage;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
-pub use storage::{Asset, DataKey, PaymentRecord};
+pub use storage::{
+    Asset, ContractMeta, DataKey, PaymentRecord, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
+    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+};
 
 use events::emit_payment_recorded;
 use storage::{
-    bump_count, get_admin, get_count, get_payment, has_admin, has_payment, set_admin, set_payment,
+    bump_count, current_contract_meta, ensure_current_contract_meta, get_admin, get_count,
+    get_payment, get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
+    set_admin, set_contract_meta, set_payment,
 };
 
 // Contract
@@ -40,7 +45,7 @@ use storage::{
 ///   TTLs are extended on every read and write.
 /// - **Typed errors:** `#[contracterror]` returns structured `ScError::Contract`
 ///   values that appear in Horizon responses and are matchable in tests.
-/// - **Soroban events:** every `record_payment` emits a `("payment","recorded")`
+/// - **Soroban events:** every `record_payment` emits a `"payment_recorded"`
 ///   event carrying the full `PaymentRecord` so off-chain indexers don't need
 ///   to poll state.
 ///
@@ -68,10 +73,10 @@ impl InvoicePaymentContract {
             return Err(ContractError::AlreadyInitialized);
         }
         set_admin(&env, &admin);
+        // Persist explicit metadata so clients can reason about upgrades.
+        set_contract_meta(&env, &current_contract_meta());
         // Initialise counter explicitly so `payment_count` is always readable.
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
         Ok(())
     }
 
@@ -91,7 +96,7 @@ impl InvoicePaymentContract {
     /// ## Emitted event
     /// | Field  | Value                                   |
     /// |--------|-----------------------------------------|
-    /// | Topics | `(Symbol "payment", Symbol "recorded")` |
+    /// | Topics | `(Symbol "payment_recorded")`           |
     /// | Data   | Full [`PaymentRecord`] struct            |
     ///
     /// Subscribe via:
@@ -123,6 +128,8 @@ impl InvoicePaymentContract {
         // 1. Admin authorisation.
         let admin = get_admin(&env)?;
         admin.require_auth();
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
 
         // 2. Input guards — reject obviously malformed arguments early so they
         //    never reach persistent storage.
@@ -142,7 +149,7 @@ impl InvoicePaymentContract {
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.len() == 0;
-        
+
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
             return Err(ContractError::InvalidAsset);
@@ -208,6 +215,23 @@ impl InvoicePaymentContract {
         get_count(&env)
     }
 
+    /// Return the current **code** version as packed semver
+    /// (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`).
+    pub fn contract_version(_env: Env) -> u32 {
+        CONTRACT_VERSION
+    }
+
+    /// Return the currently detected on-chain state metadata.
+    ///
+    /// Legacy deployments created before explicit metadata support return `0`
+    /// for both fields until a write-path call backfills metadata.
+    pub fn version_info(env: Env) -> ContractMeta {
+        ContractMeta {
+            contract_version: get_state_contract_version(&env),
+            storage_schema_version: get_storage_schema_version(&env),
+        }
+    }
+
     // Admin
 
     /// Return the current admin address.
@@ -232,6 +256,8 @@ impl InvoicePaymentContract {
         // produce a valid signature.
         current.require_auth();
         new_admin.require_auth();
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
         set_admin(&env, &new_admin);
         Ok(())
     }

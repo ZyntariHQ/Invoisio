@@ -7,37 +7,8 @@
   "auth": [
     [],
     [],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "record_payment",
-              "args": [
-                {
-                  "string": "invoisio-usdc01"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-                },
-                {
-                  "i128": "50000000"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
+    [],
+    [],
     []
   ],
   "ledger": {
@@ -56,34 +27,14 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "801925984706572462"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "vec": [
                   {
-                    "symbol": "PaymentV1"
+                    "symbol": "Payment"
                   },
                   {
-                    "string": "invoisio-usdc01"
+                    "string": "invoisio-legacy-001"
                   }
                 ]
               },
@@ -95,7 +46,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -105,13 +56,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -121,7 +66,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-usdc01"
+                      "string": "invoisio-legacy-001"
                     }
                   },
                   {
@@ -137,7 +82,79 @@
                       "symbol": "timestamp"
                     },
                     "val": {
-                      "u64": "0"
+                      "u64": "1234"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PaymentV1"
+                  },
+                  {
+                    "string": "invoisio-legacy-001"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "amount"
+                    },
+                    "val": {
+                      "i128": "10000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Native"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "invoice_id"
+                    },
+                    "val": {
+                      "string": "invoisio-legacy-001"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "payer"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "1234"
                     }
                   }
                 ]
@@ -213,7 +230,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 1
+                        "u32": 0
                       }
                     }
                   ]

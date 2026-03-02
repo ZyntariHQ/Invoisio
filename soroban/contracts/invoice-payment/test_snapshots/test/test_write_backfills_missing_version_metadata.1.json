@@ -7,6 +7,8 @@
   "auth": [
     [],
     [],
+    [],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -17,19 +19,19 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-usdc01"
+                  "string": "invoisio-meta-backfill"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "USDC"
+                  "string": "XLM"
                 },
                 {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  "string": ""
                 },
                 {
-                  "i128": "50000000"
+                  "i128": "10000000"
                 }
               ]
             }
@@ -83,7 +85,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-usdc01"
+                    "string": "invoisio-meta-backfill"
                   }
                 ]
               },
@@ -95,7 +97,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -105,13 +107,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -121,7 +117,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-usdc01"
+                      "string": "invoisio-meta-backfill"
                     }
                   },
                   {
