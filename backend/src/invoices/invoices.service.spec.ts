@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
+import { StellarService } from "../stellar/stellar.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 
 describe("InvoicesService", () => {
@@ -12,21 +13,24 @@ describe("InvoicesService", () => {
         return {
           merchantPublicKey:
             "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-          memoPrefix: "invoisio-",
         };
       }
       return null;
     }),
   };
 
+  const mockStellarService = {
+    getMerchantPublicKey: jest
+      .fn()
+      .mockReturnValue("GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InvoicesService,
-        {
-          provide: ConfigService,
-          useValue: mockConfigService,
-        },
+        { provide: ConfigService, useValue: mockConfigService },
+        { provide: StellarService, useValue: mockStellarService },
       ],
     }).compile();
 
@@ -54,9 +58,11 @@ describe("InvoicesService", () => {
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("amount");
-        expect(invoice).toHaveProperty("asset");
+        expect(invoice).toHaveProperty("asset_code");
         expect(invoice).toHaveProperty("memo");
+        expect(invoice).toHaveProperty("memo_type", "ID");
         expect(invoice).toHaveProperty("status");
+        expect(invoice).toHaveProperty("destination_address");
       }
     });
   });
@@ -85,7 +91,8 @@ describe("InvoicesService", () => {
         clientEmail: "test@example.com",
         description: "Test invoice",
         amount: 100.0,
-        asset: "USDC",
+        asset_code: "USDC",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
       };
 
       const result = service.create(dto);
@@ -94,26 +101,61 @@ describe("InvoicesService", () => {
       expect(result.invoiceNumber).toBe(dto.invoiceNumber);
       expect(result.clientName).toBe(dto.clientName);
       expect(result.amount).toBe(dto.amount);
-      expect(result.asset).toBe(dto.asset);
+      expect(result.asset_code).toBe("USDC");
+      expect(result.asset_issuer).toBe(dto.asset_issuer);
       expect(result.status).toBe("pending");
-      expect(result.memo).toContain("invoisio-");
+      // memo is a numeric uint64 string
+      expect(result.memo).toMatch(/^\d+$/);
+      expect(result.memo_type).toBe("ID");
+      expect(result.destination_address).toBe(
+        mockStellarService.getMerchantPublicKey(),
+      );
+    });
+
+    it("should create an XLM invoice without asset_issuer", () => {
+      const dto: CreateInvoiceDto = {
+        invoiceNumber: "INV-TEST-XLM",
+        clientName: "XLM Client",
+        clientEmail: "xlm@example.com",
+        amount: 50.0,
+        asset_code: "XLM",
+      };
+
+      const result = service.create(dto);
+
+      expect(result.asset_code).toBe("XLM");
+      expect(result.asset_issuer).toBeUndefined();
+    });
+
+    it("should generate a unique memo for each invoice", () => {
+      const dto: CreateInvoiceDto = {
+        invoiceNumber: "INV-TEST-002",
+        clientName: "Another Client",
+        clientEmail: "another@example.com",
+        amount: 250.0,
+        asset_code: "XLM",
+      };
+
+      const first = service.create({ ...dto, invoiceNumber: "INV-MEMO-A" });
+      const second = service.create({ ...dto, invoiceNumber: "INV-MEMO-B" });
+
+      expect(first.memo).not.toBe(second.memo);
     });
 
     it("should add created invoice to the list", () => {
       const initialCount = service.findAll().length;
 
       const dto: CreateInvoiceDto = {
-        invoiceNumber: "INV-TEST-002",
-        clientName: "Another Client",
-        clientEmail: "another@example.com",
+        invoiceNumber: "INV-TEST-003",
+        clientName: "Count Client",
+        clientEmail: "count@example.com",
         amount: 250.0,
-        asset: "XLM",
+        asset_code: "XLM",
       };
 
       service.create(dto);
-      const newCount = service.findAll().length;
 
-      expect(newCount).toBe(initialCount + 1);
+      expect(service.findAll().length).toBe(initialCount + 1);
     });
   });
 
@@ -121,9 +163,8 @@ describe("InvoicesService", () => {
     it("should update invoice status", () => {
       const allInvoices = service.findAll();
       const invoice = allInvoices[0];
-      const originalStatus = invoice.status;
 
-      const newStatus = originalStatus === "pending" ? "paid" : "pending";
+      const newStatus = invoice.status === "pending" ? "paid" : "pending";
       const result = service.updateStatus(invoice.id, newStatus);
 
       expect(result.status).toBe(newStatus);
@@ -142,7 +183,7 @@ describe("InvoicesService", () => {
     });
 
     it("should return undefined for non-existent memo", () => {
-      const result = service.findByMemo("invoisio-nonexistent");
+      const result = service.findByMemo("9999999999999");
 
       expect(result).toBeUndefined();
     });
