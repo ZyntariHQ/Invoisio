@@ -19,12 +19,12 @@ soroban/
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
-        ├── src/test.rs             # Unit tests (18 cases)
+        ├── src/test.rs             # Unit tests
         ├── src/storage.rs          # Persistent storage helpers
         ├── src/events.rs           # Event definitions / emitters
         ├── src/errors.rs           # Contract error types
         ├── Cargo.toml
-        ├── Makefile                # Alternative: make targets
+        ├── Makefile                # build / test / deploy / invoke targets
         └── examples/               # Demo scripts
 ```
 
@@ -286,8 +286,8 @@ on-chain activity with native Stellar `Payment` operations observed via Horizon.
 Every call to `record_payment` both **persists** the record and **emits a Soroban
 event**, giving the Invoisio backend two independent reconciliation paths:
 
-1. **Horizon polling** — watch for native `Payment` ops with memo `invoisio-<id>`
-2. **Soroban event streaming** — subscribe to `("payment", "recorded")` events via `getEvents`
+1. **Horizon polling** — watch for native `Payment` ops with memo `invoisio-<id>`.
+2. **Soroban event streaming** — subscribe to `payment_recorded` events via `getEvents`.
 
 ### Key design decisions
 
@@ -298,17 +298,68 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | **Persistent storage** | Records survive ledger archival windows |
 | **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
 
+### Upgrade and versioning strategy
+
+The contract uses a practical hybrid strategy:
+
+1. **Semver for contract code** (`CONTRACT_VERSION`).
+2. **Explicit on-chain schema metadata** (`ContractMeta { contract_version, storage_schema_version }`).
+3. **Versioned storage keys** for records (`PaymentV1(invoice_id)`), while retaining **legacy read support** (`Payment(invoice_id)`).
+
+#### Why this pattern
+
+- **Major breaking changes** (new required fields, behavioral changes): deploy a **new contract address**.
+- **Backward-compatible updates** (bug fixes, additive methods): code can be upgraded in place, and metadata tracks state/schema.
+- **Legacy safety**: reads still accept old keys and lazily migrate them to the current key namespace.
+
+#### Event compatibility policy
+
+- Keep the existing `PaymentRecorded` event and topic (`payment_recorded`) stable for v1 consumers.
+- For future breaking event payload changes, emit a new event name (for example, `payment_recorded_v2`) instead of mutating the old one.
+- During migrations, optionally emit both events for one release window so indexers can cut over safely.
+
+#### Upgrade decision matrix
+
+| Change type | Address strategy | State strategy |
+|-------------|------------------|----------------|
+| Patch/minor, no schema break | Same contract address (WASM update) | Keep schema version, or increment only if data layout changes |
+| Additive schema change with fallback | Same address possible | Increment schema, keep legacy read path |
+| Breaking schema/API change | New contract address | Migrate data off-chain and repopulate new contract |
+
+#### Hypothetical migration flow (v1 -> v2)
+
+```
+Contract v1 (C1) live
+  -> freeze new writes in backend
+  -> export invoice/payment records from C1 (state + events)
+  -> deploy v2 contract (C2) and initialize admin
+  -> replay/import records into C2 (idempotent write path)
+  -> backend dual-read (C1 + C2), write only to C2
+  -> switch indexers/clients to C2 as primary
+  -> retire C1 after verification window
+```
+
+#### Client integration guidance
+
+- Clients should call `contract_version()` and `version_info()` to detect runtime compatibility.
+- Prefer bindings generated from the exact contract artifact version in use.
+- Keep a per-network contract registry in backend config, for example:
+  - `invoice_payment_v1_contract_id`
+  - `invoice_payment_v2_contract_id`
+
 ### Contract API
 
 | Method | Auth | Description |
 |--------|------|-------------|
-| `initialize(admin)` | — | One-time setup; registers the admin address |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | admin | Persist record + emit event |
-| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record (errors if absent) |
-| `has_payment(invoice_id) → bool` | — | Non-panicking existence check |
-| `payment_count() → u32` | — | Total payments recorded |
-| `admin() → Address` | — | Current admin |
-| `set_admin(new_admin)` | admin | Transfer admin rights |
+| `initialize(admin)` | — | One-time setup; registers the admin address. |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | admin | Persist record + emit event. |
+| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record (panics if absent). |
+| `has_payment(invoice_id) → bool` | — | Non-panicking existence check. |
+| `payment_count() → u32` | — | Total payments recorded. |
+| `contract_version() → u32` | — | Current WASM code version (packed semver). |
+| `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
+| `admin() → Address` | — | Current admin. |
+| `set_admin(new_admin)` | admin | Transfer admin rights. |
 
 ### `PaymentRecord` struct
 
@@ -334,8 +385,10 @@ pub enum Asset {
 Every `record_payment` call publishes:
 
 ```
-Topics: (Symbol "payment", Symbol "recorded")
-Data:   PaymentRecorded { record: PaymentRecord { ... } }
+Topics : (Symbol "payment_recorded")
+Data   : PaymentRecorded {
+           record: PaymentRecord { invoice_id, payer, asset_code, asset_issuer, amount, timestamp }
+         }
 ```
 
 Subscribe via:
@@ -497,8 +550,8 @@ For mainnet use `"Public Global Stellar Network ; September 2015"` and the mainn
 
 The Invoisio backend (`backend/`) can consume this contract in two ways:
 
-1. **Write path** — after confirming a native `Payment` on Horizon (matched by memo `invoisio-<invoiceId>`), call `record_payment` to anchor the data on-chain
-2. **Event path** — subscribe to `getEvents` on the Soroban RPC, filtering on `CONTRACT_ID` and topics `("payment", "recorded")` for push-based reconciliation without polling Horizon
+1. **Write path** — after confirming a native `Payment` on Horizon (matched by memo `invoisio-<invoiceId>`), call `record_payment` to anchor the data on-chain.
+2. **Event path** — subscribe to `getEvents` on the Soroban RPC, filtering on `CONTRACT_ID` and topic `payment_recorded` for push-based reconciliation without polling Horizon.
 
 Both paths are independent; the backend can start with just the Horizon watcher and add the Soroban write path later without breaking existing invoices.
 

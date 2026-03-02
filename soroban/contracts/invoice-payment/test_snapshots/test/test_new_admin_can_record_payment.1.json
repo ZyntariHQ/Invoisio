@@ -116,7 +116,7 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "Payment"
+                    "symbol": "PaymentV1"
                   },
                   {
                     "string": "invoisio-new-admin"
@@ -136,18 +136,14 @@
                   },
                   {
                     "key": {
-                      "symbol": "asset_code"
+                      "symbol": "asset"
                     },
                     "val": {
-                      "string": "XLM"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "asset_issuer"
-                    },
-                    "val": {
-                      "string": ""
+                      "vec": [
+                        {
+                          "symbol": "Native"
+                        }
+                      ]
                     }
                   },
                   {
@@ -207,6 +203,35 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "ContractMeta"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "map": [
+                          {
+                            "key": {
+                              "symbol": "contract_version"
+                            },
+                            "val": {
+                              "u32": 1000000
+                            }
+                          },
+                          {
+                            "key": {
+                              "symbol": "storage_schema_version"
+                            },
+                            "val": {
+                              "u32": 1
+                            }
+                          }
+                        ]
                       }
                     },
                     {

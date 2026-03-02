@@ -1,10 +1,12 @@
 {
   "generators": {
-    "address": 2,
+    "address": 3,
     "nonce": 0,
     "mux_id": 0
   },
   "auth": [
+    [],
+    [],
     [],
     [],
     []
