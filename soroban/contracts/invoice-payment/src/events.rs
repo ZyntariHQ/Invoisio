@@ -1,24 +1,21 @@
-use soroban_sdk::{contractevent, Env};
 use crate::storage::PaymentRecord;
+use soroban_sdk::{contractevent, Env};
 
 #[contractevent]
 pub struct PaymentRecorded {
     pub record: PaymentRecord,
 }
 
-/// Emit a `("payment", "recorded")` Soroban event carrying the full
+/// Emit a `"payment_recorded"` Soroban event carrying the full
 /// [`PaymentRecord`] as event data.
 ///
-/// ## Why two topics?
-/// The first topic (`"payment"`) identifies the domain; the second
-/// (`"recorded"`) identifies the action. Off-chain consumers can filter
-/// events using both topics simultaneously via the Soroban RPC
+/// Off-chain consumers can filter by this topic via the Soroban RPC
 /// [`getEvents`](https://developers.stellar.org/docs/data/rpc/api-reference/methods/getEvents)
 /// endpoint or the `stellar events` CLI.
 ///
 /// ## Consuming events off-chain
 /// ```sh
-/// # Stream all "payment / recorded" events for CONTRACT_ID on testnet
+/// # Stream all "payment_recorded" events for CONTRACT_ID on testnet
 /// stellar events \
 ///   --id <CONTRACT_ID> \
 ///   --network testnet \
