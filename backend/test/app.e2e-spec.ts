@@ -1,5 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, ValidationPipe } from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
 import request from "supertest";
 import { AppModule } from "./../src/app.module";
 
@@ -12,14 +13,25 @@ import { AppModule } from "./../src/app.module";
  */
 describe("AppController (e2e)", () => {
   let app: INestApplication;
+  let jwtToken: string;
 
   beforeEach(async () => {
+    // Ensure a secret is available for JwtModule.registerAsync before the module compiles
+    process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
+
+    app.useGlobalPipes(new ValidationPipe({ transform: true }));
+
     await app.init();
+
+    // Generate a valid JWT for protected endpoints
+    const jwtService = app.get(JwtService);
+    jwtToken = jwtService.sign({ sub: "e2e-test-user" });
   });
 
   afterEach(async () => {
@@ -56,9 +68,11 @@ describe("AppController (e2e)", () => {
             expect(invoice).toHaveProperty("invoiceNumber");
             expect(invoice).toHaveProperty("clientName");
             expect(invoice).toHaveProperty("amount");
-            expect(invoice).toHaveProperty("asset");
+            expect(invoice).toHaveProperty("asset_code");
             expect(invoice).toHaveProperty("memo");
+            expect(invoice).toHaveProperty("memo_type", "ID");
             expect(invoice).toHaveProperty("status");
+            expect(invoice).toHaveProperty("destination_address");
           }
         });
     });
@@ -90,29 +104,97 @@ describe("AppController (e2e)", () => {
   });
 
   describe("POST /invoices", () => {
-    it("should create a new invoice", () => {
+    it("should return 401 when no token is provided", () => {
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .send({
+          invoiceNumber: "INV-UNAUTH",
+          clientName: "No Auth",
+          clientEmail: "noauth@test.com",
+          amount: 10.0,
+          asset_code: "XLM",
+        })
+        .expect(401);
+    });
+
+    it("should create a new XLM invoice", () => {
       const newInvoice = {
-        invoiceNumber: "INV-E2E-001",
+        invoiceNumber: "INV-E2E-XLM",
         clientName: "E2E Test Client",
         clientEmail: "e2e@test.com",
         description: "End-to-end test invoice",
         amount: 999.99,
-        asset: "USDC",
+        asset_code: "XLM",
       };
 
       return request(app.getHttpServer())
         .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
         .send(newInvoice)
         .expect(201)
         .expect((res) => {
           expect(res.body.invoiceNumber).toBe(newInvoice.invoiceNumber);
           expect(res.body.clientName).toBe(newInvoice.clientName);
           expect(res.body.amount).toBe(newInvoice.amount);
-          expect(res.body.asset).toBe(newInvoice.asset);
+          expect(res.body.asset_code).toBe("XLM");
+          expect(res.body.asset_issuer).toBeUndefined();
           expect(res.body.status).toBe("pending");
-          expect(res.body.memo).toContain("invoisio-");
+          expect(res.body.memo).toMatch(/^\d+$/);
+          expect(res.body.memo_type).toBe("ID");
+          expect(res.body.destination_address).toBeDefined();
           expect(res.body.id).toBeDefined();
         });
+    });
+
+    it("should create a new USDC invoice", () => {
+      const newInvoice = {
+        invoiceNumber: "INV-E2E-USDC",
+        clientName: "E2E USDC Client",
+        clientEmail: "usdc@test.com",
+        amount: 500.0,
+        asset_code: "USDC",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      };
+
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send(newInvoice)
+        .expect(201)
+        .expect((res) => {
+          expect(res.body.asset_code).toBe("USDC");
+          expect(res.body.asset_issuer).toBe(newInvoice.asset_issuer);
+        });
+    });
+
+    it("should return 400 when asset_issuer is missing for non-XLM asset", () => {
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send({
+          invoiceNumber: "INV-BAD",
+          clientName: "Bad Client",
+          clientEmail: "bad@test.com",
+          amount: 100.0,
+          asset_code: "USDC",
+          // asset_issuer intentionally omitted
+        })
+        .expect(400);
+    });
+
+    it("should return 400 when asset_issuer is not a valid Stellar address", () => {
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send({
+          invoiceNumber: "INV-BAD-ISSUER",
+          clientName: "Bad Issuer Client",
+          clientEmail: "badissuer@test.com",
+          amount: 100.0,
+          asset_code: "USDC",
+          asset_issuer: "not-a-stellar-address",
+        })
+        .expect(400);
     });
   });
 
