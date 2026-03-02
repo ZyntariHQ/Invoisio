@@ -21,14 +21,23 @@ export class Invoice {
   /** Payment amount */
   amount: number;
 
-  /** Asset code for payment: 'XLM' or 'USDC' */
-  asset: "XLM" | "USDC";
+  /** Stellar asset code (e.g. 'XLM', 'USDC') */
+  asset_code: string;
+
+  /** Issuing account for the asset; undefined for native XLM */
+  asset_issuer?: string;
 
   /**
-   * Stellar memo for payment matching
-   * Format: {MEMO_PREFIX}{invoiceId} (e.g., "invoisio-abc123")
+   * Stellar memo for payment matching.
+   * Stored as the string representation of a uint64 integer.
    */
   memo: string;
+
+  /**
+   * Stellar memo type.
+   * 'ID' — numeric uint64 memo, unambiguously maps to exactly one invoice.
+   */
+  memo_type: "ID";
 
   /**
    * Invoice status
@@ -39,8 +48,8 @@ export class Invoice {
    */
   status: "pending" | "paid" | "overdue" | "cancelled";
 
-  /** Destination Stellar public key for payment */
-  destination: string;
+  /** Platform's collection wallet — the Stellar public key payments must be sent to */
+  destination_address: string;
 
   /** Invoice creation timestamp */
   createdAt: Date;

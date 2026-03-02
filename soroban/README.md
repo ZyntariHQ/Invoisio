@@ -8,39 +8,271 @@ Initialized with `stellar contract init` following the [official Soroban templat
 This workspace uses the recommended structure for a Soroban project:
 
 ```text
-smart-contracts/
-├── Cargo.toml                    # Workspace manifest (soroban-sdk = "25")
-├── rust-toolchain.toml           # Pins stable channel + wasm32v1-none target
-├── README.md
+soroban/
+├── Cargo.toml                      # Workspace manifest (soroban-sdk = "25")
+├── README.md                       # This file
+├── build.sh                        # Build contract WASM
+├── deploy.sh                       # Deploy to testnet + initialize
+├── invoke-record-payment.sh        # Record invoice payment
+├── invoke-get-payment.sh           # Query payment record
+├── invoke-has-payment.sh           # Check payment existence
 └── contracts/
-  └── invoice-payment/          # ← Main Invoisio contract
-    ├── src/lib.rs            # Contract logic + inline docs
-    ├── src/test.rs           # Unit tests
-    ├── src/storage.rs        # Persistent storage (state helpers)
-    ├── src/events.rs         # Event definitions / emitters
-    ├── src/errors.rs         # Contract error types
-    ├── Cargo.toml
-    └── Makefile              # build / test / deploy / invoke targets
+    └── invoice-payment/            # ← Main Invoisio contract
+        ├── src/lib.rs              # Contract logic + inline docs
+        ├── src/test.rs             # Unit tests
+        ├── src/storage.rs          # Persistent storage helpers
+        ├── src/events.rs           # Event definitions / emitters
+        ├── src/errors.rs           # Contract error types
+        ├── Cargo.toml
+        ├── Makefile                # build / test / deploy / invoke targets
+        └── examples/               # Demo scripts
 ```
-
-- New contracts go in `contracts/<name>/` — the `members = ["contracts/*"]` glob picks them up automatically.
-- All contracts share `soroban-sdk` via `[workspace.dependencies]` in the root `Cargo.toml`.
-- Frontend libraries can be added to the top-level directory if needed.
 
 ---
 
 ## Prerequisites
 
-| Tool | Install |
-|------|---------|
-| **Rust** (stable) | `curl https://sh.rustup.rs -sSf \| sh` |
-| **wasm32v1-none** target | `rustup target add wasm32v1-none` |
-| **Stellar CLI** ≥ 22 | `cargo install --locked stellar-cli --features opt` |
-| **Testnet XLM** | [Friendbot](https://friendbot.stellar.org/?addr=YOUR_G_KEY) |
+| Tool | Version | Install |
+|------|---------|---------|
+| **Rust** | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
+| **wasm32v1-none** target | — | `rustup target add wasm32v1-none` |
+| **Stellar CLI** | ≥ 22 | `cargo install --locked stellar-cli --features opt` |
+| **Testnet XLM** | — | Auto-funded by deploy script via [Friendbot](https://friendbot.stellar.org) |
 
-> **Windows users:** run Makefile targets inside **WSL 2** or **Git Bash** where
-> `make` is available, or copy the individual `stellar` CLI commands from the
-> Makefile and run them directly in PowerShell.
+### Platform-specific notes
+
+- **macOS / Linux**: All scripts work natively with bash
+- **Windows**: Use **WSL 2** (Windows Subsystem for Linux) to run the shell scripts
+  - Install WSL: `wsl --install` in PowerShell (as Administrator)
+  - The scripts will NOT work in PowerShell or CMD directly
+- **Git Bash** (Windows): Should work but WSL 2 is recommended for best compatibility
+
+---
+
+## Quick Start (4 steps)
+
+All commands run from the `soroban/` directory.
+
+### Step 1: Build the contract
+
+```bash
+./build.sh
+```
+
+**Expected output:**
+```
+=========================================
+Building Invoisio Invoice Payment Contract
+=========================================
+
+🔍 Checking prerequisites...
+
+✅ stellar CLI: stellar 25.1.0 (a048a57...)
+✅ Rust: rustc 1.93.1 (01f6ddf75 2026-02-11)
+✅ wasm32v1-none target installed
+
+🔨 Building contract...
+
+   Compiling invoice-payment v0.1.0
+    Finished `release` profile [optimized] target(s) in 1m 41s
+
+✅ Build complete!
+
+📦 WASM output:
+-rwxrwxrwx 1 user user 9.9K invoice_payment.wasm
+
+Next steps:
+  ./deploy.sh              - Deploy to Stellar testnet
+```
+
+### Step 2: Deploy to testnet
+
+```bash
+./deploy.sh
+```
+
+**Expected output:**
+```
+=========================================
+Deploying Invoisio Contract
+=========================================
+
+Network:  testnet
+Identity: invoisio-admin
+
+🔑 Step 1/4: Setting up identity 'invoisio-admin'...
+
+✅ Identity created
+   Address: GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+
+💰 Step 2/4: Funding account from Friendbot...
+
+✅ Account funded successfully
+
+🚀 Step 3/4: Deploying contract to testnet...
+
+✅ Contract deployed!
+   Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+
+💾 Contract ID saved to contracts/invoice-payment/.contract-id
+
+⚙️  Step 4/4: Initializing contract...
+
+✅ Contract initialized with admin: GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+
+=========================================
+🎉 Deployment Complete!
+=========================================
+
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Admin:       GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+Network:     testnet
+```
+
+### Step 3: Record a payment
+
+**XLM payment** (1 XLM = 10,000,000 stroops):
+
+```bash
+./invoke-record-payment.sh \
+  invoisio-demo-001 \
+  GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL \
+  XLM "" 10000000
+```
+
+**Expected output:**
+```
+=========================================
+Recording Payment
+=========================================
+Contract ID:    CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Invoice ID:     invoisio-demo-001
+Payer:          GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+Asset Code:     XLM
+Asset Issuer:   <native XLM>
+Amount:         10000000
+Network:        testnet
+
+🚀 Invoking record_payment...
+
+null
+
+✅ Payment recorded successfully!
+```
+
+**USDC payment** (5 USDC with 7 decimals = 50,000,000):
+
+```bash
+./invoke-record-payment.sh \
+  invoisio-usdc-001 \
+  GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL \
+  USDC \
+  GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 \
+  50000000
+```
+
+### Step 4: Query a payment
+
+```bash
+./invoke-get-payment.sh invoisio-demo-001
+```
+
+**Expected output:**
+```
+=========================================
+Retrieving Payment Record
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Invoice ID:  invoisio-demo-001
+Network:     testnet
+
+{
+  "amount": "10000000",
+  "asset": "Native",
+  "invoice_id": "invoisio-demo-001",
+  "payer": "GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL",
+  "timestamp": 1772475360
+}
+```
+
+---
+
+## Script Reference
+
+### `./build.sh`
+
+Builds the contract WASM file for deployment.
+
+- **Prerequisites check**: Validates Rust, Stellar CLI, and wasm32v1-none target
+- **Auto-installs** wasm32v1-none if missing
+- **Output**: `target/wasm32v1-none/release/invoice_payment.wasm` (~10KB)
+
+### `./deploy.sh`
+
+Deploys the contract to Stellar testnet and initializes it.
+
+**Environment variables:**
+- `STELLAR_NETWORK` — Network to use (default: `testnet`)
+- `STELLAR_IDENTITY` — Identity name (default: `invoisio-admin`)
+
+**What it does:**
+1. Creates/verifies the identity exists
+2. Funds the account from Friendbot (testnet only)
+3. Deploys the WASM to the network
+4. Initializes the contract with the admin address
+5. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
+
+### `./invoke-record-payment.sh`
+
+Records an invoice payment on-chain.
+
+**Usage:**
+```bash
+./invoke-record-payment.sh <invoice_id> <payer> <asset_code> <asset_issuer> <amount>
+```
+
+**Arguments:**
+- `invoice_id` — Unique invoice identifier (e.g., `invoisio-abc123`)
+- `payer` — Stellar account that made the payment (`G...`)
+- `asset_code` — `XLM` for native, or `USDC`, `EURT`, etc.
+- `asset_issuer` — Issuer address for tokens (use `""` for XLM)
+- `amount` — Amount in smallest unit (stroops for XLM)
+
+**Environment variables:**
+- `STELLAR_NETWORK` — Network (default: `testnet`)
+- `STELLAR_IDENTITY` — Signing identity (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID
+
+**Examples:**
+```bash
+# XLM payment (1 XLM)
+./invoke-record-payment.sh invoisio-001 GB7TAYRUZGE6T... XLM "" 10000000
+
+# USDC payment (5 USDC)
+./invoke-record-payment.sh invoisio-002 GB7TAYRUZGE6T... USDC GBBD47IF6LWK... 50000000
+```
+
+### `./invoke-get-payment.sh`
+
+Retrieves a payment record from the contract.
+
+**Usage:**
+```bash
+./invoke-get-payment.sh <invoice_id>
+```
+
+**Returns:** JSON payment record with invoice_id, payer, asset, amount, timestamp
+
+### `./invoke-has-payment.sh`
+
+Checks if a payment exists for an invoice (non-panicking).
+
+**Usage:**
+```bash
+./invoke-has-payment.sh <invoice_id>
+```
+
+**Returns:** `true` if payment exists, `false` otherwise
 
 ---
 
@@ -61,10 +293,10 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 
 | Decision | Rationale |
 |----------|-----------|
-| **Admin-gated writes** | Only the backend service account (`admin`) may call `record_payment`. |
-| **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation. |
-| **Persistent storage** | Records survive ledger archival windows. |
-| **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state. |
+| **Admin-gated writes** | Only the backend service account (`admin`) may call `record_payment` |
+| **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
+| **Persistent storage** | Records survive ledger archival windows |
+| **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
 
 ### Upgrade and versioning strategy
 
@@ -146,15 +378,15 @@ pub enum Asset {
 }
 ```
 
-**Multi-Asset Support**: The contract supports both native XLM and any Stellar-issued token (USDC, EURT, etc.) through the `Asset` enum. See [MULTI_ASSET_SUPPORT.md](contracts/invoice-payment/MULTI_ASSET_SUPPORT.md) for detailed documentation.
+**Multi-Asset Support**: The contract supports both native XLM and any Stellar-issued token (USDC, EURT, etc.) through the `Asset` enum.
 
-### Emitted event
+### Emitted events
 
 Every `record_payment` call publishes:
 
 ```
 Topics : (Symbol "payment_recorded")
-Data   : PaymentRecorded { 
+Data   : PaymentRecorded {
            record: PaymentRecord { invoice_id, payer, asset_code, asset_issuer, amount, timestamp }
          }
 ```
@@ -170,94 +402,136 @@ stellar events \
 
 ---
 
-## Quick Start (testnet)
+## Troubleshooting
 
-All commands run from `smart-contracts/contracts/invoice-payment/`.
+### `stellar: command not found`
 
-### 1 - 
+**Cause:** Stellar CLI not installed
 
+**Fix:**
+```bash
+cargo install --locked stellar-cli --features opt
+```
+
+Verify installation:
+```bash
+stellar --version
+```
+
+### `error: target 'wasm32v1-none' is not installed`
+
+**Cause:** Missing WASM compilation target
+
+**Fix:**
 ```bash
 rustup target add wasm32v1-none
 ```
 
-### 1 — Build
+The `build.sh` script auto-installs this if missing.
 
-```sh
-# From workspace root (smart-contracts/)
-stellar contract build
-# WASM: target/wasm32v1-none/release/invoice_payment.wasm
+### `ERROR: Contract WASM not found`
 
-make build   # same + prints file size
+**Cause:** Contract not built before deploying
+
+**Fix:**
+```bash
+./build.sh
+./deploy.sh
 ```
 
-### 2 — Run tests (no network needed)
+### `error: Account not found` or funding fails
 
-```sh
-make test
-# Runs unit tests using soroban-sdk testutils
+**Cause:** Network issues with Friendbot or account already exists
+
+**Fix:**
+- Check internet connection
+- Friendbot may be rate-limited; wait 1 minute and retry
+- For existing accounts, the script continues automatically
+
+### `error: a value is required for '--asset_issuer'`
+
+**Cause:** Old script version or incorrect usage
+
+**Fix:** For XLM payments, pass empty string as `""`:
+```bash
+./invoke-record-payment.sh invoice-001 G... XLM "" 10000000
+#                                            ↑↑
+#                                         Empty string for XLM
 ```
 
-### 3 — Deploy to testnet
+### Windows: `bash: ./build.sh: Permission denied`
 
-```sh
-make generate-identity   # creates "invoisio-admin" key locally
-make fund                # tops it up via Friendbot
-make deploy              # deploys WASM, stores CONTRACT_ID in .contract-id
+**Cause:** Scripts not executable (shouldn't happen on Windows)
+
+**Fix:**
+```bash
+chmod +x *.sh
 ```
 
-### 4 — Initialise
+### Windows: Scripts don't work in PowerShell
 
-```sh
-ADMIN=$(stellar keys address invoisio-admin)
-make invoke-initialize CONTRACT_ID=$(cat .contract-id) ADMIN=$ADMIN
-```
+**Cause:** Bash scripts require a Unix-like environment
 
-### 5 — Record a payment (XLM)
+**Fix:** Use **WSL 2**:
+```powershell
+# In PowerShell as Administrator
+wsl --install
 
-```sh
-make invoke-record-payment \
-  CONTRACT_ID=$(cat .contract-id) \
-  INVOICE_ID=invoisio-abc123 \
-  PAYER=GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX \
-  ASSET_CODE=XLM \
-  ASSET_ISSUER="" \
-  AMOUNT=10000000
-# Returns: null  (void)
-```
-
-**Record a token payment (USDC)**:
-
-```sh
-make invoke-record-payment \
-  CONTRACT_ID=$(cat .contract-id) \
-  INVOICE_ID=invoisio-usdc-001 \
-  PAYER=GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX \
-  ASSET_CODE=USDC \
-  ASSET_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 \
-  AMOUNT=50000000
-# Returns: null  (void)
-```
-
-See [examples/multi_asset_demo.sh](contracts/invoice-payment/examples/multi_asset_demo.sh) for a complete demo.
-
-### 6 — Verify
-
-```sh
-make invoke-get-payment \
-  CONTRACT_ID=$(cat .contract-id) \
-  INVOICE_ID=invoisio-abc123
-# Returns the full PaymentRecord as JSON
-```
-
-### 7 — Stream events
-
-```sh
-make events CONTRACT_ID=$(cat .contract-id)
+# Then access your project in WSL
+wsl
+cd /mnt/c/Users/YourName/path/to/Invoisio/soroban
+./build.sh
 ```
 
 ---
 
-## Network configuration
+## Advanced Usage
+
+### Running unit tests
+
+```bash
+cargo test
+```
+
+Tests run locally without network access using `soroban-sdk` test utilities.
+
+### Using the Makefile (alternative to scripts)
+
+From `contracts/invoice-payment/`:
+
+```bash
+make build                       # Build contract
+make test                        # Run tests
+make deploy                      # Deploy (requires env setup)
+make invoke-record-payment \
+  CONTRACT_ID=<id> \
+  INVOICE_ID=invoisio-001 \
+  PAYER=G... \
+  ASSET_CODE=XLM \
+  ASSET_ISSUER="" \
+  AMOUNT=10000000
+```
+
+### Custom network / identity
+
+```bash
+# Deploy to different network
+STELLAR_NETWORK=futurenet ./deploy.sh
+
+# Use custom identity
+STELLAR_IDENTITY=my-admin ./deploy.sh
+
+# Override contract ID for invocations
+CONTRACT_ID=CXXXXXXXXX... ./invoke-get-payment.sh invoisio-001
+```
+
+### Multi-asset demo
+
+See [contracts/invoice-payment/examples/multi_asset_demo.sh](contracts/invoice-payment/examples/multi_asset_demo.sh) for a complete demo of XLM and USDC payments.
+
+---
+
+## Network Configuration
 
 Aligned with the backend `.env` described in the root `README.md`:
 
@@ -272,7 +546,7 @@ For mainnet use `"Public Global Stellar Network ; September 2015"` and the mainn
 
 ---
 
-## Backend integration notes
+## Backend Integration Notes
 
 The Invoisio backend (`backend/`) can consume this contract in two ways:
 
@@ -280,3 +554,23 @@ The Invoisio backend (`backend/`) can consume this contract in two ways:
 2. **Event path** — subscribe to `getEvents` on the Soroban RPC, filtering on `CONTRACT_ID` and topic `payment_recorded` for push-based reconciliation without polling Horizon.
 
 Both paths are independent; the backend can start with just the Horizon watcher and add the Soroban write path later without breaking existing invoices.
+
+---
+
+## Contributing
+
+When adding new functionality:
+
+1. Add tests in `contracts/invoice-payment/src/test.rs`
+2. Run `cargo test` to verify
+3. Update this README if adding new public methods
+4. Consider updating shell scripts if the contract API changes
+
+---
+
+## Resources
+
+- [Stellar Documentation](https://developers.stellar.org/)
+- [Soroban Smart Contracts](https://developers.stellar.org/docs/build/smart-contracts)
+- [Stellar CLI Reference](https://developers.stellar.org/docs/tools/developer-tools/cli/stellar-cli)
+- [Soroban SDK](https://docs.rs/soroban-sdk/latest/soroban_sdk/)
