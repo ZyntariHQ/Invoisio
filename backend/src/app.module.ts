@@ -10,6 +10,8 @@ import stellarConfig from "./config/stellar.config";
 import { HealthModule } from "./health/health.module";
 import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
+import { AuthModule } from "./auth/auth.module";
+import { UsersModule } from "./users/user.module";
 
 /**
  * Root application module
@@ -47,6 +49,8 @@ import { StellarModule } from "./stellar/stellar.module";
     HealthModule,
     InvoicesModule,
     StellarModule,
+    AuthModule,
+    UsersModule,
   ],
 })
 export class AppModule {}
