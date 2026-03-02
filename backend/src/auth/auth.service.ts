@@ -8,7 +8,7 @@ import { Repository } from "typeorm";
 import { JwtService } from "@nestjs/jwt";
 import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
-import { User } from "src/users/user.entity";
+import { User } from "../users/user.entity";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes

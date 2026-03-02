@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { AuthGuard } from "@nestjs/passport";
 import { Reflector } from "@nestjs/core";
-import { User } from "src/users/user.entity";
+import { User } from "../../users/user.entity";
 
 export const IS_PUBLIC_KEY = "isPublic";
 

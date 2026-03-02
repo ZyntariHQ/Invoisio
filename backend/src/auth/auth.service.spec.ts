@@ -4,7 +4,7 @@ import { JwtService } from "@nestjs/jwt";
 import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { AuthService } from "./auth.service";
-import { User } from "src/users/user.entity";
+import { User } from "../users/user.entity";
 
 const mockRepo = () => ({
   findOne: jest.fn(),

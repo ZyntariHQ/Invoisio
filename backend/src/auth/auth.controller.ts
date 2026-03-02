@@ -9,7 +9,7 @@ import {
 import { AuthService } from "./auth.service";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
 import { Auth, CurrentUser } from "./guard/auth.guard";
-import { User } from "src/users/user.entity";
+import { User } from "../users/user.entity";
 
 @Controller("auth")
 export class AuthController {
