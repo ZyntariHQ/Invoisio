@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import * as Joi from "joi";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 
 // Configuration
 import appConfig from "./config/app.config";
@@ -12,6 +12,7 @@ import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/user.module";
+import { TypeOrmModule } from "@nestjs/typeorm";
 
 /**
  * Root application module
@@ -24,6 +25,20 @@ import { UsersModule } from "./users/user.module";
  */
 @Module({
   imports: [
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        type: "postgres",
+        host: configService.get<string>("DATABASE_HOST"),
+        port: parseInt(configService.get<string>("DATABASE_PORT")!, 10),
+        username: configService.get<string>("DATABASE_USER"),
+        password: configService.get<string>("DATABASE_PASSWORD"),
+        database: configService.get<string>("DATABASE_NAME"),
+        autoLoadEntities: configService.get<string>("DATABASE_LOAD") === "true",
+        synchronize: configService.get<string>("DATABASE_SYNC") === "true",
+      }),
+    }),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig, stellarConfig],
