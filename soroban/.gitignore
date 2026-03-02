@@ -4,3 +4,7 @@ target
 # Local settings
 .soroban
 .stellar
+
+# Contract deployment artifacts (network-specific, should not be committed)
+**/.contract-id
+**/.contract-id-*
