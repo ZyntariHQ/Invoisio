@@ -2,7 +2,10 @@
 #![allow(clippy::all)]
 
 use super::*;
-use soroban_sdk::{testutils::Address as _, Address, Env, IntoVal, String};
+use soroban_sdk::{
+    testutils::{Address as _, MockAuth, MockAuthInvoke},
+    Address, Env, IntoVal, String,
+};
 
 // TTL / Helpers
 
@@ -165,6 +168,79 @@ fn test_duplicate_invoice_id_returns_error() {
         &10_000_000i128,
     );
     assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
+}
+
+#[test]
+fn test_record_payment_rejects_when_admin_not_authorised() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-unauth");
+    let payer = Address::generate(&env);
+
+    // Only the payer authorises the call; the admin does NOT.
+    env.mock_auths(&[MockAuth {
+        address: &payer,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "record_payment",
+            args: (
+                invoice_id.clone(),
+                payer.clone(),
+                String::from_str(&env, "XLM"),
+                String::from_str(&env, ""),
+                10_000_000i128,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // The host must reject because the required admin address never authorises.
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_record_payment_succeeds_with_admin_auth() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-auth");
+    let payer = Address::generate(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "record_payment",
+            args: (
+                invoice_id.clone(),
+                payer.clone(),
+                String::from_str(&env, "XLM"),
+                String::from_str(&env, ""),
+                10_000_000i128,
+            )
+                .into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+
+    assert!(client.has_payment(&invoice_id));
 }
 
 #[test]
@@ -454,6 +530,40 @@ fn test_set_admin_requires_new_admin_auth() {
     // Without new_admin's auth the host must reject the call.
     let result = client.try_set_admin(&new_admin);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_set_admin_rejects_calls_from_non_admin() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    let attacker = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+
+    // The attacker (not the current admin) attempts to call set_admin.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_admin",
+            args: (new_admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_admin(&new_admin);
+    assert!(result.is_err());
+
+    // Sanity check: original admin is still the same when properly authorised.
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "admin",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert_eq!(client.admin(), admin);
 }
 // Multi-asset support tests
 
