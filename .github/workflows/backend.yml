@@ -12,6 +12,9 @@ on:
       - 'backend/**'
       - '.github/workflows/backend.yml'
 
+env:
+  MERCHANT_PUBLIC_KEY: ${{ secrets.MERCHANT_PUBLIC_KEY || 'test-public-key' }}
+
 jobs:
   lint-and-test:
     name: Lint, Test and Build
