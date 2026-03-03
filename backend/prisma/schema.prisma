@@ -1,0 +1,41 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid()) @db.Uuid
+  publicKey       String   @unique
+  nonce           String?
+  nonceExpiresAt  BigInt?
+  email           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  invoices        Invoice[]
+}
+
+model Invoice {
+  id              String   @id @default(uuid())
+  userId          String?  @db.Uuid
+  user            User?    @relation(fields: [userId], references: [id])
+  invoiceNumber   String?
+  clientName      String
+  clientEmail     String?
+  description     String?
+  amount          Decimal  @db.Decimal(30, 8)
+  asset_code      String
+  asset_issuer    String?
+  memo            String   @unique
+  memo_type       String   @default("ID")
+  tx_hash         String?
+  status          String   @default("pending")
+  metadata        Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  dueDate         DateTime?
+}

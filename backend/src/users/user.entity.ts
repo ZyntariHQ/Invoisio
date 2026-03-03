@@ -1,28 +1,15 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from "typeorm";
-
-@Entity("users")
 export class User {
-  @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ unique: true })
   publicKey: string;
 
-  @Column({ nullable: true })
-  nonce: string;
+  email?: string;
 
-  @Column({ nullable: true, type: "bigint" })
-  nonceExpiresAt: number | null;
+  nonce?: string | null;
 
-  @CreateDateColumn()
-  createdAt: Date;
+  nonceExpiresAt?: number | bigint | null;
 
-  @UpdateDateColumn()
-  updatedAt: Date;
+  createdAt?: Date;
+
+  updatedAt?: Date;
 }

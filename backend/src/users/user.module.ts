@@ -1,8 +1,7 @@
 import { Module } from "@nestjs/common";
-import { TypeOrmModule } from "@nestjs/typeorm";
-import { User } from "./user.entity";
+import { PrismaModule } from "../prisma/prisma.module";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User])],
+  imports: [PrismaModule],
 })
 export class UsersModule {}

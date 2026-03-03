@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
+import { PrismaService } from "../prisma/prisma.service";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -14,13 +15,12 @@ import { v4 as uuidv4 } from "uuid";
  */
 @Injectable()
 export class InvoicesService {
-  private invoices: Map<string, Invoice> = new Map();
-
   constructor(
     private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
+    private readonly prisma: PrismaService,
   ) {
-    // Pre-populate with sample invoices for demonstration
+    // Ensure sample invoices exist in DB for demo/dev
     this.seedSampleInvoices();
   }
 
@@ -28,8 +28,15 @@ export class InvoicesService {
    * Get all invoices as an array
    * @returns Array of all invoices
    */
-  findAll(): Invoice[] {
-    return Array.from(this.invoices.values());
+  async findAll(): Promise<Invoice[]> {
+    const invoices = await this.prisma.invoice.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    // attach destination address for compatibility with existing DTOs
+    return invoices.map((inv) => ({
+      ...inv,
+      destination_address: this.stellarService.getMerchantPublicKey(),
+    }));
   }
 
   /**
@@ -38,12 +45,14 @@ export class InvoicesService {
    * @returns The invoice object
    * @throws NotFoundException if invoice not found
    */
-  findOne(id: string): Invoice {
-    const invoice = this.invoices.get(id);
-    if (!invoice) {
+  async findOne(id: string): Promise<Invoice> {
+    const invoice = await this.prisma.invoice.findUnique({ where: { id } });
+    if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
-    }
-    return invoice;
+    return {
+      ...invoice,
+      destination_address: this.stellarService.getMerchantPublicKey(),
+    };
   }
 
   /**
@@ -51,30 +60,30 @@ export class InvoicesService {
    * @param dto - Create invoice DTO
    * @returns The created invoice including payment instructions
    */
-  create(dto: CreateInvoiceDto): Invoice {
-    const id = uuidv4();
+  async create(dto: CreateInvoiceDto): Promise<Invoice> {
+    const memo = this.generateMemoId();
     const now = new Date();
-
-    const invoice: Invoice = {
-      id,
-      invoiceNumber: dto.invoiceNumber,
-      clientName: dto.clientName,
-      clientEmail: dto.clientEmail,
-      description: dto.description || "",
-      amount: dto.amount,
-      asset_code: dto.asset_code.toUpperCase(),
-      asset_issuer: dto.asset_issuer,
-      memo: this.generateMemoId(),
-      memo_type: "ID",
-      status: "pending",
+    const created = await this.prisma.invoice.create({
+      data: {
+        invoiceNumber: dto.invoiceNumber,
+        clientName: dto.clientName,
+        clientEmail: dto.clientEmail,
+        description: dto.description || null,
+        amount: dto.amount as any,
+        asset_code: dto.asset_code.toUpperCase(),
+        asset_issuer: dto.asset_issuer ?? undefined,
+        memo: memo,
+        memo_type: "ID",
+        status: "pending",
+        tx_hash: null,
+        metadata: null,
+        dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      },
+    });
+    return {
+      ...created,
       destination_address: this.stellarService.getMerchantPublicKey(),
-      createdAt: now,
-      updatedAt: now,
-      dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
     };
-
-    this.invoices.set(id, invoice);
-    return invoice;
   }
 
   /**
@@ -83,12 +92,12 @@ export class InvoicesService {
    * @param status - New status
    * @returns Updated invoice
    */
-  updateStatus(id: string, status: Invoice["status"]): Invoice {
-    const invoice = this.findOne(id);
-    invoice.status = status;
-    invoice.updatedAt = new Date();
-    this.invoices.set(id, invoice);
-    return invoice;
+  async updateStatus(id: string, status: Invoice["status"]): Promise<Invoice> {
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: { status },
+    });
+    return updated;
   }
 
   /**
@@ -96,10 +105,12 @@ export class InvoicesService {
    * @param memo - Stellar memo ID string
    * @returns Invoice or undefined if not found
    */
-  findByMemo(memo: string): Invoice | undefined {
-    return Array.from(this.invoices.values()).find(
-      (invoice) => invoice.memo === memo,
-    );
+  async findByMemo(memo: string): Promise<Invoice | null> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { memo: memo },
+    });
+    if (!invoice) return null;
+    return invoice;
   }
 
   /**
@@ -118,66 +129,63 @@ export class InvoicesService {
   /**
    * Seed sample invoices for demonstration purposes
    */
-  private seedSampleInvoices(): void {
+  private async seedSampleInvoices(): Promise<void> {
     const merchantPublicKey =
       this.stellarService.getMerchantPublicKey() ||
       "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
 
-    const sampleInvoices: Invoice[] = [
-      {
-        id: "550e8400-e29b-41d4-a716-446655440000",
-        invoiceNumber: "INV-001",
-        clientName: "Acme Corporation",
-        clientEmail: "billing@acme.com",
-        description: "Web development services - March 2026",
-        amount: 1500.0,
-        asset_code: "USDC",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-        memo: this.generateMemoId(),
-        memo_type: "ID",
-        status: "pending",
-        destination_address: merchantPublicKey,
-        createdAt: new Date("2026-03-01T10:00:00Z"),
-        updatedAt: new Date("2026-03-01T10:00:00Z"),
-        dueDate: new Date("2026-03-31T23:59:59Z"),
-      },
-      {
-        id: "550e8400-e29b-41d4-a716-446655440001",
-        invoiceNumber: "INV-002",
-        clientName: "TechStart Inc",
-        clientEmail: "payments@techstart.io",
-        description: "Consulting services - Q1 2026",
-        amount: 5000.0,
-        asset_code: "XLM",
-        memo: this.generateMemoId(),
-        memo_type: "ID",
-        status: "paid",
-        destination_address: merchantPublicKey,
-        createdAt: new Date("2026-02-15T14:30:00Z"),
-        updatedAt: new Date("2026-02-20T09:15:00Z"),
-        dueDate: new Date("2026-03-15T23:59:59Z"),
-      },
-      {
-        id: "550e8400-e29b-41d4-a716-446655440002",
-        invoiceNumber: "INV-003",
-        clientName: "Global Solutions Ltd",
-        clientEmail: "accounts@globalsolutions.com",
-        description: "API integration project",
-        amount: 3200.5,
-        asset_code: "USDC",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-        memo: this.generateMemoId(),
-        memo_type: "ID",
-        status: "overdue",
-        destination_address: merchantPublicKey,
-        createdAt: new Date("2026-01-10T08:00:00Z"),
-        updatedAt: new Date("2026-02-10T16:45:00Z"),
-        dueDate: new Date("2026-02-10T23:59:59Z"),
-      },
-    ];
+    const count = await this.prisma.invoice.count();
+    if (count > 0) return;
 
-    for (const invoice of sampleInvoices) {
-      this.invoices.set(invoice.id, invoice);
-    }
+    await this.prisma.invoice.createMany({
+      data: [
+        {
+          invoiceNumber: "INV-001",
+          clientName: "Acme Corporation",
+          clientEmail: "billing@acme.com",
+          description: "Web development services - March 2026",
+          amount: 1500.0 as any,
+          asset_code: "USDC",
+          asset_issuer:
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+          memo: this.generateMemoId(),
+          memo_type: "ID",
+          status: "pending",
+          tx_hash: null,
+          metadata: null,
+          dueDate: new Date("2026-03-31T23:59:59Z"),
+        },
+        {
+          invoiceNumber: "INV-002",
+          clientName: "TechStart Inc",
+          clientEmail: "payments@techstart.io",
+          description: "Consulting services - Q1 2026",
+          amount: 5000.0 as any,
+          asset_code: "XLM",
+          memo: this.generateMemoId(),
+          memo_type: "ID",
+          status: "paid",
+          tx_hash: null,
+          metadata: null,
+          dueDate: new Date("2026-03-15T23:59:59Z"),
+        },
+        {
+          invoiceNumber: "INV-003",
+          clientName: "Global Solutions Ltd",
+          clientEmail: "accounts@globalsolutions.com",
+          description: "API integration project",
+          amount: 3200.5 as any,
+          asset_code: "USDC",
+          asset_issuer:
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+          memo: this.generateMemoId(),
+          memo_type: "ID",
+          status: "overdue",
+          tx_hash: null,
+          metadata: null,
+          dueDate: new Date("2026-02-10T23:59:59Z"),
+        },
+      ],
+    });
   }
 }

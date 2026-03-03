@@ -1,62 +1,54 @@
-/**
- * Invoice entity representing a payment request
- * Used for Stellar payment matching via memo field
- */
+import { User } from "../../users/user.entity";
+
+export enum InvoiceStatus {
+  pending = "pending",
+  paid = "paid",
+  partial = "partial",
+  expired = "expired",
+  cancelled = "cancelled",
+}
+
+export enum StellarMemoType {
+  TEXT = "TEXT",
+  ID = "ID",
+  HASH = "HASH",
+}
+
 export class Invoice {
-  /** Unique identifier (UUID) */
   id: string;
 
-  /** Human-readable invoice number (e.g., "INV-001") */
-  invoiceNumber: string;
+  user?: User | null;
 
-  /** Client name */
+  invoiceNumber?: string | null;
+
   clientName: string;
 
-  /** Client email address */
-  clientEmail: string;
+  clientEmail?: string | null;
 
-  /** Invoice description or notes */
-  description: string;
+  description?: string | null;
 
-  /** Payment amount */
-  amount: number;
+  amount: string | number;
 
-  /** Stellar asset code (e.g. 'XLM', 'USDC') */
   asset_code: string;
 
-  /** Issuing account for the asset; undefined for native XLM */
-  asset_issuer?: string;
+  asset_issuer?: string | null;
 
-  /**
-   * Stellar memo for payment matching.
-   * Stored as the string representation of a uint64 integer.
-   */
   memo: string;
 
-  /**
-   * Stellar memo type.
-   * 'ID' — numeric uint64 memo, unambiguously maps to exactly one invoice.
-   */
-  memo_type: "ID";
+  memo_type: StellarMemoType | string;
 
-  /**
-   * Invoice status
-   * - pending: Awaiting payment
-   * - paid: Payment received and confirmed
-   * - overdue: Past due date without payment
-   * - cancelled: Invoice cancelled by merchant
-   */
-  status: "pending" | "paid" | "overdue" | "cancelled";
+  tx_hash?: string | null;
 
-  /** Platform's collection wallet — the Stellar public key payments must be sent to */
-  destination_address: string;
+  status: InvoiceStatus | string;
 
-  /** Invoice creation timestamp */
-  createdAt: Date;
+  metadata?: any;
 
-  /** Last update timestamp */
-  updatedAt: Date;
+  createdAt?: Date;
 
-  /** Optional due date for the invoice */
-  dueDate?: Date;
+  updatedAt?: Date;
+
+  dueDate?: Date | null;
+
+  // Not persisted in DB — added at runtime for compatibility with existing DTOs
+  destination_address?: string;
 }

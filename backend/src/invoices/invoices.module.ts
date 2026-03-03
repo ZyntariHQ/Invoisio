@@ -5,6 +5,7 @@ import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { StellarModule } from "../stellar/stellar.module";
 import { AuthGuard } from "../auth/auth.guard";
+import { PrismaModule } from "../prisma/prisma.module";
 
 /**
  * Invoices module
@@ -13,6 +14,7 @@ import { AuthGuard } from "../auth/auth.guard";
 @Module({
   imports: [
     StellarModule,
+    PrismaModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

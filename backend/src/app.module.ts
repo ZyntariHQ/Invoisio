@@ -12,7 +12,7 @@ import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/user.module";
-import { TypeOrmModule } from "@nestjs/typeorm";
+import { PrismaModule } from "./prisma/prisma.module";
 
 /**
  * Root application module
@@ -29,31 +29,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
       isGlobal: true,
       envFilePath: [".env", ".env.example"],
     }),
-    TypeOrmModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => {
-        if (process.env.NODE_ENV === "test") {
-          return {
-            type: "sqlite",
-            database: ":memory:",
-            autoLoadEntities: true,
-            synchronize: true,
-          };
-        }
-
-        return {
-          type: "postgres",
-          host: configService.get<string>("DATABASE_HOST"),
-          port: parseInt(configService.get<string>("DATABASE_PORT")!, 10),
-          username: configService.get<string>("DATABASE_USER"),
-          password: configService.get<string>("DATABASE_PASSWORD"),
-          database: configService.get<string>("DATABASE_NAME"),
-          autoLoadEntities: true,
-          synchronize: true,
-        };
-      },
-    }),
+    PrismaModule,
     ConfigModule.forRoot({
       isGlobal: true,
       load: [appConfig, stellarConfig],
