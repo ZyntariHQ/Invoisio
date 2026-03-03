@@ -49,6 +49,21 @@ use storage::{
 ///   event carrying the full `PaymentRecord` so off-chain indexers don't need
 ///   to poll state.
 ///
+/// ## Access control model
+///
+/// - `initialize(admin)` must be called once after deployment to set the
+///   contract **admin** (the Invoisio backend / merchant service account).
+/// - The admin address is stored in instance storage and is read via
+///   [`admin`]; a missing admin means the contract is **not initialised**.
+/// - **Write methods**:
+///   - [`record_payment`] requires the current admin to authorise the call
+///     using `require_auth()`.
+///   - [`set_admin`] requires **both** the current admin and the new admin to
+///     authorise, ensuring the new admin explicitly consents to taking over.
+/// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
+///   `contract_version`, `version_info`, `admin`) are permissionless, so any
+///   account can inspect on-chain payment state.
+///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
