@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -14,14 +14,16 @@ import { v4 as uuidv4 } from "uuid";
  * and the StellarModule for Horizon payment watching.
  */
 @Injectable()
-export class InvoicesService {
+export class InvoicesService implements OnModuleInit {
   constructor(
     private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
     private readonly prisma: PrismaService,
-  ) {
-    // Ensure sample invoices exist in DB for demo/dev
-    this.seedSampleInvoices();
+  ) {}
+
+  async onModuleInit() {
+    // seed after PrismaService onModuleInit has run so client/fallback is available
+    await this.seedSampleInvoices();
   }
 
   /**
