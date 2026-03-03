@@ -98,7 +98,9 @@ describe("StellarService", () => {
 
     it("should not throw for valid public key in assertValidPublicKey", () => {
       const keypair = StellarValidator.generateKeypair();
-      expect(() => service.assertValidPublicKey(keypair.publicKey)).not.toThrow();
+      expect(() =>
+        service.assertValidPublicKey(keypair.publicKey),
+      ).not.toThrow();
     });
   });
 
@@ -139,12 +141,12 @@ describe("StellarService", () => {
       // Since this requires actual Horizon API, we just test the method exists
       // and returns the correct structure when no payment is found
       const memo = "test-memo";
-      
+
       // Mock the getServer method to avoid actual API call
-      jest.spyOn(service as any, 'getServer').mockImplementation(() => {
-        throw new Error('Mocked - no server');
+      jest.spyOn(service as any, "getServer").mockImplementation(() => {
+        throw new Error("Mocked - no server");
       });
-      
+
       try {
         await service.verifyPayment(memo);
       } catch (error) {
