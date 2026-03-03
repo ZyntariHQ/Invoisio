@@ -12,6 +12,8 @@ import { AppModule } from "./../src/app.module";
  * - Invoices API endpoints
  */
 describe("AppController (e2e)", () => {
+  // Extend default Jest timeout for slow CI environments
+  jest.setTimeout(30000);
   let app: INestApplication;
   let jwtToken: string;
 

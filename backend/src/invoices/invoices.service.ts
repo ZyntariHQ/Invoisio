@@ -33,10 +33,7 @@ export class InvoicesService {
       orderBy: { createdAt: "desc" },
     });
     // attach destination address for compatibility with existing DTOs
-    return invoices.map((inv) => ({
-      ...inv,
-      destination_address: this.stellarService.getMerchantPublicKey(),
-    }));
+    return invoices.map((inv) => this.normalizeInvoice(inv));
   }
 
   /**
@@ -49,10 +46,7 @@ export class InvoicesService {
     const invoice = await this.prisma.invoice.findUnique({ where: { id } });
     if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
-    return {
-      ...invoice,
-      destination_address: this.stellarService.getMerchantPublicKey(),
-    };
+    return this.normalizeInvoice(invoice);
   }
 
   /**
@@ -80,10 +74,7 @@ export class InvoicesService {
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       },
     });
-    return {
-      ...created,
-      destination_address: this.stellarService.getMerchantPublicKey(),
-    };
+    return this.normalizeInvoice(created);
   }
 
   /**
@@ -97,7 +88,7 @@ export class InvoicesService {
       where: { id },
       data: { status },
     });
-    return updated;
+    return this.normalizeInvoice(updated);
   }
 
   /**
@@ -110,7 +101,33 @@ export class InvoicesService {
       where: { memo: memo },
     });
     if (!invoice) return null;
-    return invoice;
+    return this.normalizeInvoice(invoice);
+  }
+
+  /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
+  private normalizeInvoice(inv: any): Invoice {
+    const amount = inv?.amount;
+    let numericAmount: number | string = amount;
+    try {
+      if (
+        amount &&
+        typeof amount === "object" &&
+        typeof amount.toNumber === "function"
+      ) {
+        numericAmount = amount.toNumber();
+      } else {
+        numericAmount = Number(amount);
+      }
+    } catch {
+      numericAmount = Number(String(amount));
+    }
+
+    return {
+      ...inv,
+      amount: numericAmount,
+      asset_issuer: inv.asset_issuer === null ? undefined : inv.asset_issuer,
+      destination_address: this.stellarService.getMerchantPublicKey(),
+    };
   }
 
   /**
