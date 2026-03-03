@@ -1,0 +1,23 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "strict": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["nativewind/types"],
+    "typeRoots": ["./types", "./node_modules/@types"],
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["app", "components", "*.d.ts", "**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
+}
