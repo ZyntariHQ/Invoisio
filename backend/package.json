@@ -23,7 +23,12 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:dev": "prisma migrate dev --name init --preview-feature"
+    "prisma:migrate:dev": "prisma migrate dev --name init --preview-feature",
+    "db:seed": "npx prisma db seed",
+    "db:migrate": "npx prisma migrate deploy"
+  },
+    "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
