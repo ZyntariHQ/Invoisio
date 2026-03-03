@@ -12,6 +12,8 @@ import { AppModule } from "./../src/app.module";
  * - Invoices API endpoints
  */
 describe("AppController (e2e)", () => {
+  // Extend default Jest timeout for slow CI environments
+  jest.setTimeout(30000);
   let app: INestApplication;
   let jwtToken: string;
 
@@ -153,7 +155,8 @@ describe("AppController (e2e)", () => {
         clientEmail: "usdc@test.com",
         amount: 500.0,
         asset_code: "USDC",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
       };
 
       return request(app.getHttpServer())

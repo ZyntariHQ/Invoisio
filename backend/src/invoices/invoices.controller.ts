@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Body, Param, Patch, UseGuards } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Patch,
+  UseGuards,
+} from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { Invoice } from "./entities/invoice.entity";
@@ -22,8 +30,8 @@ export class InvoicesController {
    * @returns Array of all invoices
    */
   @Get()
-  findAll(): Invoice[] {
-    return this.invoicesService.findAll();
+  async findAll(): Promise<Invoice[]> {
+    return await this.invoicesService.findAll();
   }
 
   /**
@@ -32,8 +40,8 @@ export class InvoicesController {
    * @returns The invoice object
    */
   @Get(":id")
-  findOne(@Param("id") id: string): Invoice {
-    return this.invoicesService.findOne(id);
+  async findOne(@Param("id") id: string): Promise<Invoice> {
+    return await this.invoicesService.findOne(id);
   }
 
   /**
@@ -44,8 +52,8 @@ export class InvoicesController {
    */
   @Post()
   @UseGuards(AuthGuard)
-  create(@Body() dto: CreateInvoiceDto): Invoice {
-    return this.invoicesService.create(dto);
+  async create(@Body() dto: CreateInvoiceDto): Promise<Invoice> {
+    return await this.invoicesService.create(dto);
   }
 
   /**
@@ -58,7 +66,7 @@ export class InvoicesController {
   updateStatus(
     @Param("id") id: string,
     @Body("status") status: Invoice["status"],
-  ): Invoice {
+  ): Promise<Invoice> {
     return this.invoicesService.updateStatus(id, status);
   }
 }

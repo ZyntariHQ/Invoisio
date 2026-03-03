@@ -3,9 +3,8 @@ import {
   UnauthorizedException,
   BadRequestException,
 } from "@nestjs/common";
-import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
 import { JwtService } from "@nestjs/jwt";
+import { PrismaService } from "../prisma/prisma.service";
 import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { User } from "../users/user.entity";
@@ -16,8 +15,7 @@ const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User)
-    private readonly userRepository: Repository<User>,
+    private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
   ) {}
 
@@ -30,22 +28,25 @@ export class AuthService {
   ): Promise<{ nonce: string; expiresAt: number }> {
     this.assertValidPublicKey(dto.publicKey);
 
-    let user = await this.userRepository.findOne({
+    const existing = await this.prisma.user.findUnique({
       where: { publicKey: dto.publicKey },
     });
 
     const nonce = crypto.randomBytes(32).toString("hex");
-    const expiresAt = Date.now() + NONCE_TTL_MS;
+    const expiresAt = BigInt(Date.now() + NONCE_TTL_MS);
 
-    if (!user) {
-      user = this.userRepository.create({ publicKey: dto.publicKey });
+    if (existing) {
+      await this.prisma.user.update({
+        where: { publicKey: dto.publicKey },
+        data: { nonce, nonceExpiresAt: expiresAt },
+      });
+    } else {
+      await this.prisma.user.create({
+        data: { publicKey: dto.publicKey, nonce, nonceExpiresAt: expiresAt },
+      });
     }
 
-    user.nonce = nonce;
-    user.nonceExpiresAt = expiresAt;
-    await this.userRepository.save(user);
-
-    return { nonce, expiresAt };
+    return { nonce, expiresAt: Number(expiresAt) };
   }
 
   /**
@@ -54,7 +55,7 @@ export class AuthService {
   async verify(dto: VerifyRequestDto): Promise<{ accessToken: string }> {
     this.assertValidPublicKey(dto.publicKey);
 
-    const user = await this.userRepository.findOne({
+    const user = await this.prisma.user.findUnique({
       where: { publicKey: dto.publicKey },
     });
 
@@ -64,7 +65,7 @@ export class AuthService {
       );
     }
 
-    if (Date.now() > Number(user.nonceExpiresAt)) {
+    if (Date.now() > Number(user.nonceExpiresAt ?? 0n)) {
       throw new UnauthorizedException(
         "Nonce has expired. Request a new nonce.",
       );
@@ -73,9 +74,10 @@ export class AuthService {
     this.verifySignature(dto.publicKey, user.nonce, dto.signedNonce);
 
     // Invalidate nonce after successful use (prevent replay attacks)
-    user.nonce = "";
-    user.nonceExpiresAt = null;
-    await this.userRepository.save(user);
+    await this.prisma.user.update({
+      where: { publicKey: dto.publicKey },
+      data: { nonce: "", nonceExpiresAt: null },
+    });
 
     const payload = { sub: user.id, publicKey: user.publicKey };
     const accessToken = this.jwtService.sign(payload);
