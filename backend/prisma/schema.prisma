@@ -1,41 +1,50 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
+// User model matching backend/src/users/user.entity.ts
 model User {
-  id              String   @id @default(uuid()) @db.Uuid
-  publicKey       String   @unique
-  nonce           String?
-  nonceExpiresAt  BigInt?
-  email           String?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id             String    @id @default(uuid())
+  publicKey      String    @unique
+  nonce          String?
+  nonceExpiresAt BigInt?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  invoices        Invoice[]
+  @@map("users")
 }
 
+// Invoice model matching backend/src/invoices/entities/invoice.entity.ts
 model Invoice {
-  id              String   @id @default(uuid())
-  userId          String?  @db.Uuid
-  user            User?    @relation(fields: [userId], references: [id])
-  invoiceNumber   String?
-  clientName      String
-  clientEmail     String?
-  description     String?
-  amount          Decimal  @db.Decimal(30, 8)
-  asset_code      String
-  asset_issuer    String?
-  memo            String   @unique
-  memo_type       String   @default("ID")
-  tx_hash         String?
-  status          String   @default("pending")
-  metadata        Json?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  dueDate         DateTime?
+  id                 String        @id @default(uuid())
+  invoiceNumber      String        @unique
+  clientName         String
+  clientEmail        String
+  description        String
+  amount             Decimal       @db.Decimal(18, 7) // Using Decimal for financial values
+  assetCode          String        @map("asset_code")
+  assetIssuer        String?       @map("asset_issuer")
+  memo               String
+  memoType           String        @default("ID") @map("memo_type") // Currently only "ID" supported
+  status             InvoiceStatus @default(pending)
+  destinationAddress String        @map("destination_address")
+  dueDate            DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  overdue
+  cancelled
 }
