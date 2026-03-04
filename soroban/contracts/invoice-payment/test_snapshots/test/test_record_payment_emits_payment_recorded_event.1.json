@@ -244,62 +244,49 @@
           "v0": {
             "topics": [
               {
-                "symbol": "payment_recorded"
+                "symbol": "invoice_payment_recorded"
               }
             ],
             "data": {
               "map": [
                 {
                   "key": {
-                    "symbol": "record"
+                    "symbol": "amount"
                   },
                   "val": {
-                    "map": [
-                      {
-                        "key": {
-                          "symbol": "amount"
-                        },
-                        "val": {
-                          "i128": "10000000"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "asset"
-                        },
-                        "val": {
-                          "vec": [
-                            {
-                              "symbol": "Native"
-                            }
-                          ]
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "invoice_id"
-                        },
-                        "val": {
-                          "string": "invoisio-event-test"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "payer"
-                        },
-                        "val": {
-                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                        }
-                      },
-                      {
-                        "key": {
-                          "symbol": "timestamp"
-                        },
-                        "val": {
-                          "u64": "0"
-                        }
-                      }
-                    ]
+                    "i128": "10000000"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "asset_code"
+                  },
+                  "val": {
+                    "string": "XLM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "asset_issuer"
+                  },
+                  "val": {
+                    "string": ""
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "invoice_id"
+                  },
+                  "val": {
+                    "string": "invoisio-event-test"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "payer"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
                 }
               ]

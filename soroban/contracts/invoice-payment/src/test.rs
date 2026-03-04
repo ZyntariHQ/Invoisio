@@ -173,7 +173,7 @@ fn test_duplicate_invoice_id_returns_error() {
 #[test]
 fn test_record_payment_rejects_when_admin_not_authorised() {
     let env = Env::default();
-    let (client, admin) = setup(&env);
+    let (client, _admin) = setup(&env);
 
     let invoice_id = String::from_str(&env, "invoisio-unauth");
     let payer = Address::generate(&env);
@@ -479,20 +479,12 @@ fn test_record_payment_emits_payment_recorded_event() {
     // env.events().all() returns events from the LAST contract invocation only.
     // We must assert BEFORE making any further contract call (e.g. get_payment),
     // otherwise the buffer is overwritten with that call's (empty) events.
-    //
-    // The expected PaymentRecord is constructed manually using the same values
-    // passed to record_payment; timestamp is sourced from the ledger as-is (default test Env starts at 0).
-    //
-    // #[contractevent] on `PaymentRecorded { record: PaymentRecord }` generates:
-    //   • topics : [Symbol("payment_recorded")]  — struct name in lower_snake_case
-    //   • data   : Map { "record" => PaymentRecord }  — all fields keyed by name
-    let expected_record = PaymentRecord {
-        invoice_id: invoice_id.clone(),
-        payer: payer.clone(),
-        asset: Asset::Native,
-        amount: 10_000_000i128,
-        timestamp: env.ledger().timestamp(),
-    };
+
+    let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
+    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
+    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
+    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
+    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
 
     assert_eq!(
         env.events().all(),
@@ -500,9 +492,19 @@ fn test_record_payment_emits_payment_recorded_event() {
             &env,
             (
                 client.address.clone(),
-                soroban_sdk::vec![&env, Symbol::new(&env, "payment_recorded").into_val(&env)],
-                soroban_sdk::map![&env, (Symbol::new(&env, "record"), expected_record)]
-                    .into_val(&env),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "invoice_payment_recorded").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "invoice_id"), inv_val),
+                    (Symbol::new(&env, "payer"), pyr_val),
+                    (Symbol::new(&env, "asset_code"), code_val),
+                    (Symbol::new(&env, "asset_issuer"), iss_val),
+                    (Symbol::new(&env, "amount"), amt_val)
+                ]
+                .into_val(&env),
             ),
         ]
     );

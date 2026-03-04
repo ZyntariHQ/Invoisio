@@ -287,7 +287,7 @@ Every call to `record_payment` both **persists** the record and **emits a Soroba
 event**, giving the Invoisio backend two independent reconciliation paths:
 
 1. **Horizon polling** — watch for native `Payment` ops with memo `invoisio-<id>`.
-2. **Soroban event streaming** — subscribe to `payment_recorded` events via `getEvents`.
+2. **Soroban event streaming** — subscribe to `invoice_payment_recorded` events via `getEvents`.
 
 ### Key design decisions
 
@@ -382,16 +382,16 @@ pub enum Asset {
 
 ### Emitted events
 
-Every `record_payment` call publishes:
+Every `record_payment` call publishes a flattened event payload so off-chain indexers and backends can parse it reliably:
 
 ```
-Topics : (Symbol "payment_recorded")
-Data   : PaymentRecorded {
-           record: PaymentRecord { invoice_id, payer, asset_code, asset_issuer, amount, timestamp }
-         }
+Topics : (Symbol "invoice_payment_recorded")
+Data   : InvoicePaymentRecorded { invoice_id, payer, asset_code, asset_issuer, amount }
 ```
 
-Subscribe via:
+Note: The `tx_hash` is not directly inside the payload, but is automatically included by Horizon in the event envelope when fetching via RPC.
+
+Subscribe and decode via CLI:
 ```sh
 stellar events \
   --id <CONTRACT_ID> \
@@ -399,6 +399,8 @@ stellar events \
   --type contract \
   --start-ledger 1
 ```
+
+The CLI automatically deserializes the XDR payload into human-readable JSON. A backend client can directly consume these events using generated TypeScript bindings (`stellar contract bindings typescript`).
 
 ---
 
