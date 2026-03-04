@@ -94,6 +94,20 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Mark invoice as paid and persist tx_hash
+   * @param id - Invoice UUID
+   * @param txHash - Stellar transaction hash
+   * @returns Updated invoice
+   */
+  async markAsPaid(id: string, txHash: string): Promise<Invoice> {
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: { status: "paid", tx_hash: txHash } as any,
+    });
+    return this.normalizeInvoice(updated);
+  }
+
+  /**
    * Find invoice by memo (for payment matching)
    * @param memo - Stellar memo ID string
    * @returns Invoice or undefined if not found
