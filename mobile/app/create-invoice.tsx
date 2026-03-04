@@ -104,7 +104,9 @@ export default function CreateInvoiceScreen() {
                       className={`flex-1 items-center justify-center rounded-2xl py-3 ${
                         currency === option ? "bg-white" : ""
                       }`}
-                      onPress={() => setCurrency(option)}
+                      onPress={() => {
+                        setCurrency(option);
+                      }}
                     >
                       <Text
                         className={`text-base ${currency === option ? "text-[#050914]" : "text-white"}`}
@@ -132,7 +134,9 @@ export default function CreateInvoiceScreen() {
                     className={`flex-1 items-center justify-center rounded-2xl py-3 ${
                       terms === option ? "bg-[#2663FF]" : ""
                     }`}
-                    onPress={() => setTerms(option)}
+                    onPress={() => {
+                      setTerms(option);
+                    }}
                   >
                     <Text
                       className={`text-base ${terms === option ? "text-white" : "text-slate-300"}`}
