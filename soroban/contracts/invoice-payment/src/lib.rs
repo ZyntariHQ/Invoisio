@@ -111,8 +111,8 @@ impl InvoicePaymentContract {
     /// ## Emitted event
     /// | Field  | Value                                   |
     /// |--------|-----------------------------------------|
-    /// | Topics | `(Symbol "payment_recorded")`           |
-    /// | Data   | Full [`PaymentRecord`] struct            |
+    /// | Topics | `(Symbol "invoice", Symbol "payment")`  |
+    /// | Data   | [`InvoicePaymentRecordedEvent`] struct  |
     ///
     /// Subscribe via:
     /// ```sh
@@ -205,7 +205,14 @@ impl InvoicePaymentContract {
         bump_count(&env);
 
         // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
-        emit_payment_recorded(&env, record);
+        emit_payment_recorded(
+            &env,
+            record.invoice_id,
+            record.payer,
+            asset_code,
+            asset_issuer,
+            record.amount,
+        );
 
         Ok(())
     }
