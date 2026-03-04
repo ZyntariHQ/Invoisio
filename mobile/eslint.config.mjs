@@ -33,7 +33,7 @@ export default tseslint.config(
         ...globals.es2024,
       },
       parserOptions: {
-        projectService: true,
+        project: "./tsconfig.json",
         tsconfigRootDir: __dirname,
       },
     },

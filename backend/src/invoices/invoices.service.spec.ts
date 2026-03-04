@@ -108,6 +108,21 @@ describe("InvoicesService", () => {
         count: jest
           .fn()
           .mockImplementation(() => Promise.resolve(invoices.length)),
+        groupBy: jest.fn().mockImplementation(({ by }: any) => {
+          if (by.includes("status")) {
+            const counts = invoices.reduce((acc: any, inv: any) => {
+              acc[inv.status] = (acc[inv.status] || 0) + inv.amount;
+              return acc;
+            }, {});
+            return Promise.resolve(
+              Object.keys(counts).map((status) => ({
+                status,
+                _sum: { amount: counts[status] },
+              })),
+            );
+          }
+          return Promise.resolve([]);
+        }),
         createMany: jest.fn().mockImplementation(({ data }: any) => {
           if (Array.isArray(data)) {
             for (const d of data)
@@ -138,18 +153,21 @@ describe("InvoicesService", () => {
   });
 
   describe("findAll", () => {
-    it("should return an array of invoices", async () => {
+    it("should return an object with data and meta", async () => {
       const result = await service.findAll();
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeGreaterThanOrEqual(3); // Sample invoices seeded
+      expect(result).toHaveProperty("data");
+      expect(result).toHaveProperty("meta");
+      expect(Array.isArray(result.data)).toBe(true);
+      expect(result.data.length).toBeGreaterThanOrEqual(3);
+      expect(result.meta.totalCount).toBeGreaterThanOrEqual(3);
     });
 
     it("should return invoices with required fields", async () => {
-      const result = await service.findAll();
+      const { data } = await service.findAll();
 
-      if (result.length > 0) {
-        const invoice = result[0];
+      if (data.length > 0) {
+        const invoice = data[0];
         expect(invoice).toHaveProperty("id");
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
@@ -165,8 +183,8 @@ describe("InvoicesService", () => {
 
   describe("findOne", () => {
     it("should return a single invoice by id", async () => {
-      const allInvoices = await service.findAll();
-      const firstInvoice = allInvoices[0];
+      const { data } = await service.findAll();
+      const firstInvoice = data[0];
 
       const result = await service.findOne(firstInvoice.id);
 
@@ -246,7 +264,8 @@ describe("InvoicesService", () => {
     });
 
     it("should add created invoice to the list", async () => {
-      const initialCount = (await service.findAll()).length;
+      const { meta: initialMeta } = await service.findAll();
+      const initialCount = initialMeta.totalCount;
       const dto: CreateInvoiceDto = {
         invoiceNumber: "INV-TEST-003",
         clientName: "Count Client",
@@ -257,14 +276,15 @@ describe("InvoicesService", () => {
 
       await service.create(dto);
 
-      expect((await service.findAll()).length).toBe(initialCount + 1);
+      const { meta: finalMeta } = await service.findAll();
+      expect(finalMeta.totalCount).toBe(initialCount + 1);
     });
   });
 
   describe("updateStatus", () => {
     it("should update invoice status", async () => {
-      const allInvoices = await service.findAll();
-      const invoice = allInvoices[0];
+      const { data } = await service.findAll();
+      const invoice = data[0];
 
       const newStatus = invoice.status === "pending" ? "paid" : "pending";
       const result = await service.updateStatus(invoice.id, newStatus);
@@ -275,8 +295,8 @@ describe("InvoicesService", () => {
 
   describe("findByMemo", () => {
     it("should find invoice by memo", async () => {
-      const allInvoices = await service.findAll();
-      const invoice = allInvoices[0];
+      const { data } = await service.findAll();
+      const invoice = data[0];
 
       const result = await service.findByMemo(invoice.memo);
 

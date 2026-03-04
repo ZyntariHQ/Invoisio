@@ -30,7 +30,7 @@ const features = [
 
 export default function LandingScreen() {
   return (
-    <SafeAreaView className="flex-1 bg-[#050914]">
+    <SafeAreaView className="flex-1 bg-brand-background">
       <ScrollView
         className="flex-1"
         contentContainerStyle={{ paddingBottom: 48 }}

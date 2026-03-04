@@ -5,6 +5,7 @@ import {
   Body,
   Param,
   Patch,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
@@ -27,11 +28,18 @@ export class InvoicesController {
 
   /**
    * Get all invoices
-   * @returns Array of all invoices
+   * @param page - Page number (default: 1)
+   * @param limit - Number of items per page (default: 10)
+   * @returns Array of invoices
    */
   @Get()
-  async findAll(): Promise<Invoice[]> {
-    return await this.invoicesService.findAll();
+  async findAll(
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ): Promise<{ data: Invoice[]; meta: any }> {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return await this.invoicesService.findAll(pageNum, limitNum);
   }
 
   /**

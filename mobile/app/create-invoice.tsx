@@ -27,7 +27,7 @@ export default function CreateInvoiceScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1 bg-[#050914]">
+    <SafeAreaView className="flex-1 bg-brand-background">
       <KeyboardAvoidingView
         className="flex-1"
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -130,7 +130,7 @@ export default function CreateInvoiceScreen() {
                   <Pressable
                     key={option}
                     className={`flex-1 items-center justify-center rounded-2xl py-3 ${
-                      terms === option ? "bg-[#2663FF]" : ""
+                      terms === option ? "bg-brand-primary" : ""
                     }`}
                     onPress={() => setTerms(option)}
                   >
@@ -191,11 +191,11 @@ export default function CreateInvoiceScreen() {
           </View>
 
           <Pressable
-            className="mt-8 rounded-2xl bg-[#00D6B9] py-4 shadow-lg shadow-[#00D6B9]/50"
+            className="mt-8 rounded-2xl bg-brand-accent py-4 shadow-lg shadow-brand-accent/50"
             onPress={confirmInvoice}
           >
             <Text
-              className="text-center text-lg text-[#041125]"
+              className="text-center text-lg text-brand-background"
               style={{ fontFamily: "SpaceGrotesk_700Bold" }}
             >
               Mint invoice NFT + share pay link

@@ -1,3 +1,4 @@
+import "../global.css";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -9,6 +10,9 @@ import {
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+const queryClient = new QueryClient();
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -29,25 +33,31 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: "#050914" },
-          headerShadowVisible: false,
-          headerTintColor: "#E2E8F0",
-          headerTitleStyle: { fontWeight: "600" },
-          contentStyle: { backgroundColor: "#050914" },
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ title: "Log in" }} />
-        <Stack.Screen name="dashboard" options={{ title: "Dashboard" }} />
-        <Stack.Screen
-          name="create-invoice"
-          options={{ title: "Create Invoice" }}
-        />
-      </Stack>
-    </SafeAreaProvider>
+    <QueryClientProvider client={queryClient}>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: "#050914" },
+            headerShadowVisible: false,
+            headerTintColor: "#E2E8F0",
+            headerTitleStyle: { fontWeight: "600" },
+            contentStyle: { backgroundColor: "#050914" },
+          }}
+        >
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen name="login" options={{ title: "Log in" }} />
+          <Stack.Screen name="dashboard" options={{ title: "Dashboard" }} />
+          <Stack.Screen
+            name="create-invoice"
+            options={{ title: "Create Invoice" }}
+          />
+          <Stack.Screen
+            name="invoice-details"
+            options={{ title: "Invoice Details" }}
+          />
+        </Stack>
+      </SafeAreaProvider>
+    </QueryClientProvider>
   );
 }

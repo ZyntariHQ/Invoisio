@@ -7,12 +7,15 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "eslint . --ext js,jsx,ts,tsx",
+    "lint": "eslint .",
     "format": "prettier --write .",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo-google-fonts/space-grotesk": "^0.4.1",
+    "@expo/metro-runtime": "~55.0.6",
+    "@tanstack/react-query": "^5.90.21",
+    "axios": "^1.13.6",
     "expo": "~55.0.4",
     "expo-font": "~55.0.4",
     "expo-linear-gradient": "~55.0.8",
@@ -24,7 +27,8 @@
     "react-native": "0.83.2",
     "react-native-reanimated": "^4.2.2",
     "react-native-safe-area-context": "~5.6.2",
-    "react-native-screens": "~4.23.0"
+    "react-native-screens": "~4.23.0",
+    "react-native-web": "^0.21.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

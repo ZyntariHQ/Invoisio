@@ -27,15 +27,44 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
-   * Get all invoices as an array
-   * @returns Array of all invoices
+   * Get all invoices as an array with pagination support
+   * @param page - Page number
+   * @param limit - Number of items per page
+   * @returns Object containing invoices and metadata
    */
-  async findAll(): Promise<Invoice[]> {
-    const invoices = await this.prisma.invoice.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    // attach destination address for compatibility with existing DTOs
-    return invoices.map((inv) => this.normalizeInvoice(inv));
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+  ): Promise<{ data: Invoice[]; meta: any }> {
+    const skip = (page - 1) * limit;
+
+    const [invoices, totalCount, totals] = await Promise.all([
+      this.prisma.invoice.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.invoice.count(),
+      this.prisma.invoice.groupBy({
+        by: ["status"],
+        _sum: { amount: true },
+      }),
+    ]);
+
+    const totalPending =
+      totals.find((t) => t.status === "pending")?._sum.amount || 0;
+    const totalPaid = totals.find((t) => t.status === "paid")?._sum.amount || 0;
+
+    return {
+      data: invoices.map((inv) => this.normalizeInvoice(inv)),
+      meta: {
+        totalCount,
+        totalPending: Number(totalPending),
+        totalPaid: Number(totalPaid),
+        page,
+        limit,
+      },
+    };
   }
 
   /**
