@@ -9,6 +9,9 @@ import {
   SpaceGrotesk_600SemiBold,
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
+import { AuthGuard } from "../components/auth-guard";
+import { useEffect } from "react";
+import { useAuthStore } from "../hooks/use-auth-store";
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -17,6 +20,16 @@ export default function RootLayout() {
     SpaceGrotesk_600SemiBold,
     SpaceGrotesk_700Bold,
   });
+
+  const { loadAuth } = useAuthStore();
+
+  // Load authentication state on app start
+  useEffect(() => {
+    const initAuth = async () => {
+      await loadAuth();
+    };
+    void initAuth();
+  }, [loadAuth]);
 
   if (!fontsLoaded) {
     return (
@@ -31,23 +44,31 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerStyle: { backgroundColor: "#050914" },
-          headerShadowVisible: false,
-          headerTintColor: "#E2E8F0",
-          headerTitleStyle: { fontWeight: "600" },
-          contentStyle: { backgroundColor: "#050914" },
-        }}
-      >
-        <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="login" options={{ title: "Log in" }} />
-        <Stack.Screen name="dashboard" options={{ title: "Dashboard" }} />
-        <Stack.Screen
-          name="create-invoice"
-          options={{ title: "Create Invoice" }}
-        />
-      </Stack>
+      <AuthGuard>
+        <Stack
+          screenOptions={{
+            headerStyle: { backgroundColor: "#050914" },
+            headerShadowVisible: false,
+            headerTintColor: "#E2E8F0",
+            headerTitleStyle: { fontWeight: "600" },
+            contentStyle: { backgroundColor: "#050914" },
+          }}
+        >
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="login"
+            options={{ title: "Log in", headerShown: false }}
+          />
+          <Stack.Screen
+            name="dashboard"
+            options={{ title: "Dashboard", headerShown: false }}
+          />
+          <Stack.Screen
+            name="create-invoice"
+            options={{ title: "Create Invoice", headerShown: false }}
+          />
+        </Stack>
+      </AuthGuard>
     </SafeAreaProvider>
   );
 }

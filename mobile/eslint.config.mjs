@@ -20,10 +20,11 @@ export default tseslint.config(
       "eslint.config.mjs",
       "babel.config.js",
       "tailwind.config.js",
+      "metro.config.js",
     ],
   },
   eslint.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  ...tseslint.configs.strictTypeChecked,
   eslintPluginPrettierRecommended,
   {
     files: ["**/*.{ts,tsx}", "app/**/*.tsx"],
@@ -76,6 +77,11 @@ export default tseslint.config(
       globals: {
         ...globals.browser,
         ...globals.es2024,
+      },
+      parser: tseslint.parser,
+      parserOptions: {
+        ecmaVersion: 2024,
+        sourceType: "module",
       },
     },
     plugins: {

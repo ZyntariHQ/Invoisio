@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect } from "react";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -6,16 +6,55 @@ import {
   Pressable,
   ScrollView,
   Text,
-  TextInput,
   View,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import invoisioLogo from "../assets/invoisio-logo.png";
+import { useWalletAuth } from "../hooks/use-wallet-auth";
 
 export default function LoginScreen() {
   const router = useRouter();
-  const [email, setEmail] = useState("founder@invoisio.com");
-  const [code, setCode] = useState("");
+  const {
+    isConnected,
+    publicKey,
+    isLoading,
+    error,
+    connectWallet,
+    disconnectWallet,
+  } = useWalletAuth();
+
+  // Redirect to dashboard if already connected
+  useEffect(() => {
+    if (isConnected && publicKey) {
+      router.push("/dashboard");
+    }
+  }, [isConnected, publicKey, router]);
+
+  const handleConnectWallet = async () => {
+    try {
+      await connectWallet();
+    } catch (err) {
+      // Error is handled by the hook
+      console.error("Connection error:", err);
+    }
+  };
+
+  const handleDisconnect = () => {
+    Alert.alert("Disconnect Wallet", "Are you sure you want to disconnect?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disconnect",
+        style: "destructive",
+        onPress: () => {
+          disconnectWallet().catch((err: unknown) => {
+            console.error("Disconnect error:", err);
+          });
+        },
+      },
+    ]);
+  };
 
   return (
     <SafeAreaView className="flex-1 bg-[#050914]">
@@ -48,83 +87,105 @@ export default function LoginScreen() {
             className="mt-3 text-4xl text-white"
             style={{ fontFamily: "SpaceGrotesk_700Bold" }}
           >
-            Authenticate with the wallet email you onboarded.
+            Connect your Stellar wallet
           </Text>
           <Text
             className="mt-3 text-base text-slate-200"
             style={{ fontFamily: "SpaceGrotesk_400Regular" }}
           >
-            We verify device posture and sign you into the Base-connected
-            operator dashboard.
+            Sign in securely with LOBSTR, xBull, or any Stellar wallet.
           </Text>
         </LinearGradient>
 
         <View className="mt-8 gap-5">
-          <View>
-            <Text
-              className="text-sm text-slate-200"
-              style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-            >
-              Work email
-            </Text>
-            <TextInput
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-white"
-              placeholder="you@company.xyz"
-              placeholderTextColor="#64748b"
-              style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-            />
-          </View>
-          <View>
-            <Text
-              className="text-sm text-slate-200"
-              style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-            >
-              6-digit code
-            </Text>
-            <TextInput
-              value={code}
-              onChangeText={setCode}
-              keyboardType="number-pad"
-              maxLength={6}
-              className="mt-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-center text-2xl tracking-widest text-white"
-              placeholder="••••••"
-              placeholderTextColor="#475569"
-              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
-            />
-          </View>
-
-          <Pressable
-            className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
-            onPress={() => router.push("/dashboard")}
-          >
-            <Text
-              className="text-center text-lg text-white"
-              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
-            >
-              Continue to dashboard
-            </Text>
-          </Pressable>
-
-          <View className="flex-row items-center justify-center gap-2">
-            <Text
-              className="text-sm text-slate-400"
-              style={{ fontFamily: "SpaceGrotesk_400Regular" }}
-            >
-              Need to send a new code?
-            </Text>
-            <Pressable className="pb-0.5" onPress={() => setCode("")}>
+          {isLoading ? (
+            <View className="items-center py-8">
+              <ActivityIndicator size="large" color="#2663FF" />
               <Text
-                className="text-sm text-white"
-                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                className="mt-4 text-slate-300"
+                style={{ fontFamily: "SpaceGrotesk_400Regular" }}
               >
-                Resend
+                Connecting to wallet...
               </Text>
-            </Pressable>
-          </View>
+            </View>
+          ) : isConnected && publicKey ? (
+            <View className="gap-4">
+              <View className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                <Text
+                  className="text-center text-emerald-300"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  ✓ Wallet Connected
+                </Text>
+                <Text
+                  className="mt-2 text-center text-xs text-slate-300"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                >
+                  {publicKey.slice(0, 6)}...{publicKey.slice(-4)}
+                </Text>
+              </View>
+
+              <Pressable
+                className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                onPress={() => {
+                  router.push("/dashboard");
+                }}
+              >
+                <Text
+                  className="text-center text-lg text-white"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Continue to Dashboard
+                </Text>
+              </Pressable>
+
+              <Pressable
+                className="rounded-2xl border border-red-500/30 py-4"
+                onPress={handleDisconnect}
+              >
+                <Text
+                  className="text-center text-lg text-red-400"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Disconnect Wallet
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Pressable
+                className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                onPress={handleConnectWallet}
+              >
+                <Text
+                  className="text-center text-lg text-white"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Connect Wallet
+                </Text>
+              </Pressable>
+
+              <View className="items-center gap-2">
+                <Text
+                  className="text-xs text-slate-400"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                >
+                  Supports LOBSTR, xBull, and other Stellar wallets
+                </Text>
+              </View>
+            </>
+          )}
+
+          {error && (
+            <View className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+              <Text
+                className="text-center text-red-300"
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+              >
+                {error}
+              </Text>
+            </View>
+          )}
         </View>
 
         <View className="mt-12 items-center gap-2">
@@ -132,7 +193,7 @@ export default function LoginScreen() {
             className="text-slate-500"
             style={{ fontFamily: "SpaceGrotesk_400Regular" }}
           >
-            Onboard a new entity?
+            New to Invoisio?
           </Text>
           <Link href="/create-invoice" asChild>
             <Pressable className="rounded-2xl border border-white/15 px-6 py-3">
@@ -140,7 +201,7 @@ export default function LoginScreen() {
                 className="text-white"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}
               >
-                Launch issuer workflow
+                Create your first invoice
               </Text>
             </Pressable>
           </Link>
