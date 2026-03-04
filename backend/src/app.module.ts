@@ -10,6 +10,7 @@ import stellarConfig from "./config/stellar.config";
 import { HealthModule } from "./health/health.module";
 import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
+import { HorizonWatcherModule } from "./stellar/horizon-watcher.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -48,6 +49,7 @@ import { PrismaModule } from "./prisma/prisma.module";
         ),
         USDC_ASSET_CODE: Joi.string().default("USDC"),
         MEMO_PREFIX: Joi.string().default("invoisio-"),
+        HORIZON_POLL_INTERVAL: Joi.number().integer().min(1000).default(15000),
         DATABASE_URL: Joi.string().optional(),
         JWT_SECRET: Joi.string().optional(),
       }),
@@ -55,6 +57,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     HealthModule,
     InvoicesModule,
     StellarModule,
+    HorizonWatcherModule,
     AuthModule,
     UsersModule,
   ],
