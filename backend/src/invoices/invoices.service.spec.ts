@@ -3,10 +3,50 @@ import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { validate } from "class-validator";
+import { plainToInstance } from "class-transformer";
 import { PrismaService } from "../prisma/prisma.service";
 
 describe("InvoicesService", () => {
   let service: InvoicesService;
+
+  // helper to validate DTOs using class-validator and class-transformer
+  describe("DTO validation", () => {
+    it("should reject invalid invoice DTOs", async () => {
+      const invalids = [
+        // negative amount
+        { invoiceNumber: "1", clientName: "a", clientEmail: "a@a.com", amount: -1, asset_code: "XLM" },
+        // invalid asset_code characters
+        { invoiceNumber: "2", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "XLM!" },
+        // non-XLM asset without issuer
+        { invoiceNumber: "3", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "USDC" },
+        // invalid issuer format
+        { invoiceNumber: "4", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "USDC", asset_issuer: "not-valid" },
+      ];
+
+      for (const raw of invalids) {
+        const dto = plainToInstance(CreateInvoiceDto, raw);
+        const errors = await validate(dto);
+        expect(errors.length).toBeGreaterThan(0);
+      }
+    });
+
+    it("should accept a valid dto and uppercase asset_code via transform", async () => {
+      const raw = {
+        invoiceNumber: "5",
+        clientName: "b",
+        clientEmail: "b@b.com",
+        amount: 10,
+        asset_code: "usdc",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      };
+      const dto = plainToInstance(CreateInvoiceDto, raw);
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+      expect(dto.asset_code).toBe("USDC");
+    });
+  });
+
   const mockConfigService = {
     get: jest.fn((key: string) => {
       if (key === "stellar") {
@@ -180,6 +220,21 @@ describe("InvoicesService", () => {
   });
 
   describe("create", () => {
+    it("should normalize asset_code casing even when provided lowercase", async () => {
+      const dto: CreateInvoiceDto = {
+        invoiceNumber: "INV-CASE-001",
+        clientName: "Case Client",
+        clientEmail: "case@example.com",
+        amount: 123.0,
+        asset_code: "usdc",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      };
+
+      const result = await service.create(dto);
+      expect(result.asset_code).toBe("USDC");
+    });
+
     it("should create a new invoice", async () => {
       const dto: CreateInvoiceDto = {
         invoiceNumber: "INV-TEST-001",
