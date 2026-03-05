@@ -7,6 +7,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // User model matching backend/src/users/user.entity.ts
@@ -45,6 +46,6 @@ model Invoice {
 enum InvoiceStatus {
   pending
   paid
-  overdue
+  expired
   cancelled
 }

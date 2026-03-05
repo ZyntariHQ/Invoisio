@@ -28,11 +28,7 @@ import { PrismaModule } from "./prisma/prisma.module";
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", ".env.example"],
-    }),
-    PrismaModule,
-    ConfigModule.forRoot({
-      isGlobal: true,
+      envFilePath: [".env.local", ".env", ".env.example"],
       load: [appConfig, stellarConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
@@ -51,7 +47,7 @@ import { PrismaModule } from "./prisma/prisma.module";
         MEMO_PREFIX: Joi.string().default("invoisio-"),
         HORIZON_POLL_INTERVAL: Joi.number().integer().min(1000).default(15000),
         DATABASE_URL: Joi.string().optional(),
-        JWT_SECRET: Joi.string().optional(),
+        JWT_SECRET: Joi.string().required(),
       }),
     }),
     HealthModule,

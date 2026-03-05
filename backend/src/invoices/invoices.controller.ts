@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   UseGuards,
+  Query,
 } from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -30,8 +31,19 @@ export class InvoicesController {
    * @returns Array of all invoices
    */
   @Get()
-  async findAll(): Promise<Invoice[]> {
-    return await this.invoicesService.findAll();
+  async findAll(
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ): Promise<{
+    items: Invoice[];
+    total: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+  }> {
+    const p = page ? parseInt(page, 10) : 1;
+    const l = limit ? parseInt(limit, 10) : 20;
+    return await this.invoicesService.findAll(p, l);
   }
 
   /**

@@ -27,15 +27,36 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
-   * Get all invoices as an array
-   * @returns Array of all invoices
+   * Get paginated invoices
+   * @param page - Page number (1-indexed)
+   * @param limit - Items per page
+   * @returns Paginated result
    */
-  async findAll(): Promise<Invoice[]> {
-    const invoices = await this.prisma.invoice.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    // attach destination address for compatibility with existing DTOs
-    return invoices.map((inv) => this.normalizeInvoice(inv));
+  async findAll(page = 1, limit = 20): Promise<{
+    items: Invoice[];
+    total: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+  }> {
+    const skip = (page - 1) * limit;
+    const [items, total] = await Promise.all([
+      this.prisma.invoice.findMany({
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+      }),
+      this.prisma.invoice.count(),
+    ]);
+
+    const normalizedItems = items.map((inv) => this.normalizeInvoice(inv));
+    return {
+      items: normalizedItems,
+      total,
+      page,
+      pageSize: limit,
+      hasMore: skip + items.length < total,
+    };
   }
 
   /**
@@ -141,6 +162,7 @@ export class InvoicesService implements OnModuleInit {
     return {
       ...inv,
       amount: numericAmount,
+      asset: inv.asset_code,
       asset_issuer: inv.asset_issuer === null ? undefined : inv.asset_issuer,
       destination_address: this.stellarService.getMerchantPublicKey(),
     };
@@ -213,7 +235,7 @@ export class InvoicesService implements OnModuleInit {
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
           memo: this.generateMemoId(),
           memo_type: "ID",
-          status: "overdue",
+          status: "expired",
           tx_hash: null,
           metadata: null,
           dueDate: new Date("2026-02-10T23:59:59Z"),

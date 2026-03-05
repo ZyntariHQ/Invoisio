@@ -1,4 +1,9 @@
-import 'dotenv/config';
+try {
+  require('dotenv').config();
+} catch (e) {
+  // Ignore
+}
+
 
 export default {
   datasource: {
