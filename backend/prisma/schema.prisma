@@ -1,3 +1,4 @@
+
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
@@ -13,38 +14,38 @@ datasource db {
 model User {
   id             String    @id @default(uuid())
   publicKey      String    @unique
+  email          String?
   nonce          String?
   nonceExpiresAt BigInt?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  invoices Invoice[]
+
   @@map("users")
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
+// and the fields used by InvoicesService
 model Invoice {
-  id                 String        @id @default(uuid())
-  invoiceNumber      String        @unique
-  clientName         String
-  clientEmail        String
-  description        String
-  amount             Decimal       @db.Decimal(18, 7) // Using Decimal for financial values
-  assetCode          String        @map("asset_code")
-  assetIssuer        String?       @map("asset_issuer")
-  memo               String
-  memoType           String        @default("ID") @map("memo_type") // Currently only "ID" supported
-  status             InvoiceStatus @default(pending)
-  destinationAddress String        @map("destination_address")
-  dueDate            DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id            String   @id @default(uuid())
+  userId        String?  @map("user_id")
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invoiceNumber String?  @map("invoice_number")
+  clientName    String   @map("client_name")
+  clientEmail   String?  @map("client_email")
+  description   String?
+  amount        Decimal  @db.Decimal(18, 7)
+  asset_code    String
+  asset_issuer  String?
+  memo          String   @unique
+  memo_type     String   @default("ID")
+  tx_hash       String?
+  status        String   @default("pending")
+  metadata      Json?
+  dueDate       DateTime? @map("due_date")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   @@map("invoices")
-}
-
-enum InvoiceStatus {
-  pending
-  paid
-  expired
-  cancelled
 }
