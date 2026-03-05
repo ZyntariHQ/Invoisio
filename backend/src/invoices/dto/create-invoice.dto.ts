@@ -9,6 +9,7 @@ import {
   Matches,
   Min,
 } from "class-validator";
+import { Transform } from "class-transformer";
 
 /**
  * DTO for creating a new invoice
@@ -34,6 +35,11 @@ export class CreateInvoiceDto {
   /** Asset code for payment (e.g. 'XLM', 'USDC', or any valid Stellar asset code) */
   @IsAlphanumeric()
   @IsNotEmpty()
+  // normalize to uppercase early so controllers and services always see
+  // a canonical code (helps with tests and reduces duplication)
+  @Transform(({ value }) =>
+    typeof value === "string" ? value.toUpperCase() : value,
+  )
   asset_code: string;
 
   /**

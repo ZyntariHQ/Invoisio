@@ -1,7 +1,15 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
-import { FlatList, Pressable, ScrollView, Text, View } from "react-native";
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  Alert,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useWalletAuth } from "../hooks/use-wallet-auth";
 
 const metrics = [
   { label: "Outstanding", value: "$482k", delta: "+12%" },
@@ -31,22 +39,67 @@ const invoices = [
 ];
 
 export default function DashboardScreen() {
+  const router = useRouter();
+  const { publicKey, disconnectWallet } = useWalletAuth();
+
+  const handleLogout = () => {
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: () => {
+          disconnectWallet()
+            .then(() => {
+              router.replace("/login");
+            })
+            .catch((err: unknown) => {
+              console.error("Logout error:", err);
+            });
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView className="flex-1 bg-[#050914]">
       <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
         <View className="px-6 pt-10">
-          <Text
-            className="text-sm uppercase tracking-[0.35em] text-[#7dd3fc]"
-            style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-          >
-            Operator overview
-          </Text>
-          <Text
-            className="mt-2 text-4xl leading-tight text-white"
-            style={{ fontFamily: "SpaceGrotesk_700Bold" }}
-          >
-            Base-native receivables in one glass dashboard.
-          </Text>
+          <View className="flex-row items-center justify-between">
+            <View>
+              <Text
+                className="text-sm uppercase tracking-[0.35em] text-[#7dd3fc]"
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+              >
+                Operator overview
+              </Text>
+              <Text
+                className="mt-2 text-4xl leading-tight text-white"
+                style={{ fontFamily: "SpaceGrotesk_700Bold" }}
+              >
+                Base-native receivables in one glass dashboard.
+              </Text>
+            </View>
+            <Pressable
+              className="rounded-2xl border border-red-500/30 px-4 py-2"
+              onPress={handleLogout}
+            >
+              <Text
+                className="text-sm text-red-400"
+                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+              >
+                Logout
+              </Text>
+            </Pressable>
+          </View>
+          {publicKey && (
+            <Text
+              className="mt-2 text-xs text-slate-400"
+              style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+            >
+              Connected: {publicKey.slice(0, 6)}...{publicKey.slice(-4)}
+            </Text>
+          )}
           <Text
             className="mt-2 text-base text-slate-300"
             style={{ fontFamily: "SpaceGrotesk_400Regular" }}

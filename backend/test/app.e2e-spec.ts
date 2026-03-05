@@ -170,6 +170,55 @@ describe("AppController (e2e)", () => {
         });
     });
 
+    it("should normalize lowercase asset_code in request", () => {
+      const newInvoice = {
+        invoiceNumber: "INV-E2E-CASE",
+        clientName: "Case Client",
+        clientEmail: "case@test.com",
+        amount: 42.0,
+        asset_code: "usdc",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      };
+
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send(newInvoice)
+        .expect(201)
+        .expect((res) => {
+          expect(res.body.asset_code).toBe("USDC");
+        });
+    });
+
+    it("should return 400 for negative amount", () => {
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send({
+          invoiceNumber: "INV-NEG",
+          clientName: "Neg Client",
+          clientEmail: "neg@test.com",
+          amount: -5,
+          asset_code: "XLM",
+        })
+        .expect(400);
+    });
+
+    it("should return 400 for non-alphanumeric asset_code", () => {
+      return request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send({
+          invoiceNumber: "INV-BADCODE",
+          clientName: "BadCode",
+          clientEmail: "badcode@test.com",
+          amount: 10,
+          asset_code: "USDC$",
+        })
+        .expect(400);
+    });
+
     it("should return 400 when asset_issuer is missing for non-XLM asset", () => {
       return request(app.getHttpServer())
         .post("/invoices")
