@@ -29,10 +29,6 @@ import { PrismaModule } from "./prisma/prisma.module";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env", ".env.example"],
-    }),
-    PrismaModule,
-    ConfigModule.forRoot({
-      isGlobal: true,
       load: [appConfig, stellarConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
@@ -43,7 +39,7 @@ import { PrismaModule } from "./prisma/prisma.module";
         STELLAR_NETWORK_PASSPHRASE: Joi.string().default(
           "Test SDF Network ; September 2015",
         ),
-        MERCHANT_PUBLIC_KEY: Joi.string().optional().allow(''),
+        MERCHANT_PUBLIC_KEY: Joi.string().optional().allow(""),
         USDC_ISSUER: Joi.string().default(
           "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
         ),
@@ -54,6 +50,7 @@ import { PrismaModule } from "./prisma/prisma.module";
         JWT_SECRET: Joi.string().optional(),
       }),
     }),
+    PrismaModule,
     HealthModule,
     InvoicesModule,
     StellarModule,
