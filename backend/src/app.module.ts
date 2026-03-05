@@ -29,10 +29,6 @@ import { PrismaModule } from "./prisma/prisma.module";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env", ".env.example"],
-    }),
-    PrismaModule,
-    ConfigModule.forRoot({
-      isGlobal: true,
       load: [appConfig, stellarConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
@@ -54,6 +50,7 @@ import { PrismaModule } from "./prisma/prisma.module";
         JWT_SECRET: Joi.string().optional(),
       }),
     }),
+    PrismaModule,
     HealthModule,
     InvoicesModule,
     StellarModule,

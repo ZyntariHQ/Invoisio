@@ -76,7 +76,7 @@ export class AuthService {
     // Invalidate nonce after successful use (prevent replay attacks)
     await this.prisma.user.update({
       where: { publicKey: dto.publicKey },
-      data: { nonce: "", nonceExpiresAt: null },
+      data: { nonce: null, nonceExpiresAt: null },
     });
 
     const payload = { sub: user.id, publicKey: user.publicKey };

@@ -137,7 +137,7 @@ describe("InvoicesService", () => {
       asset_issuer: "GASDF",
       memo: "789",
       memo_type: "ID",
-      status: "overdue",
+      status: "expired",
       destination_address: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -204,22 +204,28 @@ describe("InvoicesService", () => {
   });
 
   describe("findAll", () => {
-    it("should return an array of invoices", async () => {
+    it("should return paginated invoices", async () => {
       const result = await service.findAll();
 
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeGreaterThanOrEqual(3); // Sample invoices seeded
+      expect(result).toHaveProperty("items");
+      expect(Array.isArray(result.items)).toBe(true);
+      expect(result.items.length).toBeGreaterThanOrEqual(3);
+      expect(result).toHaveProperty("total");
+      expect(result).toHaveProperty("page", 1);
+      expect(result).toHaveProperty("pageSize", 20);
+      expect(result).toHaveProperty("hasMore");
     });
 
-    it("should return invoices with required fields", async () => {
+    it("should return invoices with required fields within items", async () => {
       const result = await service.findAll();
 
-      if (result.length > 0) {
-        const invoice = result[0];
+      if (result.items.length > 0) {
+        const invoice = result.items[0];
         expect(invoice).toHaveProperty("id");
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("amount");
+        expect(invoice).toHaveProperty("asset");
         expect(invoice).toHaveProperty("asset_code");
         expect(invoice).toHaveProperty("memo");
         expect(invoice).toHaveProperty("memo_type", "ID");
@@ -231,8 +237,8 @@ describe("InvoicesService", () => {
 
   describe("findOne", () => {
     it("should return a single invoice by id", async () => {
-      const allInvoices = await service.findAll();
-      const firstInvoice = allInvoices[0];
+      const paginated = await service.findAll();
+      const firstInvoice = paginated.items[0];
 
       const result = await service.findOne(firstInvoice.id);
 
@@ -327,7 +333,7 @@ describe("InvoicesService", () => {
     });
 
     it("should add created invoice to the list", async () => {
-      const initialCount = (await service.findAll()).length;
+      const initialCount = (await service.findAll()).total;
       const dto: CreateInvoiceDto = {
         invoiceNumber: "INV-TEST-003",
         clientName: "Count Client",
@@ -338,14 +344,14 @@ describe("InvoicesService", () => {
 
       await service.create(dto);
 
-      expect((await service.findAll()).length).toBe(initialCount + 1);
+      expect((await service.findAll()).total).toBe(initialCount + 1);
     });
   });
 
   describe("updateStatus", () => {
     it("should update invoice status", async () => {
-      const allInvoices = await service.findAll();
-      const invoice = allInvoices[0];
+      const paginated = await service.findAll();
+      const invoice = paginated.items[0];
 
       const newStatus = invoice.status === "pending" ? "paid" : "pending";
       const result = await service.updateStatus(invoice.id, newStatus);
@@ -356,8 +362,8 @@ describe("InvoicesService", () => {
 
   describe("findByMemo", () => {
     it("should find invoice by memo", async () => {
-      const allInvoices = await service.findAll();
-      const invoice = allInvoices[0];
+      const paginated = await service.findAll();
+      const invoice = paginated.items[0];
 
       const result = await service.findByMemo(invoice.memo);
 
