@@ -1,9 +1,13 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import {
+  Contract,
+  SorobanRpc,
+  TransactionBuilder,
+  Networks,
+  Keypair,
+  xdr,
+} from "@stellar/stellar-sdk";
 
 export interface RecordPaymentParams {
   invoiceId: string;
@@ -23,18 +27,23 @@ export interface SorobanMetadata {
 export class SorobanService {
   private readonly logger = new Logger(SorobanService.name);
   private readonly contractId: string;
-  private readonly network: string;
-  private readonly identity: string;
+  private readonly rpcUrl: string;
+  private readonly networkPassphrase: string;
+  private readonly sourceKeypair: Keypair | null = null;
   private readonly maxRetries: number;
   private readonly baseDelayMs: number;
+  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
+  private server: SorobanRpc.Server | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.contractId =
       this.configService.get<string>("SOROBAN_CONTRACT_ID") || "";
-    this.network =
-      this.configService.get<string>("STELLAR_NETWORK") || "testnet";
-    this.identity =
-      this.configService.get<string>("SOROBAN_IDENTITY") || "invoisio-admin";
+    this.rpcUrl =
+      this.configService.get<string>("SOROBAN_RPC_URL") ||
+      "https://soroban-testnet.stellar.org";
+    this.networkPassphrase =
+      this.configService.get<string>("STELLAR_NETWORK_PASSPHRASE") ||
+      Networks.TESTNET;
     this.maxRetries = parseInt(
       this.configService.get<string>("SOROBAN_MAX_RETRIES") || "3",
       10,
@@ -44,18 +53,35 @@ export class SorobanService {
       10,
     );
 
+    const secretKey = this.configService.get<string>("SOROBAN_SECRET_KEY");
+    if (secretKey) {
+      try {
+        this.sourceKeypair = Keypair.fromSecret(secretKey);
+      } catch (err) {
+        this.logger.error(
+          `Invalid SOROBAN_SECRET_KEY: ${(err as Error).message}`,
+        );
+      }
+    }
+
     if (!this.contractId) {
       this.logger.warn(
         "SOROBAN_CONTRACT_ID not set; Soroban anchoring disabled",
       );
+    } else if (!this.sourceKeypair) {
+      this.logger.warn(
+        "SOROBAN_SECRET_KEY not set; Soroban anchoring disabled",
+      );
+    } else {
+      this.server = new SorobanRpc.Server(this.rpcUrl);
     }
   }
 
   async recordPayment(
     params: RecordPaymentParams,
   ): Promise<SorobanMetadata | null> {
-    if (!this.contractId) {
-      this.logger.debug("Soroban contract not configured, skipping anchor");
+    if (!this.server || !this.sourceKeypair) {
+      this.logger.debug("Soroban not configured, skipping anchor");
       return null;
     }
 
@@ -67,35 +93,64 @@ export class SorobanService {
   ): Promise<SorobanMetadata> {
     const { invoiceId, payer, assetCode, assetIssuer, amount } = params;
 
-    const cmd = [
-      "stellar",
-      "contract",
-      "invoke",
-      `--id ${this.contractId}`,
-      `--network ${this.network}`,
-      `--source ${this.identity}`,
-      "--",
-      "record_payment",
-      `--invoice_id ${invoiceId}`,
-      `--payer ${payer}`,
-      `--asset_code ${assetCode}`,
-      `--asset_issuer "${assetIssuer}"`,
-      `--amount ${amount}`,
-    ].join(" ");
+    const contract = new Contract(this.contractId);
+    const sourceAccount = await this.server!.getAccount(
+      this.sourceKeypair!.publicKey(),
+    );
 
-    this.logger.debug(`Invoking Soroban: ${cmd}`);
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: "100000",
+      networkPassphrase: this.networkPassphrase,
+    })
+      .addOperation(
+        contract.call(
+          "record_payment",
+          xdr.ScVal.scvString(invoiceId),
+          xdr.ScVal.scvAddress(
+            xdr.ScAddress.scAddressTypeAccount(
+              xdr.PublicKey.publicKeyTypeEd25519(
+                Keypair.fromPublicKey(payer).rawPublicKey(),
+              ),
+            ),
+          ),
+          xdr.ScVal.scvString(assetCode),
+          xdr.ScVal.scvString(assetIssuer),
+          xdr.ScVal.scvI128(
+            new xdr.Int128Parts({
+              hi: xdr.Int64.fromString("0"),
+              lo: xdr.Uint64.fromString(amount),
+            }),
+          ),
+        ),
+      )
+      .setTimeout(30)
+      .build();
 
-    const { stdout, stderr } = await execAsync(cmd);
+    const prepared = await this.server!.prepareTransaction(tx);
+    prepared.sign(this.sourceKeypair!);
 
-    if (stderr && !stderr.includes("warning")) {
-      throw new Error(`Soroban invocation failed: ${stderr}`);
+    const response = await this.server!.sendTransaction(prepared);
+
+    if (response.status === "ERROR") {
+      throw new Error(
+        `Transaction failed: ${response.errorResult?.toXDR("base64")}`,
+      );
     }
 
-    const txHash = this.extractTxHash(stdout);
+    let getResponse = await this.server!.getTransaction(response.hash);
+    while (getResponse.status === "NOT_FOUND") {
+      await this.sleep(1000);
+      getResponse = await this.server!.getTransaction(response.hash);
+    }
+
+    if (getResponse.status !== "SUCCESS") {
+      throw new Error(`Transaction failed with status: ${getResponse.status}`);
+    }
 
     return {
-      txHash,
+      txHash: response.hash,
       contractId: this.contractId,
+      ledger: getResponse.ledger,
     };
   }
 
@@ -123,11 +178,6 @@ export class SorobanService {
       await this.sleep(delay);
       return this.withRetry(fn, attempt + 1);
     }
-  }
-
-  private extractTxHash(output: string): string {
-    const match = output.match(/[A-Fa-f0-9]{64}/);
-    return match ? match[0] : "unknown";
   }
 
   private sleep(ms: number): Promise<void> {
