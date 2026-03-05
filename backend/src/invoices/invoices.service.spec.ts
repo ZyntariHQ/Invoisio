@@ -136,15 +136,12 @@ describe("InvoicesService", () => {
       assetCode: "USDC",
       assetIssuer: "GASDF",
       memo: "789",
-<<<<<<< HEAD
       memo_type: "ID",
       status: "expired",
       destination_address: mockStellarService.getMerchantPublicKey(),
-=======
       memoType: "ID",
       status: "overdue",
       destinationAddress: mockStellarService.getMerchantPublicKey(),
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
       createdAt: new Date(),
       updatedAt: new Date(),
     },

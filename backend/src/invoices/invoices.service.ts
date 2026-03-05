@@ -92,15 +92,11 @@ export class InvoicesService implements OnModuleInit {
         memo: memo,
         memoType: "ID",
         status: "pending",
-<<<<<<< HEAD
-        tx_hash: null,
-=======
         destinationAddress: this.stellarService.getMerchantPublicKey(),
         txHash: null,
         sorobanTxHash: null,
         sorobanContractId: null,
         metadata: null,
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       },
     });
@@ -191,17 +187,11 @@ export class InvoicesService implements OnModuleInit {
     return {
       ...inv,
       amount: numericAmount,
-<<<<<<< HEAD
-      asset: inv.asset_code,
-      asset_issuer: inv.asset_issuer === null ? undefined : inv.asset_issuer,
-      destination_address: this.stellarService.getMerchantPublicKey(),
-=======
       asset_code: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
       memo_type: inv.memoType,
       destination_address:
         inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
     };
   }
 
@@ -243,15 +233,11 @@ export class InvoicesService implements OnModuleInit {
           memo: this.generateMemoId(),
           memoType: "ID",
           status: "pending",
-<<<<<<< HEAD
-          tx_hash: null,
-=======
           destinationAddress: merchantPublicKey,
           txHash: null,
           sorobanTxHash: null,
           sorobanContractId: null,
           metadata: null,
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
@@ -265,15 +251,11 @@ export class InvoicesService implements OnModuleInit {
           memo: this.generateMemoId(),
           memoType: "ID",
           status: "paid",
-<<<<<<< HEAD
-          tx_hash: null,
-=======
           destinationAddress: merchantPublicKey,
           txHash: null,
           sorobanTxHash: null,
           sorobanContractId: null,
           metadata: null,
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
@@ -286,11 +268,6 @@ export class InvoicesService implements OnModuleInit {
           assetIssuer:
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
           memo: this.generateMemoId(),
-<<<<<<< HEAD
-          memo_type: "ID",
-          status: "expired",
-          tx_hash: null,
-=======
           memoType: "ID",
           status: "overdue",
           destinationAddress: merchantPublicKey,
@@ -298,7 +275,6 @@ export class InvoicesService implements OnModuleInit {
           sorobanTxHash: null,
           sorobanContractId: null,
           metadata: null,
->>>>>>> 41b085f (feat: update Soroban integration with new RPC URL and secret key handling; add setup script for contract deployment)
           dueDate: new Date("2026-02-10T23:59:59Z"),
         },
       ],
