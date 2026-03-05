@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { StellarModule } from "../stellar/stellar.module";
+import { SorobanModule } from "../soroban/soroban.module";
 import { AuthGuard } from "../auth/auth.guard";
 import { PrismaModule } from "../prisma/prisma.module";
 
@@ -14,6 +15,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 @Module({
   imports: [
     StellarModule,
+    SorobanModule,
     PrismaModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

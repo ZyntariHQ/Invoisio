@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { validate } from "class-validator";
 import { plainToInstance } from "class-transformer";
@@ -65,6 +66,14 @@ describe("InvoicesService", () => {
       .mockReturnValue(
         "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
       ),
+  };
+
+  const mockSorobanService = {
+    hasInvoicePayment: jest.fn().mockResolvedValue(false),
+    recordInvoicePayment: jest
+      .fn()
+      .mockResolvedValue({ hash: "mock-hash", ledger: 1 }),
+    getInvoicePayment: jest.fn().mockResolvedValue(null),
   };
 
   const sampleInvoices = [
@@ -166,6 +175,7 @@ describe("InvoicesService", () => {
         InvoicesService,
         { provide: ConfigService, useValue: mockConfigService },
         { provide: StellarService, useValue: mockStellarService },
+        { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
       ],
     }).compile();

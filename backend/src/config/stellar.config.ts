@@ -19,4 +19,9 @@ export default registerAs("stellar", () => ({
     process.env.HORIZON_POLL_INTERVAL || "15000",
     10,
   ),
+  // Soroban contract integration
+  sorobanRpcUrl:
+    process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
+  contractId: process.env.SOROBAN_CONTRACT_ID || "",
+  adminSecretKey: process.env.ADMIN_SECRET_KEY || "",
 }));
