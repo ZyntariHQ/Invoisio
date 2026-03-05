@@ -34,16 +34,11 @@ export class InvoicesController {
   async findAll(
     @Query("page") page?: string,
     @Query("limit") limit?: string,
-  ): Promise<{
-    items: Invoice[];
-    total: number;
-    page: number;
-    pageSize: number;
-    hasMore: boolean;
-  }> {
+  ): Promise<Invoice[]> {
     const p = page ? parseInt(page, 10) : 1;
     const l = limit ? parseInt(limit, 10) : 20;
-    return await this.invoicesService.findAll(p, l);
+    const result = await this.invoicesService.findAll(p, l);
+    return result.items;
   }
 
   /**

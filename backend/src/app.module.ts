@@ -47,7 +47,10 @@ import { PrismaModule } from "./prisma/prisma.module";
         MEMO_PREFIX: Joi.string().default("invoisio-"),
         HORIZON_POLL_INTERVAL: Joi.number().integer().min(1000).default(15000),
         DATABASE_URL: Joi.string().optional(),
-        JWT_SECRET: Joi.string().required(),
+        JWT_SECRET:
+          process.env.NODE_ENV === "test"
+            ? Joi.string().default("e2e-test-secret")
+            : Joi.string().required(),
       }),
     }),
     HealthModule,
