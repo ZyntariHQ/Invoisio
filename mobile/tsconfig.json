@@ -13,17 +13,10 @@
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
     "jsx": "react-native",
-    "types": [
-      "nativewind/types"
-    ],
-    "typeRoots": [
-      "./types",
-      "./node_modules/@types"
-    ],
+    "types": ["nativewind/types"],
+    "typeRoots": ["./types", "./node_modules/@types"],
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     }
   },
   "include": [
@@ -34,7 +27,5 @@
     "**/*.tsx",
     "nativewind-env.d.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ]
+  "exclude": ["node_modules"]
 }
