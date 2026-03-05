@@ -98,10 +98,7 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async processPayment(
-    record: any,
-    memoPrefix: string,
-  ): Promise<void> {
+  private async processPayment(record: any, memoPrefix: string): Promise<void> {
     try {
       const tx = await record.transaction();
       const rawMemo: string | undefined = tx?.memo;

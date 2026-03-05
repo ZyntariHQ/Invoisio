@@ -82,6 +82,14 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
             };
             return inMemoryDb.invoices[idx];
           },
+          deleteMany: async ({ where }: any = {}) => {
+            const beforeCount = inMemoryDb.invoices.length;
+            // If no where clause, delete all
+            if (!where || Object.keys(where).length === 0) {
+              inMemoryDb.invoices = [];
+            }
+            return { count: beforeCount };
+          },
           count: async () => inMemoryDb.invoices.length,
           createMany: async ({ data }: any) => {
             if (Array.isArray(data)) {

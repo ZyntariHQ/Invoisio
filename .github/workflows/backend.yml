@@ -13,7 +13,7 @@ on:
       - '.github/workflows/backend.yml'
 
 env:
-  MERCHANT_PUBLIC_KEY: ${{ secrets.MERCHANT_PUBLIC_KEY || 'test-public-key' }}
+  MERCHANT_PUBLIC_KEY: ${{ secrets.MERCHANT_PUBLIC_KEY || 'GBRPYHIL2CI3WHGSUJX2BUXCLODYDQBMZ6RBR44RRY5ZWKZ6CAS3JZXR' }}
 
 jobs:
   lint-and-test:

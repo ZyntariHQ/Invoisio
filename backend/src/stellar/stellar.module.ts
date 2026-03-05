@@ -2,7 +2,6 @@ import { Module } from "@nestjs/common";
 import { StellarService } from "./stellar.service";
 import { StellarValidator } from "./utils/stellar.validator";
 
-
 @Module({
   providers: [
     StellarService,
@@ -11,9 +10,6 @@ import { StellarValidator } from "./utils/stellar.validator";
       useValue: StellarValidator,
     },
   ],
-  exports: [
-    StellarService,
-    "STELLAR_VALIDATOR",
-  ],
+  exports: [StellarService, "STELLAR_VALIDATOR"],
 })
 export class StellarModule {}
