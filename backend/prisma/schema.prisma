@@ -14,6 +14,7 @@ datasource db {
 model User {
   id             String    @id @default(uuid())
   publicKey      String    @unique
+  email          String?
   nonce          String?
   nonceExpiresAt BigInt?
   createdAt      DateTime  @default(now())

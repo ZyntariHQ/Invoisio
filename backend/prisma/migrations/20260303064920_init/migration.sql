@@ -2,6 +2,7 @@
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
     "publicKey" TEXT NOT NULL,
+    "email" TEXT,
     "nonce" TEXT,
     "nonceExpiresAt" BIGINT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

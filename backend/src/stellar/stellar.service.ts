@@ -236,7 +236,7 @@ export class StellarService {
         callBuilder = callBuilder.memo(memo);
       }
 
-      const es = callBuilder.stream({
+      callBuilder.stream({
         onmessage: (paymentRecord: any) => {
           this.logger.log(
             `Payment received: ${paymentRecord.amount} ${paymentRecord.asset_code || "XLM"}`,

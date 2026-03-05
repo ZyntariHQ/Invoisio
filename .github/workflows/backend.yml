@@ -69,7 +69,7 @@ jobs:
         run: npm run lint
 
       - name: Run Format Check
-        run: npm run format -- --check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
 
       - name: Run Unit Tests
         env:
