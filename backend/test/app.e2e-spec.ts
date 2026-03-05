@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import request from "supertest";
+import * as StellarSdk from "@stellar/stellar-sdk";
 import { AppModule } from "./../src/app.module";
 
 /**
@@ -9,6 +10,7 @@ import { AppModule } from "./../src/app.module";
  *
  * Tests:
  * - Health check endpoint
+ * - Authentication flow (Stellar)
  * - Invoices API endpoints
  */
 describe("AppController (e2e)", () => {
@@ -31,7 +33,7 @@ describe("AppController (e2e)", () => {
 
     await app.init();
 
-    // Generate a valid JWT for protected endpoints
+    // Generate a valid JWT for legacy tests on protected endpoints
     const jwtService = app.get(JwtService);
     jwtToken = jwtService.sign({ sub: "e2e-test-user" });
   });
@@ -51,6 +53,77 @@ describe("AppController (e2e)", () => {
           expect(res.body.network).toBeDefined();
           expect(res.body.timestamp).toBeDefined();
         });
+    });
+  });
+
+  describe("Authentication Flow (Stellar)", () => {
+    const keypair = StellarSdk.Keypair.random();
+    const publicKey = keypair.publicKey();
+
+    it("should issue a nonce for a public key", async () => {
+      const res = await request(app.getHttpServer())
+        .post("/auth/nonce")
+        .send({ publicKey })
+        .expect(200);
+
+      expect(res.body.nonce).toBeDefined();
+      expect(typeof res.body.nonce).toBe("string");
+      expect(res.body.expiresAt).toBeDefined();
+    });
+
+    it("should verify signature and return JWT", async () => {
+      // 1. Get nonce
+      const nonceRes = await request(app.getHttpServer())
+        .post("/auth/nonce")
+        .send({ publicKey })
+        .expect(200);
+
+      const nonce = nonceRes.body.nonce;
+
+      // 2. Sign nonce
+      const signature = keypair
+        .sign(Buffer.from(nonce, "utf-8"))
+        .toString("base64");
+
+      // 3. Verify
+      const verifyRes = await request(app.getHttpServer())
+        .post("/auth/verify")
+        .send({ publicKey, signedNonce: signature })
+        .expect(200);
+
+      expect(verifyRes.body.accessToken).toBeDefined();
+
+      // 4. Use JWT to get profile (protected endpoint)
+      const meRes = await request(app.getHttpServer())
+        .get("/auth/me")
+        .set("Authorization", `Bearer ${verifyRes.body.accessToken}`)
+        .expect(200);
+
+      expect(meRes.body.publicKey).toBe(publicKey);
+    });
+
+    it("should return 400 for invalid Stellar public key", () => {
+      return request(app.getHttpServer())
+        .post("/auth/nonce")
+        .send({ publicKey: "not-a-stellar-key" })
+        .expect(400);
+    });
+
+    it("should return 401 for invalid signature", async () => {
+      // 1. Get nonce
+      const nonceRes = await request(app.getHttpServer())
+        .post("/auth/nonce")
+        .send({ publicKey })
+        .expect(200);
+
+      // 2. Submit wrong signature
+      return request(app.getHttpServer())
+        .post("/auth/verify")
+        .send({
+          publicKey,
+          signedNonce: Buffer.from("wrong-signature").toString("base64"),
+        })
+        .expect(401);
     });
   });
 
@@ -155,8 +228,7 @@ describe("AppController (e2e)", () => {
         clientEmail: "usdc@test.com",
         amount: 500.0,
         asset_code: "USDC",
-        asset_issuer:
-          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
       };
 
       return request(app.getHttpServer())
@@ -177,8 +249,7 @@ describe("AppController (e2e)", () => {
         clientEmail: "case@test.com",
         amount: 42.0,
         asset_code: "usdc",
-        asset_issuer:
-          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
       };
 
       return request(app.getHttpServer())
