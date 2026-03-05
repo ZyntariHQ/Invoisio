@@ -2,15 +2,15 @@ name: Backend CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'backend/**'
-      - '.github/workflows/backend.yml'
+      - "backend/**"
+      - ".github/workflows/backend.yml"
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'backend/**'
-      - '.github/workflows/backend.yml'
+      - "backend/**"
+      - ".github/workflows/backend.yml"
 
 env:
   MERCHANT_PUBLIC_KEY: ${{ secrets.MERCHANT_PUBLIC_KEY || 'test-public-key' }}
@@ -49,11 +49,16 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: backend/package-lock.json
 
       - name: Install Dependencies
         run: npm ci
+
+      - name: Generate Prisma Client
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: npx prisma generate
 
       - name: Run Migrations
         env:
@@ -64,10 +69,11 @@ jobs:
         run: npm run lint
 
       - name: Run Format Check
-        run: npm run format -- --check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
 
       - name: Run Unit Tests
         env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
           MERCHANT_PUBLIC_KEY: ${{ env.MERCHANT_PUBLIC_KEY }}
         run: npm run test
 
@@ -81,6 +87,8 @@ jobs:
         run: npm run test:e2e
 
       - name: Build
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
         run: npm run build
 
       - name: Upload Coverage Reports

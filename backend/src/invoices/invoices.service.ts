@@ -93,7 +93,6 @@ export class InvoicesService implements OnModuleInit {
         memo_type: "ID",
         status: "pending",
         tx_hash: null,
-        metadata: null,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       },
     });
@@ -207,7 +206,6 @@ export class InvoicesService implements OnModuleInit {
           memo_type: "ID",
           status: "pending",
           tx_hash: null,
-          metadata: null,
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
@@ -221,7 +219,6 @@ export class InvoicesService implements OnModuleInit {
           memo_type: "ID",
           status: "paid",
           tx_hash: null,
-          metadata: null,
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
@@ -237,7 +234,6 @@ export class InvoicesService implements OnModuleInit {
           memo_type: "ID",
           status: "expired",
           tx_hash: null,
-          metadata: null,
           dueDate: new Date("2026-02-10T23:59:59Z"),
         },
       ],

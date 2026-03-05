@@ -23,7 +23,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:dev": "prisma migrate dev --name init --preview-feature",
+    "prisma:migrate:dev": "prisma migrate dev --name init",
     "db:seed": "npx prisma db seed",
     "db:migrate": "npx prisma migrate deploy"
   },
@@ -38,6 +38,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/typeorm": "^11.0.0",
+    "@prisma/adapter-pg": "^7.4.2",
     "@prisma/client": "^7.4.2",
     "@stellar/stellar-sdk": "^14.6.0",
     "class-transformer": "^0.5.1",
