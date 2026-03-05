@@ -128,6 +128,28 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Update Soroban metadata after anchoring
+   * @param id - Invoice UUID
+   * @param sorobanTxHash - Soroban transaction hash
+   * @param contractId - Soroban contract ID
+   * @returns Updated invoice
+   */
+  async updateSorobanMetadata(
+    id: string,
+    sorobanTxHash: string,
+    contractId: string,
+  ): Promise<Invoice> {
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: {
+        soroban_tx_hash: sorobanTxHash,
+        soroban_contract_id: contractId,
+      } as any,
+    });
+    return this.normalizeInvoice(updated);
+  }
+
+  /**
    * Find invoice by memo (for payment matching)
    * @param memo - Stellar memo ID string
    * @returns Invoice or undefined if not found
