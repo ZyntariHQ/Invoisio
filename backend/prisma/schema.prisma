@@ -26,26 +26,35 @@ model User {
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
-// and the fields used by InvoicesService
 model Invoice {
-  id            String   @id @default(uuid())
-  userId        String?  @map("user_id")
-  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  invoiceNumber String?  @map("invoice_number")
-  clientName    String   @map("client_name")
-  clientEmail   String?  @map("client_email")
-  description   String?
-  amount        Decimal  @db.Decimal(18, 7)
-  asset_code    String
-  asset_issuer  String?
-  memo          String   @unique
-  memo_type     String   @default("ID")
-  tx_hash       String?
-  status        String   @default("pending")
-  metadata      Json?
-  dueDate       DateTime? @map("due_date")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id                 String        @id @default(uuid())
+  userId             String?       @map("user_id")
+  user               User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invoiceNumber      String        @unique @map("invoice_number")
+  clientName         String        @map("client_name")
+  clientEmail        String        @map("client_email")
+  description        String?
+  amount             Decimal       @db.Decimal(18, 7)
+  assetCode          String        @map("asset_code")
+  assetIssuer        String?       @map("asset_issuer")
+  memo               String        @unique
+  memoType           String        @default("ID") @map("memo_type")
+  status             InvoiceStatus @default(pending)
+  destinationAddress String        @map("destination_address")
+  txHash             String?       @map("tx_hash")
+  sorobanTxHash      String?       @map("soroban_tx_hash")
+  sorobanContractId  String?       @map("soroban_contract_id")
+  metadata           Json?
+  dueDate            DateTime?     @map("due_date")
+  createdAt          DateTime      @default(now()) @map("created_at")
+  updatedAt          DateTime      @updatedAt @map("updated_at")
 
   @@map("invoices")
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  overdue
+  cancelled
 }

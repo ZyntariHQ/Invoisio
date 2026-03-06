@@ -6,6 +6,8 @@
 
 // Service
 export { StellarService } from "./stellar.service";
+export { SorobanService } from "./soroban.service";
+export { HorizonWatcherService } from "./horizon-watcher.service";
 
 // Module
 export { StellarModule } from "./stellar.module";

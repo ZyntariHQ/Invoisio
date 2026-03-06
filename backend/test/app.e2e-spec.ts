@@ -63,7 +63,10 @@ describe("AppController (e2e)", () => {
     try {
       await prisma.invoice.deleteMany({});
     } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("does not exist")) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("does not exist")
+      ) {
         console.error("Cleanup error:", error);
       }
     }
