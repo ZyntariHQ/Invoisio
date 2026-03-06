@@ -22,6 +22,9 @@ describe("AppController (e2e)", () => {
   beforeEach(async () => {
     // Ensure a secret is available for JwtModule.registerAsync before the module compiles
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
+    // Use a predictable fallback so tests are not coupled to a real Stellar address
+    process.env.MERCHANT_PUBLIC_KEY =
+      process.env.MERCHANT_PUBLIC_KEY ?? "test-public-key";
 
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
@@ -216,7 +219,9 @@ describe("AppController (e2e)", () => {
           expect(res.body.status).toBe("pending");
           expect(res.body.memo).toMatch(/^\d+$/);
           expect(res.body.memo_type).toBe("ID");
-          expect(res.body.destination_address).toBeDefined();
+          expect(res.body.destination_address).toBe(
+            process.env.MERCHANT_PUBLIC_KEY,
+          );
           expect(res.body.id).toBeDefined();
         });
     });
