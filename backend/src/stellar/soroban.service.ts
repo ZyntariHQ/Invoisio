@@ -1,8 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { rpc } from "@stellar/stellar-sdk";
 import {
   Contract,
-  SorobanRpc,
   TransactionBuilder,
   Networks,
   Keypair,
@@ -32,8 +32,7 @@ export class SorobanService {
   private readonly sourceKeypair: Keypair | null = null;
   private readonly maxRetries: number;
   private readonly baseDelayMs: number;
-  // eslint-disable-next-line @typescript-eslint/no-redundant-type-constituents
-  private server: SorobanRpc.Server | null = null;
+  private server: rpc.Server | null = null;
 
   constructor(private readonly configService: ConfigService) {
     this.contractId =
@@ -73,7 +72,7 @@ export class SorobanService {
         "SOROBAN_SECRET_KEY not set; Soroban anchoring disabled",
       );
     } else {
-      this.server = new SorobanRpc.Server(this.rpcUrl);
+      this.server = new rpc.Server(this.rpcUrl);
     }
   }
 

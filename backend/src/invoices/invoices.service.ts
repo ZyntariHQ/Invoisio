@@ -4,7 +4,7 @@ import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { v4 as uuidv4 } from "uuid";
+import { Prisma, InvoiceStatus } from "@prisma/client";
 
 /**
  * Invoices service with in-memory storage
@@ -99,7 +99,7 @@ export class InvoicesService implements OnModuleInit {
         txHash: null,
         sorobanTxHash: null,
         sorobanContractId: null,
-        metadata: null,
+        metadata: Prisma.JsonNull,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       },
     });
@@ -112,7 +112,7 @@ export class InvoicesService implements OnModuleInit {
    * @param status - New status
    * @returns Updated invoice
    */
-  async updateStatus(id: string, status: Invoice["status"]): Promise<Invoice> {
+  async updateStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
     const updated = await this.prisma.invoice.update({
       where: { id },
       data: { status },
@@ -240,7 +240,7 @@ export class InvoicesService implements OnModuleInit {
           txHash: null,
           sorobanTxHash: null,
           sorobanContractId: null,
-          metadata: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
@@ -258,7 +258,7 @@ export class InvoicesService implements OnModuleInit {
           txHash: null,
           sorobanTxHash: null,
           sorobanContractId: null,
-          metadata: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
@@ -277,7 +277,7 @@ export class InvoicesService implements OnModuleInit {
           txHash: null,
           sorobanTxHash: null,
           sorobanContractId: null,
-          metadata: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-02-10T23:59:59Z"),
         },
       ],
