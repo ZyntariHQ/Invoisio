@@ -18,6 +18,9 @@ describe("AppController (e2e)", () => {
 
   beforeAll(async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
+    // Use a predictable fallback so tests are not coupled to a real Stellar address
+    process.env.MERCHANT_PUBLIC_KEY =
+      process.env.MERCHANT_PUBLIC_KEY ?? "test-public-key";
 
     process.env.MERCHANT_PUBLIC_KEY =
       process.env.MERCHANT_PUBLIC_KEY ||
@@ -172,12 +175,21 @@ describe("AppController (e2e)", () => {
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
         .send(newInvoice)
-        .expect(201);
-
-      expect(response.body.invoiceNumber).toBe(newInvoice.invoiceNumber);
-      expect(response.body.asset_code).toBe("XLM");
-      expect(response.body.destination_address).toBe(merchantPublicKey);
-      expect(response.body.status).toBe("pending");
+        .expect(201)
+        .expect((res) => {
+          expect(res.body.invoiceNumber).toBe(newInvoice.invoiceNumber);
+          expect(res.body.clientName).toBe(newInvoice.clientName);
+          expect(res.body.amount).toBe(newInvoice.amount);
+          expect(res.body.asset_code).toBe("XLM");
+          expect(res.body.asset_issuer).toBeUndefined();
+          expect(res.body.status).toBe("pending");
+          expect(res.body.memo).toMatch(/^\d+$/);
+          expect(res.body.memo_type).toBe("ID");
+          expect(res.body.destination_address).toBe(
+            process.env.MERCHANT_PUBLIC_KEY,
+          );
+          expect(res.body.id).toBeDefined();
+        });
     });
 
     it("should create USDC invoice", async () => {
