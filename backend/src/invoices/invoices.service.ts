@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -201,9 +206,10 @@ export class InvoicesService implements OnModuleInit {
     const invoice = await this.findOne(invoiceId);
 
     // Step 2 — idempotency gate: check if already recorded on-chain.
-    const alreadyOnChain = await this.sorobanService.hasInvoicePayment(invoiceId);
+    const alreadyOnChain =
+      await this.sorobanService.hasInvoicePayment(invoiceId);
 
-    let txHash = '';
+    let txHash = "";
     let ledger = 0;
 
     if (!alreadyOnChain) {
@@ -221,7 +227,9 @@ export class InvoicesService implements OnModuleInit {
         `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
       );
     } else {
-      this.logger.log(`Invoice ${invoiceId} already on-chain — skipping Soroban write`);
+      this.logger.log(
+        `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
+      );
       // Retrieve confirmed details for the return value.
       const record = await this.sorobanService.getInvoicePayment(invoiceId);
       txHash = `on-chain@ledger`;
@@ -229,7 +237,7 @@ export class InvoicesService implements OnModuleInit {
     }
 
     // Step 4 — mark invoice as paid in the database.
-    const updated = await this.updateStatus(invoice.id, 'paid');
+    const updated = await this.updateStatus(invoice.id, "paid");
     return { ...updated, txHash, ledger };
   }
 

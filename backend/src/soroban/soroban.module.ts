@@ -1,6 +1,6 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { SorobanService } from './soroban.service';
+import { SorobanService } from "./soroban.service";
 
 /**
  * Soroban contract integration module.

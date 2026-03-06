@@ -28,7 +28,7 @@ export interface TransactionResult {
 }
 
 export class SorobanContractError extends Error {
-  override readonly name = 'SorobanContractError';
+  override readonly name = "SorobanContractError";
   constructor(
     public readonly code: string,
     public readonly numericCode: number,
@@ -44,18 +44,18 @@ export class SorobanInvoiceClient {
   async recordPayment(
     _params: RecordPaymentParams,
   ): Promise<TransactionResult> {
-    throw new Error('stub — replace with jest.fn() in tests');
+    throw new Error("stub — replace with jest.fn() in tests");
   }
 
   async getPayment(_invoiceId: string): Promise<PaymentRecord> {
-    throw new Error('stub — replace with jest.fn() in tests');
+    throw new Error("stub — replace with jest.fn() in tests");
   }
 
   async hasPayment(_invoiceId: string): Promise<boolean> {
-    throw new Error('stub — replace with jest.fn() in tests');
+    throw new Error("stub — replace with jest.fn() in tests");
   }
 
   async getPaymentCount(): Promise<number> {
-    throw new Error('stub — replace with jest.fn() in tests');
+    throw new Error("stub — replace with jest.fn() in tests");
   }
 }

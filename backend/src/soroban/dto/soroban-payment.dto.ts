@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, Matches } from 'class-validator';
+import { IsNotEmpty, IsString, Matches } from "class-validator";
 
 export class RecordPaymentDto {
   /** Unique invoice identifier, e.g. "invoisio-abc123" */
@@ -9,7 +9,9 @@ export class RecordPaymentDto {
   /** Stellar G... address of the payer */
   @IsString()
   @IsNotEmpty()
-  @Matches(/^G[A-Z2-7]{55}$/, { message: 'payer must be a valid Stellar public key' })
+  @Matches(/^G[A-Z2-7]{55}$/, {
+    message: "payer must be a valid Stellar public key",
+  })
   payer!: string;
 
   /** "XLM" or a token code such as "USDC" */
@@ -31,6 +33,6 @@ export class RecordPaymentDto {
    */
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\d+$/, { message: 'amount must be a non-negative integer string' })
+  @Matches(/^\d+$/, { message: "amount must be a non-negative integer string" })
   amount!: string;
 }

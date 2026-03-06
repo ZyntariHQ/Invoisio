@@ -1,12 +1,12 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   PaymentRecord,
   SorobanContractError,
   SorobanInvoiceClient,
-} from '@invoisio/soroban-client';
+} from "@invoisio/soroban-client";
 
-import { RecordPaymentDto } from './dto/soroban-payment.dto';
+import { RecordPaymentDto } from "./dto/soroban-payment.dto";
 
 /**
  * NestJS service wrapping the `@invoisio/soroban-client` library.
@@ -27,7 +27,7 @@ export class SorobanService implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   onModuleInit(): void {
-    const cfg = this.configService.get('stellar') as {
+    const cfg = this.configService.get("stellar") as {
       sorobanRpcUrl: string;
       networkPassphrase: string;
       contractId: string;
@@ -45,7 +45,9 @@ export class SorobanService implements OnModuleInit {
       sourcePublicKey: cfg.merchantPublicKey || undefined,
     });
 
-    this.logger.log(`SorobanService ready — contract: ${cfg.contractId || '(not configured)'}`);
+    this.logger.log(
+      `SorobanService ready — contract: ${cfg.contractId || "(not configured)"}`,
+    );
   }
 
   /**
