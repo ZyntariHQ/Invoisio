@@ -44,3 +44,38 @@ pub fn emit_payment_recorded(
 
     payload.publish(env);
 }
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssetAllowlisted {
+    pub code: String,
+    pub issuer: String,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssetRevoked {
+    pub code: String,
+    pub issuer: String,
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct NativeAllowChanged {
+    pub allowed: bool,
+}
+
+pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: String) {
+    let payload = AssetAllowlisted { code, issuer };
+    payload.publish(env);
+}
+
+pub fn emit_asset_revoked(env: &Env, code: String, issuer: String) {
+    let payload = AssetRevoked { code, issuer };
+    payload.publish(env);
+}
+
+pub fn emit_native_allow_changed(env: &Env, allowed: bool) {
+    let payload = NativeAllowChanged { allowed };
+    payload.publish(env);
+}
