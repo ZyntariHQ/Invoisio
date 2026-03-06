@@ -107,7 +107,7 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^@invoisio/soroban-client$": "<rootDir>/../../soroban/client/src/index.ts"
+      "^@invoisio/soroban-client$": "<rootDir>/soroban/__mocks__/soroban-client.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
