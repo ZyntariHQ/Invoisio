@@ -19,12 +19,9 @@ export default registerAs("stellar", () => ({
     process.env.HORIZON_POLL_INTERVAL || "15000",
     10,
   ),
-  sorobanContractId: process.env.SOROBAN_CONTRACT_ID || "",
-  sorobanNetwork: process.env.STELLAR_NETWORK || "testnet",
-  sorobanIdentity: process.env.SOROBAN_IDENTITY || "invoisio-admin",
-  sorobanMaxRetries: parseInt(process.env.SOROBAN_MAX_RETRIES || "3", 10),
-  sorobanRetryDelayMs: parseInt(
-    process.env.SOROBAN_RETRY_DELAY_MS || "1000",
-    10,
-  ),
+  // Soroban contract integration
+  sorobanRpcUrl:
+    process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
+  contractId: process.env.SOROBAN_CONTRACT_ID || "",
+  adminSecretKey: process.env.ADMIN_SECRET_KEY || "",
 }));

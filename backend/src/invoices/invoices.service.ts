@@ -1,23 +1,28 @@
-import { Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
 
 /**
- * Invoices service with in-memory storage
- *
- * Note: This is a stub implementation using in-memory storage.
- * Future iterations will integrate with a database (PostgreSQL via Prisma)
- * and the StellarModule for Horizon payment watching.
+ * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
  */
 @Injectable()
 export class InvoicesService implements OnModuleInit {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
+    private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -167,6 +172,73 @@ export class InvoicesService implements OnModuleInit {
     });
     if (!invoice) return null;
     return this.normalizeInvoice(invoice);
+  }
+
+  /**
+   * Reconcile a Horizon-confirmed payment with the Soroban contract and the database.
+   *
+   * ## Idempotency
+   * This method is safe to call multiple times for the same invoice. If a
+   * previous run recorded the payment on-chain but failed before updating the
+   * database, re-calling skips the Soroban write (avoiding `PaymentAlreadyRecorded`)
+   * and proceeds directly to the database update.
+   *
+   * ## Flow
+   * 1. Find invoice — throws NotFoundException if absent
+   * 2. Check on-chain existence (hasInvoicePayment) — skip step 3 if already recorded
+   * 3. Record payment on-chain (recordInvoicePayment)
+   * 4. Mark invoice as paid in the database
+   *
+   * @param invoiceId   - Invoice UUID (used as on-chain key and DB lookup)
+   * @param payer       - Stellar G... address of the payer
+   * @param assetCode   - "XLM" or token code
+   * @param assetIssuer - Issuer G... address; empty string for XLM
+   * @param amount      - Amount as string (i128 smallest denomination)
+   * @returns Updated invoice with status "paid" and on-chain tx hash
+   */
+  async reconcilePayment(
+    invoiceId: string,
+    payer: string,
+    assetCode: string,
+    assetIssuer: string,
+    amount: string,
+  ): Promise<Invoice & { txHash: string; ledger: number }> {
+    const invoice = await this.findOne(invoiceId);
+
+    // Step 2 — idempotency gate: check if already recorded on-chain.
+    const alreadyOnChain =
+      await this.sorobanService.hasInvoicePayment(invoiceId);
+
+    let txHash = "";
+    let ledger = 0;
+
+    if (!alreadyOnChain) {
+      // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
+      const result = await this.sorobanService.recordInvoicePayment({
+        invoiceId,
+        payer,
+        assetCode,
+        assetIssuer,
+        amount,
+      });
+      txHash = result.hash;
+      ledger = result.ledger;
+      this.logger.log(
+        `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
+      );
+    } else {
+      this.logger.log(
+        `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
+      );
+      // Retrieve confirmed details for the return value.
+      const record = await this.sorobanService.getInvoicePayment(invoiceId);
+      txHash = `on-chain@ledger`;
+      ledger = Number(record.timestamp);
+    }
+
+    // Step 4 — mark invoice as paid in the database.
+    const updated = await this.updateStatus(invoice.id, "paid");
+    return { ...updated, txHash, ledger };
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */

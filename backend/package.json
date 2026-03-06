@@ -31,6 +31,7 @@
     "seed": "ts-node prisma/seed.ts"
   },
   "dependencies": {
+    "@invoisio/soroban-client": "file:../soroban/client",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.2",
     "@nestjs/core": "^11.0.1",
@@ -104,6 +105,9 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^@invoisio/soroban-client$": "<rootDir>/soroban/__mocks__/soroban-client.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"

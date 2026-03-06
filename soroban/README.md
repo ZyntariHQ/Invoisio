@@ -564,11 +564,173 @@ For mainnet use `"Public Global Stellar Network ; September 2015"` and the mainn
 
 ---
 
+## TypeScript Client Helper
+
+A minimal TypeScript client library lives in `soroban/client/`. It is the
+reference implementation for any service that needs to interact with the
+deployed contract from Node.js.
+
+### Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Node.js ≥ 18 | LTS recommended |
+| `@stellar/stellar-sdk ^14.6.0` | Bundled as a dependency |
+| Funded Stellar account | Source for simulation transactions |
+| Admin secret key | Required only for write operations |
+
+### Setup
+
+```bash
+# 1. Install and build the client library
+cd soroban/client
+npm install
+npm run build
+
+# 2. Copy and configure environment variables
+cp .env.example .env
+# Edit .env — fill in SOROBAN_RPC_URL, SOROBAN_CONTRACT_ID, etc.
+```
+
+### Configuration (`.env`)
+
+| Variable | Description |
+|----------|-------------|
+| `SOROBAN_RPC_URL` | Soroban RPC endpoint (testnet: `https://soroban-testnet.stellar.org`) |
+| `STELLAR_NETWORK_PASSPHRASE` | Network passphrase |
+| `SOROBAN_CONTRACT_ID` | Deployed contract ID from `.contract-id` |
+| `ADMIN_SECRET_KEY` | Admin secret key — write operations only; never commit |
+| `SOURCE_PUBLIC_KEY` | Any funded public key — read-only operations |
+
+### Usage
+
+```typescript
+import { SorobanInvoiceClient, SorobanContractError } from '@invoisio/soroban-client';
+
+const client = new SorobanInvoiceClient({
+  rpcUrl: process.env.SOROBAN_RPC_URL!,
+  networkPassphrase: process.env.STELLAR_NETWORK_PASSPHRASE!,
+  contractId: process.env.SOROBAN_CONTRACT_ID!,
+  signerSecretKey: process.env.ADMIN_SECRET_KEY,   // write operations
+  sourcePublicKey: process.env.SOURCE_PUBLIC_KEY,  // read-only fallback
+});
+
+// ── Write (admin-gated) ──────────────────────────────────────────────────────
+// Call this after confirming the companion Stellar Payment on Horizon.
+// 150 USDC: Stellar tokens use 7 decimal places → 150 × 10_000_000 = 1_500_000_000
+const result = await client.recordPayment({
+  invoiceId: 'invoisio-abc123',
+  payer: 'GCEZ...NYJH',
+  assetCode: 'USDC',
+  assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+  amount: 1_500_000_000n,
+});
+console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
+
+// ── Read (permissionless) ────────────────────────────────────────────────────
+const exists = await client.hasPayment('invoisio-abc123');
+if (exists) {
+  const record = await client.getPayment('invoisio-abc123');
+  console.log(record.invoiceId, record.amount, record.timestamp);
+}
+
+const total = await client.getPaymentCount();
+console.log(`Total payments on-chain: ${total}`);
+```
+
+### Running the examples end-to-end
+
+```bash
+cd soroban/client
+
+# Record a payment (requires ADMIN_SECRET_KEY + PAYER_PUBLIC_KEY in .env)
+npm run example:record
+
+# Query a payment (requires SOURCE_PUBLIC_KEY in .env)
+npm run example:query
+```
+
+**Sample output — record:**
+```
+Recording payment for invoice invoisio-demo-001 ...
+✓  Transaction confirmed
+   Hash   : e7a4b2c1d9f83a56b0e2c4d7f1a3b8e9c0d2f4a6b8c1d3e5f7a9b0c2d4e6f8a0
+   Ledger : 588412
+```
+
+**Sample output — query:**
+```
+Checking invoice invoisio-demo-001 ...
+Payment recorded: true
+
+PaymentRecord {
+  invoiceId : invoisio-demo-001
+  payer     : GCEZWKCA5VLDNRLN3RPRJMRZOX3Z6G5CHCGKRFAXMSYF6AEQYEOJ2NYJH
+  asset     : USDC (GA5ZSEJ...K4KZVN)
+  amount    : 1500000000  (150.0000000 USDC)
+  timestamp : 1741910400  (2025-03-14T00:00:00.000Z)
+}
+
+Total payments on-chain: 1
+```
+
+### Error handling
+
+All contract-level rejections are thrown as `SorobanContractError`:
+
+```typescript
+try {
+  await client.recordPayment({ invoiceId: 'invoisio-abc123', ... });
+} catch (err) {
+  if (err instanceof SorobanContractError) {
+    // err.code: 'PaymentAlreadyRecorded' | 'InvalidAmount' | 'NotInitialized' | ...
+    console.error(`Rejected by contract [${err.code}]`);
+  }
+}
+```
+
+---
+
 ## Backend Integration Notes
 
-The Invoisio backend (`backend/`) can consume this contract in two ways:
+The Invoisio backend (`backend/`) integrates via the `SorobanModule` at
+`backend/src/soroban/`. It imports `@invoisio/soroban-client` as a local
+package reference and exposes a NestJS-injectable `SorobanService`.
 
-1. **Write path** — after confirming a native `Payment` on Horizon (matched by memo `invoisio-<invoiceId>`), call `record_payment` to anchor the data on-chain.
+### Backend setup
+
+```bash
+# Build the client library first (one-time step)
+cd soroban/client && npm install && npm run build
+
+# Install backend dependencies (picks up the file: reference)
+cd ../../backend && npm install
+```
+
+Add to `backend/.env`:
+```
+SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+SOROBAN_CONTRACT_ID=<from .contract-id>
+ADMIN_SECRET_KEY=<admin secret>
+```
+
+### Backend usage (NestJS)
+
+```typescript
+// Injected automatically via SorobanModule → InvoicesModule
+constructor(private readonly sorobanService: SorobanService) {}
+
+// Idempotency-safe reconciliation after Horizon confirms a Payment
+await invoicesService.reconcilePayment(
+  invoiceId, payerAddress, 'USDC',
+  'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+  '1500000000',
+);
+```
+
+The backend exposes two on-chain interaction paths:
+
+1. **Write path** — after confirming a native `Payment` on Horizon (matched by memo `invoisio-<invoiceId>`), call `recordInvoicePayment` to anchor the data on-chain.
 2. **Event path** — subscribe to `getEvents` on the Soroban RPC, filtering on `CONTRACT_ID` and topic `payment_recorded` for push-based reconciliation without polling Horizon.
 
 Both paths are independent; the backend can start with just the Horizon watcher and add the Soroban write path later without breaking existing invoices.
