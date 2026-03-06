@@ -16,13 +16,38 @@ describe("InvoicesService", () => {
     it("should reject invalid invoice DTOs", async () => {
       const invalids = [
         // negative amount
-        { invoiceNumber: "1", clientName: "a", clientEmail: "a@a.com", amount: -1, asset_code: "XLM" },
+        {
+          invoiceNumber: "1",
+          clientName: "a",
+          clientEmail: "a@a.com",
+          amount: -1,
+          asset_code: "XLM",
+        },
         // invalid asset_code characters
-        { invoiceNumber: "2", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "XLM!" },
+        {
+          invoiceNumber: "2",
+          clientName: "a",
+          clientEmail: "a@a.com",
+          amount: 1,
+          asset_code: "XLM!",
+        },
         // non-XLM asset without issuer
-        { invoiceNumber: "3", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "USDC" },
+        {
+          invoiceNumber: "3",
+          clientName: "a",
+          clientEmail: "a@a.com",
+          amount: 1,
+          asset_code: "USDC",
+        },
         // invalid issuer format
-        { invoiceNumber: "4", clientName: "a", clientEmail: "a@a.com", amount: 1, asset_code: "USDC", asset_issuer: "not-valid" },
+        {
+          invoiceNumber: "4",
+          clientName: "a",
+          clientEmail: "a@a.com",
+          amount: 1,
+          asset_code: "USDC",
+          asset_issuer: "not-valid",
+        },
       ];
 
       for (const raw of invalids) {
@@ -39,7 +64,8 @@ describe("InvoicesService", () => {
         clientEmail: "b@b.com",
         amount: 10,
         asset_code: "usdc",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
       };
       const dto = plainToInstance(CreateInvoiceDto, raw);
       const errors = await validate(dto);
@@ -84,12 +110,12 @@ describe("InvoicesService", () => {
       clientEmail: "a@a.com",
       description: "d",
       amount: 100,
-      asset_code: "XLM",
-      asset_issuer: null,
+      assetCode: "XLM",
+      assetIssuer: null,
       memo: "123",
-      memo_type: "ID",
+      memoType: "ID",
       status: "pending",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -100,12 +126,12 @@ describe("InvoicesService", () => {
       clientEmail: "b@b.com",
       description: "d",
       amount: 200,
-      asset_code: "USDC",
-      asset_issuer: "GASDF",
+      assetCode: "USDC",
+      assetIssuer: "GASDF",
       memo: "456",
-      memo_type: "ID",
+      memoType: "ID",
       status: "paid",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -116,12 +142,12 @@ describe("InvoicesService", () => {
       clientEmail: "c@c.com",
       description: "d",
       amount: 300,
-      asset_code: "USDC",
-      asset_issuer: "GASDF",
+      assetCode: "USDC",
+      assetIssuer: "GASDF",
       memo: "789",
-      memo_type: "ID",
-      status: "expired",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      memoType: "ID",
+      status: "overdue",
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -209,7 +235,6 @@ describe("InvoicesService", () => {
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("amount");
-        expect(invoice).toHaveProperty("asset");
         expect(invoice).toHaveProperty("asset_code");
         expect(invoice).toHaveProperty("memo");
         expect(invoice).toHaveProperty("memo_type", "ID");

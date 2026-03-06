@@ -15,10 +15,33 @@ Invoisio is being adapted to run with grant programs on **GrantFox (grantfox.xyz
 
 - AI‑assisted invoice creation with clean, responsive UI
 - Wallet‑based authentication (Freighter, Lobstr, Albedo, etc.); no passwords
+- **Invoice detail page** with SEP-0007 payment links (web)
+- **Live status updates** via intelligent polling with exponential backoff
 - Ultra‑low‑cost payments on Stellar: XLM and USDC
 - Real‑time backend reconciliation via Horizon (listen for payments + memo)
 - Privacy‑first mindset; collect only what’s necessary
+## 💳 Invoice Detail & Payment
 
+The **invoice detail page** (web: `/invoices/[id]`) allows payers to:
+
+1. **View Invoice Details** — Client name, amount, due date, payment instructions
+2. **Initiate Payment** — Click "Pay Invoice" to open wallet via SEP-0007 payment link
+3. **Monitor Status** — Real-time polling with exponential backoff detects payment completion
+4. **Manual Verification** — "Refresh Status" button for immediate checks
+
+### Supported Wallets
+
+- **Desktop**: Freighter extension, or any SEP-0007 compatible wallet
+
+### Key Features
+
+- ✅ **SEP-0007 URI Generation** — Creates proper `web+stellar:pay?...` links with memo matching
+- ✅ **Intelligent Polling** — Starts at 2s intervals, uses exponential backoff (max 30s), stops on success
+- ✅ **Error Recovery** — Up to 5 automatic retries, graceful degradation if wallet unavailable
+- ✅ **Transaction Tracking** — Displays `tx_hash` after payment confirmed
+- ✅ **Responsive Design** — Works seamlessly on web
+
+For detailed integration docs, see [docs/INVOICE_PAYMENT_SETUP.md](docs/INVOICE_PAYMENT_SETUP.md) and [docs/invoice-detail-payment-flow.md](docs/invoice-detail-payment-flow.md).
 ## 🏗️ Monorepo Structure
 
 ```

@@ -12,11 +12,14 @@ pub use storage::{
     CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
-use events::emit_payment_recorded;
+use events::{
+    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+};
 use storage::{
-    bump_count, current_contract_meta, ensure_current_contract_meta, get_admin, get_count,
-    get_payment, get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
-    set_admin, set_contract_meta, set_payment,
+    allow_asset, bump_count, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_count, get_payment, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    set_native_allowed, set_payment,
 };
 
 // Contract
@@ -174,6 +177,19 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
+        // Enforce allowlist:
+        // - If asset is native: require allow_native == true.
+        // - If asset is token: (code, issuer) must exist in allowlist.
+        if is_xlm {
+            if !is_native_allowed(&env) {
+                return Err(ContractError::AssetNotAllowed);
+            }
+        } else {
+            if !is_asset_allowed(&env, &asset_code, &asset_issuer) {
+                return Err(ContractError::AssetNotAllowed);
+            }
+        }
+
         // 3. Amount guard.
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
@@ -221,14 +237,23 @@ impl InvoicePaymentContract {
 
     /// Return the [`PaymentRecord`] for `invoice_id`.
     ///
+    /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
     /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded.
     /// Use [`has_payment`] first if existence is uncertain.
     pub fn get_payment(env: Env, invoice_id: String) -> Result<PaymentRecord, ContractError> {
+        if invoice_id.len() == 0 {
+            return Err(ContractError::InvalidInvoiceId);
+        }
         get_payment(&env, &invoice_id)
     }
 
     /// Return `true` if a payment has been recorded for `invoice_id`.
+    ///
+    /// Returns `false` if `invoice_id` is empty (invalid input) or if no record exists.
     pub fn has_payment(env: Env, invoice_id: String) -> bool {
+        if invoice_id.len() == 0 {
+            return false;
+        }
         has_payment(&env, &invoice_id)
     }
 
@@ -281,6 +306,50 @@ impl InvoicePaymentContract {
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
         set_admin(&env, &new_admin);
+        Ok(())
+    }
+
+    /// Add a `(code, issuer)` token pair to the allowlist.
+    ///
+    /// The **contract admin** must authorise this call.
+    pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if code.len() == 0 || issuer.len() == 0 {
+            return Err(ContractError::InvalidAsset);
+        }
+
+        allow_asset(&env, &code, &issuer);
+        emit_asset_allowlisted(&env, code, issuer);
+        Ok(())
+    }
+
+    /// Remove a `(code, issuer)` token pair from the allowlist.
+    ///
+    /// The **contract admin** must authorise this call.
+    pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        if code.len() == 0 || issuer.len() == 0 {
+            return Err(ContractError::InvalidAsset);
+        }
+
+        revoke_asset(&env, &code, &issuer);
+        emit_asset_revoked(&env, code, issuer);
+        Ok(())
+    }
+
+    /// Toggle whether native XLM payments are permitted.
+    ///
+    /// The **contract admin** must authorise this call.
+    pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        set_native_allowed(&env, allowed);
+        emit_native_allow_changed(&env, allowed);
         Ok(())
     }
 }
