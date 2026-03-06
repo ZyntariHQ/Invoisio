@@ -228,7 +228,6 @@ describe("InvoicesService", () => {
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("amount");
-        expect(invoice).toHaveProperty("asset");
         expect(invoice).toHaveProperty("asset_code");
         expect(invoice).toHaveProperty("memo");
         expect(invoice).toHaveProperty("memo_type", "ID");

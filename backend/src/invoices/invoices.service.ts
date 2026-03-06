@@ -32,7 +32,10 @@ export class InvoicesService implements OnModuleInit {
    * @param limit - Items per page
    * @returns Paginated result
    */
-  async findAll(page = 1, limit = 20): Promise<{
+  async findAll(
+    page = 1,
+    limit = 20,
+  ): Promise<{
     items: Invoice[];
     total: number;
     page: number;
