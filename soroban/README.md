@@ -353,13 +353,29 @@ Contract v1 (C1) live
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
 | `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | admin | Persist record + emit event. |
-| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record (panics if absent). |
-| `has_payment(invoice_id) → bool` | — | Non-panicking existence check. |
+| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
+| `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `set_admin(new_admin)` | admin | Transfer admin rights. |
+
+### Contract error codes
+
+The contract uses `#[contracterror]`; these codes are returned as `ScError::Contract(code)` in Horizon and when invoking via `stellar contract invoke`. They are stable part of the on-chain ABI — do not reorder or remove.
+
+| Code (u32) | Name | Description |
+|------------|------|-------------|
+| 1 | AlreadyInitialized | `initialize()` was called on a contract that is already set up. |
+| 2 | NotInitialized | A method requiring admin was called before `initialize()`. |
+| 3 | PaymentAlreadyRecorded | `record_payment()` was called with an `invoice_id` already recorded. |
+| 4 | PaymentNotFound | `get_payment()` was called for an `invoice_id` that has no record. |
+| 5 | InvalidAmount | `amount` was zero or negative; payments must be strictly positive. |
+| 6 | InvalidInvoiceId | `invoice_id` was empty or otherwise invalid. |
+| 7 | InvalidAsset | `asset_code` empty, or non-XLM asset without `asset_issuer`; or invalid allowlist args. |
+| 8 | AssetNotAllowed | The asset (code, issuer) is not in the admin-controlled allowlist. |
+| 9 | Unauthorized | The caller is not authorized to perform the operation. |
 
 ### `PaymentRecord` struct
 
