@@ -137,11 +137,13 @@ export class SorobanService {
     }
 
     let getResponse = await this.server!.getTransaction(response.hash);
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
     while (getResponse.status === "NOT_FOUND") {
       await this.sleep(1000);
       getResponse = await this.server!.getTransaction(response.hash);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-enum-comparison
     if (getResponse.status !== "SUCCESS") {
       throw new Error(`Transaction failed with status: ${getResponse.status}`);
     }
