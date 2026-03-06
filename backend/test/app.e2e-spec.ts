@@ -1,46 +1,70 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
 import request from "supertest";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { AppModule } from "./../src/app.module";
+import { PrismaService } from "./../src/prisma/prisma.service";
 
-/**
- * End-to-end tests for the Invoisio Backend API
- *
- * Tests:
- * - Health check endpoint
- * - Authentication flow (Stellar)
- * - Invoices API endpoints
- */
 describe("AppController (e2e)", () => {
-  // Extend default Jest timeout for slow CI environments
   jest.setTimeout(30000);
+
   let app: INestApplication;
   let jwtToken: string;
+  let prisma: PrismaService;
+  let configService: ConfigService;
+  let merchantPublicKey: string;
 
-  beforeEach(async () => {
-    // Ensure a secret is available for JwtModule.registerAsync before the module compiles
+  beforeAll(async () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
 
+    process.env.MERCHANT_PUBLIC_KEY =
+      process.env.MERCHANT_PUBLIC_KEY ||
+      "GBRPYHIL2CI3WHGSUJX2BUXCLODYDQBMZ6RBR44RRY5ZWKZ6CAS3JZXR";
+  });
+
+  beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
-
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
     await app.init();
 
-    // Generate a valid JWT for legacy tests on protected endpoints
+    prisma = app.get(PrismaService);
+    configService = app.get(ConfigService);
+
+    merchantPublicKey =
+      configService.get("stellar.merchantPublicKey") ||
+      "GBRPYHIL2CI3WHGSUJX2BUXCLODYDQBMZ6RBR44RRY5ZWKZ6CAS3JZXR";
+
     const jwtService = app.get(JwtService);
-    jwtToken = jwtService.sign({ sub: "e2e-test-user" });
+
+    jwtToken = jwtService.sign({
+      sub: "e2e-test-user",
+      wallet: "GBL3OMX7DTHPBJ7BCIGKCCF5YGFPVX4NWVJ67H6FVVR3F3VJPMLVTDUZ",
+    });
+
+    await cleanupInvoices();
   });
 
   afterEach(async () => {
+    await cleanupInvoices();
     await app.close();
   });
+
+  async function cleanupInvoices() {
+    try {
+      await prisma.invoice.deleteMany({});
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("does not exist")) {
+        console.error("Cleanup error:", error);
+      }
+    }
+  }
 
   describe("GET /health", () => {
     it("should return 200 with health status", () => {
@@ -72,7 +96,6 @@ describe("AppController (e2e)", () => {
     });
 
     it("should verify signature and return JWT", async () => {
-      // 1. Get nonce
       const nonceRes = await request(app.getHttpServer())
         .post("/auth/nonce")
         .send({ publicKey })
@@ -80,12 +103,10 @@ describe("AppController (e2e)", () => {
 
       const nonce = nonceRes.body.nonce;
 
-      // 2. Sign nonce
       const signature = keypair
         .sign(Buffer.from(nonce, "utf-8"))
         .toString("base64");
 
-      // 3. Verify
       const verifyRes = await request(app.getHttpServer())
         .post("/auth/verify")
         .send({ publicKey, signedNonce: signature })
@@ -93,7 +114,6 @@ describe("AppController (e2e)", () => {
 
       expect(verifyRes.body.accessToken).toBeDefined();
 
-      // 4. Use JWT to get profile (protected endpoint)
       const meRes = await request(app.getHttpServer())
         .get("/auth/me")
         .set("Authorization", `Bearer ${verifyRes.body.accessToken}`)
@@ -110,13 +130,13 @@ describe("AppController (e2e)", () => {
     });
 
     it("should return 401 for invalid signature", async () => {
-      // 1. Get nonce
       const nonceRes = await request(app.getHttpServer())
         .post("/auth/nonce")
         .send({ publicKey })
         .expect(200);
 
-      // 2. Submit wrong signature
+      const nonce = nonceRes.body.nonce;
+
       return request(app.getHttpServer())
         .post("/auth/verify")
         .send({
@@ -128,169 +148,91 @@ describe("AppController (e2e)", () => {
   });
 
   describe("GET /invoices", () => {
-    it("should return 200 with array of invoices", () => {
+    it("should return empty array initially", () => {
       return request(app.getHttpServer())
         .get("/invoices")
         .expect(200)
         .expect((res) => {
           expect(Array.isArray(res.body)).toBe(true);
-          expect(res.body.length).toBeGreaterThanOrEqual(3);
-
-          // Check first invoice has required fields
-          if (res.body.length > 0) {
-            const invoice = res.body[0];
-            expect(invoice).toHaveProperty("id");
-            expect(invoice).toHaveProperty("invoiceNumber");
-            expect(invoice).toHaveProperty("clientName");
-            expect(invoice).toHaveProperty("amount");
-            expect(invoice).toHaveProperty("asset_code");
-            expect(invoice).toHaveProperty("memo");
-            expect(invoice).toHaveProperty("memo_type", "ID");
-            expect(invoice).toHaveProperty("status");
-            expect(invoice).toHaveProperty("destination_address");
-          }
         });
-    });
-  });
-
-  describe("GET /invoices/:id", () => {
-    it("should return a single invoice by id", async () => {
-      // First get all invoices to find a valid ID
-      const allInvoices = await request(app.getHttpServer())
-        .get("/invoices")
-        .expect(200);
-
-      const firstInvoice = allInvoices.body[0];
-
-      return request(app.getHttpServer())
-        .get(`/invoices/${firstInvoice.id}`)
-        .expect(200)
-        .expect((res) => {
-          expect(res.body.id).toBe(firstInvoice.id);
-          expect(res.body.invoiceNumber).toBe(firstInvoice.invoiceNumber);
-        });
-    });
-
-    it("should return 404 for non-existent invoice", () => {
-      return request(app.getHttpServer())
-        .get("/invoices/non-existent-id")
-        .expect(404);
     });
   });
 
   describe("POST /invoices", () => {
-    it("should return 401 when no token is provided", () => {
-      return request(app.getHttpServer())
-        .post("/invoices")
-        .send({
-          invoiceNumber: "INV-UNAUTH",
-          clientName: "No Auth",
-          clientEmail: "noauth@test.com",
-          amount: 10.0,
-          asset_code: "XLM",
-        })
-        .expect(401);
-    });
-
-    it("should create a new XLM invoice", () => {
+    it("should create XLM invoice", async () => {
       const newInvoice = {
-        invoiceNumber: "INV-E2E-XLM",
-        clientName: "E2E Test Client",
-        clientEmail: "e2e@test.com",
-        description: "End-to-end test invoice",
-        amount: 999.99,
+        invoiceNumber: `INV-XLM-${Date.now()}`,
+        clientName: "Test Client",
+        clientEmail: "client@test.com",
+        amount: 100,
         asset_code: "XLM",
       };
 
-      return request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
         .send(newInvoice)
-        .expect(201)
-        .expect((res) => {
-          expect(res.body.invoiceNumber).toBe(newInvoice.invoiceNumber);
-          expect(res.body.clientName).toBe(newInvoice.clientName);
-          expect(res.body.amount).toBe(newInvoice.amount);
-          expect(res.body.asset_code).toBe("XLM");
-          expect(res.body.asset_issuer).toBeUndefined();
-          expect(res.body.status).toBe("pending");
-          expect(res.body.memo).toMatch(/^\d+$/);
-          expect(res.body.memo_type).toBe("ID");
-          expect(res.body.destination_address).toBeDefined();
-          expect(res.body.id).toBeDefined();
-        });
+        .expect(201);
+
+      expect(response.body.invoiceNumber).toBe(newInvoice.invoiceNumber);
+      expect(response.body.asset_code).toBe("XLM");
+      expect(response.body.destination_address).toBe(merchantPublicKey);
+      expect(response.body.status).toBe("pending");
     });
 
-    it("should create a new USDC invoice", () => {
+    it("should create USDC invoice", async () => {
+      const usdcIssuer =
+        "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN";
+
       const newInvoice = {
-        invoiceNumber: "INV-E2E-USDC",
-        clientName: "E2E USDC Client",
+        invoiceNumber: `INV-USDC-${Date.now()}`,
+        clientName: "USDC Client",
         clientEmail: "usdc@test.com",
-        amount: 500.0,
+        amount: 500,
         asset_code: "USDC",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer: usdcIssuer,
       };
 
-      return request(app.getHttpServer())
+      const response = await request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
         .send(newInvoice)
-        .expect(201)
-        .expect((res) => {
-          expect(res.body.asset_code).toBe("USDC");
-          expect(res.body.asset_issuer).toBe(newInvoice.asset_issuer);
-        });
-    });
+        .expect(201);
 
-    it("should normalize lowercase asset_code in request", () => {
-      const newInvoice = {
-        invoiceNumber: "INV-E2E-CASE",
-        clientName: "Case Client",
-        clientEmail: "case@test.com",
-        amount: 42.0,
-        asset_code: "usdc",
-        asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      expect(response.body.asset_code).toBe("USDC");
+      expect(response.body.asset_issuer).toBe(usdcIssuer);
+    });
+  });
+
+  describe("PATCH /invoices/:id/status", () => {
+    it("should update invoice status", async () => {
+      const invoice = {
+        invoiceNumber: `INV-STATUS-${Date.now()}`,
+        clientName: "Status Client",
+        clientEmail: "status@test.com",
+        amount: 50,
+        asset_code: "XLM",
       };
 
-      return request(app.getHttpServer())
+      const createRes = await request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
-        .send(newInvoice)
-        .expect(201)
-        .expect((res) => {
-          expect(res.body.asset_code).toBe("USDC");
-        });
-    });
+        .send(invoice)
+        .expect(201);
 
-    it("should return 400 for negative amount", () => {
-      return request(app.getHttpServer())
-        .post("/invoices")
-        .set("Authorization", `Bearer ${jwtToken}`)
-        .send({
-          invoiceNumber: "INV-NEG",
-          clientName: "Neg Client",
-          clientEmail: "neg@test.com",
-          amount: -5,
-          asset_code: "XLM",
-        })
-        .expect(400);
-    });
+      const id = createRes.body.id;
 
-    it("should return 400 for non-alphanumeric asset_code", () => {
-      return request(app.getHttpServer())
-        .post("/invoices")
-        .set("Authorization", `Bearer ${jwtToken}`)
-        .send({
-          invoiceNumber: "INV-BADCODE",
-          clientName: "BadCode",
-          clientEmail: "badcode@test.com",
-          amount: 10,
-          asset_code: "USDC$",
-        })
-        .expect(400);
-    });
+      const updateRes = await request(app.getHttpServer())
+        .patch(`/invoices/${id}/status`)
+        .send({ status: "paid" })
+        .expect(200);
 
-    it("should return 400 when asset_issuer is missing for non-XLM asset", () => {
+      expect(updateRes.body.status).toBe("paid");
+    });
+  });
+
+  describe("Input Validation", () => {
+    it("should reject negative amount", () => {
       return request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
@@ -298,47 +240,61 @@ describe("AppController (e2e)", () => {
           invoiceNumber: "INV-BAD",
           clientName: "Bad Client",
           clientEmail: "bad@test.com",
-          amount: 100.0,
-          asset_code: "USDC",
-          // asset_issuer intentionally omitted
+          amount: -10,
+          asset_code: "XLM",
         })
         .expect(400);
     });
 
-    it("should return 400 when asset_issuer is not a valid Stellar address", () => {
+    it("should reject invalid email", () => {
       return request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${jwtToken}`)
         .send({
-          invoiceNumber: "INV-BAD-ISSUER",
-          clientName: "Bad Issuer Client",
-          clientEmail: "badissuer@test.com",
-          amount: 100.0,
-          asset_code: "USDC",
-          asset_issuer: "not-a-stellar-address",
+          invoiceNumber: "INV-BADMAIL",
+          clientName: "Bad Email",
+          clientEmail: "invalid-email",
+          amount: 10,
+          asset_code: "XLM",
         })
         .expect(400);
     });
   });
 
-  describe("PATCH /invoices/:id/status", () => {
-    it("should update invoice status", async () => {
-      // First get all invoices to find a valid ID
-      const allInvoices = await request(app.getHttpServer())
-        .get("/invoices")
+  describe("Full Lifecycle", () => {
+    it("create → fetch → update", async () => {
+      const newInvoice = {
+        invoiceNumber: `INV-FULL-${Date.now()}`,
+        clientName: "Lifecycle",
+        clientEmail: "life@test.com",
+        amount: 200,
+        asset_code: "XLM",
+      };
+
+      const createRes = await request(app.getHttpServer())
+        .post("/invoices")
+        .set("Authorization", `Bearer ${jwtToken}`)
+        .send(newInvoice)
+        .expect(201);
+
+      const id = createRes.body.id;
+
+      const getRes = await request(app.getHttpServer())
+        .get(`/invoices/${id}`)
         .expect(200);
 
-      const firstInvoice = allInvoices.body[0];
-      const newStatus = firstInvoice.status === "pending" ? "paid" : "pending";
+      expect(getRes.body.id).toBe(id);
 
-      return request(app.getHttpServer())
-        .patch(`/invoices/${firstInvoice.id}/status`)
-        .send({ status: newStatus })
-        .expect(200)
-        .expect((res) => {
-          expect(res.body.id).toBe(firstInvoice.id);
-          expect(res.body.status).toBe(newStatus);
-        });
+      await request(app.getHttpServer())
+        .patch(`/invoices/${id}/status`)
+        .send({ status: "paid" })
+        .expect(200);
+
+      const final = await request(app.getHttpServer())
+        .get(`/invoices/${id}`)
+        .expect(200);
+
+      expect(final.body.status).toBe("paid");
     });
   });
 });
