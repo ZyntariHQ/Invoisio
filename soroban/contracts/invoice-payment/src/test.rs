@@ -329,6 +329,15 @@ fn test_get_payment_absent_returns_error() {
 }
 
 #[test]
+fn test_get_payment_empty_invoice_id_returns_error() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let result = client.try_get_payment(&String::from_str(&env, ""));
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
 fn test_get_payment_reads_and_migrates_legacy_key() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
@@ -485,8 +494,6 @@ fn test_record_payment_emits_payment_recorded_event() {
 
     let invoice_id = String::from_str(&env, "invoisio-event-test");
     let payer = Address::generate(&env);
-
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
 
     client.set_allow_native(&true);
     client.record_payment(
@@ -801,6 +808,30 @@ fn test_allowlist_enforcement() {
     let invoice_id_2 = String::from_str(&env, "inv-2");
     let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128);
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_revoke_asset_empty_code_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "");
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_revoke_asset_empty_issuer_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "");
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
 
 #[test]
