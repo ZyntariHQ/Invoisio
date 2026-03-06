@@ -747,3 +747,160 @@ fn test_asset_enum_serialization_deserialization() {
         Asset::Native => panic!("Expected Token variant"),
     }
 }
+
+// Allowlist tests
+
+#[test]
+fn test_allowlist_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "inv-1");
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // 1. Initially rejected
+    let result = client.try_record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+
+    // 2. Allow and succeed
+    client.allow_asset(&code, &issuer);
+    client.record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    assert!(client.has_payment(&invoice_id));
+
+    // 3. Revoke and reject next one
+    client.revoke_asset(&code, &issuer);
+    let invoice_id_2 = String::from_str(&env, "inv-2");
+    let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_native_allow_toggle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "inv-native");
+    let xlm = String::from_str(&env, "XLM");
+    let empty = String::from_str(&env, "");
+
+    // 1. Initially rejected (default is false)
+    let result = client.try_record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+
+    // 2. Allow native and succeed
+    client.set_allow_native(&true);
+    client.record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    assert!(client.has_payment(&invoice_id));
+
+    // 3. Block native and reject next
+    client.set_allow_native(&false);
+    let invoice_id_2 = String::from_str(&env, "inv-native-2");
+    let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_unauthorized_allowlist_calls_fail() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // Attacker tries to allow asset
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_allow_asset(&code, &issuer);
+    assert!(result.is_err());
+
+    // Attacker tries to set allow native
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allow_native",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_allow_native(&true);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_allowlist_events_emitted() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // 1. allow_asset event
+    client.allow_asset(&code, &issuer);
+    let last_event = env.events().all().last().unwrap();
+    assert_eq!(
+        last_event,
+        (
+            client.address.clone(),
+            soroban_sdk::vec![&env, Symbol::new(&env, "asset_allowlisted").into_val(&env)],
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "code"), code.clone().into_val(&env)),
+                (Symbol::new(&env, "issuer"), issuer.clone().into_val(&env))
+            ]
+            .into_val(&env)
+        )
+    );
+
+    // 2. revoke_asset event
+    client.revoke_asset(&code, &issuer);
+    let last_event = env.events().all().last().unwrap();
+    assert_eq!(
+        last_event,
+        (
+            client.address.clone(),
+            soroban_sdk::vec![&env, Symbol::new(&env, "asset_revoked").into_val(&env)],
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "code"), code.clone().into_val(&env)),
+                (Symbol::new(&env, "issuer"), issuer.clone().into_val(&env))
+            ]
+            .into_val(&env)
+        )
+    );
+
+    // 3. set_allow_native event
+    client.set_allow_native(&true);
+    let last_event = env.events().all().last().unwrap();
+    assert_eq!(
+        last_event,
+        (
+            client.address.clone(),
+            soroban_sdk::vec![&env, Symbol::new(&env, "native_allow_changed").into_val(&env)],
+            soroban_sdk::map![
+                &env,
+                (Symbol::new(&env, "allowed"), true.into_val(&env))
+            ]
+            .into_val(&env)
+        )
+    );
+}
