@@ -237,14 +237,23 @@ impl InvoicePaymentContract {
 
     /// Return the [`PaymentRecord`] for `invoice_id`.
     ///
+    /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
     /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded.
     /// Use [`has_payment`] first if existence is uncertain.
     pub fn get_payment(env: Env, invoice_id: String) -> Result<PaymentRecord, ContractError> {
+        if invoice_id.len() == 0 {
+            return Err(ContractError::InvalidInvoiceId);
+        }
         get_payment(&env, &invoice_id)
     }
 
     /// Return `true` if a payment has been recorded for `invoice_id`.
+    ///
+    /// Returns `false` if `invoice_id` is empty (invalid input) or if no record exists.
     pub fn has_payment(env: Env, invoice_id: String) -> bool {
+        if invoice_id.len() == 0 {
+            return false;
+        }
         has_payment(&env, &invoice_id)
     }
 
@@ -322,6 +331,10 @@ impl InvoicePaymentContract {
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
+
+        if code.len() == 0 || issuer.len() == 0 {
+            return Err(ContractError::InvalidAsset);
+        }
 
         revoke_asset(&env, &code, &issuer);
         emit_asset_revoked(&env, code, issuer);
