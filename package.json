@@ -1,0 +1,31 @@
+{
+  "name": "invoisio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Privacy-Focused AI Invoice Generator on Stellar",
+  "workspaces": [
+    "webapp",
+    "backend",
+    "mobile"
+  ],
+  "scripts": {
+    "dev:webapp": "npm run dev --workspace=webapp",
+    "dev:backend": "npm run start:dev --workspace=backend",
+    "dev:mobile": "npm run start --workspace=mobile",
+    "build": "npm run build --workspaces",
+    "build:webapp": "npm run build --workspace=webapp",
+    "build:backend": "npm run build --workspace=backend"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "invoice",
+    "stellar",
+    "payments",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT"
+}
