@@ -14,6 +14,8 @@ import { HorizonWatcherModule } from "./stellar/horizon-watcher.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { ScheduleModule } from "@nestjs/schedule";
+import { WebhooksModule } from "./webhooks/webhooks.module";
 
 /**
  * Root application module
@@ -51,12 +53,14 @@ import { PrismaModule } from "./prisma/prisma.module";
       }),
     }),
     PrismaModule,
+    ScheduleModule.forRoot(),
     HealthModule,
     InvoicesModule,
     StellarModule,
     HorizonWatcherModule,
     AuthModule,
     UsersModule,
+    WebhooksModule,
   ],
 })
 export class AppModule {}

@@ -107,13 +107,11 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(invoicesService.markAsPaid).toHaveBeenCalledWith(
         mockInvoice.id,
         "horizon-tx-hash-abc",
       );
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(sorobanService.recordPayment).toHaveBeenCalledWith({
         invoiceId: mockInvoice.memo,
         payer: mockPaymentRecord.from,
@@ -122,7 +120,6 @@ describe("Soroban Integration", () => {
         amount: "100000000",
       });
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(invoicesService.updateSorobanMetadata).toHaveBeenCalledWith(
         mockInvoice.id,
         "soroban-tx-hash-xyz",
@@ -146,11 +143,10 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(invoicesService.markAsPaid).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+
       expect(sorobanService.recordPayment).toHaveBeenCalled();
-      // eslint-disable-next-line @typescript-eslint/unbound-method
+
       expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
     });
 
@@ -179,7 +175,6 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // eslint-disable-next-line @typescript-eslint/unbound-method
       expect(sorobanService.recordPayment).toHaveBeenCalledWith(
         expect.objectContaining({
           assetCode: "USDC",
