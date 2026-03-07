@@ -174,6 +174,157 @@ fn test_duplicate_invoice_id_returns_error() {
     assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
 }
 
+// Prevent duplicate payments — acceptance-criteria tests
+
+/// AC-1 Happy path: first record_payment succeeds, the payment_recorded event is
+/// emitted, and the payment counter increments to 1.
+#[test]
+fn test_first_payment_succeeds_emits_event_and_increments_count() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-dedup-happy");
+    let payer = Address::generate(&env);
+
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+
+    // Check event BEFORE any further contract call; env.events().all() returns
+    // events from the last invocation only and is overwritten on the next call.
+    let inv_val: soroban_sdk::Val = invoice_id.clone().into_val(&env);
+    let pyr_val: soroban_sdk::Val = payer.clone().into_val(&env);
+    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
+    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
+    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "invoice_payment_recorded").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "invoice_id"), inv_val),
+                    (Symbol::new(&env, "payer"), pyr_val),
+                    (Symbol::new(&env, "asset_code"), code_val),
+                    (Symbol::new(&env, "asset_issuer"), iss_val),
+                    (Symbol::new(&env, "amount"), amt_val)
+                ]
+                .into_val(&env),
+            ),
+        ]
+    );
+
+    // Counter must be 1 and record must be present.
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.has_payment(&invoice_id));
+}
+
+/// AC-2 Duplicate: a second record_payment for the same invoice_id must revert
+/// with PaymentAlreadyRecorded, emit no event, and leave the counter unchanged.
+#[test]
+fn test_duplicate_payment_fails_no_event_count_unchanged() {
+    use soroban_sdk::testutils::Events as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-dedup-dup2");
+    let payer = Address::generate(&env);
+
+    // First payment — must succeed and count becomes 1.
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(client.payment_count(), 1);
+
+    // Second payment with the identical invoice_id — must fail.
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
+
+    // No event emitted by the failed call — the error path exits before emit.
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![&env],
+        "no payment_recorded event must be emitted on a duplicate attempt"
+    );
+
+    // State must be completely unchanged: counter still 1.
+    assert_eq!(client.payment_count(), 1);
+}
+
+/// AC-3 Cross-asset duplicate: attempting to record a payment for an already
+/// recorded invoice_id using a *different* asset must still fail.
+/// invoice_id is the sole uniqueness key — not (invoice_id, asset).
+#[test]
+fn test_cross_asset_duplicate_same_invoice_id_fails() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-dedup-cross");
+    let payer = Address::generate(&env);
+    let usdc_issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+
+    // First payment: XLM — succeeds.
+    client.set_allow_native(&true);
+    client.allow_asset(&String::from_str(&env, "USDC"), &usdc_issuer);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(client.payment_count(), 1);
+
+    // Second attempt: same invoice_id but USDC — must fail.
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &usdc_issuer,
+        &50_000_000i128,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::PaymentAlreadyRecorded)),
+        "invoice_id is the unique key; different asset must not bypass the guard"
+    );
+
+    // Counter must remain 1 — no additional write took place.
+    assert_eq!(client.payment_count(), 1);
+}
+
 #[test]
 fn test_record_payment_rejects_when_admin_not_authorised() {
     let env = Env::default();
@@ -638,10 +789,16 @@ fn test_record_payment_multiple_asset_types() {
     // Allow tokens and native
     client.set_allow_native(&true);
     let usdc_code = String::from_str(&env, "USDC");
-    let usdc_issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let usdc_issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
     client.allow_asset(&usdc_code, &usdc_issuer);
     let eurt_code = String::from_str(&env, "EURT");
-    let eurt_issuer = String::from_str(&env, "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S");
+    let eurt_issuer = String::from_str(
+        &env,
+        "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S",
+    );
     client.allow_asset(&eurt_code, &eurt_issuer);
 
     // Record XLM payment
@@ -676,16 +833,10 @@ fn test_record_payment_multiple_asset_types() {
     assert_eq!(xlm_record.asset, Asset::Native);
 
     let x_usdc_record = client.get_payment(&String::from_str(&env, "invoisio-usdc-001"));
-    assert_eq!(
-        x_usdc_record.asset,
-        Asset::Token(usdc_code, usdc_issuer)
-    );
+    assert_eq!(x_usdc_record.asset, Asset::Token(usdc_code, usdc_issuer));
 
     let x_eurt_record = client.get_payment(&String::from_str(&env, "invoisio-eurt-001"));
-    assert_eq!(
-        x_eurt_record.asset,
-        Asset::Token(eurt_code, eurt_issuer)
-    );
+    assert_eq!(x_eurt_record.asset, Asset::Token(eurt_code, eurt_issuer));
 
     // Verify payment count
     assert_eq!(client.payment_count(), 3);
@@ -817,7 +968,10 @@ fn test_revoke_asset_empty_code_returns_error() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "");
-    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
     let result = client.try_revoke_asset(&code, &issuer);
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -965,7 +1119,10 @@ fn test_allowlist_events_emitted() {
             &env,
             (
                 client.address.clone(),
-                soroban_sdk::vec![&env, Symbol::new(&env, "native_allow_changed").into_val(&env)],
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "native_allow_changed").into_val(&env)
+                ],
                 soroban_sdk::map![&env, (Symbol::new(&env, "allowed"), allowed_val)].into_val(&env)
             )
         ]

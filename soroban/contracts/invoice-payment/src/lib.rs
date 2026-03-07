@@ -153,12 +153,12 @@ impl InvoicePaymentContract {
         //    never reach persistent storage.
 
         // invoice_id must be non-empty.
-        if invoice_id.len() == 0 {
+        if invoice_id.is_empty() {
             return Err(ContractError::InvalidInvoiceId);
         }
 
         // asset_code must be non-empty.
-        if asset_code.len() == 0 {
+        if asset_code.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
 
@@ -166,7 +166,7 @@ impl InvoicePaymentContract {
         // - XLM (native) must have an empty issuer
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
-        let issuer_empty = asset_issuer.len() == 0;
+        let issuer_empty = asset_issuer.is_empty();
 
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
@@ -184,10 +184,8 @@ impl InvoicePaymentContract {
             if !is_native_allowed(&env) {
                 return Err(ContractError::AssetNotAllowed);
             }
-        } else {
-            if !is_asset_allowed(&env, &asset_code, &asset_issuer) {
-                return Err(ContractError::AssetNotAllowed);
-            }
+        } else if !is_asset_allowed(&env, &asset_code, &asset_issuer) {
+            return Err(ContractError::AssetNotAllowed);
         }
 
         // 3. Amount guard.
@@ -241,7 +239,7 @@ impl InvoicePaymentContract {
     /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded.
     /// Use [`has_payment`] first if existence is uncertain.
     pub fn get_payment(env: Env, invoice_id: String) -> Result<PaymentRecord, ContractError> {
-        if invoice_id.len() == 0 {
+        if invoice_id.is_empty() {
             return Err(ContractError::InvalidInvoiceId);
         }
         get_payment(&env, &invoice_id)
@@ -251,7 +249,7 @@ impl InvoicePaymentContract {
     ///
     /// Returns `false` if `invoice_id` is empty (invalid input) or if no record exists.
     pub fn has_payment(env: Env, invoice_id: String) -> bool {
-        if invoice_id.len() == 0 {
+        if invoice_id.is_empty() {
             return false;
         }
         has_payment(&env, &invoice_id)
@@ -316,7 +314,7 @@ impl InvoicePaymentContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        if code.len() == 0 || issuer.len() == 0 {
+        if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
 
@@ -332,7 +330,7 @@ impl InvoicePaymentContract {
         let admin = get_admin(&env)?;
         admin.require_auth();
 
-        if code.len() == 0 || issuer.len() == 0 {
+        if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
 
