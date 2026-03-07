@@ -7,6 +7,7 @@ import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { validate } from "class-validator";
 import { plainToInstance } from "class-transformer";
 import { PrismaService } from "../prisma/prisma.service";
+import { WebhooksService } from "../webhooks/webhooks.service";
 
 describe("InvoicesService", () => {
   let service: InvoicesService;
@@ -195,6 +196,10 @@ describe("InvoicesService", () => {
     };
   };
 
+  const mockWebhooksService = {
+    enqueueWebhook: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -203,6 +208,7 @@ describe("InvoicesService", () => {
         { provide: StellarService, useValue: mockStellarService },
         { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
+        { provide: WebhooksService, useValue: mockWebhooksService },
       ],
     }).compile();
 
