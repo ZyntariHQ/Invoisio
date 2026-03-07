@@ -273,7 +273,9 @@ pub fn is_native_allowed(env: &Env) -> bool {
 
 /// Set allow flag for native XLM.
 pub fn set_native_allowed(env: &Env, allowed: bool) {
-    env.storage().instance().set(&DataKey::AllowNative, &allowed);
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowNative, &allowed);
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
