@@ -230,6 +230,7 @@ describe("AppController (e2e)", () => {
         asset_code: "USDC",
         asset_issuer:
           "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        asset_issuer: usdcIssuer,
       };
 
       return request(app.getHttpServer())
@@ -252,6 +253,14 @@ describe("AppController (e2e)", () => {
         asset_code: "usdc",
         asset_issuer:
           "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+  describe("PATCH /invoices/:id/status", () => {
+    it("should update invoice status", async () => {
+      const invoice = {
+        invoiceNumber: `INV-STATUS-${Date.now()}`,
+        clientName: "Status Client",
+        clientEmail: "status@test.com",
+        amount: 50,
+        asset_code: "XLM",
       };
 
       return request(app.getHttpServer())

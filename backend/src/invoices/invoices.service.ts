@@ -174,6 +174,63 @@ export class InvoicesService implements OnModuleInit {
     return this.normalizeInvoice(invoice);
   }
 
+  async applySorobanPaymentEvent(evt: {
+    eventId: string;
+    contractId?: string;
+    ledger?: number;
+    invoice_id: string;
+    payer?: string;
+    asset_code?: string;
+    asset_issuer?: string;
+    amount?: string | number;
+  }): Promise<Invoice | null> {
+    const maybeId = this.stellarService.parseMemo(evt.invoice_id);
+    const invoiceId = maybeId ?? evt.invoice_id;
+
+    const existing = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!existing) {
+      return null;
+    }
+
+    const sorobanMeta = {
+      lastEventId: evt.eventId,
+      contractId: evt.contractId ?? null,
+      ledger: evt.ledger ?? null,
+      invoice_id: evt.invoice_id,
+      payer: evt.payer ?? null,
+      asset_code: evt.asset_code ?? null,
+      asset_issuer: evt.asset_issuer ?? null,
+      amount: evt.amount ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existing.status !== "paid") {
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: "paid",
+          tx_hash: `soroban:${evt.eventId}`,
+          metadata: {
+            ...(existing.metadata ?? {}),
+            soroban: sorobanMeta,
+          } as any,
+        },
+      });
+      return this.normalizeInvoice(updated);
+    } else {
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          metadata: {
+            ...(existing.metadata ?? {}),
+            soroban: sorobanMeta,
+          } as any,
+        },
+      });
+      return this.normalizeInvoice(updated);
+    }
   /**
    * Reconcile a Horizon-confirmed payment with the Soroban contract and the database.
    *

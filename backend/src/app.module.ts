@@ -11,6 +11,7 @@ import { HealthModule } from "./health/health.module";
 import { InvoicesModule } from "./invoices/invoices.module";
 import { StellarModule } from "./stellar/stellar.module";
 import { HorizonWatcherModule } from "./stellar/horizon-watcher.module";
+import { SorobanEventsModule } from "./stellar/soroban-events.module";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
@@ -46,6 +47,11 @@ import { PrismaModule } from "./prisma/prisma.module";
         USDC_ASSET_CODE: Joi.string().default("USDC"),
         MEMO_PREFIX: Joi.string().default("invoisio-"),
         HORIZON_POLL_INTERVAL: Joi.number().integer().min(1000).default(15000),
+        SOROBAN_RPC_URL: Joi.string()
+          .uri()
+          .default("https://soroban-testnet.stellar.org"),
+        SOROBAN_CONTRACT_ID: Joi.string().optional().allow(""),
+        SOROBAN_EVENT_TOPIC: Joi.string().default("InvoicePaymentRecorded"),
         DATABASE_URL: Joi.string().optional(),
         JWT_SECRET: Joi.string().optional(),
       }),
@@ -55,6 +61,7 @@ import { PrismaModule } from "./prisma/prisma.module";
     InvoicesModule,
     StellarModule,
     HorizonWatcherModule,
+    SorobanEventsModule,
     AuthModule,
     UsersModule,
   ],
