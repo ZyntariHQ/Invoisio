@@ -20,9 +20,37 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
+  webhookUrl     String?   @map("webhook_url")
+  webhookSecret  String?   @map("webhook_secret")
+
   invoices Invoice[]
+  webhooks WebhookDelivery[]
 
   @@map("users")
+}
+
+model WebhookDelivery {
+  id             String         @id @default(uuid())
+  invoiceId      String         @map("invoice_id")
+  invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId         String         @map("user_id")
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url            String
+  payload        Json
+  status         DeliveryStatus @default(pending)
+  attempts       Int            @default(0)
+  lastAttemptAt  DateTime?      @map("last_attempt_at")
+  nextAttemptAt  DateTime?      @map("next_attempt_at")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@map("webhook_deliveries")
+}
+
+enum DeliveryStatus {
+  pending
+  success
+  failed
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
@@ -48,6 +76,8 @@ model Invoice {
   dueDate            DateTime?     @map("due_date")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
+
+  webhooks           WebhookDelivery[]
 
   @@map("invoices")
 }

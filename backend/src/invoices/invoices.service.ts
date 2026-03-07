@@ -11,6 +11,7 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
+import { WebhooksService } from "../webhooks/webhooks.service";
 
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
@@ -24,6 +25,7 @@ export class InvoicesService implements OnModuleInit {
     private readonly stellarService: StellarService,
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
+    private readonly webhooksService: WebhooksService,
   ) {}
 
   async onModuleInit() {
@@ -122,6 +124,10 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status },
     });
+    
+    // Enqueue webhook
+    await this.webhooksService.enqueueWebhook(id, status, updated.txHash);
+    
     return this.normalizeInvoice(updated);
   }
 
@@ -136,6 +142,10 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status: "paid", txHash: txHash },
     });
+    
+    // Enqueue webhook
+    await this.webhooksService.enqueueWebhook(id, "paid", txHash);
+
     return this.normalizeInvoice(updated);
   }
 
