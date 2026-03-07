@@ -118,8 +118,9 @@ describe("WebhooksService", () => {
 
       expect(mockedAxios.post).toHaveBeenCalled();
       expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledTimes(1);
-      
-      const updateCall = mockPrismaService.webhookDelivery.update.mock.calls[0][0];
+
+      const updateCall =
+        mockPrismaService.webhookDelivery.update.mock.calls[0][0];
       expect(updateCall.where.id).toBe("del-2");
       expect(updateCall.data.attempts).toBe(2);
       expect(updateCall.data.status).toBeUndefined(); // Still 'pending' since not 5 retries

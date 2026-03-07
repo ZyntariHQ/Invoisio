@@ -17,7 +17,7 @@ export class WebhooksService {
   async enqueueWebhook(
     invoiceId: string,
     status: string,
-    txHash: string | null
+    txHash: string | null,
   ): Promise<void> {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
@@ -26,7 +26,9 @@ export class WebhooksService {
 
     if (!invoice || !invoice.user || !invoice.user.webhookUrl) {
       if (!invoice?.user?.webhookUrl) {
-        this.logger.debug(`Skipping webhook for invoice ${invoiceId}: No webhook URL configured for user.`);
+        this.logger.debug(
+          `Skipping webhook for invoice ${invoiceId}: No webhook URL configured for user.`,
+        );
       }
       return;
     }
@@ -50,7 +52,9 @@ export class WebhooksService {
       },
     });
 
-    this.logger.log(`Webhook enqueued for invoice ${invoiceId} and status ${status}.`);
+    this.logger.log(
+      `Webhook enqueued for invoice ${invoiceId} and status ${status}.`,
+    );
   }
 
   /**
@@ -62,7 +66,7 @@ export class WebhooksService {
     if (this.isProcessing) {
       return;
     }
-    
+
     this.isProcessing = true;
     try {
       const pendingDeliveries = await this.prisma.webhookDelivery.findMany({
@@ -76,7 +80,9 @@ export class WebhooksService {
       });
 
       if (pendingDeliveries.length > 0) {
-        this.logger.log(`Processing ${pendingDeliveries.length} pending webhook deliveries...`);
+        this.logger.log(
+          `Processing ${pendingDeliveries.length} pending webhook deliveries...`,
+        );
       }
 
       for (const delivery of pendingDeliveries) {
@@ -96,7 +102,7 @@ export class WebhooksService {
     const user = delivery.user;
     const secret = user?.webhookSecret;
     const payloadStr = JSON.stringify(delivery.payload);
-    
+
     let signature = "";
     if (secret) {
       signature = crypto
@@ -131,24 +137,30 @@ export class WebhooksService {
       this.logger.log(`Webhook delivery ${delivery.id} succeeded.`);
     } catch (error: any) {
       const attempts = delivery.attempts + 1;
-      this.logger.warn(`Webhook delivery ${delivery.id} failed (attempt ${attempts}): ${error.message}`);
+      this.logger.warn(
+        `Webhook delivery ${delivery.id} failed (attempt ${attempts}): ${error.message}`,
+      );
 
       if (attempts >= 5) {
         await this.prisma.webhookDelivery.update({
           where: { id: delivery.id },
-          data: { 
-            status: "failed", 
-            lastAttemptAt: new Date(), 
-            attempts 
+          data: {
+            status: "failed",
+            lastAttemptAt: new Date(),
+            attempts,
           },
         });
-        this.logger.error(`Webhook delivery ${delivery.id} permanently failed after 5 attempts.`);
+        this.logger.error(
+          `Webhook delivery ${delivery.id} permanently failed after 5 attempts.`,
+        );
       } else {
         // Exponential backoff: Math.pow(2, attempts) minutes
         // E.g., attempts: 1 -> 2m, 2 -> 4m, 3 -> 8m, 4 -> 16m
         const nextAttempt = new Date();
-        nextAttempt.setMinutes(nextAttempt.getMinutes() + Math.pow(2, attempts));
-        
+        nextAttempt.setMinutes(
+          nextAttempt.getMinutes() + Math.pow(2, attempts),
+        );
+
         await this.prisma.webhookDelivery.update({
           where: { id: delivery.id },
           data: {

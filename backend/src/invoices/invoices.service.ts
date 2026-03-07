@@ -124,10 +124,10 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status },
     });
-    
+
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(id, status, updated.txHash);
-    
+
     return this.normalizeInvoice(updated);
   }
 
@@ -142,7 +142,7 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status: "paid", txHash: txHash },
     });
-    
+
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(id, "paid", txHash);
 
