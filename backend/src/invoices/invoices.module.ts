@@ -7,6 +7,7 @@ import { StellarModule } from "../stellar/stellar.module";
 import { SorobanModule } from "../soroban/soroban.module";
 import { AuthGuard } from "../auth/auth.guard";
 import { PrismaModule } from "../prisma/prisma.module";
+import { WebhooksModule } from "../webhooks/webhooks.module";
 
 /**
  * Invoices module
@@ -17,6 +18,7 @@ import { PrismaModule } from "../prisma/prisma.module";
     StellarModule,
     SorobanModule,
     PrismaModule,
+    WebhooksModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
