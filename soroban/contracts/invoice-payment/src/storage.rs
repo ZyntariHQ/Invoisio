@@ -67,6 +67,11 @@ pub enum DataKey {
     Payment(String),
     /// Schema v1 key: active write path for payment records.
     PaymentV1(String),
+    /// Allowlist entry for a token in **persistent** storage.
+    /// Key: AllowList(asset_code, issuer)
+    AllowList(String, String),
+    /// Flag for allowing native XLM in **instance** storage.
+    AllowNative,
 }
 
 // Data structures
@@ -254,4 +259,42 @@ pub fn bump_count(env: &Env) {
         .instance()
         .set(&DataKey::PaymentCount, &(count + 1u32));
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// Allowlist helpers
+
+/// Return `true` if native XLM is allowed.
+pub fn is_native_allowed(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::AllowNative)
+        .unwrap_or(false)
+}
+
+/// Set allow flag for native XLM.
+pub fn set_native_allowed(env: &Env, allowed: bool) {
+    env.storage().instance().set(&DataKey::AllowNative, &allowed);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Return `true` if the specific token is allowlisted.
+pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
+    let key = DataKey::AllowList(code.clone(), issuer.clone());
+    env.storage().persistent().has(&key)
+}
+
+/// Add an asset to the allowlist.
+pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
+    let key = DataKey::AllowList(code.clone(), issuer.clone());
+    // We store a unit value since we only care about existence.
+    env.storage().persistent().set(&key, &());
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Remove an asset from the allowlist.
+pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
+    let key = DataKey::AllowList(code.clone(), issuer.clone());
+    env.storage().persistent().remove(&key);
 }

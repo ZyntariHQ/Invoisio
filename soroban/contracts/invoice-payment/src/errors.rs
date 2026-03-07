@@ -37,4 +37,10 @@ pub enum ContractError {
     /// `asset_code` was empty, or a non-XLM asset was supplied without an
     /// `asset_issuer`. Every payment must identify the asset unambiguously.
     InvalidAsset = 7,
+
+    /// The asset (code, issuer pair) is not in the admin-controlled allowlist.
+    AssetNotAllowed = 8,
+
+    /// The caller is not authorized to perform this operation.
+    Unauthorized = 9,
 }

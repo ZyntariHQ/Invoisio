@@ -12,6 +12,7 @@ import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { AuthGuard } from "../auth/auth.guard";
+import { InvoiceStatus } from "@prisma/client";
 
 /**
  * Invoices controller
@@ -72,7 +73,7 @@ export class InvoicesController {
   @Patch(":id/status")
   updateStatus(
     @Param("id") id: string,
-    @Body("status") status: Invoice["status"],
+    @Body("status") status: InvoiceStatus,
   ): Promise<Invoice> {
     return this.invoicesService.updateStatus(id, status);
   }

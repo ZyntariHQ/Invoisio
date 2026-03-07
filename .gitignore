@@ -22,6 +22,7 @@ Thumbs.db
 
 # Build outputs and coverage
 dist/
+!soroban/client/dist/
 build/
 coverage/
 .tmp/

@@ -1,0 +1,23 @@
+{
+  "name": "@invoisio/soroban-client",
+  "version": "1.0.0",
+  "description": "Soroban invoice-payment contract client helper library for Invoisio",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist", "src"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
+    "example:query": "ts-node -r dotenv/config examples/query-payment.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^14.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "dotenv": "^16.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.7.0"
+  }
+}
