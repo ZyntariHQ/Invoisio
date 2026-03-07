@@ -26,6 +26,7 @@ fn record_xlm(
     payer: &Address,
     stroops: i128,
 ) {
+    client.set_allow_native(&true);
     client.record_payment(
         &String::from_str(env, invoice_id),
         payer,
@@ -91,6 +92,7 @@ fn test_record_payment_xlm_stores_record() {
     let invoice_id = String::from_str(&env, "invoisio-abc123");
     let payer = Address::generate(&env);
 
+    client.set_allow_native(&true);
     client.record_payment(
         &invoice_id,
         &payer,
@@ -120,6 +122,7 @@ fn test_record_payment_usdc_stores_issuer() {
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     );
 
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
     client.record_payment(
         &invoice_id,
         &payer,
@@ -157,6 +160,7 @@ fn test_duplicate_invoice_id_returns_error() {
     let (client, _admin) = setup(&env);
 
     let payer = Address::generate(&env);
+    client.set_allow_native(&true);
     record_xlm(&env, &client, "invoisio-dup", &payer, 10_000_000);
 
     // try_record_payment returns Result — duplicate must fail.
@@ -215,23 +219,35 @@ fn test_record_payment_succeeds_with_admin_auth() {
     let invoice_id = String::from_str(&env, "invoisio-auth");
     let payer = Address::generate(&env);
 
-    env.mock_auths(&[MockAuth {
-        address: &admin,
-        invoke: &MockAuthInvoke {
-            contract: &client.address,
-            fn_name: "record_payment",
-            args: (
-                invoice_id.clone(),
-                payer.clone(),
-                String::from_str(&env, "XLM"),
-                String::from_str(&env, ""),
-                10_000_000i128,
-            )
-                .into_val(&env),
-            sub_invokes: &[],
+    env.mock_auths(&[
+        MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "record_payment",
+                args: (
+                    invoice_id.clone(),
+                    payer.clone(),
+                    String::from_str(&env, "XLM"),
+                    String::from_str(&env, ""),
+                    10_000_000i128,
+                )
+                    .into_val(&env),
+                sub_invokes: &[],
+            },
         },
-    }]);
+        MockAuth {
+            address: &admin,
+            invoke: &MockAuthInvoke {
+                contract: &client.address,
+                fn_name: "set_allow_native",
+                args: (true,).into_val(&env),
+                sub_invokes: &[],
+            },
+        },
+    ]);
 
+    client.set_allow_native(&true);
     client.record_payment(
         &invoice_id,
         &payer,
@@ -250,6 +266,7 @@ fn test_zero_amount_returns_error() {
     let (client, _admin) = setup(&env);
 
     let payer = Address::generate(&env);
+    client.set_allow_native(&true);
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-zero"),
         &payer,
@@ -267,6 +284,7 @@ fn test_negative_amount_returns_error() {
     let (client, _admin) = setup(&env);
 
     let payer = Address::generate(&env);
+    client.set_allow_native(&true);
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-neg"),
         &payer,
@@ -308,6 +326,15 @@ fn test_get_payment_absent_returns_error() {
 
     let result = client.try_get_payment(&String::from_str(&env, "invoisio-missing"));
     assert_eq!(result, Err(Ok(ContractError::PaymentNotFound)));
+}
+
+#[test]
+fn test_get_payment_empty_invoice_id_returns_error() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let result = client.try_get_payment(&String::from_str(&env, ""));
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
 }
 
 #[test]
@@ -468,6 +495,7 @@ fn test_record_payment_emits_payment_recorded_event() {
     let invoice_id = String::from_str(&env, "invoisio-event-test");
     let payer = Address::generate(&env);
 
+    client.set_allow_native(&true);
     client.record_payment(
         &invoice_id,
         &payer,
@@ -607,6 +635,15 @@ fn test_record_payment_multiple_asset_types() {
 
     let payer = Address::generate(&env);
 
+    // Allow tokens and native
+    client.set_allow_native(&true);
+    let usdc_code = String::from_str(&env, "USDC");
+    let usdc_issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&usdc_code, &usdc_issuer);
+    let eurt_code = String::from_str(&env, "EURT");
+    let eurt_issuer = String::from_str(&env, "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S");
+    client.allow_asset(&eurt_code, &eurt_issuer);
+
     // Record XLM payment
     client.record_payment(
         &String::from_str(&env, "invoisio-xlm-001"),
@@ -617,27 +654,19 @@ fn test_record_payment_multiple_asset_types() {
     );
 
     // Record USDC payment
-    let usdc_issuer = String::from_str(
-        &env,
-        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
     client.record_payment(
         &String::from_str(&env, "invoisio-usdc-001"),
         &payer,
-        &String::from_str(&env, "USDC"),
+        &usdc_code,
         &usdc_issuer,
         &50_000_000i128, // 5 USDC
     );
 
     // Record another token payment (e.g., EURT)
-    let eurt_issuer = String::from_str(
-        &env,
-        "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S",
-    );
     client.record_payment(
         &String::from_str(&env, "invoisio-eurt-001"),
         &payer,
-        &String::from_str(&env, "EURT"),
+        &eurt_code,
         &eurt_issuer,
         &100_000_000i128, // 10 EURT
     );
@@ -646,16 +675,16 @@ fn test_record_payment_multiple_asset_types() {
     let xlm_record = client.get_payment(&String::from_str(&env, "invoisio-xlm-001"));
     assert_eq!(xlm_record.asset, Asset::Native);
 
-    let usdc_record = client.get_payment(&String::from_str(&env, "invoisio-usdc-001"));
+    let x_usdc_record = client.get_payment(&String::from_str(&env, "invoisio-usdc-001"));
     assert_eq!(
-        usdc_record.asset,
-        Asset::Token(String::from_str(&env, "USDC"), usdc_issuer.clone(),)
+        x_usdc_record.asset,
+        Asset::Token(usdc_code, usdc_issuer)
     );
 
-    let eurt_record = client.get_payment(&String::from_str(&env, "invoisio-eurt-001"));
+    let x_eurt_record = client.get_payment(&String::from_str(&env, "invoisio-eurt-001"));
     assert_eq!(
-        eurt_record.asset,
-        Asset::Token(String::from_str(&env, "EURT"), eurt_issuer.clone(),)
+        x_eurt_record.asset,
+        Asset::Token(eurt_code, eurt_issuer)
     );
 
     // Verify payment count
@@ -710,6 +739,7 @@ fn test_asset_enum_serialization_deserialization() {
     let payer = Address::generate(&env);
     let invoice_id = String::from_str(&env, "invoisio-serde-test");
 
+    client.set_allow_native(&true);
     // Record a payment
     client.record_payment(
         &invoice_id,
@@ -730,6 +760,9 @@ fn test_asset_enum_serialization_deserialization() {
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
     );
 
+    client.set_allow_native(&true);
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+
     client.record_payment(
         &token_invoice_id,
         &payer,
@@ -746,4 +779,195 @@ fn test_asset_enum_serialization_deserialization() {
         }
         Asset::Native => panic!("Expected Token variant"),
     }
+}
+
+// Allowlist tests
+
+#[test]
+fn test_allowlist_enforcement() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "inv-1");
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // 1. Initially rejected
+    let result = client.try_record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+
+    // 2. Allow and succeed
+    client.allow_asset(&code, &issuer);
+    client.record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    assert!(client.has_payment(&invoice_id));
+
+    // 3. Revoke and reject next one
+    client.revoke_asset(&code, &issuer);
+    let invoice_id_2 = String::from_str(&env, "inv-2");
+    let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_revoke_asset_empty_code_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "");
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_revoke_asset_empty_issuer_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "");
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_native_allow_toggle() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "inv-native");
+    let xlm = String::from_str(&env, "XLM");
+    let empty = String::from_str(&env, "");
+
+    // 1. Initially rejected (default is false)
+    let result = client.try_record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+
+    // 2. Allow native and succeed
+    client.set_allow_native(&true);
+    client.record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    assert!(client.has_payment(&invoice_id));
+
+    // 3. Block native and reject next
+    client.set_allow_native(&false);
+    let invoice_id_2 = String::from_str(&env, "inv-native-2");
+    let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_unauthorized_allowlist_calls_fail() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // Attacker tries to allow asset
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_allow_asset(&code, &issuer);
+    assert!(result.is_err());
+
+    // Attacker tries to set allow native
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allow_native",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_allow_native(&true);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_allowlist_events_emitted() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // 1. allow_asset event
+    let code_val: soroban_sdk::Val = code.clone().into_val(&env);
+    let issuer_val: soroban_sdk::Val = issuer.clone().into_val(&env);
+
+    client.allow_asset(&code, &issuer);
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![&env, Symbol::new(&env, "asset_allowlisted").into_val(&env)],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "code"), code_val),
+                    (Symbol::new(&env, "issuer"), issuer_val)
+                ]
+                .into_val(&env)
+            )
+        ]
+    );
+
+    // 2. revoke_asset event
+    let code_val: soroban_sdk::Val = code.clone().into_val(&env);
+    let issuer_val: soroban_sdk::Val = issuer.clone().into_val(&env);
+
+    client.revoke_asset(&code, &issuer);
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![&env, Symbol::new(&env, "asset_revoked").into_val(&env)],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "code"), code_val),
+                    (Symbol::new(&env, "issuer"), issuer_val)
+                ]
+                .into_val(&env)
+            )
+        ]
+    );
+
+    // 3. set_allow_native event
+    let allowed_val: soroban_sdk::Val = true.into_val(&env);
+
+    client.set_allow_native(&true);
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![&env, Symbol::new(&env, "native_allow_changed").into_val(&env)],
+                soroban_sdk::map![&env, (Symbol::new(&env, "allowed"), allowed_val)].into_val(&env)
+            )
+        ]
+    );
 }

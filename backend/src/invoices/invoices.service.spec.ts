@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { validate } from "class-validator";
 import { plainToInstance } from "class-transformer";
@@ -93,6 +94,14 @@ describe("InvoicesService", () => {
       ),
   };
 
+  const mockSorobanService = {
+    hasInvoicePayment: jest.fn().mockResolvedValue(false),
+    recordInvoicePayment: jest
+      .fn()
+      .mockResolvedValue({ hash: "mock-hash", ledger: 1 }),
+    getInvoicePayment: jest.fn().mockResolvedValue(null),
+  };
+
   const sampleInvoices = [
     {
       id: "1",
@@ -101,12 +110,12 @@ describe("InvoicesService", () => {
       clientEmail: "a@a.com",
       description: "d",
       amount: 100,
-      asset_code: "XLM",
-      asset_issuer: null,
+      assetCode: "XLM",
+      assetIssuer: null,
       memo: "123",
-      memo_type: "ID",
+      memoType: "ID",
       status: "pending",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -117,12 +126,12 @@ describe("InvoicesService", () => {
       clientEmail: "b@b.com",
       description: "d",
       amount: 200,
-      asset_code: "USDC",
-      asset_issuer: "GASDF",
+      assetCode: "USDC",
+      assetIssuer: "GASDF",
       memo: "456",
-      memo_type: "ID",
+      memoType: "ID",
       status: "paid",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -133,12 +142,12 @@ describe("InvoicesService", () => {
       clientEmail: "c@c.com",
       description: "d",
       amount: 300,
-      asset_code: "USDC",
-      asset_issuer: "GASDF",
+      assetCode: "USDC",
+      assetIssuer: "GASDF",
       memo: "789",
-      memo_type: "ID",
-      status: "expired",
-      destination_address: mockStellarService.getMerchantPublicKey(),
+      memoType: "ID",
+      status: "overdue",
+      destinationAddress: mockStellarService.getMerchantPublicKey(),
       createdAt: new Date(),
       updatedAt: new Date(),
     },
@@ -192,6 +201,7 @@ describe("InvoicesService", () => {
         InvoicesService,
         { provide: ConfigService, useValue: mockConfigService },
         { provide: StellarService, useValue: mockStellarService },
+        { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
       ],
     }).compile();
@@ -225,7 +235,6 @@ describe("InvoicesService", () => {
         expect(invoice).toHaveProperty("invoiceNumber");
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("amount");
-        expect(invoice).toHaveProperty("asset");
         expect(invoice).toHaveProperty("asset_code");
         expect(invoice).toHaveProperty("memo");
         expect(invoice).toHaveProperty("memo_type", "ID");

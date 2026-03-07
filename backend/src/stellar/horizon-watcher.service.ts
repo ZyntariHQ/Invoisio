@@ -9,6 +9,7 @@ import { Subject } from "rxjs";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { InvoicePaidEvent } from "./events/invoice-paid.event";
+import { SorobanService } from "./soroban.service";
 
 @Injectable()
 export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
@@ -23,6 +24,7 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
     private readonly invoicesService: InvoicesService,
+    private readonly sorobanService: SorobanService,
   ) {}
 
   onModuleInit(): void {
@@ -125,11 +127,53 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(
         `Invoice ${invoice.id} marked paid | tx: ${txHash} | memo: ${memoId}`,
       );
+
+      // Anchor to Soroban (non-blocking)
+      this.anchorToSoroban(invoice, record, txHash).catch((err) =>
+        this.logger.error(
+          `Soroban anchor failed for invoice ${invoice.id}: ${err.message}`,
+        ),
+      );
     } catch (err) {
       this.logger.warn(
         `Failed to process payment ${record.id}: ${(err as Error).message}`,
       );
     }
+  }
+
+  private async anchorToSoroban(
+    invoice: any,
+    record: any,
+    txHash: string,
+  ): Promise<void> {
+    const amount = this.convertToStroops(record.amount, record.asset_code);
+
+    const metadata = await this.sorobanService.recordPayment({
+      invoiceId: invoice.memo,
+      payer: record.from,
+      assetCode: record.asset_code ?? "XLM",
+      assetIssuer: record.asset_issuer ?? "",
+      amount,
+    });
+
+    if (metadata) {
+      await this.invoicesService.updateSorobanMetadata(
+        invoice.id,
+        metadata.txHash,
+        metadata.contractId,
+      );
+      this.logger.log(
+        `Soroban anchor complete for invoice ${invoice.id} | tx: ${metadata.txHash}`,
+      );
+    }
+  }
+
+  private convertToStroops(amount: string, assetCode: string): string {
+    const num = parseFloat(amount);
+    if (assetCode === "XLM") {
+      return String(Math.round(num * 10_000_000));
+    }
+    return String(Math.round(num * 10_000_000));
   }
 
   private resolveMemoId(rawMemo: string, memoPrefix: string): string | null {

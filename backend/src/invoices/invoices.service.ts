@@ -1,22 +1,28 @@
-import { Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { Prisma, InvoiceStatus } from "@prisma/client";
 
 /**
- * Invoices service with in-memory storage
- *
- * Note: This is a stub implementation using in-memory storage.
- * Future iterations will integrate with a database (PostgreSQL via Prisma)
- * and the StellarModule for Horizon payment watching.
+ * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
  */
 @Injectable()
 export class InvoicesService implements OnModuleInit {
+  private readonly logger = new Logger(InvoicesService.name);
+
   constructor(
     private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
+    private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -89,12 +95,16 @@ export class InvoicesService implements OnModuleInit {
         clientEmail: dto.clientEmail,
         description: dto.description || null,
         amount: dto.amount as any,
-        asset_code: dto.asset_code.toUpperCase(),
-        asset_issuer: dto.asset_issuer ?? undefined,
+        assetCode: dto.asset_code.toUpperCase(),
+        assetIssuer: dto.asset_issuer ?? undefined,
         memo: memo,
-        memo_type: "ID",
+        memoType: "ID",
         status: "pending",
-        tx_hash: null,
+        destinationAddress: this.stellarService.getMerchantPublicKey(),
+        txHash: null,
+        sorobanTxHash: null,
+        sorobanContractId: null,
+        metadata: Prisma.JsonNull,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
       },
     });
@@ -107,7 +117,7 @@ export class InvoicesService implements OnModuleInit {
    * @param status - New status
    * @returns Updated invoice
    */
-  async updateStatus(id: string, status: Invoice["status"]): Promise<Invoice> {
+  async updateStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
     const updated = await this.prisma.invoice.update({
       where: { id },
       data: { status },
@@ -124,7 +134,29 @@ export class InvoicesService implements OnModuleInit {
   async markAsPaid(id: string, txHash: string): Promise<Invoice> {
     const updated = await this.prisma.invoice.update({
       where: { id },
-      data: { status: "paid", tx_hash: txHash } as any,
+      data: { status: "paid", txHash: txHash },
+    });
+    return this.normalizeInvoice(updated);
+  }
+
+  /**
+   * Update Soroban metadata after anchoring
+   * @param id - Invoice UUID
+   * @param sorobanTxHash - Soroban transaction hash
+   * @param contractId - Soroban contract ID
+   * @returns Updated invoice
+   */
+  async updateSorobanMetadata(
+    id: string,
+    sorobanTxHash: string,
+    contractId: string,
+  ): Promise<Invoice> {
+    const updated = await this.prisma.invoice.update({
+      where: { id },
+      data: {
+        sorobanTxHash: sorobanTxHash,
+        sorobanContractId: contractId,
+      },
     });
     return this.normalizeInvoice(updated);
   }
@@ -199,6 +231,71 @@ export class InvoicesService implements OnModuleInit {
       });
       return this.normalizeInvoice(updated);
     }
+  /**
+   * Reconcile a Horizon-confirmed payment with the Soroban contract and the database.
+   *
+   * ## Idempotency
+   * This method is safe to call multiple times for the same invoice. If a
+   * previous run recorded the payment on-chain but failed before updating the
+   * database, re-calling skips the Soroban write (avoiding `PaymentAlreadyRecorded`)
+   * and proceeds directly to the database update.
+   *
+   * ## Flow
+   * 1. Find invoice — throws NotFoundException if absent
+   * 2. Check on-chain existence (hasInvoicePayment) — skip step 3 if already recorded
+   * 3. Record payment on-chain (recordInvoicePayment)
+   * 4. Mark invoice as paid in the database
+   *
+   * @param invoiceId   - Invoice UUID (used as on-chain key and DB lookup)
+   * @param payer       - Stellar G... address of the payer
+   * @param assetCode   - "XLM" or token code
+   * @param assetIssuer - Issuer G... address; empty string for XLM
+   * @param amount      - Amount as string (i128 smallest denomination)
+   * @returns Updated invoice with status "paid" and on-chain tx hash
+   */
+  async reconcilePayment(
+    invoiceId: string,
+    payer: string,
+    assetCode: string,
+    assetIssuer: string,
+    amount: string,
+  ): Promise<Invoice & { txHash: string; ledger: number }> {
+    const invoice = await this.findOne(invoiceId);
+
+    // Step 2 — idempotency gate: check if already recorded on-chain.
+    const alreadyOnChain =
+      await this.sorobanService.hasInvoicePayment(invoiceId);
+
+    let txHash = "";
+    let ledger = 0;
+
+    if (!alreadyOnChain) {
+      // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
+      const result = await this.sorobanService.recordInvoicePayment({
+        invoiceId,
+        payer,
+        assetCode,
+        assetIssuer,
+        amount,
+      });
+      txHash = result.hash;
+      ledger = result.ledger;
+      this.logger.log(
+        `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
+      );
+    } else {
+      this.logger.log(
+        `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
+      );
+      // Retrieve confirmed details for the return value.
+      const record = await this.sorobanService.getInvoicePayment(invoiceId);
+      txHash = `on-chain@ledger`;
+      ledger = Number(record.timestamp);
+    }
+
+    // Step 4 — mark invoice as paid in the database.
+    const updated = await this.updateStatus(invoice.id, "paid");
+    return { ...updated, txHash, ledger };
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
@@ -222,9 +319,11 @@ export class InvoicesService implements OnModuleInit {
     return {
       ...inv,
       amount: numericAmount,
-      asset: inv.asset_code,
-      asset_issuer: inv.asset_issuer === null ? undefined : inv.asset_issuer,
-      destination_address: this.stellarService.getMerchantPublicKey(),
+      asset_code: inv.assetCode,
+      asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
+      memo_type: inv.memoType,
+      destination_address:
+        inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
     };
   }
 
@@ -260,13 +359,17 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "billing@acme.com",
           description: "Web development services - March 2026",
           amount: 1500.0 as any,
-          asset_code: "USDC",
-          asset_issuer:
+          assetCode: "USDC",
+          assetIssuer:
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
           memo: this.generateMemoId(),
-          memo_type: "ID",
+          memoType: "ID",
           status: "pending",
-          tx_hash: null,
+          destinationAddress: merchantPublicKey,
+          txHash: null,
+          sorobanTxHash: null,
+          sorobanContractId: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
@@ -275,11 +378,16 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "payments@techstart.io",
           description: "Consulting services - Q1 2026",
           amount: 5000.0 as any,
-          asset_code: "XLM",
+          assetCode: "XLM",
+          assetIssuer: null,
           memo: this.generateMemoId(),
-          memo_type: "ID",
+          memoType: "ID",
           status: "paid",
-          tx_hash: null,
+          destinationAddress: merchantPublicKey,
+          txHash: null,
+          sorobanTxHash: null,
+          sorobanContractId: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
@@ -288,13 +396,17 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "accounts@globalsolutions.com",
           description: "API integration project",
           amount: 3200.5 as any,
-          asset_code: "USDC",
-          asset_issuer:
+          assetCode: "USDC",
+          assetIssuer:
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
           memo: this.generateMemoId(),
-          memo_type: "ID",
-          status: "expired",
-          tx_hash: null,
+          memoType: "ID",
+          status: "overdue",
+          destinationAddress: merchantPublicKey,
+          txHash: null,
+          sorobanTxHash: null,
+          sorobanContractId: null,
+          metadata: Prisma.JsonNull,
           dueDate: new Date("2026-02-10T23:59:59Z"),
         },
       ],
