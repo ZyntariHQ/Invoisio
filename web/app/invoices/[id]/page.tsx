@@ -3,9 +3,9 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback } from 'react';
-import axios from 'axios';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
+import { apiClient } from '@/lib/api-client';
 
 interface Invoice {
   id: string;
@@ -31,8 +31,6 @@ interface WalletInfo {
   message: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-
 export default function InvoiceDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -44,7 +42,7 @@ export default function InvoiceDetailPage() {
 
   // Fetch invoice function for polling
   const fetchInvoice = useCallback(async (id: string) => {
-    const response = await axios.get<Invoice>(`${API_URL}/invoices/${id}`);
+    const response = await apiClient.get<Invoice>(`/invoices/${id}`);
     return response.data;
   }, []);
 

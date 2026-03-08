@@ -2,8 +2,9 @@
 'use client';
 
 import Link from 'next/link';
-import axios from 'axios';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { apiClient } from '@/lib/api-client';
+import { WalletAuthControls } from '@/components/wallet-auth-controls';
 
 interface Invoice {
   id: string;
@@ -25,15 +26,12 @@ interface InvoicesPage {
   hasMore: boolean;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
-
 async function fetchInvoicesPage(page: number, pageSize: number): Promise<InvoicesPage> {
   const params = new URLSearchParams({
     page: String(page),
     limit: String(pageSize),
   }).toString();
-  const url = `${API_URL}/invoices?${params}`;
-  const response = await axios.get(url);
+  const response = await apiClient.get(`/invoices?${params}`);
   const data: unknown = response.data;
 
   if (Array.isArray(data)) {
@@ -109,6 +107,10 @@ export default function InvoicesPage() {
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Invoices</h1>
           <p className="mt-2 text-gray-600">View and manage your invoices</p>
+        </div>
+
+        <div className="mb-6">
+          <WalletAuthControls />
         </div>
 
         {/* Error State */}
