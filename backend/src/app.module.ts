@@ -16,6 +16,7 @@ import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
+import { AdminModule } from "./admin/admin.module";
 
 /**
  * Root application module
@@ -61,6 +62,7 @@ import { WebhooksModule } from "./webhooks/webhooks.module";
     AuthModule,
     UsersModule,
     WebhooksModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

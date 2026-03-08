@@ -15,6 +15,7 @@ model User {
   id             String    @id @default(uuid())
   publicKey      String    @unique
   email          String?
+  role           UserRole  @default(user)
   nonce          String?
   nonceExpiresAt BigInt?
   createdAt      DateTime  @default(now())
@@ -27,6 +28,11 @@ model User {
   webhooks WebhookDelivery[]
 
   @@map("users")
+}
+
+enum UserRole {
+  user
+  admin
 }
 
 model WebhookDelivery {
@@ -79,6 +85,8 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
 
+  @@index([status, createdAt])
+  @@index([assetCode, createdAt])
   @@map("invoices")
 }
 
