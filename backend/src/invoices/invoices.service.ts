@@ -4,6 +4,7 @@ import {
   NotFoundException,
   OnModuleInit,
 } from "@nestjs/common";
+import { Cron } from "@nestjs/schedule";
 import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
@@ -29,6 +30,11 @@ export class InvoicesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Skip seeding in test environment
+    if (process.env.NODE_ENV === "test") {
+      return;
+    }
+
     // seed after PrismaService onModuleInit has run so client/fallback is available
     await this.seedSampleInvoices();
   }
@@ -249,6 +255,49 @@ export class InvoicesService implements OnModuleInit {
     // Step 4 — mark invoice as paid in the database.
     const updated = await this.updateStatus(invoice.id, "paid");
     return { ...updated, txHash, ledger };
+  }
+
+  /**
+   * Cron job to expire overdue invoices.
+   * Runs every day at 02:00 UTC.
+   */
+  @Cron('0 2 * * *')
+  async handleOverdueInvoices() {
+    this.logger.log('Running overdue invoices check...');
+    try {
+      const now = new Date();
+      const overdueInvoices = await this.prisma.invoice.findMany({
+        where: {
+          status: 'pending',
+          dueDate: { lt: now },
+        },
+        select: { id: true },
+      });
+
+      if (overdueInvoices.length === 0) {
+        this.logger.log('No overdue invoices found.');
+        return;
+      }
+
+      this.logger.log(`Found ${overdueInvoices.length} overdue invoices. Expiring...`);
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const invoice of overdueInvoices) {
+        try {
+          await this.updateStatus(invoice.id, 'expired' as any);
+          successCount++;
+        } catch (err) {
+          this.logger.error(`Failed to expire invoice ${invoice.id}`, err);
+          failCount++;
+        }
+      }
+
+      this.logger.log(`Expired ${successCount} invoices. Failed: ${failCount}`);
+    } catch (error) {
+      this.logger.error('Error in handleOverdueInvoices cron job', error);
+    }
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
