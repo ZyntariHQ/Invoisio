@@ -8,6 +8,7 @@ import {
   UseGuards,
   Query,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { Invoice } from "./entities/invoice.entity";
@@ -60,6 +61,7 @@ export class InvoicesController {
    */
   @Post()
   @UseGuards(AuthGuard)
+  @Throttle({ default: { limit: 20, ttl: 3600 } }) // 20 invoices per hour per user
   async create(@Body() dto: CreateInvoiceDto): Promise<Invoice> {
     return await this.invoicesService.create(dto);
   }

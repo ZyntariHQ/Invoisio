@@ -29,6 +29,11 @@ export class InvoicesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Skip seeding in test environment
+    if (process.env.NODE_ENV === "test") {
+      return;
+    }
+
     // seed after PrismaService onModuleInit has run so client/fallback is available
     await this.seedSampleInvoices();
   }
