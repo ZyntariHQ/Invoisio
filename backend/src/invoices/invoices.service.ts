@@ -373,32 +373,34 @@ export class InvoicesService implements OnModuleInit {
    * Cron job to expire overdue invoices.
    * Runs every day at 02:00 UTC.
    */
-  @Cron('0 2 * * *')
+  @Cron("0 2 * * *")
   async handleOverdueInvoices() {
-    this.logger.log('Running overdue invoices check...');
+    this.logger.log("Running overdue invoices check...");
     try {
       const now = new Date();
       const overdueInvoices = await this.prisma.invoice.findMany({
         where: {
-          status: 'pending',
+          status: "pending",
           dueDate: { lt: now },
         },
         select: { id: true },
       });
 
       if (overdueInvoices.length === 0) {
-        this.logger.log('No overdue invoices found.');
+        this.logger.log("No overdue invoices found.");
         return;
       }
 
-      this.logger.log(`Found ${overdueInvoices.length} overdue invoices. Expiring...`);
+      this.logger.log(
+        `Found ${overdueInvoices.length} overdue invoices. Expiring...`,
+      );
 
       let successCount = 0;
       let failCount = 0;
 
       for (const invoice of overdueInvoices) {
         try {
-          await this.updateStatus(invoice.id, 'expired' as any);
+          await this.updateStatus(invoice.id, "overdue");
           successCount++;
         } catch (err) {
           this.logger.error(`Failed to expire invoice ${invoice.id}`, err);
@@ -408,7 +410,7 @@ export class InvoicesService implements OnModuleInit {
 
       this.logger.log(`Expired ${successCount} invoices. Failed: ${failCount}`);
     } catch (error) {
-      this.logger.error('Error in handleOverdueInvoices cron job', error);
+      this.logger.error("Error in handleOverdueInvoices cron job", error);
     }
   }
 

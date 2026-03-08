@@ -418,9 +418,9 @@ describe("InvoicesService", () => {
     });
 
     it("should throw when merchant context is missing", async () => {
-      await expect(service.searchInvoices(undefined as any, "Acme")).rejects.toBeInstanceOf(
-        UnauthorizedException,
-      );
+      await expect(
+        service.searchInvoices(undefined as any, "Acme"),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

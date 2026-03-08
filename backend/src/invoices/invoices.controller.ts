@@ -16,7 +16,7 @@ import { SearchInvoicesDto } from "./dto/search-invoices.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { AuthGuard } from "../auth/auth.guard";
 import { InvoiceStatus } from "@prisma/client";
-import { Request } from "express";
+import type { Request } from "express";
 
 /**
  * Invoices controller
