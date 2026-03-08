@@ -10,10 +10,8 @@ import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
-<<<<<<< HEAD
-=======
 import { Prisma, InvoiceStatus } from "@prisma/client";
->>>>>>> 0fb639b4fcfdb9a57b6a7a6152af78371d4f06cb
+import { WebhooksService } from "../webhooks/webhooks.service";
 
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
@@ -27,6 +25,7 @@ export class InvoicesService implements OnModuleInit {
     private readonly stellarService: StellarService,
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
+    private readonly webhooksService: WebhooksService,
   ) {}
 
   async onModuleInit() {
@@ -125,6 +124,10 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status },
     });
+
+    // Enqueue webhook
+    await this.webhooksService.enqueueWebhook(id, status, updated.txHash);
+
     return this.normalizeInvoice(updated);
   }
 
@@ -139,6 +142,10 @@ export class InvoicesService implements OnModuleInit {
       where: { id },
       data: { status: "paid", txHash: txHash },
     });
+
+    // Enqueue webhook
+    await this.webhooksService.enqueueWebhook(id, "paid", txHash);
+
     return this.normalizeInvoice(updated);
   }
 
@@ -214,9 +221,9 @@ export class InvoicesService implements OnModuleInit {
         where: { id: invoiceId },
         data: {
           status: "paid",
-          tx_hash: `soroban:${evt.eventId}`,
+          txHash: `soroban:${evt.eventId}`,
           metadata: {
-            ...(existing.metadata ?? {}),
+            ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
           } as any,
         },
@@ -227,15 +234,15 @@ export class InvoicesService implements OnModuleInit {
         where: { id: invoiceId },
         data: {
           metadata: {
-            ...(existing.metadata ?? {}),
+            ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
           } as any,
         },
       });
       return this.normalizeInvoice(updated);
     }
-<<<<<<< HEAD
-=======
+  }
+
   /**
    * Reconcile a Horizon-confirmed payment with the Soroban contract and the database.
    *
@@ -299,9 +306,8 @@ export class InvoicesService implements OnModuleInit {
     }
 
     // Step 4 — mark invoice as paid in the database.
-    const updated = await this.updateStatus(invoice.id, "paid");
+    const updated = await this.updateStatus(invoice.id, "paid" as InvoiceStatus);
     return { ...updated, txHash, ledger };
->>>>>>> 0fb639b4fcfdb9a57b6a7a6152af78371d4f06cb
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
