@@ -78,10 +78,9 @@ export default function InvoicesPage() {
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 
-  const allInvoices = data?.pages.flatMap((page) => page.items) ?? [];
-
   const filteredInvoices = useMemo(() => {
-    return allInvoices.filter((invoice) => {
+    const invoices = data?.pages.flatMap((page) => page.items) ?? [];
+    return invoices.filter((invoice) => {
       const matchesSearch =
         invoice.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (invoice.invoiceNumber && invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -91,7 +90,7 @@ export default function InvoicesPage() {
 
       return matchesSearch && matchesStatus;
     });
-  }, [allInvoices, searchQuery, statusFilter]);
+  }, [data, searchQuery, statusFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -151,7 +150,7 @@ export default function InvoicesPage() {
           <div>
             <select
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
+              onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'paid' | 'overdue' | 'cancelled')}
               className="block w-full rounded-md border-0 py-2 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
             >
               <option value="all">All Statuses</option>
