@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { UnauthorizedException } from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
@@ -106,6 +107,7 @@ describe("InvoicesService", () => {
   const sampleInvoices = [
     {
       id: "1",
+      userId: "user-1",
       invoiceNumber: "INV-001",
       clientName: "Acme",
       clientEmail: "a@a.com",
@@ -122,6 +124,7 @@ describe("InvoicesService", () => {
     },
     {
       id: "2",
+      userId: "user-1",
       invoiceNumber: "INV-002",
       clientName: "Acme",
       clientEmail: "b@b.com",
@@ -138,6 +141,7 @@ describe("InvoicesService", () => {
     },
     {
       id: "3",
+      userId: "user-2",
       invoiceNumber: "INV-003",
       clientName: "Acme",
       clientEmail: "c@c.com",
@@ -157,6 +161,14 @@ describe("InvoicesService", () => {
   const mockPrisma = () => {
     // create a mutable copy so test operations affect returned values
     const invoices = sampleInvoices.map((i) => ({ ...i }));
+    const queryRows = invoices
+      .filter((inv) => inv.userId === "user-1")
+      .map((inv, index) => ({
+        ...inv,
+        ft_match: index === 0,
+        ft_rank: Number((0.9 - index * 0.1).toFixed(2)),
+        trigram_rank: Number((0.8 - index * 0.1).toFixed(2)),
+      }));
 
     return {
       invoice: {
@@ -193,6 +205,7 @@ describe("InvoicesService", () => {
           return Promise.resolve({ count: 0 });
         }),
       },
+      $queryRaw: jest.fn().mockResolvedValue(queryRows),
     };
   };
 
@@ -390,6 +403,24 @@ describe("InvoicesService", () => {
       const result = await service.findByMemo("9999999999999");
 
       expect(result).toBeNull();
+    });
+  });
+
+  describe("searchInvoices", () => {
+    it("should return invoices scoped to the merchant", async () => {
+      const results = await service.searchInvoices("user-1", "Acme", 25);
+
+      expect(results.length).toBeGreaterThan(0);
+      for (const invoice of results) {
+        expect(invoice).toHaveProperty("clientName");
+        expect(invoice).toHaveProperty("asset_code");
+      }
+    });
+
+    it("should throw when merchant context is missing", async () => {
+      await expect(
+        service.searchInvoices(undefined as any, "Acme"),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });

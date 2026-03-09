@@ -3,6 +3,7 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  UnauthorizedException,
 } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
 import { ConfigService } from "@nestjs/config";
@@ -73,6 +74,117 @@ export class InvoicesService implements OnModuleInit {
       pageSize: limit,
       hasMore: skip + items.length < total,
     };
+  }
+
+  /**
+   * Search invoices by merchant-scoped term using full-text and trigram similarity
+   * @param userId - Authenticated merchant id
+   * @param rawTerm - Query string from user input
+   * @param limit - Max results (1-50)
+   */
+  async searchInvoices(
+    userId: string | undefined,
+    rawTerm: string,
+    limit = 20,
+  ): Promise<Invoice[]> {
+    if (!userId) {
+      throw new UnauthorizedException("Missing merchant context");
+    }
+
+    const term = rawTerm?.trim();
+    if (!term) {
+      return [];
+    }
+
+    const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
+    const clampedLimit = Math.min(Math.max(requestedLimit, 1), 50);
+    const tsQuery = this.buildTsQuery(term);
+    const likePattern = `%${this.escapeLikePattern(term)}%`;
+    const similarityFloor = 0.32;
+
+    const rows = await this.prisma.$queryRaw<Array<Record<string, any>>>(
+      Prisma.sql`
+        WITH source AS (
+          SELECT
+            i.*,
+            to_tsvector(
+              'simple',
+              coalesce(i."client_name", '') || ' ' ||
+              coalesce(i."client_email", '') || ' ' ||
+              coalesce(i."memo", '')
+            ) AS document
+          FROM "invoices" i
+          WHERE i."user_id" = ${userId}
+        )
+        SELECT
+          s."id",
+          s."user_id" AS "userId",
+          s."invoice_number" AS "invoiceNumber",
+          s."client_name" AS "clientName",
+          s."client_email" AS "clientEmail",
+          s."description",
+          s."amount",
+          s."asset_code" AS "assetCode",
+          s."asset_issuer" AS "assetIssuer",
+          s."memo",
+          s."memo_type" AS "memoType",
+          s."status",
+          s."destination_address" AS "destinationAddress",
+          s."tx_hash" AS "txHash",
+          s."soroban_tx_hash" AS "sorobanTxHash",
+          s."soroban_contract_id" AS "sorobanContractId",
+          s."metadata",
+          s."due_date" AS "dueDate",
+          s."created_at" AS "createdAt",
+          s."updated_at" AS "updatedAt",
+          ${
+            tsQuery
+              ? Prisma.sql`s.document @@ to_tsquery('simple', ${tsQuery}) AS ft_match,
+                ts_rank_cd(s.document, to_tsquery('simple', ${tsQuery})) AS ft_rank,`
+              : Prisma.sql`FALSE AS ft_match,
+                0::float AS ft_rank,`
+          }
+          GREATEST(
+            similarity(s."client_name", ${term}),
+            similarity(s."client_email", ${term}),
+            similarity(s."memo", ${term})
+          ) AS trigram_rank
+        FROM source s
+        WHERE (
+          ${
+            tsQuery
+              ? Prisma.sql`s.document @@ to_tsquery('simple', ${tsQuery}) OR`
+              : Prisma.sql``
+          }
+          s."client_name" ILIKE ${likePattern}
+          OR s."client_email" ILIKE ${likePattern}
+          OR s."memo" ILIKE ${likePattern}
+          OR similarity(s."client_name", ${term}) >= ${similarityFloor}
+          OR similarity(s."client_email", ${term}) >= ${similarityFloor}
+          OR similarity(s."memo", ${term}) >= ${similarityFloor}
+        )
+        ORDER BY
+          ${
+            tsQuery
+              ? Prisma.sql`ft_match DESC,
+                ft_rank DESC,`
+              : Prisma.sql``
+          }
+          trigram_rank DESC,
+          s."created_at" DESC
+        LIMIT ${clampedLimit};
+      `,
+    );
+
+    return rows.map((row) => {
+      const {
+        ft_match: _ftMatch,
+        ft_rank: _ftRank,
+        trigram_rank: _trigram,
+        ...invoice
+      } = row;
+      return this.normalizeInvoice(invoice);
+    });
   }
 
   /**
@@ -261,32 +373,34 @@ export class InvoicesService implements OnModuleInit {
    * Cron job to expire overdue invoices.
    * Runs every day at 02:00 UTC.
    */
-  @Cron('0 2 * * *')
+  @Cron("0 2 * * *")
   async handleOverdueInvoices() {
-    this.logger.log('Running overdue invoices check...');
+    this.logger.log("Running overdue invoices check...");
     try {
       const now = new Date();
       const overdueInvoices = await this.prisma.invoice.findMany({
         where: {
-          status: 'pending',
+          status: "pending",
           dueDate: { lt: now },
         },
         select: { id: true },
       });
 
       if (overdueInvoices.length === 0) {
-        this.logger.log('No overdue invoices found.');
+        this.logger.log("No overdue invoices found.");
         return;
       }
 
-      this.logger.log(`Found ${overdueInvoices.length} overdue invoices. Expiring...`);
+      this.logger.log(
+        `Found ${overdueInvoices.length} overdue invoices. Expiring...`,
+      );
 
       let successCount = 0;
       let failCount = 0;
 
       for (const invoice of overdueInvoices) {
         try {
-          await this.updateStatus(invoice.id, 'expired' as any);
+          await this.updateStatus(invoice.id, "overdue");
           successCount++;
         } catch (err) {
           this.logger.error(`Failed to expire invoice ${invoice.id}`, err);
@@ -296,7 +410,7 @@ export class InvoicesService implements OnModuleInit {
 
       this.logger.log(`Expired ${successCount} invoices. Failed: ${failCount}`);
     } catch (error) {
-      this.logger.error('Error in handleOverdueInvoices cron job', error);
+      this.logger.error("Error in handleOverdueInvoices cron job", error);
     }
   }
 
@@ -340,6 +454,24 @@ export class InvoicesService implements OnModuleInit {
     const random = Math.floor(Math.random() * 65536); // 16 bits
     // Result fits comfortably within Number.MAX_SAFE_INTEGER (~53 bits)
     return String(timestamp * 65536 + random);
+  }
+
+  /** Build a safe tsquery string that supports prefix matching by appending :* per token */
+  private buildTsQuery(term: string): string | null {
+    const tokens = term
+      .split(/\s+/)
+      .map((token) => token.replace(/[':*&|!]/g, "").trim())
+      .filter((token) => token.length > 0)
+      .slice(0, 5);
+    if (tokens.length === 0) {
+      return null;
+    }
+    return tokens.map((token) => `${token}:*`).join(" & ");
+  }
+
+  /** Escape LIKE wildcards to avoid unintended pattern expansion */
+  private escapeLikePattern(term: string): string {
+    return term.replace(/[%_\\]/g, (char) => `\\${char}`);
   }
 
   /**

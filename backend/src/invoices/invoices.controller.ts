@@ -7,13 +7,16 @@ import {
   Patch,
   UseGuards,
   Query,
+  Req,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { SearchInvoicesDto } from "./dto/search-invoices.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { AuthGuard } from "../auth/auth.guard";
 import { InvoiceStatus } from "@prisma/client";
+import type { Request } from "express";
 
 /**
  * Invoices controller
@@ -41,6 +44,25 @@ export class InvoicesController {
     const l = limit ? parseInt(limit, 10) : 20;
     const result = await this.invoicesService.findAll(p, l);
     return result.items;
+  }
+
+  /**
+   * Search invoices by client name, email, or memo for the authenticated merchant
+   * @returns Array of matching invoices ordered by relevance
+   */
+  @Get("search")
+  @UseGuards(AuthGuard)
+  async search(
+    @Query() query: SearchInvoicesDto,
+    @Req() req: Request,
+  ): Promise<Invoice[]> {
+    const user = req["user"] as { sub?: string } | undefined;
+    const userId = user?.sub;
+    return await this.invoicesService.searchInvoices(
+      userId,
+      query.q,
+      query.limit ?? 20,
+    );
   }
 
   /**
