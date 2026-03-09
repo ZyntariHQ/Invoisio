@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
@@ -65,9 +66,11 @@ async function fetchInvoicesPage(page: number, pageSize: number): Promise<Invoic
 }
 
 export default function InvoicesPage() {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid' | 'overdue' | 'cancelled'>('all');
   const pageSize = 20;
 
-  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
+  const { data, isLoading, error, fetchNextPage, hasNextPage, isFetchingNextPage, refetch } = useInfiniteQuery({
     queryKey: ['invoices', pageSize],
     queryFn: async ({ pageParam }: { pageParam: number }) =>
       fetchInvoicesPage(pageParam, pageSize),
@@ -75,20 +78,33 @@ export default function InvoicesPage() {
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
   });
 
-  const invoices = data?.pages.flatMap((page) => page.items) ?? [];
+  const allInvoices = data?.pages.flatMap((page) => page.items) ?? [];
+
+  const filteredInvoices = useMemo(() => {
+    return allInvoices.filter((invoice) => {
+      const matchesSearch =
+        invoice.clientName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (invoice.invoiceNumber && invoice.invoiceNumber.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        invoice.id.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [allInvoices, searchQuery, statusFilter]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'paid':
-        return 'bg-green-100 text-green-800';
+        return 'bg-emerald-50 text-emerald-700 ring-emerald-600/20';
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-amber-50 text-amber-700 ring-amber-600/20';
       case 'overdue':
-        return 'bg-red-100 text-red-800';
+        return 'bg-rose-50 text-rose-700 ring-rose-600/20';
       case 'cancelled':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-slate-50 text-slate-600 ring-slate-500/10';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-50 text-gray-600 ring-gray-500/10';
     }
   };
 
@@ -109,8 +125,42 @@ export default function InvoicesPage() {
           <p className="mt-2 text-gray-600">View and manage your invoices</p>
         </div>
 
-        <div className="mb-6">
+        <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <WalletAuthControls />
+          <div className="flex gap-2">
+            <button
+              onClick={() => refetch()}
+              className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search by invoice # or client..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="block w-full rounded-md border-0 py-2 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+            />
+          </div>
+          <div>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="block w-full rounded-md border-0 py-2 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
+            >
+              <option value="all">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="paid">Paid</option>
+              <option value="overdue">Overdue</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
         </div>
 
         {/* Error State */}
@@ -129,9 +179,10 @@ export default function InvoicesPage() {
               <div key={i} className="h-20 animate-pulse rounded-lg bg-gray-200" />
             ))}
           </div>
-        ) : invoices.length === 0 ? (
-          <div className="text-center">
-            <p className="text-gray-500">No invoices found</p>
+        ) : filteredInvoices.length === 0 ? (
+          <div className="rounded-lg border-2 border-dashed border-gray-300 p-12 text-center">
+            <p className="text-sm font-medium text-gray-900">No invoices found</p>
+            <p className="mt-1 text-sm text-gray-500">Try adjusting your filters or search terms.</p>
           </div>
         ) : (
           <>
@@ -162,15 +213,15 @@ export default function InvoicesPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {invoices.map((invoice) => (
+                    {filteredInvoices.map((invoice) => (
                       <tr key={invoice.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                        <td className="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
                           {invoice.invoiceNumber || `#${invoice.id.slice(0, 8)}`}
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-600">
+                        <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-600">
                           {invoice.clientName}
                         </td>
-                        <td className="px-6 py-4 text-right text-sm font-medium text-gray-900">
+                        <td className="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-gray-900">
                           {invoice.amount.toLocaleString('en-US', {
                             minimumFractionDigits: 2,
                             maximumFractionDigits: 7,
@@ -180,9 +231,9 @@ export default function InvoicesPage() {
                         <td className="px-6 py-4 text-sm text-gray-600">
                           {formatDate(invoice.createdAt)}
                         </td>
-                        <td className="px-6 py-4 text-sm">
+                        <td className="whitespace-nowrap px-6 py-4 text-sm">
                           <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${getStatusColor(
+                            className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium ring-1 ring-inset ${getStatusColor(
                               invoice.status,
                             )}`}
                           >
@@ -204,9 +255,55 @@ export default function InvoicesPage() {
               </div>
             </div>
 
-            {/* Load More Button */}
+            {/* Pagination Placeholder & Load More */}
+            <div className="mt-8 flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 rounded-lg shadow-sm">
+              <div className="flex flex-1 justify-between sm:hidden">
+                <button
+                  disabled
+                  className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed hover:bg-gray-50"
+                >
+                  Previous
+                </button>
+                <button
+                  disabled
+                  className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+              <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm text-gray-700">
+                    Showing <span className="font-medium">{filteredInvoices.length}</span> results
+                  </p>
+                </div>
+                <div>
+                  <nav className="isolate inline-flex -space-gap-px rounded-md shadow-sm" aria-label="Pagination">
+                    <button
+                      disabled
+                      className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-300 ring-1 ring-inset ring-gray-300 cursor-not-allowed hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                    >
+                      <span className="sr-only">Previous</span>
+                      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fillRule="evenodd" d="M12.79 5.23a.75.75 0 01-.02 1.06L8.832 10l3.938 3.71a.75.75 0 11-1.04 1.08l-4.5-4.25a.75.75 0 010-1.08l4.5-4.25a.75.75 0 011.06.02z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                    <button
+                      disabled
+                      className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-300 ring-1 ring-inset ring-gray-300 cursor-not-allowed hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
+                    >
+                      <span className="sr-only">Next</span>
+                      <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                        <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            </div>
+
             {hasNextPage && (
-              <div className="mt-6 text-center">
+              <div className="mt-4 text-center">
                 <button
                   onClick={() => fetchNextPage()}
                   disabled={isFetchingNextPage}
