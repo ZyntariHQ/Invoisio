@@ -225,7 +225,7 @@ export class InvoicesService implements OnModuleInit {
           metadata: {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
-          } as any,
+          },
         },
       });
       return this.normalizeInvoice(updated);
@@ -236,7 +236,7 @@ export class InvoicesService implements OnModuleInit {
           metadata: {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
-          } as any,
+          },
         },
       });
       return this.normalizeInvoice(updated);
@@ -306,7 +306,10 @@ export class InvoicesService implements OnModuleInit {
     }
 
     // Step 4 — mark invoice as paid in the database.
-    const updated = await this.updateStatus(invoice.id, "paid" as InvoiceStatus);
+    const updated = await this.updateStatus(
+      invoice.id,
+      "paid" as InvoiceStatus,
+    );
     return { ...updated, txHash, ledger };
   }
 
@@ -334,6 +337,7 @@ export class InvoicesService implements OnModuleInit {
       asset_code: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
       memo_type: inv.memoType,
+      tx_hash: inv.txHash,
       destination_address:
         inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
     };

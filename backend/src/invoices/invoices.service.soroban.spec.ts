@@ -1,6 +1,8 @@
 import { InvoicesService } from "./invoices.service";
 import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
+import { SorobanService } from "../soroban/soroban.service";
+import { WebhooksService } from "../webhooks/webhooks.service";
 
 class FakePrisma {
   invoice = {
@@ -48,9 +50,20 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
   } as unknown as StellarService;
 
+  const sorobanStub = {} as unknown as SorobanService;
+  const webhooksStub = {
+    enqueueWebhook: async () => {},
+  } as unknown as WebhooksService;
+
   beforeEach(async () => {
     prisma = new FakePrisma();
-    service = new InvoicesService(cfg, stellarStub, prisma);
+    service = new InvoicesService(
+      cfg,
+      stellarStub,
+      sorobanStub,
+      prisma,
+      webhooksStub,
+    );
   });
 
   it("marks invoice paid and writes soroban metadata", async () => {
@@ -113,9 +126,9 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       eventId: "evt-1",
       invoice_id: `invoisio-${id}`,
     } as any);
-    const second = await prisma.invoice.findUnique({ where: { id } });
+    const normalized = await service.findOne(id);
     expect(first.status).toBe("paid");
-    expect(second.status).toBe("paid");
-    expect(second.tx_hash).toBe("soroban:evt-1");
+    expect(normalized.status).toBe("paid");
+    expect(normalized.tx_hash).toBe("soroban:evt-1");
   });
 });
