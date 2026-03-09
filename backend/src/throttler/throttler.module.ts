@@ -4,6 +4,10 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import { Redis } from "ioredis";
 import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service";
 
+const providers = process.env.NODE_ENV === 'test' 
+  ? [] 
+  : [ThrottlerStorageRedisService];
+
 @Module({
   imports: [
     ThrottlerModule.forRootAsync({
@@ -12,7 +16,19 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
       useFactory: async (configService: ConfigService) => {
         const throttlerConfig = configService.get("throttler");
         
-        // Create Redis client
+        // Skip Redis configuration in test environment
+        if (process.env.NODE_ENV === 'test') {
+          return {
+            throttlers: [
+              {
+                ttl: throttlerConfig.ttl * 1000,
+                limit: throttlerConfig.limit,
+              },
+            ],
+          };
+        }
+
+        // Create Redis client for non-test environments
         const redis = new Redis({
           host: throttlerConfig.redis.host,
           port: throttlerConfig.redis.port,
@@ -27,7 +43,7 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
         return {
           throttlers: [
             {
-              ttl: throttlerConfig.ttl * 1000, // Convert to milliseconds
+              ttl: throttlerConfig.ttl * 1000,
               limit: throttlerConfig.limit,
             },
           ],
@@ -36,7 +52,7 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
       },
     }),
   ],
-  providers: [ThrottlerStorageRedisService],
-  exports: [ThrottlerStorageRedisService],
+  providers,
+  exports: providers,
 })
 export class CustomThrottlerModule {}

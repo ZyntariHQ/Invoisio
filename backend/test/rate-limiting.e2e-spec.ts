@@ -18,6 +18,9 @@ describe("Rate Limiting (e2e)", () => {
   let jwtToken: string;
 
   beforeEach(async () => {
+    // Set test environment
+    process.env.NODE_ENV = 'test';
+    
     // Set Redis configuration for testing
     process.env.REDIS_HOST = process.env.REDIS_HOST ?? "localhost";
     process.env.REDIS_PORT = process.env.REDIS_PORT ?? "6379";
