@@ -61,7 +61,7 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
         THROTTLE_INVOICE_LIMIT: Joi.number().integer().min(1).default(20),
         REDIS_HOST: Joi.string().default("localhost"),
         REDIS_PORT: Joi.number().integer().min(1).max(65535).default(6379),
-        REDIS_PASSWORD: Joi.string().optional(),
+        REDIS_PASSWORD: Joi.string().optional().allow(""),
         REDIS_DB: Joi.number().integer().min(0).default(0),
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
       }),
