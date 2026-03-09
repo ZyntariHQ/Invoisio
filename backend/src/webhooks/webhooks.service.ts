@@ -20,7 +20,9 @@ export class WebhooksService {
     txHash: string | null,
     merchantId?: string,
   ): Promise<void> {
-    const where = merchantId ? { id: invoiceId, merchantId } : { id: invoiceId };
+    const where = merchantId
+      ? { id: invoiceId, merchantId }
+      : { id: invoiceId };
     const invoice = await this.prisma.invoice.findFirst({
       where,
       include: { user: true },

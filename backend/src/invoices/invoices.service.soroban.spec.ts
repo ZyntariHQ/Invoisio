@@ -1,5 +1,4 @@
 import { InvoicesService } from "./invoices.service";
-import { ConfigService } from "@nestjs/config";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
@@ -8,6 +7,17 @@ class FakePrisma {
   invoice = {
     _store: new Map<string, any>(),
     findUnique: async ({ where: { id, memo } }: any) => {
+      if (id)
+        return (FakePrisma as any).instance.invoice._store.get(id) || null;
+      if (memo) {
+        for (const v of (FakePrisma as any).instance.invoice._store.values()) {
+          if (v.memo === memo) return v;
+        }
+        return null;
+      }
+      return null;
+    },
+    findFirst: async ({ where: { id, memo } }: any) => {
       if (id)
         return (FakePrisma as any).instance.invoice._store.get(id) || null;
       if (memo) {
@@ -41,7 +51,6 @@ class FakePrisma {
 describe("InvoicesService.applySorobanPaymentEvent", () => {
   let service: InvoicesService;
   let prisma: any;
-  const cfg = new ConfigService();
 
   const stellarStub = {
     parseMemo: (memo: string) =>
@@ -58,7 +67,6 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
   beforeEach(async () => {
     prisma = new FakePrisma();
     service = new InvoicesService(
-      cfg,
       stellarStub,
       sorobanStub,
       prisma,
@@ -126,7 +134,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       eventId: "evt-1",
       invoice_id: `invoisio-${id}`,
     } as any);
-    const normalized = await service.findOne(id);
+    const normalized = await service.findOne(id, "dummyMerchantId");
     expect(first.status).toBe("paid");
     expect(normalized.status).toBe("paid");
     expect(normalized.tx_hash).toBe("soroban:evt-1");

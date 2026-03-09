@@ -1,0 +1,5 @@
+src/auth/auth.controller.ts(9,26): error TS2307: Cannot find module '@nestjs/throttler' or its corresponding type declarations.
+src/invoices/invoices.controller.ts(10,26): error TS2307: Cannot find module '@nestjs/throttler' or its corresponding type declarations.
+src/throttler/throttler-storage-redis.service.ts(2,34): error TS2307: Cannot find module '@nestjs/throttler' or its corresponding type declarations.
+src/throttler/throttler.module.ts(2,33): error TS2307: Cannot find module '@nestjs/throttler' or its corresponding type declarations.
+src/throttler/throttler.module.ts(30,40): error TS2307: Cannot find module 'ioredis' or its corresponding type declarations.
