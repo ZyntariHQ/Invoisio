@@ -5,15 +5,17 @@ import {
   Body,
   Param,
   Patch,
-  UseGuards,
   Query,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { SearchInvoicesDto } from "./dto/search-invoices.dto";
 import { Invoice } from "./entities/invoice.entity";
-import { AuthGuard } from "../auth/auth.guard";
 import { InvoiceStatus } from "@prisma/client";
+import { Auth, CurrentUser } from "../auth/guard/auth.guard";
+import { User } from "../users/user.entity";
+import { PrismaService } from "../prisma/prisma.service";
 
 /**
  * Invoices controller
@@ -26,21 +28,43 @@ import { InvoiceStatus } from "@prisma/client";
  */
 @Controller("invoices")
 export class InvoicesController {
-  constructor(private readonly invoicesService: InvoicesService) {}
+  constructor(
+    private readonly invoicesService: InvoicesService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   /**
    * Get all invoices
    * @returns Array of all invoices
    */
+  @Auth()
   @Get()
   async findAll(
+    @CurrentUser() user: User,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
   ): Promise<Invoice[]> {
     const p = page ? parseInt(page, 10) : 1;
     const l = limit ? parseInt(limit, 10) : 20;
-    const result = await this.invoicesService.findAll(p, l);
+    const result = await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.findAll(user.merchantId, p, l),
+    );
     return result.items;
+  }
+
+  /**
+   * Search invoices by client name, email, or memo for the authenticated merchant
+   * @returns Array of matching invoices ordered by relevance
+   */
+  @Auth()
+  @Get("search")
+  async search(
+    @CurrentUser() user: User,
+    @Query() query: SearchInvoicesDto,
+  ): Promise<Invoice[]> {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.searchInvoices(user.id, query.q, query.limit ?? 20),
+    );
   }
 
   /**
@@ -48,9 +72,15 @@ export class InvoicesController {
    * @param id - Invoice UUID
    * @returns The invoice object
    */
+  @Auth()
   @Get(":id")
-  async findOne(@Param("id") id: string): Promise<Invoice> {
-    return await this.invoicesService.findOne(id);
+  async findOne(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ): Promise<Invoice> {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.findOne(id, user.merchantId),
+    );
   }
 
   /**
@@ -60,10 +90,15 @@ export class InvoicesController {
    * @returns The created invoice including payment instructions
    */
   @Post()
-  @UseGuards(AuthGuard)
+  @Auth()
   @Throttle({ default: { limit: 20, ttl: 3600 } }) // 20 invoices per hour per user
-  async create(@Body() dto: CreateInvoiceDto): Promise<Invoice> {
-    return await this.invoicesService.create(dto);
+  async create(
+    @CurrentUser() user: User,
+    @Body() dto: CreateInvoiceDto,
+  ): Promise<Invoice> {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.create(dto, user.id, user.merchantId),
+    );
   }
 
   /**
@@ -72,11 +107,15 @@ export class InvoicesController {
    * @param status - New status ('pending', 'paid', 'overdue', 'cancelled')
    * @returns Updated invoice
    */
+  @Auth()
   @Patch(":id/status")
   updateStatus(
+    @CurrentUser() user: User,
     @Param("id") id: string,
     @Body("status") status: InvoiceStatus,
   ): Promise<Invoice> {
-    return this.invoicesService.updateStatus(id, status);
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.updateStatus(id, status, user.merchantId),
+    );
   }
 }

@@ -6,6 +6,8 @@ import {
 } from "@nestjs/common";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { MerchantContextService } from "./merchant-context.service";
+import { applyMerchantScope } from "./merchant-scope.util";
 
 @Injectable()
 export class PrismaService
@@ -14,7 +16,7 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor() {
+  constructor(private readonly merchantContext: MerchantContextService) {
     const adapter = new PrismaPg({
       connectionString: process.env.DATABASE_URL,
     });
@@ -26,6 +28,15 @@ export class PrismaService
           ? ["query", "info", "warn", "error"]
           : ["warn", "error"],
     });
+
+    (this as any).$use(async (params: any, next: any) => {
+      applyMerchantScope(
+        params as any,
+        this.merchantContext.getMerchantId(),
+        this.logger,
+      );
+      return next(params);
+    });
   }
 
   async onModuleInit() {
@@ -35,5 +46,12 @@ export class PrismaService
 
   async onModuleDestroy() {
     await this.$disconnect();
+  }
+
+  runWithMerchantScope<T>(
+    merchantId: string,
+    callback: () => Promise<T> | T,
+  ): Promise<T> {
+    return this.merchantContext.runWithMerchantScope(merchantId, callback);
   }
 }

@@ -12,7 +12,7 @@ describe("WebhooksService", () => {
 
   const mockPrismaService = {
     invoice: {
-      findUnique: jest.fn(),
+      findFirst: jest.fn(),
     },
     webhookDelivery: {
       create: jest.fn(),
@@ -37,7 +37,7 @@ describe("WebhooksService", () => {
 
   describe("enqueueWebhook", () => {
     it("should enqueue a delivery if user has a webhook URL configured", async () => {
-      mockPrismaService.invoice.findUnique.mockResolvedValue({
+      mockPrismaService.invoice.findFirst.mockResolvedValue({
         id: "inv-1",
         userId: "user-1",
         user: { webhookUrl: "https://example.com/webhook" },
@@ -45,7 +45,7 @@ describe("WebhooksService", () => {
 
       await service.enqueueWebhook("inv-1", "paid", "hash-123");
 
-      expect(mockPrismaService.invoice.findUnique).toHaveBeenCalledWith({
+      expect(mockPrismaService.invoice.findFirst).toHaveBeenCalledWith({
         where: { id: "inv-1" },
         include: { user: true },
       });
@@ -63,7 +63,7 @@ describe("WebhooksService", () => {
     });
 
     it("should skip enqueueing if no webhook URL is configured", async () => {
-      mockPrismaService.invoice.findUnique.mockResolvedValue({
+      mockPrismaService.invoice.findFirst.mockResolvedValue({
         id: "inv-2",
         userId: "user-2",
         user: { webhookUrl: null }, // no webhook URL
