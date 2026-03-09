@@ -7,7 +7,6 @@ import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../prisma/prisma.service";
 import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
-import { User } from "../users/user.entity";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
@@ -36,13 +35,46 @@ export class AuthService {
     const expiresAt = BigInt(Date.now() + NONCE_TTL_MS);
 
     if (existing) {
+      if (!existing.merchantId) {
+        await this.prisma.merchant.upsert({
+          where: { stellarPublicKey: dto.publicKey },
+          create: {
+            id: existing.id,
+            name: existing.email || `Merchant ${dto.publicKey.slice(0, 6)}`,
+            stellarPublicKey: dto.publicKey,
+            webhookUrl: existing.webhookUrl ?? null,
+          },
+          update: {},
+        });
+
+        await this.prisma.user.update({
+          where: { publicKey: dto.publicKey },
+          data: { merchantId: existing.id },
+        });
+      }
+
       await this.prisma.user.update({
         where: { publicKey: dto.publicKey },
         data: { nonce, nonceExpiresAt: expiresAt },
       });
     } else {
+      const merchantId = crypto.randomUUID();
+      await this.prisma.merchant.create({
+        data: {
+          id: merchantId,
+          name: `Merchant ${dto.publicKey.slice(0, 6)}`,
+          stellarPublicKey: dto.publicKey,
+          webhookUrl: null,
+        },
+      });
+
       await this.prisma.user.create({
-        data: { publicKey: dto.publicKey, nonce, nonceExpiresAt: expiresAt },
+        data: {
+          publicKey: dto.publicKey,
+          nonce,
+          nonceExpiresAt: expiresAt,
+          merchantId,
+        },
       });
     }
 
@@ -79,7 +111,11 @@ export class AuthService {
       data: { nonce: null, nonceExpiresAt: null },
     });
 
-    const payload = { sub: user.id, publicKey: user.publicKey };
+    const payload = {
+      sub: user.id,
+      publicKey: user.publicKey,
+      merchantId: user.merchantId,
+    };
     const accessToken = this.jwtService.sign(payload);
 
     return { accessToken };

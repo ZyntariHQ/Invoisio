@@ -1,6 +1,8 @@
 export class User {
   id: string;
 
+  merchantId: string;
+
   publicKey: string;
 
   email?: string;

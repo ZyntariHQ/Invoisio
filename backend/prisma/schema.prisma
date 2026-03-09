@@ -10,9 +10,25 @@ datasource db {
   provider = "postgresql"
 }
 
+model Merchant {
+  id               String    @id @default(uuid())
+  name             String
+  stellarPublicKey String    @unique @map("stellar_public_key")
+  webhookUrl       String?   @map("webhook_url")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  users    User[]
+  invoices Invoice[]
+
+  @@map("merchants")
+}
+
 // User model matching backend/src/users/user.entity.ts
 model User {
   id             String    @id @default(uuid())
+  merchantId     String    @map("merchant_id")
+  merchant       Merchant  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   publicKey      String    @unique
   email          String?
   nonce          String?
@@ -26,6 +42,7 @@ model User {
   invoices Invoice[]
   webhooks WebhookDelivery[]
 
+  @@index([merchantId])
   @@map("users")
 }
 
@@ -56,6 +73,8 @@ enum DeliveryStatus {
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
 model Invoice {
   id                 String        @id @default(uuid())
+  merchantId         String        @map("merchant_id")
+  merchant           Merchant      @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   userId             String?       @map("user_id")
   user               User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   invoiceNumber      String        @unique @map("invoice_number")
@@ -79,6 +98,7 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
 
+  @@index([merchantId])
   @@map("invoices")
 }
 

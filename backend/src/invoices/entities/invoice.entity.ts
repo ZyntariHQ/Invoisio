@@ -17,6 +17,8 @@ export enum StellarMemoType {
 export class Invoice {
   id: string;
 
+  merchantId?: string;
+
   user?: User | null;
 
   invoiceNumber?: string | null;
