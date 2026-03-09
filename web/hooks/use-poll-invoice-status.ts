@@ -59,7 +59,7 @@ export function usePollInvoiceStatus(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [invoice, setInvoice] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isPolling, setIsPollingState] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [pollCount, setPollCount] = useState(0);
@@ -68,6 +68,12 @@ export function usePollInvoiceStatus(
   const currentIntervalRef = useRef(initialInterval);
   const retryCountRef = useRef(0);
   const isMountedRef = useRef(true);
+  const isPollingRef = useRef(false);
+
+  const setIsPolling = useCallback((val: boolean) => {
+    isPollingRef.current = val;
+    setIsPollingState(val);
+  }, []);
 
   const fetchInvoice = useCallback(
     async (manual = false) => {
@@ -88,7 +94,10 @@ export function usePollInvoiceStatus(
         // Stop polling if paid and stopOnPaid is true
         if (stopOnPaid && data?.status === 'paid') {
           setIsPolling(false);
-          if (intervalRef.current) clearInterval(intervalRef.current);
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
         }
       } catch (err) {
         if (!isMountedRef.current) return;
@@ -100,7 +109,10 @@ export function usePollInvoiceStatus(
         retryCountRef.current++;
         if (retryCountRef.current >= maxRetries) {
           setIsPolling(false);
-          if (intervalRef.current) clearInterval(intervalRef.current);
+          if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
           return;
         }
 
@@ -113,11 +125,11 @@ export function usePollInvoiceStatus(
         if (!manual) setIsLoading(false);
       }
     },
-    [invoiceId, fetchFn, initialInterval, maxRetries, backoffMultiplier, maxInterval, stopOnPaid],
+    [invoiceId, fetchFn, initialInterval, maxRetries, backoffMultiplier, maxInterval, stopOnPaid, setIsPolling],
   );
 
   const startPolling = useCallback(() => {
-    if (isPolling || !invoiceId) return;
+    if (isPollingRef.current || !invoiceId) return;
 
     setIsPolling(true);
     retryCountRef.current = 0;
@@ -125,15 +137,16 @@ export function usePollInvoiceStatus(
 
     // Initial fetch
     fetchInvoice(false).then(() => {
-      if (!isMountedRef.current) return;
+      if (!isMountedRef.current || !isPollingRef.current) return;
 
       // Set up interval for subsequent fetches
+      if (intervalRef.current) clearInterval(intervalRef.current);
       intervalRef.current = setInterval(() => {
         setPollCount((c: number) => c + 1);
         fetchInvoice(false);
       }, currentIntervalRef.current);
     });
-  }, [invoiceId, isPolling, initialInterval, fetchInvoice]);
+  }, [invoiceId, initialInterval, fetchInvoice, setIsPolling]);
 
   const stop = useCallback(() => {
     setIsPolling(false);
@@ -143,15 +156,17 @@ export function usePollInvoiceStatus(
     }
     retryCountRef.current = 0;
     currentIntervalRef.current = initialInterval;
-  }, [initialInterval]);
+  }, [initialInterval, setIsPolling]);
 
   const refreshStatus = useCallback(async () => {
     await fetchInvoice(true);
   }, [fetchInvoice]);
 
-  // Auto-start polling when component mounts
+  // Handle lifecycle and auto-start
   useEffect(() => {
-    if (invoiceId && !isPolling) {
+    isMountedRef.current = true;
+    
+    if (invoiceId && !isPollingRef.current) {
       startPolling();
     }
 
@@ -159,9 +174,9 @@ export function usePollInvoiceStatus(
       stop();
       isMountedRef.current = false;
     };
-  }, [invoiceId, isPolling, startPolling, stop]);
+  }, [invoiceId, startPolling, stop]);
 
-  // Update interval when status changes (or retry count changes)
+  // Update interval when status changes (or fetchInvoice logic triggers it)
   useEffect(() => {
     if (intervalRef.current && isPolling) {
       clearInterval(intervalRef.current);
@@ -170,12 +185,6 @@ export function usePollInvoiceStatus(
         fetchInvoice(false);
       }, currentIntervalRef.current);
     }
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
   }, [isPolling, fetchInvoice]);
 
   return {
