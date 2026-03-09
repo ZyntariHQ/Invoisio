@@ -8,6 +8,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Merchant {
@@ -104,12 +105,9 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
 
-<<<<<<< HEAD
   @@index([status, createdAt])
   @@index([assetCode, createdAt])
-=======
   @@index([merchantId])
->>>>>>> d07b66aa0f11f923b9e313884dd389a4f53e02fa
   @@map("invoices")
 }
 

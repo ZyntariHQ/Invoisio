@@ -9,14 +9,6 @@ describe("AdminService", () => {
 
   // Mock data
   const mockAggregations = {
-    { id: "1", status: "pending", amount: 1000, createdAt: new Date("2026-01-15") },
-    { id: "2", status: "paid", amount: 2000, createdAt: new Date("2026-02-15") },
-    { id: "3", status: "paid", amount: 3000, createdAt: new Date("2026-03-15") },
-    { id: "4", status: "overdue", amount: 1500, createdAt: new Date("2026-01-10") },
-    { id: "5", status: "cancelled", amount: 500, createdAt: new Date("2026-02-20") },
-  ];
-
-  const mockAggregations = {
     _count: { id: 5 },
     _sum: { amount: 8000 },
   };
@@ -27,6 +19,49 @@ describe("AdminService", () => {
     { status: "overdue", _count: { id: 1 }, _sum: { amount: 1500 } },
     { status: "cancelled", _count: { id: 1 }, _sum: { amount: 500 } },
   ];
+
+  // Helper to create query objects with validateDates method
+  const createInvoiceQuery = (params: {
+    status?: InvoiceStatus;
+    startDate?: string;
+    endDate?: string;
+  }) => ({
+    ...params,
+    validateDates: () => {
+      if (params.startDate && params.endDate) {
+        const start = new Date(params.startDate);
+        const end = new Date(params.endDate);
+        if (start > end) {
+          throw new Error("startDate must be before or equal to endDate");
+        }
+        const oneYearInMs = 365 * 24 * 60 * 60 * 1000;
+        if (end.getTime() - start.getTime() > oneYearInMs) {
+          throw new Error("Date range cannot exceed 1 year");
+        }
+      }
+    },
+  });
+
+  const createPaymentQuery = (params: {
+    asset?: string;
+    startDate?: string;
+    endDate?: string;
+  }) => ({
+    ...params,
+    validateDates: () => {
+      if (params.startDate && params.endDate) {
+        const start = new Date(params.startDate);
+        const end = new Date(params.endDate);
+        if (start > end) {
+          throw new Error("startDate must be before or equal to endDate");
+        }
+        const oneYearInMs = 365 * 24 * 60 * 60 * 1000;
+        if (end.getTime() - start.getTime() > oneYearInMs) {
+          throw new Error("Date range cannot exceed 1 year");
+        }
+      }
+    },
+  });
 
   beforeEach(async () => {
     prismaService = {
@@ -52,14 +87,16 @@ describe("AdminService", () => {
 
   describe("getInvoiceAnalytics", () => {
     it("should return total count and amount", async () => {
-      const result = await service.getInvoiceAnalytics({});
+      const query = createInvoiceQuery({});
+      const result = await service.getInvoiceAnalytics(query);
 
       expect(result.totalCount).toBe(5);
       expect(result.totalAmount).toBe(8000);
     });
 
     it("should return breakdown by status", async () => {
-      const result = await service.getInvoiceAnalytics({});
+      const query = createInvoiceQuery({});
+      const result = await service.getInvoiceAnalytics(query);
 
       expect(result.byStatus).toHaveLength(4);
       expect(result.byStatus).toContainEqual({
@@ -75,11 +112,10 @@ describe("AdminService", () => {
     });
 
     it("should filter by status", async () => {
-      const result = await service.getInvoiceAnalytics({
-        status: InvoiceStatus.paid,
-      });
+      const query = createInvoiceQuery({ status: InvoiceStatus.paid });
+      const result = await service.getInvoiceAnalytics(query);
 
-      expect(prismaService.invoice.aggregate).toHaveBeenCalledWith(
+      expect(prismaService.invoice!.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             status: "paid",
@@ -91,12 +127,13 @@ describe("AdminService", () => {
     });
 
     it("should filter by date range", async () => {
-      const result = await service.getInvoiceAnalytics({
+      const query = createInvoiceQuery({
         startDate: "2026-01-01",
         endDate: "2026-02-28",
       });
+      const result = await service.getInvoiceAnalytics(query);
 
-      expect(prismaService.invoice.aggregate).toHaveBeenCalledWith(
+      expect(prismaService.invoice!.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             createdAt: expect.objectContaining({
@@ -106,17 +143,14 @@ describe("AdminService", () => {
           }),
         }),
       );
-      expect(result.dateRange).toEqual({
-        startDate: "2026-01-01",
-        endDate: "2026-02-28",
-      });
     });
 
     it("should include date range in response when filtering by dates", async () => {
-      const result = await service.getInvoiceAnalytics({
+      const query = createInvoiceQuery({
         startDate: "2026-01-01",
         endDate: "2026-12-31",
       });
+      const result = await service.getInvoiceAnalytics(query);
 
       expect(result.dateRange).toBeDefined();
       expect(result.dateRange?.startDate).toBe("2026-01-01");
@@ -126,43 +160,55 @@ describe("AdminService", () => {
 
   describe("getPaymentAnalytics", () => {
     it("should return total volume and count for paid invoices", async () => {
-      const result = await service.getPaymentAnalytics({});
+      const query = createPaymentQuery({});
+      const result = await service.getPaymentAnalytics(query);
 
       // Should only count paid invoices
-      expect(prismaService.invoice.aggregate).toHaveBeenCalledWith(
+      expect(prismaService.invoice!.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             status: InvoiceStatus.paid,
           }),
         }),
       );
-      expect(result.totalCount).toBe(5); // From mock
+      expect(result.totalCount).toBe(5);
       expect(result.totalVolume).toBe(8000);
     });
 
     it("should return breakdown by asset", async () => {
       const assetGroupByResult = [
-        { assetCode: "USDC", assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN", _count: { id: 2 }, _sum: { amount: 5000 } },
+        {
+          assetCode: "USDC",
+          assetIssuer:
+            "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+          _count: { id: 2 },
+          _sum: { amount: 5000 },
+        },
         { assetCode: "XLM", assetIssuer: null, _count: { id: 3 }, _sum: { amount: 3000 } },
       ];
 
-      (prismaService.invoice.groupBy as jest.Mock).mockResolvedValueOnce(assetGroupByResult);
+      (prismaService.invoice!.groupBy as jest.Mock).mockResolvedValueOnce(
+        assetGroupByResult,
+      );
 
-      const result = await service.getPaymentAnalytics({});
+      const query = createPaymentQuery({});
+      const result = await service.getPaymentAnalytics(query);
 
       expect(result.byAsset).toHaveLength(2);
       expect(result.byAsset).toContainEqual({
         assetCode: "USDC",
-        assetIssuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        assetIssuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
         volume: 5000,
         count: 2,
       });
     });
 
     it("should filter by asset code", async () => {
-      await service.getPaymentAnalytics({ asset: "USDC" });
+      const query = createPaymentQuery({ asset: "USDC" });
+      await service.getPaymentAnalytics(query);
 
-      expect(prismaService.invoice.aggregate).toHaveBeenCalledWith(
+      expect(prismaService.invoice!.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             assetCode: "USDC",
@@ -172,12 +218,13 @@ describe("AdminService", () => {
     });
 
     it("should filter by date range using updatedAt", async () => {
-      await service.getPaymentAnalytics({
+      const query = createPaymentQuery({
         startDate: "2026-01-01",
         endDate: "2026-06-30",
       });
+      await service.getPaymentAnalytics(query);
 
-      expect(prismaService.invoice.aggregate).toHaveBeenCalledWith(
+      expect(prismaService.invoice!.aggregate).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({
             updatedAt: expect.objectContaining({
