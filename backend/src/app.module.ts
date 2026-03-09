@@ -17,6 +17,7 @@ import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
+import { AdminModule } from "./admin/admin.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 
 /**
@@ -76,6 +77,7 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
     AuthModule,
     UsersModule,
     WebhooksModule,
+    AdminModule,
   ],
 })
 export class AppModule {}

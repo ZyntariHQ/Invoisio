@@ -8,6 +8,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Merchant {
@@ -31,6 +32,7 @@ model User {
   merchant       Merchant  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
   publicKey      String    @unique
   email          String?
+  role           UserRole  @default(user)
   nonce          String?
   nonceExpiresAt BigInt?
   createdAt      DateTime  @default(now())
@@ -44,6 +46,11 @@ model User {
 
   @@index([merchantId])
   @@map("users")
+}
+
+enum UserRole {
+  user
+  admin
 }
 
 model WebhookDelivery {
@@ -98,6 +105,8 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
 
+  @@index([status, createdAt])
+  @@index([assetCode, createdAt])
   @@index([merchantId])
   @@map("invoices")
 }
