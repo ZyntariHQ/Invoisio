@@ -8,6 +8,7 @@ import { User } from "../../users/user.entity";
 export interface JwtPayload {
   sub: string;
   publicKey: string;
+  merchantId?: string;
 }
 
 @Injectable()
@@ -32,6 +33,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
     return {
       id: user.id,
+      merchantId: user.merchantId,
       publicKey: user.publicKey,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

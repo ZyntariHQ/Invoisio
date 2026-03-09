@@ -3,8 +3,9 @@ import {
   Logger,
   NotFoundException,
   OnModuleInit,
+  UnauthorizedException,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
+import { Cron } from "@nestjs/schedule";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
@@ -21,7 +22,6 @@ export class InvoicesService implements OnModuleInit {
   private readonly logger = new Logger(InvoicesService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
@@ -29,6 +29,11 @@ export class InvoicesService implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
+    // Skip seeding in test environment
+    if (process.env.NODE_ENV === "test") {
+      return;
+    }
+
     // seed after PrismaService onModuleInit has run so client/fallback is available
     await this.seedSampleInvoices();
   }
@@ -40,6 +45,7 @@ export class InvoicesService implements OnModuleInit {
    * @returns Paginated result
    */
   async findAll(
+    merchantId: string,
     page = 1,
     limit = 20,
   ): Promise<{
@@ -52,11 +58,12 @@ export class InvoicesService implements OnModuleInit {
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
+        where: { merchantId },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
-      this.prisma.invoice.count(),
+      this.prisma.invoice.count({ where: { merchantId } }),
     ]);
 
     const normalizedItems = items.map((inv) => this.normalizeInvoice(inv));
@@ -70,13 +77,126 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Search invoices by merchant-scoped term using full-text and trigram similarity
+   * @param userId - Authenticated merchant id
+   * @param rawTerm - Query string from user input
+   * @param limit - Max results (1-50)
+   */
+  async searchInvoices(
+    userId: string | undefined,
+    rawTerm: string,
+    limit = 20,
+  ): Promise<Invoice[]> {
+    if (!userId) {
+      throw new UnauthorizedException("Missing merchant context");
+    }
+
+    const term = rawTerm?.trim();
+    if (!term) {
+      return [];
+    }
+
+    const requestedLimit = Number.isFinite(limit) ? Math.floor(limit) : 20;
+    const clampedLimit = Math.min(Math.max(requestedLimit, 1), 50);
+    const tsQuery = this.buildTsQuery(term);
+    const likePattern = `%${this.escapeLikePattern(term)}%`;
+    const similarityFloor = 0.32;
+
+    const rows = await this.prisma.$queryRaw<Array<Record<string, any>>>(
+      Prisma.sql`
+        WITH source AS (
+          SELECT
+            i.*,
+            to_tsvector(
+              'simple',
+              coalesce(i."client_name", '') || ' ' ||
+              coalesce(i."client_email", '') || ' ' ||
+              coalesce(i."memo", '')
+            ) AS document
+          FROM "invoices" i
+          WHERE i."user_id" = ${userId}
+        )
+        SELECT
+          s."id",
+          s."user_id" AS "userId",
+          s."invoice_number" AS "invoiceNumber",
+          s."client_name" AS "clientName",
+          s."client_email" AS "clientEmail",
+          s."description",
+          s."amount",
+          s."asset_code" AS "assetCode",
+          s."asset_issuer" AS "assetIssuer",
+          s."memo",
+          s."memo_type" AS "memoType",
+          s."status",
+          s."destination_address" AS "destinationAddress",
+          s."tx_hash" AS "txHash",
+          s."soroban_tx_hash" AS "sorobanTxHash",
+          s."soroban_contract_id" AS "sorobanContractId",
+          s."metadata",
+          s."due_date" AS "dueDate",
+          s."created_at" AS "createdAt",
+          s."updated_at" AS "updatedAt",
+          ${
+            tsQuery
+              ? Prisma.sql`s.document @@ to_tsquery('simple', ${tsQuery}) AS ft_match,
+                ts_rank_cd(s.document, to_tsquery('simple', ${tsQuery})) AS ft_rank,`
+              : Prisma.sql`FALSE AS ft_match,
+                0::float AS ft_rank,`
+          }
+          GREATEST(
+            similarity(s."client_name", ${term}),
+            similarity(s."client_email", ${term}),
+            similarity(s."memo", ${term})
+          ) AS trigram_rank
+        FROM source s
+        WHERE (
+          ${
+            tsQuery
+              ? Prisma.sql`s.document @@ to_tsquery('simple', ${tsQuery}) OR`
+              : Prisma.sql``
+          }
+          s."client_name" ILIKE ${likePattern}
+          OR s."client_email" ILIKE ${likePattern}
+          OR s."memo" ILIKE ${likePattern}
+          OR similarity(s."client_name", ${term}) >= ${similarityFloor}
+          OR similarity(s."client_email", ${term}) >= ${similarityFloor}
+          OR similarity(s."memo", ${term}) >= ${similarityFloor}
+        )
+        ORDER BY
+          ${
+            tsQuery
+              ? Prisma.sql`ft_match DESC,
+                ft_rank DESC,`
+              : Prisma.sql``
+          }
+          trigram_rank DESC,
+          s."created_at" DESC
+        LIMIT ${clampedLimit};
+      `,
+    );
+
+    return rows.map((row) => {
+      const {
+        ft_match: _ftMatch,
+        ft_rank: _ftRank,
+        trigram_rank: _trigram,
+        ...invoice
+      } = row;
+      return this.normalizeInvoice(invoice);
+    });
+  }
+
+  /**
    * Find a single invoice by ID
    * @param id - Invoice UUID
    * @returns The invoice object
    * @throws NotFoundException if invoice not found
    */
-  async findOne(id: string): Promise<Invoice> {
-    const invoice = await this.prisma.invoice.findUnique({ where: { id } });
+  async findOne(id: string, merchantId: string): Promise<Invoice> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, merchantId },
+    });
     if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
     return this.normalizeInvoice(invoice);
@@ -87,11 +207,17 @@ export class InvoicesService implements OnModuleInit {
    * @param dto - Create invoice DTO
    * @returns The created invoice including payment instructions
    */
-  async create(dto: CreateInvoiceDto): Promise<Invoice> {
+  async create(
+    dto: CreateInvoiceDto,
+    userId: string,
+    merchantId: string,
+  ): Promise<Invoice> {
     const memo = this.generateMemoId();
     const now = new Date();
     const created = await this.prisma.invoice.create({
       data: {
+        userId,
+        merchantId,
         invoiceNumber: dto.invoiceNumber,
         clientName: dto.clientName,
         clientEmail: dto.clientEmail,
@@ -119,14 +245,33 @@ export class InvoicesService implements OnModuleInit {
    * @param status - New status
    * @returns Updated invoice
    */
-  async updateStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
-    const updated = await this.prisma.invoice.update({
-      where: { id },
+  async updateStatus(
+    id: string,
+    status: InvoiceStatus,
+    merchantId?: string,
+  ): Promise<Invoice> {
+    const where = merchantId ? { id, merchantId } : { id };
+
+    const updateResult = await this.prisma.invoice.updateMany({
+      where,
       data: { status },
     });
+    if (updateResult.count === 0) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
+
+    const updated = await this.prisma.invoice.findFirst({ where });
+    if (!updated) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
 
     // Enqueue webhook
-    await this.webhooksService.enqueueWebhook(id, status, updated.txHash);
+    await this.webhooksService.enqueueWebhook(
+      id,
+      status,
+      updated.txHash,
+      merchantId,
+    );
 
     return this.normalizeInvoice(updated);
   }
@@ -177,7 +322,7 @@ export class InvoicesService implements OnModuleInit {
    * @returns Invoice or undefined if not found
    */
   async findByMemo(memo: string): Promise<Invoice | null> {
-    const invoice = await this.prisma.invoice.findUnique({
+    const invoice = await this.prisma.invoice.findFirst({
       where: { memo: memo },
     });
     if (!invoice) return null;
@@ -272,7 +417,12 @@ export class InvoicesService implements OnModuleInit {
     assetIssuer: string,
     amount: string,
   ): Promise<Invoice & { txHash: string; ledger: number }> {
-    const invoice = await this.findOne(invoiceId);
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with ID "${invoiceId}" not found`);
+    }
 
     // Step 2 — idempotency gate: check if already recorded on-chain.
     const alreadyOnChain =
@@ -311,6 +461,51 @@ export class InvoicesService implements OnModuleInit {
       "paid" as InvoiceStatus,
     );
     return { ...updated, txHash, ledger };
+  }
+
+  /**
+   * Cron job to expire overdue invoices.
+   * Runs every day at 02:00 UTC.
+   */
+  @Cron("0 2 * * *")
+  async handleOverdueInvoices() {
+    this.logger.log("Running overdue invoices check...");
+    try {
+      const now = new Date();
+      const overdueInvoices = await this.prisma.invoice.findMany({
+        where: {
+          status: "pending",
+          dueDate: { lt: now },
+        },
+        select: { id: true },
+      });
+
+      if (overdueInvoices.length === 0) {
+        this.logger.log("No overdue invoices found.");
+        return;
+      }
+
+      this.logger.log(
+        `Found ${overdueInvoices.length} overdue invoices. Expiring...`,
+      );
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const invoice of overdueInvoices) {
+        try {
+          await this.updateStatus(invoice.id, "overdue");
+          successCount++;
+        } catch (err) {
+          this.logger.error(`Failed to expire invoice ${invoice.id}`, err);
+          failCount++;
+        }
+      }
+
+      this.logger.log(`Expired ${successCount} invoices. Failed: ${failCount}`);
+    } catch (error) {
+      this.logger.error("Error in handleOverdueInvoices cron job", error);
+    }
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
@@ -356,6 +551,24 @@ export class InvoicesService implements OnModuleInit {
     return String(timestamp * 65536 + random);
   }
 
+  /** Build a safe tsquery string that supports prefix matching by appending :* per token */
+  private buildTsQuery(term: string): string | null {
+    const tokens = term
+      .split(/\s+/)
+      .map((token) => token.replace(/[':*&|!]/g, "").trim())
+      .filter((token) => token.length > 0)
+      .slice(0, 5);
+    if (tokens.length === 0) {
+      return null;
+    }
+    return tokens.map((token) => `${token}:*`).join(" & ");
+  }
+
+  /** Escape LIKE wildcards to avoid unintended pattern expansion */
+  private escapeLikePattern(term: string): string {
+    return term.replace(/[%_\\]/g, (char) => `\\${char}`);
+  }
+
   /**
    * Seed sample invoices for demonstration purposes
    */
@@ -363,6 +576,7 @@ export class InvoicesService implements OnModuleInit {
     const merchantPublicKey =
       this.stellarService.getMerchantPublicKey() ||
       "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+    const defaultMerchantId = "00000000-0000-0000-0000-000000000000";
 
     const count = await this.prisma.invoice.count();
     if (count > 0) return;
@@ -370,6 +584,7 @@ export class InvoicesService implements OnModuleInit {
     await this.prisma.invoice.createMany({
       data: [
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-001",
           clientName: "Acme Corporation",
           clientEmail: "billing@acme.com",
@@ -389,6 +604,7 @@ export class InvoicesService implements OnModuleInit {
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-002",
           clientName: "TechStart Inc",
           clientEmail: "payments@techstart.io",
@@ -407,6 +623,7 @@ export class InvoicesService implements OnModuleInit {
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-003",
           clientName: "Global Solutions Ltd",
           clientEmail: "accounts@globalsolutions.com",

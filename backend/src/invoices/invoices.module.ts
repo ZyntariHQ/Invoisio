@@ -1,13 +1,11 @@
 import { Module } from "@nestjs/common";
-import { JwtModule } from "@nestjs/jwt";
-import { ConfigModule, ConfigService } from "@nestjs/config";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { StellarModule } from "../stellar/stellar.module";
 import { SorobanModule } from "../soroban/soroban.module";
-import { AuthGuard } from "../auth/auth.guard";
 import { PrismaModule } from "../prisma/prisma.module";
 import { WebhooksModule } from "../webhooks/webhooks.module";
+import { AuthModule } from "../auth/auth.module";
 
 /**
  * Invoices module
@@ -19,17 +17,10 @@ import { WebhooksModule } from "../webhooks/webhooks.module";
     SorobanModule,
     PrismaModule,
     WebhooksModule,
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>("JWT_SECRET"),
-        signOptions: { expiresIn: "1d" },
-      }),
-    }),
+    AuthModule,
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService, AuthGuard],
+  providers: [InvoicesService],
   exports: [InvoicesService],
 })
 export class InvoicesModule {}
