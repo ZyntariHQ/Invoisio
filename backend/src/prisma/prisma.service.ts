@@ -31,7 +31,7 @@ export class PrismaService
 
     (this as any).$use(async (params: any, next: any) => {
       applyMerchantScope(
-        params as any,
+        params,
         this.merchantContext.getMerchantId(),
         this.logger,
       );

@@ -329,6 +329,65 @@ export class InvoicesService implements OnModuleInit {
     return this.normalizeInvoice(invoice);
   }
 
+  async applySorobanPaymentEvent(evt: {
+    eventId: string;
+    contractId?: string;
+    ledger?: number;
+    invoice_id: string;
+    payer?: string;
+    asset_code?: string;
+    asset_issuer?: string;
+    amount?: string | number;
+  }): Promise<Invoice | null> {
+    const maybeId = this.stellarService.parseMemo(evt.invoice_id);
+    const invoiceId = maybeId ?? evt.invoice_id;
+
+    const existing = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!existing) {
+      return null;
+    }
+
+    const sorobanMeta = {
+      lastEventId: evt.eventId,
+      contractId: evt.contractId ?? null,
+      ledger: evt.ledger ?? null,
+      invoice_id: evt.invoice_id,
+      payer: evt.payer ?? null,
+      asset_code: evt.asset_code ?? null,
+      asset_issuer: evt.asset_issuer ?? null,
+      amount: evt.amount ?? null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (existing.status !== "paid") {
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          status: "paid",
+          txHash: `soroban:${evt.eventId}`,
+          metadata: {
+            ...((existing.metadata as any) ?? {}),
+            soroban: sorobanMeta,
+          },
+        },
+      });
+      return this.normalizeInvoice(updated);
+    } else {
+      const updated = await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: {
+          metadata: {
+            ...((existing.metadata as any) ?? {}),
+            soroban: sorobanMeta,
+          },
+        },
+      });
+      return this.normalizeInvoice(updated);
+    }
+  }
+
   /**
    * Reconcile a Horizon-confirmed payment with the Soroban contract and the database.
    *
@@ -397,7 +456,10 @@ export class InvoicesService implements OnModuleInit {
     }
 
     // Step 4 — mark invoice as paid in the database.
-    const updated = await this.updateStatus(invoice.id, "paid");
+    const updated = await this.updateStatus(
+      invoice.id,
+      "paid" as InvoiceStatus,
+    );
     return { ...updated, txHash, ledger };
   }
 
@@ -470,6 +532,7 @@ export class InvoicesService implements OnModuleInit {
       asset_code: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
       memo_type: inv.memoType,
+      tx_hash: inv.txHash,
       destination_address:
         inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
     };

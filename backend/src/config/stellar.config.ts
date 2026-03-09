@@ -10,6 +10,11 @@ export default registerAs("stellar", () => ({
     process.env.STELLAR_NETWORK_PASSPHRASE ||
     "Test SDF Network ; September 2015",
   merchantPublicKey: process.env.MERCHANT_PUBLIC_KEY || "",
+  sorobanRpcUrl:
+    process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
+  sorobanContractId: process.env.SOROBAN_CONTRACT_ID || "",
+  sorobanEventTopic:
+    process.env.SOROBAN_EVENT_TOPIC || "InvoicePaymentRecorded",
   usdcIssuer:
     process.env.USDC_ISSUER ||
     "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -20,8 +25,6 @@ export default registerAs("stellar", () => ({
     10,
   ),
   // Soroban contract integration
-  sorobanRpcUrl:
-    process.env.SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org",
   contractId: process.env.SOROBAN_CONTRACT_ID || "",
   adminSecretKey: process.env.ADMIN_SECRET_KEY || "",
 }));

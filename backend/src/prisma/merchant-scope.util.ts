@@ -108,7 +108,8 @@ function hasMerchantFilterInWhere(where: unknown): boolean {
 
   const and = w.AND;
   if (
-    (Array.isArray(and) && and.some((entry) => hasMerchantFilterInWhere(entry))) ||
+    (Array.isArray(and) &&
+      and.some((entry) => hasMerchantFilterInWhere(entry))) ||
     hasMerchantFilterInWhere(and)
   ) {
     return true;
@@ -116,7 +117,8 @@ function hasMerchantFilterInWhere(where: unknown): boolean {
 
   const or = w.OR;
   if (
-    (Array.isArray(or) && or.some((entry) => hasMerchantFilterInWhere(entry))) ||
+    (Array.isArray(or) &&
+      or.some((entry) => hasMerchantFilterInWhere(entry))) ||
     hasMerchantFilterInWhere(or)
   ) {
     return true;
@@ -124,7 +126,8 @@ function hasMerchantFilterInWhere(where: unknown): boolean {
 
   const not = w.NOT;
   if (
-    (Array.isArray(not) && not.some((entry) => hasMerchantFilterInWhere(entry))) ||
+    (Array.isArray(not) &&
+      not.some((entry) => hasMerchantFilterInWhere(entry))) ||
     hasMerchantFilterInWhere(not)
   ) {
     return true;
