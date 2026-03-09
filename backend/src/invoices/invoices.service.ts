@@ -6,7 +6,6 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
-import { ConfigService } from "@nestjs/config";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { StellarService } from "../stellar/stellar.service";
@@ -23,7 +22,6 @@ export class InvoicesService implements OnModuleInit {
   private readonly logger = new Logger(InvoicesService.name);
 
   constructor(
-    private readonly configService: ConfigService,
     private readonly stellarService: StellarService,
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
@@ -47,6 +45,7 @@ export class InvoicesService implements OnModuleInit {
    * @returns Paginated result
    */
   async findAll(
+    merchantId: string,
     page = 1,
     limit = 20,
   ): Promise<{
@@ -59,11 +58,12 @@ export class InvoicesService implements OnModuleInit {
     const skip = (page - 1) * limit;
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
+        where: { merchantId },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
-      this.prisma.invoice.count(),
+      this.prisma.invoice.count({ where: { merchantId } }),
     ]);
 
     const normalizedItems = items.map((inv) => this.normalizeInvoice(inv));
@@ -193,8 +193,10 @@ export class InvoicesService implements OnModuleInit {
    * @returns The invoice object
    * @throws NotFoundException if invoice not found
    */
-  async findOne(id: string): Promise<Invoice> {
-    const invoice = await this.prisma.invoice.findUnique({ where: { id } });
+  async findOne(id: string, merchantId: string): Promise<Invoice> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, merchantId },
+    });
     if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
     return this.normalizeInvoice(invoice);
@@ -205,11 +207,17 @@ export class InvoicesService implements OnModuleInit {
    * @param dto - Create invoice DTO
    * @returns The created invoice including payment instructions
    */
-  async create(dto: CreateInvoiceDto): Promise<Invoice> {
+  async create(
+    dto: CreateInvoiceDto,
+    userId: string,
+    merchantId: string,
+  ): Promise<Invoice> {
     const memo = this.generateMemoId();
     const now = new Date();
     const created = await this.prisma.invoice.create({
       data: {
+        userId,
+        merchantId,
         invoiceNumber: dto.invoiceNumber,
         clientName: dto.clientName,
         clientEmail: dto.clientEmail,
@@ -237,14 +245,33 @@ export class InvoicesService implements OnModuleInit {
    * @param status - New status
    * @returns Updated invoice
    */
-  async updateStatus(id: string, status: InvoiceStatus): Promise<Invoice> {
-    const updated = await this.prisma.invoice.update({
-      where: { id },
+  async updateStatus(
+    id: string,
+    status: InvoiceStatus,
+    merchantId?: string,
+  ): Promise<Invoice> {
+    const where = merchantId ? { id, merchantId } : { id };
+
+    const updateResult = await this.prisma.invoice.updateMany({
+      where,
       data: { status },
     });
+    if (updateResult.count === 0) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
+
+    const updated = await this.prisma.invoice.findFirst({ where });
+    if (!updated) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
 
     // Enqueue webhook
-    await this.webhooksService.enqueueWebhook(id, status, updated.txHash);
+    await this.webhooksService.enqueueWebhook(
+      id,
+      status,
+      updated.txHash,
+      merchantId,
+    );
 
     return this.normalizeInvoice(updated);
   }
@@ -295,7 +322,7 @@ export class InvoicesService implements OnModuleInit {
    * @returns Invoice or undefined if not found
    */
   async findByMemo(memo: string): Promise<Invoice | null> {
-    const invoice = await this.prisma.invoice.findUnique({
+    const invoice = await this.prisma.invoice.findFirst({
       where: { memo: memo },
     });
     if (!invoice) return null;
@@ -331,7 +358,12 @@ export class InvoicesService implements OnModuleInit {
     assetIssuer: string,
     amount: string,
   ): Promise<Invoice & { txHash: string; ledger: number }> {
-    const invoice = await this.findOne(invoiceId);
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with ID "${invoiceId}" not found`);
+    }
 
     // Step 2 — idempotency gate: check if already recorded on-chain.
     const alreadyOnChain =
@@ -481,6 +513,7 @@ export class InvoicesService implements OnModuleInit {
     const merchantPublicKey =
       this.stellarService.getMerchantPublicKey() ||
       "GBXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX";
+    const defaultMerchantId = "00000000-0000-0000-0000-000000000000";
 
     const count = await this.prisma.invoice.count();
     if (count > 0) return;
@@ -488,6 +521,7 @@ export class InvoicesService implements OnModuleInit {
     await this.prisma.invoice.createMany({
       data: [
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-001",
           clientName: "Acme Corporation",
           clientEmail: "billing@acme.com",
@@ -507,6 +541,7 @@ export class InvoicesService implements OnModuleInit {
           dueDate: new Date("2026-03-31T23:59:59Z"),
         },
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-002",
           clientName: "TechStart Inc",
           clientEmail: "payments@techstart.io",
@@ -525,6 +560,7 @@ export class InvoicesService implements OnModuleInit {
           dueDate: new Date("2026-03-15T23:59:59Z"),
         },
         {
+          merchantId: defaultMerchantId,
           invoiceNumber: "INV-003",
           clientName: "Global Solutions Ltd",
           clientEmail: "accounts@globalsolutions.com",

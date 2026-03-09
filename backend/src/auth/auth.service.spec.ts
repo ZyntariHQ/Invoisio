@@ -4,9 +4,12 @@ import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { AuthService } from "./auth.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { User } from "../users/user.entity";
 
 const mockPrisma = () => ({
+  merchant: {
+    create: jest.fn(),
+    upsert: jest.fn(),
+  },
   user: {
     findUnique: jest.fn(),
     create: jest.fn(),
@@ -37,6 +40,7 @@ describe("AuthService", () => {
   describe("generateNonce", () => {
     it("creates user if not found and returns nonce", async () => {
       prisma.user.findUnique.mockResolvedValue(null);
+      prisma.merchant.create.mockResolvedValue({ id: "merchant-id" });
       prisma.user.create.mockResolvedValue({ publicKey });
 
       const result = await service.generateNonce({ publicKey });
@@ -46,11 +50,17 @@ describe("AuthService", () => {
     });
 
     it("reuses existing user record", async () => {
-      const existing = { publicKey, nonce: null, nonceExpiresAt: null };
+      const existing = {
+        publicKey,
+        nonce: null,
+        nonceExpiresAt: null,
+        merchantId: "merchant-id",
+      };
       prisma.user.findUnique.mockResolvedValue(existing);
 
       await service.generateNonce({ publicKey });
       expect(prisma.user.create).not.toHaveBeenCalled();
+      expect(prisma.merchant.upsert).not.toHaveBeenCalled();
     });
 
     it("throws on invalid public key", async () => {
@@ -67,6 +77,7 @@ describe("AuthService", () => {
 
       prisma.user.findUnique.mockResolvedValue({
         id: "user-id",
+        merchantId: "merchant-id",
         publicKey,
         nonce,
         nonceExpiresAt: BigInt(Date.now() + 60_000),
@@ -82,6 +93,7 @@ describe("AuthService", () => {
 
     it("throws when nonce is expired", async () => {
       prisma.user.findUnique.mockResolvedValue({
+        merchantId: "merchant-id",
         publicKey,
         nonce: "old",
         nonceExpiresAt: BigInt(Date.now() - 1000),
@@ -94,6 +106,7 @@ describe("AuthService", () => {
 
     it("throws when signature is invalid", async () => {
       prisma.user.findUnique.mockResolvedValue({
+        merchantId: "merchant-id",
         publicKey,
         nonce: "testnonce",
         nonceExpiresAt: BigInt(Date.now() + 60_000),

@@ -18,9 +18,11 @@ export class WebhooksService {
     invoiceId: string,
     status: string,
     txHash: string | null,
+    merchantId?: string,
   ): Promise<void> {
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    const where = merchantId ? { id: invoiceId, merchantId } : { id: invoiceId };
+    const invoice = await this.prisma.invoice.findFirst({
+      where,
       include: { user: true },
     });
 
