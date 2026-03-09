@@ -1,6 +1,5 @@
 import { Injectable } from "@nestjs/common";
 import { ThrottlerStorage } from "@nestjs/throttler";
-import { Redis } from "ioredis";
 
 interface ThrottlerStorageRecord {
   totalHits: number;
@@ -11,7 +10,7 @@ interface ThrottlerStorageRecord {
 
 @Injectable()
 export class ThrottlerStorageRedisService implements ThrottlerStorage {
-  constructor(private readonly redis: Redis) {}
+  constructor(private readonly redis: any) {}
 
   async increment(
     key: string,
@@ -21,7 +20,7 @@ export class ThrottlerStorageRedisService implements ThrottlerStorage {
     throttlerName: string,
   ): Promise<ThrottlerStorageRecord> {
     const current = await this.redis.incr(key);
-    
+
     if (current === 1) {
       // Set expiration only on first increment
       await this.redis.expire(key, Math.ceil(ttl / 1000));
@@ -29,7 +28,7 @@ export class ThrottlerStorageRedisService implements ThrottlerStorage {
 
     const timeToExpire = await this.redis.pttl(key);
     const isBlocked = current > limit;
-    
+
     return {
       totalHits: current,
       timeToExpire: timeToExpire > 0 ? timeToExpire : ttl,

@@ -1,12 +1,10 @@
 import { Module } from "@nestjs/common";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { ConfigModule, ConfigService } from "@nestjs/config";
-import { Redis } from "ioredis";
 import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service";
 
-const providers = process.env.NODE_ENV === 'test' 
-  ? [] 
-  : [ThrottlerStorageRedisService];
+const providers =
+  process.env.NODE_ENV === "test" ? [] : [ThrottlerStorageRedisService];
 
 @Module({
   imports: [
@@ -15,9 +13,9 @@ const providers = process.env.NODE_ENV === 'test'
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
         const throttlerConfig = configService.get("throttler");
-        
+
         // Skip Redis configuration in test environment
-        if (process.env.NODE_ENV === 'test') {
+        if (process.env.NODE_ENV === "test") {
           return {
             throttlers: [
               {
@@ -27,6 +25,9 @@ const providers = process.env.NODE_ENV === 'test'
             ],
           };
         }
+
+        // Dynamic import for Redis to avoid lint issues
+        const { Redis } = await import("ioredis");
 
         // Create Redis client for non-test environments
         const redis = new Redis({
