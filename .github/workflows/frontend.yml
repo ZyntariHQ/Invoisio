@@ -3,10 +3,15 @@ name: Web CI
 on:
   push:
     branches: [main]
-    paths: ['web/**']
+    paths:
+      - 'web/**'
+      - '.github/workflows/frontend.yml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main]
-    paths: ['web/**']
+    paths:
+      - 'web/**'
+      - '.github/workflows/frontend.yml'
 
 jobs:
   build:
