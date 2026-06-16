@@ -1198,3 +1198,80 @@ fn test_allowlist_events_emitted() {
         ]
     );
 }
+
+// Amount & asset boundary validation (issue #139)
+
+#[test]
+fn test_asset_code_too_long_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    // A 13-character asset code exceeds Stellar's 12-char maximum.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-long-code"),
+        &payer,
+        &String::from_str(&env, "ABCDEFGHIJKLM"), // 13 chars
+        &String::from_str(
+            &env,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ),
+        &10_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_asset_code_exactly_12_chars_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    let code = String::from_str(&env, "ABCDEFGHIJKL"); // exactly 12 chars
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+    // A 12-char code is valid; allowlist it so it passes the allowlist guard.
+    client.allow_asset(&code, &issuer);
+    let invoice_id = String::from_str(&env, "invoisio-12-char-code");
+    client.record_payment(&invoice_id, &payer, &code, &issuer, &50_000_000i128);
+    assert!(client.has_payment(&invoice_id));
+}
+
+#[test]
+fn test_amount_above_max_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    // One stroop above the i64::MAX boundary must be rejected.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-amount-too-big"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &(i64::MAX as i128 + 1),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+}
+
+#[test]
+fn test_amount_at_max_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    let invoice_id = String::from_str(&env, "invoisio-amount-at-max");
+    // Exactly i64::MAX is the largest allowed amount.
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &(i64::MAX as i128),
+    );
+    assert!(client.has_payment(&invoice_id));
+}
