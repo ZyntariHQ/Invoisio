@@ -1282,49 +1282,78 @@ fn test_multiple_legacy_payments_read_and_migrated() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
 
-    let invoice_ids = vec![
+    let invoice_ids = soroban_sdk::vec![
+        &env,
         String::from_str(&env, "invoisio-legacy-001"),
         String::from_str(&env, "invoisio-legacy-002"),
         String::from_str(&env, "invoisio-legacy-003"),
     ];
-    let payers: Vec<_> = (0..3).map(|_| Address::generate(&env)).collect();
-    let legacy_records: Vec<_> = invoice_ids
-        .iter()
-        .zip(payers.iter())
-        .enumerate()
-        .map(|(i, (id, payer))| PaymentRecord {
-            invoice_id: id.clone(),
-            payer: payer.clone(),
-            asset: Asset::Native,
-            amount: (i + 1) as i128 * 10_000_000,
-            timestamp: (i + 1) as u64 * 1000,
-        })
-        .collect();
+    let payer1 = Address::generate(&env);
+    let payer2 = Address::generate(&env);
+    let payer3 = Address::generate(&env);
+
+    let record1 = PaymentRecord {
+        invoice_id: invoice_ids.get(0).unwrap(),
+        payer: payer1.clone(),
+        asset: Asset::Native,
+        amount: 10_000_000i128,
+        timestamp: 1000u64,
+    };
+    let record2 = PaymentRecord {
+        invoice_id: invoice_ids.get(1).unwrap(),
+        payer: payer2.clone(),
+        asset: Asset::Native,
+        amount: 20_000_000i128,
+        timestamp: 2000u64,
+    };
+    let record3 = PaymentRecord {
+        invoice_id: invoice_ids.get(2).unwrap(),
+        payer: payer3.clone(),
+        asset: Asset::Native,
+        amount: 30_000_000i128,
+        timestamp: 3000u64,
+    };
 
     // Write all records to legacy keys
     env.as_contract(&client.address, || {
-        for record in &legacy_records {
-            env.storage()
-                .persistent()
-                .set(&DataKey::Payment(record.invoice_id.clone()), record);
-        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(record1.invoice_id.clone()), &record1);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(record2.invoice_id.clone()), &record2);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(record3.invoice_id.clone()), &record3);
     });
 
     // Read all payments and verify they are loaded correctly
-    for (i, id) in invoice_ids.iter().enumerate() {
-        let loaded = client.get_payment(id);
-        assert_eq!(loaded, legacy_records[i]);
-    }
+    let loaded1 = client.get_payment(&invoice_ids.get(0).unwrap());
+    assert_eq!(loaded1, record1);
+    let loaded2 = client.get_payment(&invoice_ids.get(1).unwrap());
+    assert_eq!(loaded2, record2);
+    let loaded3 = client.get_payment(&invoice_ids.get(2).unwrap());
+    assert_eq!(loaded3, record3);
 
     // Verify all were migrated to v1 keys
-    for id in &invoice_ids {
-        let migrated = env.as_contract(&client.address, || {
-            env.storage()
-                .persistent()
-                .has(&DataKey::PaymentV1(id.clone()))
-        });
-        assert!(migrated);
-    }
+    let migrated1 = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::PaymentV1(invoice_ids.get(0).unwrap().clone()))
+    });
+    assert!(migrated1);
+    let migrated2 = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::PaymentV1(invoice_ids.get(1).unwrap().clone()))
+    });
+    assert!(migrated2);
+    let migrated3 = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::PaymentV1(invoice_ids.get(2).unwrap().clone()))
+    });
+    assert!(migrated3);
 }
 
 #[test]
