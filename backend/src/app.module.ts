@@ -56,8 +56,20 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
           .default("https://soroban-testnet.stellar.org"),
         SOROBAN_CONTRACT_ID: Joi.string().optional().allow(""),
         SOROBAN_EVENT_TOPIC: Joi.string().default("InvoicePaymentRecorded"),
-        DATABASE_URL: Joi.string().optional(),
-        JWT_SECRET: Joi.string().optional(),
+        DATABASE_URL: Joi.string().required().messages({
+          "any.required":
+            "DATABASE_URL is required – set it to your database connection string (e.g. postgresql://user:pass@host:5432/db)",
+          "string.empty":
+            "DATABASE_URL must not be empty – set it to your database connection string",
+        }),
+        JWT_SECRET: Joi.string().min(32).required().messages({
+          "any.required":
+            "JWT_SECRET is required – generate one with: openssl rand -base64 32",
+          "string.min":
+            "JWT_SECRET must be at least 32 characters long – generate one with: openssl rand -base64 32",
+          "string.empty":
+            "JWT_SECRET must not be empty – generate one with: openssl rand -base64 32",
+        }),
         // Rate limiting configuration
         THROTTLE_TTL: Joi.number().integer().min(1).default(60),
         THROTTLE_LIMIT: Joi.number().integer().min(1).default(100),
@@ -71,6 +83,10 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
         REDIS_DB: Joi.number().integer().min(0).default(0),
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
       }),
+      validationOptions: {
+        abortEarly: false,
+        allowUnknown: true,
+      },
     }),
     CustomThrottlerModule,
     PrismaModule,
