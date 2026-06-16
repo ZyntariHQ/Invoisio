@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { PaymentRecord, SorobanContractError } from './types';
+import { PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**
@@ -8,6 +8,7 @@ export declare function encodeAddress(address: string): xdr.ScVal;
  * 7-decimal fixed-point values without floating-point rounding.
  */
 export declare function encodeI128(value: bigint): xdr.ScVal;
+export declare function encodeU32(value: number): xdr.ScVal;
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
@@ -16,6 +17,10 @@ export declare function encodeI128(value: bigint): xdr.ScVal;
  * Space: O(1) — fixed-size output struct.
  */
 export declare function decodePaymentRecord(scVal: xdr.ScVal): PaymentRecord;
+/**
+ * Decode a bounded payment-history page returned by `payment_history()`.
+ */
+export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage;
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
  * Returns code `Unknown` (-1) when the numeric code is not in the known set.

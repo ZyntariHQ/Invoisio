@@ -8,17 +8,18 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    Asset, ContractMeta, DataKey, PaymentRecord, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
-    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    Asset, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord, CONTRACT_VERSION,
+    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, bump_count, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_count, get_payment, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
+    ensure_current_contract_meta, get_admin, get_count, get_payment, get_payment_history_page,
+    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
+    is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
     set_native_allowed, set_payment,
 };
 
@@ -64,15 +65,16 @@ use storage::{
 ///   - [`set_admin`] requires **both** the current admin and the new admin to
 ///     authorise, ensuring the new admin explicitly consents to taking over.
 /// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `contract_version`, `version_info`, `admin`) are permissionless, so any
-///   account can inspect on-chain payment state.
+///   `payment_history`, `contract_version`, `version_info`, `admin`) are
+///   permissionless, so any account can inspect on-chain payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
 /// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
 /// 4. Contract stores record + emits event.
-/// 5. Any observer calls `get_payment(invoice_id)` or streams `getEvents` to verify.
+/// 5. Any observer calls `get_payment(invoice_id)`, `payment_history(cursor, limit)`,
+///    or streams `getEvents` to verify.
 #[contract]
 pub struct InvoicePaymentContract;
 
@@ -93,8 +95,11 @@ impl InvoicePaymentContract {
         set_admin(&env, &admin);
         // Persist explicit metadata so clients can reason about upgrades.
         set_contract_meta(&env, &current_contract_meta());
-        // Initialise counter explicitly so `payment_count` is always readable.
+        // Initialise counters explicitly so read methods are always readable.
         env.storage().instance().set(&DataKey::PaymentCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &0u32);
         Ok(())
     }
 
@@ -215,7 +220,9 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 7. Increment running counter (also bumps instance TTL).
+        // 7. Persist the ordered history entry and increment counters.
+        append_payment_history(&env, &record);
+        bump_history_count(&env);
         bump_count(&env);
 
         // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
@@ -258,6 +265,18 @@ impl InvoicePaymentContract {
     /// Return the total number of payments recorded in this contract instance.
     pub fn payment_count(env: Env) -> u32 {
         get_count(&env)
+    }
+
+    /// Return a bounded, cursor-friendly page of payment history.
+    ///
+    /// `cursor` is the next history index to read, and `limit` is capped so
+    /// the response remains bounded and predictable.
+    pub fn payment_history(
+        env: Env,
+        cursor: u32,
+        limit: u32,
+    ) -> PaymentHistoryPage {
+        get_payment_history_page(&env, cursor, limit)
     }
 
     /// Return the current **code** version as packed semver

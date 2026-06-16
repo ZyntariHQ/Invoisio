@@ -30,6 +30,13 @@ export interface PaymentRecord {
   readonly timestamp: bigint;
 }
 
+/** Bounded page of payment history returned by the contract. */
+export interface PaymentHistoryPage {
+  readonly records: PaymentRecord[];
+  readonly nextCursor: number;
+  readonly hasMore: boolean;
+}
+
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 /** Numeric codes matching the Rust `ContractError` enum. */
@@ -41,6 +48,8 @@ export const CONTRACT_ERROR_CODES = {
   5: 'InvalidAmount',
   6: 'InvalidInvoiceId',
   7: 'InvalidAsset',
+  8: 'AssetNotAllowed',
+  9: 'Unauthorized',
 } as const;
 
 export type ContractErrorCode =

@@ -5,6 +5,7 @@ export type {
   AssetNative,
   AssetToken,
   ContractErrorCode,
+  PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
   SorobanInvoiceClientConfig,

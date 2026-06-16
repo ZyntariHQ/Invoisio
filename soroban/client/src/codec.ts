@@ -4,6 +4,7 @@ import {
   Asset,
   CONTRACT_ERROR_CODES,
   ContractErrorCode,
+  PaymentHistoryPage,
   PaymentRecord,
   SorobanContractError,
 } from './types';
@@ -25,6 +26,10 @@ export function encodeAddress(address: string): xdr.ScVal {
  */
 export function encodeI128(value: bigint): xdr.ScVal {
   return nativeToScVal(value, { type: 'i128' });
+}
+
+export function encodeU32(value: number): xdr.ScVal {
+  return nativeToScVal(value, { type: 'u32' });
 }
 
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
@@ -66,6 +71,16 @@ function decodeAsset(raw: unknown): Asset {
   throw new Error(`Unexpected Asset XDR encoding: ${JSON.stringify(raw)}`);
 }
 
+function decodePaymentRecordFromNative(raw: Record<string, unknown>): PaymentRecord {
+  return {
+    invoiceId: String(raw['invoice_id']),
+    payer: String(raw['payer']),
+    asset: decodeAsset(raw['asset']),
+    amount: BigInt(raw['amount'] as bigint | number | string),
+    timestamp: BigInt(raw['timestamp'] as bigint | number | string),
+  };
+}
+
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
@@ -74,14 +89,20 @@ function decodeAsset(raw: unknown): Asset {
  * Space: O(1) — fixed-size output struct.
  */
 export function decodePaymentRecord(scVal: xdr.ScVal): PaymentRecord {
+  return decodePaymentRecordFromNative(scValToNative(scVal) as Record<string, unknown>);
+}
+
+/**
+ * Decode a bounded payment-history page returned by `payment_history()`.
+ */
+export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
   const raw = scValToNative(scVal) as Record<string, unknown>;
+  const records = (raw['records'] as Record<string, unknown>[] | undefined) ?? [];
 
   return {
-    invoiceId: String(raw['invoice_id']),
-    payer: String(raw['payer']),
-    asset: decodeAsset(raw['asset']),
-    amount: BigInt(raw['amount'] as bigint | number | string),
-    timestamp: BigInt(raw['timestamp'] as bigint | number | string),
+    records: records.map((record) => decodePaymentRecordFromNative(record)),
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
   };
 }
 

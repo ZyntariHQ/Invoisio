@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 
 import {
+  PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
   SorobanInvoiceClientConfig,
@@ -18,9 +19,11 @@ import {
 } from './types';
 import {
   decodePaymentRecord,
+  decodePaymentHistoryPage,
   encodeAddress,
   encodeI128,
   encodeString,
+  encodeU32,
   parseContractError,
 } from './codec';
 
@@ -163,6 +166,21 @@ export class SorobanInvoiceClient {
   async getPaymentCount(): Promise<number> {
     const retval = await this.simulateView('payment_count');
     return Number(scValToNative(retval));
+  }
+
+  /**
+   * Fetch a bounded page of payment history using a cursor-based read.
+   *
+   * `cursor` is the next history index to read, and `limit` is capped by the
+   * contract so responses remain bounded and predictable.
+   */
+  async getPaymentHistory(cursor = 0, limit = 25): Promise<PaymentHistoryPage> {
+    const retval = await this.simulateView(
+      'payment_history',
+      encodeU32(cursor),
+      encodeU32(limit),
+    );
+    return decodePaymentHistoryPage(retval);
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

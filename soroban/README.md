@@ -16,6 +16,7 @@ soroban/
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
 ├── invoke-has-payment.sh           # Check payment existence
+├── invoke-payment-history.sh       # Page through payment history
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -274,6 +275,17 @@ Checks if a payment exists for an invoice (non-panicking).
 
 **Returns:** `true` if payment exists, `false` otherwise
 
+### `./invoke-payment-history.sh`
+
+Retrieves a bounded page of payment history.
+
+**Usage:**
+```bash
+./invoke-payment-history.sh <cursor> [limit]
+```
+
+**Returns:** a page of payment records with `next_cursor` and `has_more`
+
 ---
 
 ## `invoice-payment` Contract
@@ -356,10 +368,13 @@ Contract v1 (C1) live
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
+| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `set_admin(new_admin)` | admin | Transfer admin rights. |
+
+`payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
 ### Contract error codes
 

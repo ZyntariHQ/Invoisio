@@ -116,6 +116,16 @@ class SorobanInvoiceClient {
         const retval = await this.simulateView('payment_count');
         return Number((0, stellar_sdk_1.scValToNative)(retval));
     }
+    /**
+     * Fetch a bounded page of payment history using a cursor-based read.
+     *
+     * `cursor` is the next history index to read, and `limit` is capped by the
+     * contract so responses remain bounded and predictable.
+     */
+    async getPaymentHistory(cursor = 0, limit = 25) {
+        const retval = await this.simulateView('payment_history', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
+        return (0, codec_1.decodePaymentHistoryPage)(retval);
+    }
     // ─── Private helpers ────────────────────────────────────────────────────────
     /**
      * Build and simulate a read-only contract call without submitting a transaction.
