@@ -19,8 +19,7 @@ Invoisio is being adapted to run with grant programs on **GrantFox (grantfox.xyz
 - **Live status updates** via intelligent polling with exponential backoff
 - Ultra‑low‑cost payments on Stellar: XLM and USDC
 - Real‑time backend reconciliation via Horizon (listen for payments + memo)
-- Privacy‑first mindset; collect only what’s necessary
-## 💳 Invoice Detail & Payment
+- Privacy‑first mindset; collect only what’s necessary- Mobile smoke test checklist: [`mobile/SMOKE_TEST_CHECKLIST.md`](mobile/SMOKE_TEST_CHECKLIST.md)## 💳 Invoice Detail & Payment
 
 The **invoice detail page** (web: `/invoices/[id]`) allows payers to:
 
