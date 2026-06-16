@@ -48,6 +48,37 @@ pub fn current_contract_meta() -> ContractMeta {
     }
 }
 
+/// Stable, high-level summary of allowlist policy for integration consumers.
+///
+/// `requires_token_allowlist` is currently always `true`: issued assets must be
+/// explicitly added via `allow_asset(code, issuer)` before `record_payment`
+/// accepts them. `native_allowed` reflects the mutable XLM toggle controlled by
+/// `set_allow_native`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistMode {
+    pub native_allowed: bool,
+    pub requires_token_allowlist: bool,
+}
+
+/// Stable read model for ops tooling and client integrations.
+///
+/// Returned by the contract `config()` view so consumers can inspect
+/// initialization status, admin ownership, version metadata, and allowlist
+/// policy in a single permissionless call.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    /// `Some(admin)` once `initialize(admin)` has been called; `None` before.
+    pub admin: Option<Address>,
+    /// Whether the contract has been initialised and can accept admin-gated writes.
+    pub initialized: bool,
+    /// On-chain version metadata associated with the current stored state.
+    pub version: ContractMeta,
+    /// High-level asset policy snapshot for native XLM and issued tokens.
+    pub allowlist_mode: AllowlistMode,
+}
+
 // Storage keys
 
 /// All keys used in this contract's instance and persistent storage.
@@ -154,6 +185,21 @@ pub fn get_state_contract_version(env: &Env) -> u32 {
     get_contract_meta(env)
         .map(|meta| meta.contract_version)
         .unwrap_or(LEGACY_CONTRACT_VERSION)
+}
+
+pub fn get_contract_config(env: &Env) -> ContractConfig {
+    ContractConfig {
+        admin: env.storage().instance().get(&DataKey::Admin),
+        initialized: has_admin(env),
+        version: ContractMeta {
+            contract_version: get_state_contract_version(env),
+            storage_schema_version: get_storage_schema_version(env),
+        },
+        allowlist_mode: AllowlistMode {
+            native_allowed: is_native_allowed(env),
+            requires_token_allowlist: true,
+        },
+    }
 }
 
 // Admin helpers (instance storage)

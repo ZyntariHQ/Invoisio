@@ -63,6 +63,51 @@ fn test_initialize_sets_version_metadata() {
 }
 
 #[test]
+fn test_config_before_initialize_reports_uninitialized_state() {
+    let env = Env::default();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    assert_eq!(
+        client.config(),
+        ContractConfig {
+            admin: None,
+            initialized: false,
+            version: ContractMeta {
+                contract_version: 0,
+                storage_schema_version: 0,
+            },
+            allowlist_mode: AllowlistMode {
+                native_allowed: false,
+                requires_token_allowlist: true,
+            },
+        }
+    );
+}
+
+#[test]
+fn test_config_after_initialize_returns_high_level_snapshot() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+
+    assert_eq!(
+        client.config(),
+        ContractConfig {
+            admin: Some(admin),
+            initialized: true,
+            version: ContractMeta {
+                contract_version: CONTRACT_VERSION,
+                storage_schema_version: STORAGE_SCHEMA_VERSION,
+            },
+            allowlist_mode: AllowlistMode {
+                native_allowed: false,
+                requires_token_allowlist: true,
+            },
+        }
+    );
+}
+
+#[test]
 fn test_contract_version_is_packed_semver() {
     assert_eq!(
         CONTRACT_VERSION,
@@ -1013,6 +1058,31 @@ fn test_native_allow_toggle() {
     let invoice_id_2 = String::from_str(&env, "inv-native-2");
     let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128);
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+#[test]
+fn test_config_reflects_allowlist_mode_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    assert_eq!(
+        client.config(),
+        ContractConfig {
+            admin: Some(admin),
+            initialized: true,
+            version: ContractMeta {
+                contract_version: CONTRACT_VERSION,
+                storage_schema_version: STORAGE_SCHEMA_VERSION,
+            },
+            allowlist_mode: AllowlistMode {
+                native_allowed: true,
+                requires_token_allowlist: true,
+            },
+        }
+    );
 }
 
 #[test]

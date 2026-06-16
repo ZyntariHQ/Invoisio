@@ -8,8 +8,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    Asset, ContractMeta, DataKey, PaymentRecord, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
-    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentRecord, CONTRACT_VERSION,
+    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
+    STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -17,9 +18,9 @@ use events::{
 };
 use storage::{
     allow_asset, bump_count, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_count, get_payment, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
-    set_native_allowed, set_payment,
+    get_contract_config, get_count, get_payment, get_state_contract_version,
+    get_storage_schema_version, has_admin, has_payment, is_asset_allowed, is_native_allowed,
+    revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
 };
 
 // Contract
@@ -63,7 +64,7 @@ use storage::{
 ///     using `require_auth()`.
 ///   - [`set_admin`] requires **both** the current admin and the new admin to
 ///     authorise, ensuring the new admin explicitly consents to taking over.
-/// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
+/// - **Read methods** (`config`, `get_payment`, `has_payment`, `payment_count`,
 ///   `contract_version`, `version_info`, `admin`) are permissionless, so any
 ///   account can inspect on-chain payment state.
 ///
@@ -258,6 +259,34 @@ impl InvoicePaymentContract {
     /// Return the total number of payments recorded in this contract instance.
     pub fn payment_count(env: Env) -> u32 {
         get_count(&env)
+    }
+
+    /// Return a stable, high-level contract configuration snapshot.
+    ///
+    /// This view is intended for backend health checks, deployment scripts, and
+    /// UI clients that need one permissionless call instead of stitching
+    /// together multiple reads. The response shape is stable and uses named
+    /// fields so integrations can decode it predictably.
+    ///
+    /// ## Returned fields
+    /// - `admin` — `Some(address)` once initialised, otherwise `None`
+    /// - `initialized` — whether `initialize(admin)` has completed
+    /// - `version` — detected on-chain version and storage schema metadata
+    /// - `allowlist_mode.native_allowed` — whether native XLM payments are accepted
+    /// - `allowlist_mode.requires_token_allowlist` — whether issued assets must
+    ///   be explicitly allowlisted (currently always `true`)
+    ///
+    /// ## Example
+    /// ```text
+    /// ContractConfig {
+    ///   admin: Some(G...ADMIN),
+    ///   initialized: true,
+    ///   version: ContractMeta { contract_version: 1000000, storage_schema_version: 1 },
+    ///   allowlist_mode: AllowlistMode { native_allowed: true, requires_token_allowlist: true }
+    /// }
+    /// ```
+    pub fn config(env: Env) -> ContractConfig {
+        get_contract_config(&env)
     }
 
     /// Return the current **code** version as packed semver

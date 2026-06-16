@@ -11,12 +11,14 @@ import {
 } from '@stellar/stellar-sdk';
 
 import {
+  ContractConfig,
   PaymentRecord,
   RecordPaymentParams,
   SorobanInvoiceClientConfig,
   TransactionResult,
 } from './types';
 import {
+  decodeContractConfig,
   decodePaymentRecord,
   encodeAddress,
   encodeI128,
@@ -137,6 +139,18 @@ export class SorobanInvoiceClient {
   }
 
   // ─── Read operations (permissionless) ──────────────────────────────────────
+
+  /**
+   * Return the stable high-level contract configuration snapshot.
+   *
+   * This is the preferred single-call read for deployment checks, backend
+   * health probes, and UI bootstrapping because it includes admin ownership,
+   * initialization status, version metadata, and allowlist policy together.
+   */
+  async getConfig(): Promise<ContractConfig> {
+    const retval = await this.simulateView('config');
+    return decodeContractConfig(retval);
+  }
 
   /**
    * Fetch the full `PaymentRecord` for an invoice.

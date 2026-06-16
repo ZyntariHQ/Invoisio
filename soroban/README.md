@@ -15,6 +15,7 @@ soroban/
 ├── deploy.sh                       # Deploy to testnet + initialize
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
+├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
@@ -195,6 +196,31 @@ Network:     testnet
 }
 ```
 
+### Step 5: Inspect contract config
+
+Use one permissionless call to read admin ownership, initialization status,
+version metadata, and current allowlist policy:
+
+```bash
+./invoke-config.sh
+```
+
+**Expected output:**
+```json
+{
+  "admin": "GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL",
+  "initialized": true,
+  "version": {
+    "contract_version": 1000000,
+    "storage_schema_version": 1
+  },
+  "allowlist_mode": {
+    "native_allowed": false,
+    "requires_token_allowlist": true
+  }
+}
+```
+
 ---
 
 ## Script Reference
@@ -262,6 +288,17 @@ Retrieves a payment record from the contract.
 ```
 
 **Returns:** JSON payment record with invoice_id, payer, asset, amount, timestamp
+
+### Contract `config()` view
+
+Returns a stable JSON snapshot with:
+
+- `admin` — current admin address, or `null` before initialization
+- `initialized` — whether `initialize(admin)` has been called
+- `version.contract_version` — packed semver for the state-writing contract build
+- `version.storage_schema_version` — storage layout version
+- `allowlist_mode.native_allowed` — whether native XLM is accepted
+- `allowlist_mode.requires_token_allowlist` — whether issued assets must be explicitly allowlisted
 
 ### `./invoke-has-payment.sh`
 
@@ -628,6 +665,9 @@ const result = await client.recordPayment({
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
 
 // ── Read (permissionless) ────────────────────────────────────────────────────
+const config = await client.getConfig();
+console.log(config.initialized, config.admin, config.allowlistMode.nativeAllowed);
+
 const exists = await client.hasPayment('invoisio-abc123');
 if (exists) {
   const record = await client.getPayment('invoisio-abc123');
@@ -648,6 +688,9 @@ npm run example:record
 
 # Query a payment (requires SOURCE_PUBLIC_KEY in .env)
 npm run example:query
+
+# Query high-level contract config (requires SOURCE_PUBLIC_KEY + CONTRACT_ID)
+npm run example:config
 ```
 
 **Sample output — record:**

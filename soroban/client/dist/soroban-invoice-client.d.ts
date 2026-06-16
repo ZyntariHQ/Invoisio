@@ -1,4 +1,4 @@
-import { PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
+import { ContractConfig, PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
 /**
  * Minimal client helper for the Invoisio `invoice-payment` Soroban contract.
  *
@@ -37,6 +37,14 @@ export declare class SorobanInvoiceClient {
      * @throws {Error} on network errors or confirmation timeout
      */
     recordPayment(params: RecordPaymentParams): Promise<TransactionResult>;
+    /**
+     * Return the stable high-level contract configuration snapshot.
+     *
+     * This is the preferred single-call read for deployment checks, backend
+     * health probes, and UI bootstrapping because it includes admin ownership,
+     * initialization status, version metadata, and allowlist policy together.
+     */
+    getConfig(): Promise<ContractConfig>;
     /**
      * Fetch the full `PaymentRecord` for an invoice.
      *
