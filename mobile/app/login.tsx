@@ -115,7 +115,7 @@ export default function LoginScreen() {
                   className="text-center text-emerald-300"
                   style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
                 >
-                  ✓ Wallet Connected
+                  Wallet Connected
                 </Text>
                 <Text
                   className="mt-2 text-center text-xs text-slate-300"
