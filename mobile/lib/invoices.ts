@@ -12,10 +12,14 @@ export interface Invoice {
   clientEmail?: string;
   description?: string;
   amount: number;
-  asset: string;
+  asset?: string;
+  asset_code?: string;
+  asset_issuer?: string;
   memo?: string;
+  memo_type?: string;
   status: InvoiceStatus;
   destination?: string;
+  destination_address?: string;
   createdAt: string;
   updatedAt?: string;
   dueDate?: string;
