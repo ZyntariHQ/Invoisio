@@ -1275,3 +1275,149 @@ fn test_amount_at_max_succeeds() {
     );
     assert!(client.has_payment(&invoice_id));
 }
+
+// Upgrade compatibility tests
+#[test]
+fn test_multiple_legacy_payments_read_and_migrated() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let invoice_ids = vec![
+        String::from_str(&env, "invoisio-legacy-001"),
+        String::from_str(&env, "invoisio-legacy-002"),
+        String::from_str(&env, "invoisio-legacy-003"),
+    ];
+    let payers: Vec<_> = (0..3).map(|_| Address::generate(&env)).collect();
+    let legacy_records: Vec<_> = invoice_ids
+        .iter()
+        .zip(payers.iter())
+        .enumerate()
+        .map(|(i, (id, payer))| PaymentRecord {
+            invoice_id: id.clone(),
+            payer: payer.clone(),
+            asset: Asset::Native,
+            amount: (i + 1) as i128 * 10_000_000,
+            timestamp: (i + 1) as u64 * 1000,
+        })
+        .collect();
+
+    // Write all records to legacy keys
+    env.as_contract(&client.address, || {
+        for record in &legacy_records {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Payment(record.invoice_id.clone()), record);
+        }
+    });
+
+    // Read all payments and verify they are loaded correctly
+    for (i, id) in invoice_ids.iter().enumerate() {
+        let loaded = client.get_payment(id);
+        assert_eq!(loaded, legacy_records[i]);
+    }
+
+    // Verify all were migrated to v1 keys
+    for id in &invoice_ids {
+        let migrated = env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(id.clone()))
+        });
+        assert!(migrated);
+    }
+}
+
+#[test]
+fn test_mixed_legacy_and_new_payments() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    // Create a legacy payment
+    let legacy_invoice_id = String::from_str(&env, "invoisio-legacy-mix");
+    let legacy_payer = Address::generate(&env);
+    let legacy_record = PaymentRecord {
+        invoice_id: legacy_invoice_id.clone(),
+        payer: legacy_payer.clone(),
+        asset: Asset::Native,
+        amount: 10_000_000,
+        timestamp: 1234,
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(legacy_invoice_id.clone()), &legacy_record);
+    });
+
+    // Record a new payment
+    let new_invoice_id = String::from_str(&env, "invoisio-new-mix");
+    let new_payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    client.record_payment(
+        &new_invoice_id,
+        &new_payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000,
+    );
+
+    // Verify both are readable
+    let loaded_legacy = client.get_payment(&legacy_invoice_id);
+    assert_eq!(loaded_legacy, legacy_record);
+    let loaded_new = client.get_payment(&new_invoice_id);
+    assert_eq!(loaded_new.invoice_id, new_invoice_id);
+    assert_eq!(loaded_new.amount, 20_000_000);
+
+    // Verify legacy was migrated
+    let migrated = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::PaymentV1(legacy_invoice_id.clone()))
+    });
+    assert!(migrated);
+}
+
+#[test]
+fn test_legacy_deployment_without_metadata_then_write() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // Simulate a legacy deployment that initialized admin and payment count,
+    // but didn't set ContractMeta
+    env.as_contract(&client.address, || {
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
+    });
+
+    // Check initial version info
+    assert_eq!(
+        client.version_info(),
+        ContractMeta {
+            contract_version: 0,
+            storage_schema_version: 0,
+        }
+    );
+
+    // Perform a write operation which should backfill metadata
+    let payer = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_allow_native(&true);
+    client.record_payment(
+        &String::from_str(&env, "invoisio-legacy-deploy"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000,
+    );
+
+    // Now metadata should be present and current
+    assert_eq!(
+        client.version_info(),
+        ContractMeta {
+            contract_version: CONTRACT_VERSION,
+            storage_schema_version: STORAGE_SCHEMA_VERSION,
+        }
+    );
+}
