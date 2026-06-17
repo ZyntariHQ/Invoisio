@@ -8,8 +8,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    Asset, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord, CONTRACT_VERSION,
-    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
+    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
+    STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -279,6 +280,11 @@ impl InvoicePaymentContract {
         limit: u32,
     ) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
+    }
+
+   /// Return a high-level snapshot of contract configuration.
+    pub fn config(env: Env) -> ContractConfig {
+        storage::get_contract_config(&env)
     }
 
     /// Return the current **code** version as packed semver
