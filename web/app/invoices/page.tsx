@@ -128,7 +128,9 @@ export default function InvoicesPage() {
           <WalletAuthControls />
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => refetch()}
+              aria-label="Refresh invoices list"
               className="inline-flex items-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50"
             >
               Refresh
@@ -139,7 +141,11 @@ export default function InvoicesPage() {
         {/* Filters */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="relative">
+            <label htmlFor="invoice-search" className="sr-only">
+              Search invoices
+            </label>
             <input
+              id="invoice-search"
               type="text"
               placeholder="Search by invoice # or client..."
               value={searchQuery}
@@ -148,7 +154,11 @@ export default function InvoicesPage() {
             />
           </div>
           <div>
+            <label htmlFor="status-filter" className="sr-only">
+              Filter by invoice status
+            </label>
             <select
+              id="status-filter"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as 'all' | 'pending' | 'paid' | 'overdue' | 'cancelled')}
               className="block w-full rounded-md border-0 py-2 pl-3 pr-10 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-inset focus:ring-blue-600 sm:text-sm sm:leading-6"
@@ -164,7 +174,11 @@ export default function InvoicesPage() {
 
         {/* Error State */}
         {error && (
-          <div className="mb-6 rounded-md bg-red-50 p-4">
+          <div 
+            className="mb-6 rounded-md bg-red-50 p-4"
+            role="alert"
+            aria-live="assertive"
+          >
             <p className="text-sm font-medium text-red-900">
               Error loading invoices: {error instanceof Error ? error.message : 'Unknown error'}
             </p>
@@ -258,13 +272,19 @@ export default function InvoicesPage() {
             <div className="mt-8 flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 rounded-lg shadow-sm">
               <div className="flex flex-1 justify-between sm:hidden">
                 <button
+                  type="button"
                   disabled
+                  aria-disabled="true"
+                  aria-label="Go to previous page"
                   className="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed hover:bg-gray-50"
                 >
                   Previous
                 </button>
                 <button
+                  type="button"
                   disabled
+                  aria-disabled="true"
+                  aria-label="Go to next page"
                   className="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-300 cursor-not-allowed hover:bg-gray-50"
                 >
                   Next
@@ -279,7 +299,9 @@ export default function InvoicesPage() {
                 <div>
                   <nav className="isolate inline-flex -space-gap-px rounded-md shadow-sm" aria-label="Pagination">
                     <button
+                      type="button"
                       disabled
+                      aria-disabled="true"
                       className="relative inline-flex items-center rounded-l-md px-2 py-2 text-gray-300 ring-1 ring-inset ring-gray-300 cursor-not-allowed hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
                     >
                       <span className="sr-only">Previous</span>
@@ -288,7 +310,9 @@ export default function InvoicesPage() {
                       </svg>
                     </button>
                     <button
+                      type="button"
                       disabled
+                      aria-disabled="true"
                       className="relative inline-flex items-center rounded-r-md px-2 py-2 text-gray-300 ring-1 ring-inset ring-gray-300 cursor-not-allowed hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
                     >
                       <span className="sr-only">Next</span>
@@ -304,8 +328,10 @@ export default function InvoicesPage() {
             {hasNextPage && (
               <div className="mt-4 text-center">
                 <button
+                  type="button"
                   onClick={() => fetchNextPage()}
                   disabled={isFetchingNextPage}
+                  aria-label={isFetchingNextPage ? 'Loading more invoices' : 'Load more invoices'}
                   className="inline-flex rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-400"
                 >
                   {isFetchingNextPage ? 'Loading...' : 'Load More'}
