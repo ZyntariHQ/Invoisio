@@ -275,15 +275,11 @@ impl InvoicePaymentContract {
     ///
     /// `cursor` is the next history index to read, and `limit` is capped so
     /// the response remains bounded and predictable.
-    pub fn payment_history(
-        env: Env,
-        cursor: u32,
-        limit: u32,
-    ) -> PaymentHistoryPage {
+    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
     }
 
-   /// Return a high-level snapshot of contract configuration.
+    /// Return a high-level snapshot of contract configuration.
     pub fn config(env: Env) -> ContractConfig {
         storage::get_contract_config(&env)
     }
