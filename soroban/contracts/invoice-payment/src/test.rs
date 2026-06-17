@@ -2,6 +2,7 @@
 #![allow(clippy::all)]
 
 use super::*;
+use alloc::format;
 use soroban_sdk::{
     testutils::{Address as _, MockAuth, MockAuthInvoke},
     Address, Env, IntoVal, String,
@@ -196,6 +197,85 @@ fn test_record_payment_increments_count() {
     record_xlm(&env, &client, "invoisio-003", &payer, 30_000_000);
 
     assert_eq!(client.payment_count(), 3);
+}
+
+#[test]
+fn test_payment_history_pages_deterministically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-history-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((idx as i128 + 1) * 10_000_000i128),
+        );
+    }
+
+    let first_page = client.payment_history(&0u32, &2u32);
+    assert_eq!(first_page.records.len(), 2);
+    assert_eq!(first_page.next_cursor, 2);
+    assert!(first_page.has_more);
+    assert_eq!(
+        first_page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-history-00")
+    );
+    assert_eq!(
+        first_page.records.get(1).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-history-01")
+    );
+
+    let second_page = client.payment_history(&first_page.next_cursor, &2u32);
+    assert_eq!(second_page.records.len(), 1);
+    assert_eq!(second_page.next_cursor, 3);
+    assert!(!second_page.has_more);
+    assert_eq!(
+        second_page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-history-02")
+    );
+
+    let empty_page = client.payment_history(&99u32, &2u32);
+    assert_eq!(empty_page.records.len(), 0);
+    assert_eq!(empty_page.next_cursor, 3);
+    assert!(!empty_page.has_more);
+}
+
+#[test]
+fn test_payment_history_page_size_is_capped() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..26u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-cap-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &(10_000_000i128 + idx as i128),
+        );
+    }
+
+    let first_page = client.payment_history(&0u32, &100u32);
+    assert_eq!(first_page.records.len(), 25);
+    assert_eq!(first_page.next_cursor, 25);
+    assert!(first_page.has_more);
+
+    let second_page = client.payment_history(&first_page.next_cursor, &100u32);
+    assert_eq!(second_page.records.len(), 1);
+    assert_eq!(second_page.next_cursor, 26);
+    assert!(!second_page.has_more);
 }
 
 #[test]

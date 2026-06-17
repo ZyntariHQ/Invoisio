@@ -7,7 +7,7 @@ export type {
   AssetToken,
   ContractConfig,
   ContractErrorCode,
-  ContractVersionInfo,
+  PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
   SorobanInvoiceClientConfig,
