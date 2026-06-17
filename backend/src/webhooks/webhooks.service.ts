@@ -1,8 +1,19 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
 import axios from "axios";
 import * as crypto from "crypto";
+
+export interface WebhookSecretMetadata {
+  hasSecret: boolean;
+  maskedSecret: string | null;
+  secretLength: number | null;
+}
+
+export interface WebhookSecretRotationResult {
+  secret: string;
+  metadata: WebhookSecretMetadata;
+}
 
 @Injectable()
 export class WebhooksService {
@@ -10,6 +21,55 @@ export class WebhooksService {
   private isProcessing = false;
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Return masked metadata for the merchant's current webhook signing secret.
+   *
+   * The raw secret is never returned from read methods.
+   */
+  async getWebhookSecretMetadata(
+    userId: string,
+    merchantId: string,
+  ): Promise<WebhookSecretMetadata> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, merchantId },
+      select: { webhookSecret: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found.");
+    }
+
+    return this.toSecretMetadata(user.webhookSecret ?? null);
+  }
+
+  /**
+   * Generate, persist, and return a brand new webhook signing secret.
+   *
+   * Overwriting the stored secret immediately invalidates the previous signing
+   * secret for any future webhook deliveries.
+   */
+  async rotateWebhookSecret(
+    userId: string,
+    merchantId: string,
+  ): Promise<WebhookSecretRotationResult> {
+    const secret = crypto.randomBytes(32).toString("hex");
+    const updated = await this.prisma.user.updateMany({
+      where: { id: userId, merchantId },
+      data: {
+        webhookSecret: secret,
+      },
+    });
+
+    if (updated.count === 0) {
+      throw new NotFoundException("User not found.");
+    }
+
+    return {
+      secret,
+      metadata: this.toSecretMetadata(secret),
+    };
+  }
 
   /**
    * Enqueues a webhook delivery for an invoice status change if the user has a webhook URL configured.
@@ -103,7 +163,12 @@ export class WebhooksService {
    * Delivers a single webhook payload, handling retries and HMAC signatures.
    */
   public async deliver(delivery: any): Promise<void> {
-    const user = delivery.user;
+    // Re-read the current secret from the database so secret rotation takes
+    // effect immediately, even if this delivery was loaded before rotation.
+    const user = await this.prisma.user.findUnique({
+      where: { id: delivery.userId ?? delivery.user?.id },
+      select: { webhookSecret: true },
+    });
     const secret = user?.webhookSecret;
     const payloadStr = JSON.stringify(delivery.payload);
 
@@ -175,5 +240,33 @@ export class WebhooksService {
         });
       }
     }
+  }
+
+  private toSecretMetadata(secret: string | null): WebhookSecretMetadata {
+    if (!secret) {
+      return {
+        hasSecret: false,
+        maskedSecret: null,
+        secretLength: null,
+      };
+    }
+
+    return {
+      hasSecret: true,
+      maskedSecret: this.maskSecret(secret),
+      secretLength: secret.length,
+    };
+  }
+
+  private maskSecret(secret: string): string {
+    if (secret.length <= 4) {
+      return "*".repeat(secret.length);
+    }
+
+    if (secret.length <= 8) {
+      return `${secret.slice(0, 1)}...${secret.slice(-1)}`;
+    }
+
+    return `${secret.slice(0, 4)}...${secret.slice(-4)}`;
   }
 }

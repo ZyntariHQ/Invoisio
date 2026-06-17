@@ -139,6 +139,22 @@ Content-Type: application/json
 }
 ```
 
+### Webhooks
+
+#### Read masked webhook secret metadata
+
+```bash
+GET /webhooks/secret
+```
+
+#### Rotate webhook secret
+
+```bash
+POST /webhooks/secret/rotate
+```
+
+The rotate endpoint generates a fresh signing secret, persists it immediately, and returns the raw value once so the merchant can update their webhook receiver. Subsequent reads only return masked metadata.
+
 ## Testing
 
 ### Unit Tests
