@@ -8,7 +8,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 
-import { MerchantMember } from "src/merchant/entities/merchant-member.entity";
+import { MerchantMember } from "../../merchant/entities/merchant-member.entity";
 
 @Injectable()
 export class MerchantMembershipGuard implements CanActivate {

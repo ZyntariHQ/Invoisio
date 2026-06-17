@@ -6,15 +6,17 @@ import request from "supertest";
 import { MerchantController } from "./merchant.controller";
 import { MerchantService } from "./merchant.service";
 
-import { JwtAuthGuard } from "src/auth/guard/auth.guard";
-import { MerchantMembershipGuard } from "src/common/gaurds/merchant-membership.guard";
-import { MerchantRolesGuard } from "src/common/gaurds/merchant-roles.guard";
+import { JwtAuthGuard } from "../auth/guard/auth.guard";
+import { MerchantMembershipGuard } from "../common/guards/merchant-membership.guard";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 
 describe("MerchantController RBAC", () => {
   let app: INestApplication;
 
+  let currentRole = "viewer";
+
   beforeAll(async () => {
-    const module = await Test.createTestingModule({
+    const module: TestingModule = await Test.createTestingModule({
       controllers: [MerchantController],
 
       providers: [
@@ -22,12 +24,38 @@ describe("MerchantController RBAC", () => {
           provide: MerchantService,
           useValue: {},
         },
-
-        JwtAuthGuard,
-        MerchantMembershipGuard,
-        MerchantRolesGuard,
       ],
-    }).compile();
+    })
+
+      .overrideGuard(JwtAuthGuard)
+
+      .useValue({
+        canActivate: (context) => {
+          const req = context.switchToHttp().getRequest();
+
+          req.user = {
+            id: "user-1",
+          };
+
+          return true;
+        },
+      })
+
+      .overrideGuard(MerchantMembershipGuard)
+
+      .useValue({
+        canActivate: (context) => {
+          const req = context.switchToHttp().getRequest();
+
+          req.membership = {
+            role: currentRole,
+          };
+
+          return true;
+        },
+      })
+
+      .compile();
 
     app = module.createNestApplication();
 
@@ -35,6 +63,35 @@ describe("MerchantController RBAC", () => {
   });
 
   afterAll(async () => {
-    await app.close();
+    if (app) {
+      await app.close();
+    }
+  });
+
+  it("should deny viewer export access", async () => {
+    currentRole = "viewer";
+
+    await request(app.getHttpServer())
+      .get("/merchants/1/export")
+
+      .expect(403);
+  });
+
+  it("should deny viewer settings update", async () => {
+    currentRole = "viewer";
+
+    await request(app.getHttpServer())
+      .patch("/merchants/1/settings")
+
+      .expect(403);
+  });
+
+  it("should allow admin export", async () => {
+    currentRole = "admin";
+
+    await request(app.getHttpServer())
+      .get("/merchants/1/export")
+
+      .expect(200);
   });
 });

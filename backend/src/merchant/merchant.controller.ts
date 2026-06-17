@@ -7,15 +7,23 @@ import {
   UseGuards,
 } from "@nestjs/common";
 
-import { JwtAuthGuard } from "src/auth/guard/auth.guard";
-import { MerchantMembershipGuard } from "src/common/gaurds/merchant-membership.guard";
-import { MerchantRolesGuard } from "src/common/gaurds/merchant-roles.guard";
-import { Roles } from "src/common/decorators/roles.decorator";
-import { MerchantRole } from "src/common/enums/merchant-role.enum";
+import { JwtAuthGuard } from "../auth/guard/auth.guard";
+import { MerchantMembershipGuard } from "../common/guards/merchant-membership.guard";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
+import { Roles } from "../common/decorators/roles.decorator";
+import { MerchantRole } from "../common/enums/merchant-role.enum";
 
 @UseGuards(JwtAuthGuard, MerchantMembershipGuard, MerchantRolesGuard)
 @Controller("merchants")
 export class MerchantController {
+  @Get(":merchantId/export")
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  exportMerchantData() {
+    return {
+      message: "Export started",
+    };
+  }
+
   @Patch(":merchantId/settings")
   @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
   updateSettings() {

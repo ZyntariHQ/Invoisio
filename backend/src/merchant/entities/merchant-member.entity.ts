@@ -1,6 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
 
-import { MerchantRole } from "src/common/enums/merchant-role.enum";
+import { MerchantRole } from "../../common/enums/merchant-role.enum";
 
 @Entity("merchant_members")
 export class MerchantMember {
