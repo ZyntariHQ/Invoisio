@@ -1,9 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from '../prisma/prisma.service';
-import { InvoicesService } from '../invoices/invoices.service';
-import { SorobanService } from '../soroban/soroban.service';
-import { Prisma } from '@prisma/client';
+import { Injectable, Logger, BadRequestException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "../prisma/prisma.service";
+import { InvoicesService } from "../invoices/invoices.service";
+import { SorobanService } from "../soroban/soroban.service";
+import { Prisma } from "@prisma/client";
 
 export interface BackfillStats {
   totalEvents: number;
@@ -49,8 +49,8 @@ export class BackfillService {
     private readonly sorobanService: SorobanService,
     private readonly configService: ConfigService,
   ) {
-    const stellarConfig = this.configService.get('stellar');
-    this.contractId = stellarConfig?.sorobanContractId || '';
+    const stellarConfig = this.configService.get("stellar");
+    this.contractId = stellarConfig?.sorobanContractId || "";
   }
 
   /**
@@ -70,7 +70,7 @@ export class BackfillService {
     } = options;
 
     if (!contractId) {
-      throw new BadRequestException('Contract ID is required');
+      throw new BadRequestException("Contract ID is required");
     }
 
     // Determine start ledger
@@ -79,13 +79,13 @@ export class BackfillService {
       const lastLedger = await this.getLastProcessedLedger(contractId);
       actualStartLedger = lastLedger ? lastLedger + 1 : 1;
       this.logger.log(
-        `Starting from last processed ledger: ${lastLedger || 'none'} → ${actualStartLedger}`,
+        `Starting from last processed ledger: ${lastLedger || "none"} → ${actualStartLedger}`,
       );
     }
 
     if (!actualStartLedger) {
       throw new BadRequestException(
-        'startLedger is required unless using --from-last',
+        "startLedger is required unless using --from-last",
       );
     }
 
@@ -96,7 +96,7 @@ export class BackfillService {
         actualEndLedger = await this.getLatestLedger();
         this.logger.log(`Using latest ledger: ${actualEndLedger}`);
       } catch (error) {
-        this.logger.warn('Could not fetch latest ledger, using default range');
+        this.logger.warn("Could not fetch latest ledger, using default range");
         actualEndLedger = actualStartLedger + 10000;
       }
     }
@@ -106,7 +106,7 @@ export class BackfillService {
       data: {
         startLedger: BigInt(actualStartLedger),
         endLedger: BigInt(actualEndLedger),
-        status: 'running',
+        status: "running",
       },
     });
 
@@ -125,13 +125,15 @@ export class BackfillService {
     try {
       // Fetch events in batches
       let currentLedger = actualStartLedger;
-      let hasMore = true;
+      const hasMore = true;
       let cursor: string | undefined;
 
       while (hasMore && currentLedger <= actualEndLedger) {
         const batchEnd = Math.min(currentLedger + batchSize, actualEndLedger);
 
-        this.logger.debug(`Fetching events for range: ${currentLedger} → ${batchEnd}`);
+        this.logger.debug(
+          `Fetching events for range: ${currentLedger} → ${batchEnd}`,
+        );
 
         // Fetch events using the same logic as SorobanEventsService
         const result = await this.fetchEvents(
@@ -144,13 +146,17 @@ export class BackfillService {
         const events = result?.events || [];
 
         if (events.length === 0) {
-          this.logger.debug(`No events found in range ${currentLedger} → ${batchEnd}`);
+          this.logger.debug(
+            `No events found in range ${currentLedger} → ${batchEnd}`,
+          );
           currentLedger = batchEnd + 1;
           continue;
         }
 
         stats.totalEvents += events.length;
-        this.logger.log(`Found ${events.length} events in range ${currentLedger} → ${batchEnd}`);
+        this.logger.log(
+          `Found ${events.length} events in range ${currentLedger} → ${batchEnd}`,
+        );
 
         // Process each event
         for (const event of events) {
@@ -181,7 +187,7 @@ export class BackfillService {
         where: { id: run.id },
         data: {
           completedAt: new Date(),
-          status: stats.failed > 0 ? 'failed' : 'completed',
+          status: stats.failed > 0 ? "failed" : "completed",
           eventsProcessed: stats.totalEvents,
           eventsMatched: stats.matched,
           eventsSkipped: stats.skipped,
@@ -200,7 +206,7 @@ export class BackfillService {
         where: { id: run.id },
         data: {
           completedAt: new Date(),
-          status: 'failed',
+          status: "failed",
           errorMessage: error instanceof Error ? error.message : String(error),
         },
       });
@@ -220,22 +226,24 @@ export class BackfillService {
     cursor?: string,
   ): Promise<any> {
     // Use the same HTTP request pattern as SorobanEventsService
-    const rpcUrl = this.configService.get('stellar')?.sorobanRpcUrl;
+    const rpcUrl = this.configService.get("stellar")?.sorobanRpcUrl;
     if (!rpcUrl) {
-      throw new Error('Soroban RPC URL not configured');
+      throw new Error("Soroban RPC URL not configured");
     }
 
-    const topic = this.configService.get('stellar')?.sorobanEventTopic || 'InvoicePaymentRecorded';
+    const topic =
+      this.configService.get("stellar")?.sorobanEventTopic ||
+      "InvoicePaymentRecorded";
 
     const body = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 1,
-      method: 'getEvents',
+      method: "getEvents",
       params: {
         startLedger,
         filters: [
           {
-            type: 'contract',
+            type: "contract",
             contractIds: [contractId],
             topics: [[topic]],
           },
@@ -306,9 +314,14 @@ export class BackfillService {
           ledger: Number(ledger),
           invoice_id: String(invoiceId),
           payer: payload?.payer ? String(payload.payer) : undefined,
-          asset_code: payload?.asset_code ? String(payload.asset_code) : undefined,
-          asset_issuer: payload?.asset_issuer ? String(payload.asset_issuer) : undefined,
-          amount: payload?.amount !== undefined ? String(payload.amount) : undefined,
+          asset_code: payload?.asset_code
+            ? String(payload.asset_code)
+            : undefined,
+          asset_issuer: payload?.asset_issuer
+            ? String(payload.asset_issuer)
+            : undefined,
+          amount:
+            payload?.amount !== undefined ? String(payload.amount) : undefined,
         });
 
         if (result) {
@@ -322,7 +335,7 @@ export class BackfillService {
               ledger: BigInt(ledger),
               invoiceId: String(invoiceId),
               contractId,
-              status: 'success',
+              status: "success",
             },
           });
         } else {
@@ -331,7 +344,7 @@ export class BackfillService {
           stats.failedEvents.push({
             invoiceId: String(invoiceId),
             eventId: String(eventId),
-            error: 'Invoice not found in database',
+            error: "Invoice not found in database",
           });
 
           await this.prisma.processedEvent.create({
@@ -340,20 +353,22 @@ export class BackfillService {
               ledger: BigInt(ledger),
               invoiceId: String(invoiceId),
               contractId,
-              status: 'failed',
-              errorMessage: 'Invoice not found in database',
+              status: "failed",
+              errorMessage: "Invoice not found in database",
             },
           });
         }
       } else {
         // Dry run
         stats.matched++;
-        this.logger.debug(`[DRY RUN] Would process event ${eventId} for invoice ${invoiceId}`);
+        this.logger.debug(
+          `[DRY RUN] Would process event ${eventId} for invoice ${invoiceId}`,
+        );
       }
     } catch (error) {
       stats.failed++;
       stats.failedEvents.push({
-        invoiceId: payload?.invoice_id || 'unknown',
+        invoiceId: payload?.invoice_id || "unknown",
         eventId: String(eventId),
         error: error instanceof Error ? error.message : String(error),
       });
@@ -363,10 +378,11 @@ export class BackfillService {
           data: {
             txHash: String(txHash),
             ledger: BigInt(ledger),
-            invoiceId: payload?.invoice_id || 'unknown',
+            invoiceId: payload?.invoice_id || "unknown",
             contractId,
-            status: 'failed',
-            errorMessage: error instanceof Error ? error.message : String(error),
+            status: "failed",
+            errorMessage:
+              error instanceof Error ? error.message : String(error),
           },
         });
       }
@@ -385,18 +401,18 @@ export class BackfillService {
     asset_issuer?: string;
     amount?: string | number;
   } | null {
-    if (!obj || typeof obj !== 'object') return null;
+    if (!obj || typeof obj !== "object") return null;
 
     // Check if it's already in the right format
-    if ('invoice_id' in obj) {
+    if ("invoice_id" in obj) {
       return obj;
     }
 
     // Check nested event structure
     const eventData = obj?.event?.value || obj?.value || obj?.data || obj?.body;
 
-    if (eventData && typeof eventData === 'object') {
-      if ('invoice_id' in eventData) {
+    if (eventData && typeof eventData === "object") {
+      if ("invoice_id" in eventData) {
         return eventData;
       }
 
@@ -405,7 +421,12 @@ export class BackfillService {
         const result: Record<string, any> = {};
         for (const item of eventData) {
           const key = item?.key?.symbol || item?.key?.string || item?.key;
-          const val = item?.val?.string || item?.val?.address || item?.val?.i128 || item?.val?.u64 || item?.val;
+          const val =
+            item?.val?.string ||
+            item?.val?.address ||
+            item?.val?.i128 ||
+            item?.val?.u64 ||
+            item?.val;
           if (key !== undefined) {
             result[String(key)] = val;
           }
@@ -430,10 +451,12 @@ export class BackfillService {
   /**
    * Get the last processed ledger for a contract
    */
-  private async getLastProcessedLedger(contractId: string): Promise<number | null> {
+  private async getLastProcessedLedger(
+    contractId: string,
+  ): Promise<number | null> {
     const lastEvent = await this.prisma.processedEvent.findFirst({
-      where: { contractId, status: 'success' },
-      orderBy: { ledger: 'desc' },
+      where: { contractId, status: "success" },
+      orderBy: { ledger: "desc" },
       select: { ledger: true },
     });
 
@@ -444,15 +467,15 @@ export class BackfillService {
    * Get the latest ledger from Soroban RPC
    */
   private async getLatestLedger(): Promise<number> {
-    const rpcUrl = this.configService.get('stellar')?.sorobanRpcUrl;
+    const rpcUrl = this.configService.get("stellar")?.sorobanRpcUrl;
     if (!rpcUrl) {
-      throw new Error('Soroban RPC URL not configured');
+      throw new Error("Soroban RPC URL not configured");
     }
 
     const body = {
-      jsonrpc: '2.0',
+      jsonrpc: "2.0",
       id: 1,
-      method: 'getNetwork',
+      method: "getNetwork",
       params: {},
     };
 
@@ -464,11 +487,11 @@ export class BackfillService {
    * HTTP POST helper - copied from SorobanEventsService
    */
   private async postJson(rpcUrl: string, body: any): Promise<any> {
-    const { default: fetch } = await import('node-fetch');
+    const { default: fetch } = await import("node-fetch");
     const response = await fetch(rpcUrl, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
     });
@@ -494,7 +517,7 @@ export class BackfillService {
    */
   async getHistory(limit: number = 10): Promise<any[]> {
     return this.prisma.backfillRun.findMany({
-      orderBy: { startedAt: 'desc' },
+      orderBy: { startedAt: "desc" },
       take: limit,
     });
   }
@@ -507,12 +530,18 @@ export class BackfillService {
 
     const [total, success, failed, skipped, lastLedger] = await Promise.all([
       this.prisma.processedEvent.count({ where }),
-      this.prisma.processedEvent.count({ where: { ...where, status: 'success' } }),
-      this.prisma.processedEvent.count({ where: { ...where, status: 'failed' } }),
-      this.prisma.processedEvent.count({ where: { ...where, status: 'skipped' } }),
+      this.prisma.processedEvent.count({
+        where: { ...where, status: "success" },
+      }),
+      this.prisma.processedEvent.count({
+        where: { ...where, status: "failed" },
+      }),
+      this.prisma.processedEvent.count({
+        where: { ...where, status: "skipped" },
+      }),
       this.prisma.processedEvent.findFirst({
-        where: { ...where, status: 'success' },
-        orderBy: { ledger: 'desc' },
+        where: { ...where, status: "success" },
+        orderBy: { ledger: "desc" },
         select: { ledger: true },
       }),
     ]);
