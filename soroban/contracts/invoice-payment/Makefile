@@ -104,7 +104,12 @@ events:
 	  --type contract \
 	  --start-ledger 1
 
-.PHONY: default all build test fmt clean \
+# Generate the indexer-facing schema artifact from Rust type definitions.
+# schema.json is committed to VCS so schema changes are visible in pull requests.
+schema:
+	bash generate-schema.sh
+
+.PHONY: default all build test fmt clean schema \
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
 	invoke-has-payment invoke-payment-count events
