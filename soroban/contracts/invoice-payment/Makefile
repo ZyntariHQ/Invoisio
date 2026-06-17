@@ -78,6 +78,17 @@ invoke-get-payment:
 	  -- get_payment \
 	  --invoice_id "$(INVOICE_ID)"
 
+# Read a bounded page of payment history
+# Usage: make invoke-payment-history CONTRACT_ID=<id> CURSOR=0 LIMIT=25
+invoke-payment-history:
+	stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source invoisio-admin \
+	  --network testnet \
+	  -- payment_history \
+	  --cursor $(CURSOR) \
+	  --limit $(LIMIT)
+
 # Check whether an invoice has been recorded (returns true/false)
 # Usage: make invoke-has-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
 invoke-has-payment:
@@ -112,4 +123,4 @@ schema:
 .PHONY: default all build test fmt clean schema \
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
-	invoke-has-payment invoke-payment-count events
+	invoke-has-payment invoke-payment-count invoke-payment-history events

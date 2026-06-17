@@ -57,6 +57,12 @@ export interface PaymentRecord {
     /** Unix seconds at which the ledger included this record */
     readonly timestamp: bigint;
 }
+/** Bounded page of payment history returned by the contract. */
+export interface PaymentHistoryPage {
+    readonly records: PaymentRecord[];
+    readonly nextCursor: number;
+    readonly hasMore: boolean;
+}
 /** Numeric codes matching the Rust `ContractError` enum. */
 export declare const CONTRACT_ERROR_CODES: {
     readonly 1: "AlreadyInitialized";
@@ -66,6 +72,8 @@ export declare const CONTRACT_ERROR_CODES: {
     readonly 5: "InvalidAmount";
     readonly 6: "InvalidInvoiceId";
     readonly 7: "InvalidAsset";
+    readonly 8: "AssetNotAllowed";
+    readonly 9: "Unauthorized";
 };
 export type ContractErrorCode = (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTRACT_ERROR_CODES] | 'Unknown';
 export declare class SorobanContractError extends Error {

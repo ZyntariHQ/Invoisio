@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, String};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::errors::ContractError;
 
@@ -31,6 +31,9 @@ pub const CONTRACT_VERSION: u32 = pack_version(
     CONTRACT_VERSION_MINOR,
     CONTRACT_VERSION_PATCH,
 );
+
+/// Maximum number of payment records returned in one history page.
+pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -92,12 +95,16 @@ pub enum DataKey {
     Admin,
     /// Running count of recorded payments in **instance** storage.
     PaymentCount,
+    /// Running count of history-indexed payment records in **instance** storage.
+    PaymentHistoryCount,
     /// Contract-level version metadata in **instance** storage.
     ContractMeta,
     /// Legacy pre-versioning key: kept for backward-compatible reads.
     Payment(String),
     /// Schema v1 key: active write path for payment records.
     PaymentV1(String),
+    /// Append-only history index used for deterministic paging.
+    PaymentHistory(u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -151,6 +158,18 @@ pub struct PaymentRecord {
 
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
+}
+
+/// A bounded, cursor-friendly slice of payment history.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaymentHistoryPage {
+    /// Records returned for this page.
+    pub records: Vec<PaymentRecord>,
+    /// Cursor to pass to the next call.
+    pub next_cursor: u32,
+    /// True when more entries are available after `next_cursor`.
+    pub has_more: bool,
 }
 
 // Version helpers (instance storage)
@@ -235,6 +254,10 @@ fn payment_key_v1(invoice_id: &String) -> DataKey {
     DataKey::PaymentV1(invoice_id.clone())
 }
 
+fn payment_history_key(index: u32) -> DataKey {
+    DataKey::PaymentHistory(index)
+}
+
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
 pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
     let v1_key = payment_key_v1(invoice_id);
@@ -288,6 +311,16 @@ pub fn set_payment(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
+/// Append a record to the deterministic history index.
+pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
+    let index = get_history_count(env);
+    let key = payment_history_key(index);
+    env.storage().persistent().set(&key, record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
 // Payment counter helpers (instance storage)
 
 /// Return the current payment count (0 if not yet set).
@@ -305,6 +338,60 @@ pub fn bump_count(env: &Env) {
         .instance()
         .set(&DataKey::PaymentCount, &(count + 1u32));
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// Payment history helpers (instance storage)
+
+/// Return the number of indexed payment history entries.
+pub fn get_history_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PaymentHistoryCount)
+        .unwrap_or(0u32)
+}
+
+/// Increment the history index counter and extend instance TTL.
+pub fn bump_history_count(env: &Env) {
+    let count = get_history_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
+    let key = payment_history_key(index);
+    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    record
+}
+
+/// Read a bounded page of history starting at `cursor`.
+pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+    let total = get_history_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+    let end = start.saturating_add(capped_limit).min(total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    while index < end {
+        match get_history_record(env, index) {
+            Some(record) => records.push_back(record),
+            None => break,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+    }
 }
 
 // Allowlist helpers
