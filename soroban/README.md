@@ -18,6 +18,7 @@ soroban/
 ├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
 ├── invoke-payment-history.sh       # Page through payment history
+├── invoke-payments-by-payer.sh     # Page through payment history for one payer
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -322,6 +323,19 @@ Retrieves a bounded page of payment history.
 ```
 
 **Returns:** a page of payment records with `next_cursor` and `has_more`
+
+### `./invoke-payments-by-payer.sh`
+
+Retrieves a bounded page of payment history filtered to a single payer.
+
+**Usage:**
+```bash
+./invoke-payments-by-payer.sh <payer> <cursor> [limit]
+```
+
+**Returns:** a page of payment records made by `payer`, with `next_cursor` and
+`has_more`. A payer with no recorded payments returns an empty page rather
+than an error.
 
 ---
 

@@ -18,8 +18,9 @@ use events::{
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
-    ensure_current_contract_meta, get_admin, get_count, get_payment, get_payment_history_page,
+    allow_asset, append_payer_history, append_payment_history, bump_count, bump_history_count,
+    bump_payer_history_count, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_count, get_payer_history_page, get_payment, get_payment_history_page,
     get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
     is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
     set_native_allowed, set_payment,
@@ -66,8 +67,9 @@ use storage::{
 ///   - [`set_admin`] requires **both** the current admin and the new admin to
 ///     authorise, ensuring the new admin explicitly consents to taking over.
 /// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `payment_history`, `contract_version`, `version_info`, `admin`) are
-///   permissionless, so any account can inspect on-chain payment state.
+///   `payment_history`, `payments_by_payer`, `contract_version`,
+///   `version_info`, `admin`) are permissionless, so any account can inspect
+///   on-chain payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
@@ -75,7 +77,7 @@ use storage::{
 /// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
 /// 4. Contract stores record + emits event.
 /// 5. Any observer calls `get_payment(invoice_id)`, `payment_history(cursor, limit)`,
-///    or streams `getEvents` to verify.
+///    `payments_by_payer(payer, cursor, limit)`, or streams `getEvents` to verify.
 #[contract]
 pub struct InvoicePaymentContract;
 
@@ -225,9 +227,11 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 7. Persist the ordered history entry and increment counters.
+        // 7. Persist the ordered history entries and increment counters.
         append_payment_history(&env, &record);
         bump_history_count(&env);
+        append_payer_history(&env, &record.payer, &record);
+        bump_payer_history_count(&env, &record.payer);
         bump_count(&env);
 
         // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
@@ -277,6 +281,21 @@ impl InvoicePaymentContract {
     /// the response remains bounded and predictable.
     pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return a bounded, cursor-friendly page of payment history for a single `payer`.
+    ///
+    /// Mirrors [`Self::payment_history`] but scoped to payments made by
+    /// `payer`, using the same cursor/limit semantics and page-size cap. A
+    /// `payer` with no recorded payments returns an empty page rather than
+    /// an error.
+    pub fn payments_by_payer(
+        env: Env,
+        payer: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> PaymentHistoryPage {
+        get_payer_history_page(&env, &payer, cursor, limit)
     }
 
     /// Return a high-level snapshot of contract configuration.

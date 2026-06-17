@@ -105,6 +105,14 @@ pub enum DataKey {
     PaymentV1(String),
     /// Append-only history index used for deterministic paging.
     PaymentHistory(u32),
+    /// Append-only per-payer history index used for deterministic paging.
+    /// Key: PayerHistory(payer, index)
+    PayerHistory(Address, u32),
+    /// Running count of history-indexed entries for a specific payer.
+    /// Lives in **persistent** storage (not instance) because it is keyed
+    /// per payer and would otherwise grow the bounded instance footprint
+    /// loaded on every invocation.
+    PayerHistoryCount(Address),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -381,6 +389,90 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     let mut index = start;
     while index < end {
         match get_history_record(env, index) {
+            Some(record) => records.push_back(record),
+            None => break,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+    }
+}
+
+// Payer history helpers (persistent storage)
+//
+// Keyed per `payer` so the index can grow without inflating the bounded
+// instance storage footprint that is loaded on every contract invocation.
+
+fn payer_history_key(payer: &Address, index: u32) -> DataKey {
+    DataKey::PayerHistory(payer.clone(), index)
+}
+
+fn payer_history_count_key(payer: &Address) -> DataKey {
+    DataKey::PayerHistoryCount(payer.clone())
+}
+
+/// Return the number of indexed history entries for `payer` (0 if none).
+pub fn get_payer_history_count(env: &Env, payer: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&payer_history_count_key(payer))
+        .unwrap_or(0u32)
+}
+
+/// Increment `payer`'s history index counter and extend its TTL.
+pub fn bump_payer_history_count(env: &Env, payer: &Address) {
+    let key = payer_history_count_key(payer);
+    let count = get_payer_history_count(env, payer);
+    env.storage().persistent().set(&key, &(count + 1u32));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Append a record to `payer`'s deterministic history index.
+pub fn append_payer_history(env: &Env, payer: &Address, record: &PaymentRecord) {
+    let index = get_payer_history_count(env, payer);
+    let key = payer_history_key(payer, index);
+    env.storage().persistent().set(&key, record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+fn get_payer_history_record(env: &Env, payer: &Address, index: u32) -> Option<PaymentRecord> {
+    let key = payer_history_key(payer, index);
+    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    record
+}
+
+/// Read a bounded page of `payer`'s history starting at `cursor`.
+///
+/// Mirrors [`get_payment_history_page`] but scoped to a single payer, using
+/// the same cursor/limit semantics and the same page-size cap.
+pub fn get_payer_history_page(
+    env: &Env,
+    payer: &Address,
+    cursor: u32,
+    limit: u32,
+) -> PaymentHistoryPage {
+    let total = get_payer_history_count(env, payer);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+    let end = start.saturating_add(capped_limit).min(total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    while index < end {
+        match get_payer_history_record(env, payer, index) {
             Some(record) => records.push_back(record),
             None => break,
         }
