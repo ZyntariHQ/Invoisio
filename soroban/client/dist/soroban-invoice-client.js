@@ -93,6 +93,17 @@ class SorobanInvoiceClient {
     }
     // ─── Read operations (permissionless) ──────────────────────────────────────
     /**
+     * Return the stable high-level contract configuration snapshot.
+     *
+     * This is the preferred single-call read for deployment checks, backend
+     * health probes, and UI bootstrapping because it includes admin ownership,
+     * initialization status, version metadata, and allowlist policy together.
+     */
+    async getConfig() {
+        const retval = await this.simulateView('config');
+        return (0, codec_1.decodeContractConfig)(retval);
+    }
+    /**
      * Fetch the full `PaymentRecord` for an invoice.
      *
      * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded

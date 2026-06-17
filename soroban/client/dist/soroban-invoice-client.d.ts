@@ -38,6 +38,14 @@ export declare class SorobanInvoiceClient {
      */
     recordPayment(params: RecordPaymentParams): Promise<TransactionResult>;
     /**
+     * Return the stable high-level contract configuration snapshot.
+     *
+     * This is the preferred single-call read for deployment checks, backend
+     * health probes, and UI bootstrapping because it includes admin ownership,
+     * initialization status, version metadata, and allowlist policy together.
+     */
+    getConfig(): Promise<ContractConfig>;
+    /**
      * Fetch the full `PaymentRecord` for an invoice.
      *
      * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded

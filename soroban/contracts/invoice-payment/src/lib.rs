@@ -24,7 +24,6 @@ use storage::{
 };
 
 // Contract
-
 /// # Invoisio Invoice Payment Tracking Contract
 ///
 /// A minimal, auditable Soroban contract whose **sole purpose** is to provide a
@@ -81,7 +80,6 @@ pub struct InvoicePaymentContract;
 #[contractimpl]
 impl InvoicePaymentContract {
     // Lifecycle
-
     /// Initialise the contract and register the `admin`.
     ///
     /// Must be called **once** right after deployment. The `admin` is the only
@@ -104,7 +102,6 @@ impl InvoicePaymentContract {
     }
 
     // Write
-
     /// Record a payment for `invoice_id` on-chain and emit a Soroban event.
     ///
     /// ## Authorization
@@ -151,6 +148,7 @@ impl InvoicePaymentContract {
         // 1. Admin authorisation.
         let admin = get_admin(&env)?;
         admin.require_auth();
+
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
 
@@ -167,12 +165,17 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
+        // Reject malformed token descriptors: Stellar asset codes are at most
+        // 12 characters, so anything longer is invalid.
+        if asset_code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+
         // Asset validation:
         // - XLM (native) must have an empty issuer
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.is_empty();
-
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
             return Err(ContractError::InvalidAsset);
@@ -194,7 +197,7 @@ impl InvoicePaymentContract {
         }
 
         // 3. Amount guard.
-        if amount <= 0 {
+        if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
 
@@ -239,7 +242,6 @@ impl InvoicePaymentContract {
     }
 
     // Read
-
     /// Return the [`PaymentRecord`] for `invoice_id`.
     ///
     /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
@@ -297,7 +299,6 @@ impl InvoicePaymentContract {
     }
 
     // Admin
-
     /// Return the current admin address.
     ///
     /// Returns [`ContractError::NotInitialized`] if the contract has not been
@@ -332,11 +333,9 @@ impl InvoicePaymentContract {
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-
         allow_asset(&env, &code, &issuer);
         emit_asset_allowlisted(&env, code, issuer);
         Ok(())
@@ -348,11 +347,9 @@ impl InvoicePaymentContract {
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-
         revoke_asset(&env, &code, &issuer);
         emit_asset_revoked(&env, code, issuer);
         Ok(())
@@ -364,7 +361,6 @@ impl InvoicePaymentContract {
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         set_native_allowed(&env, allowed);
         emit_native_allow_changed(&env, allowed);
         Ok(())

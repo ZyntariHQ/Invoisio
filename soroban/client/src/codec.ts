@@ -1,6 +1,7 @@
 import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 
 import {
+  ContractConfig,
   Asset,
   CONTRACT_ERROR_CODES,
   ContractErrorCode,
@@ -103,6 +104,39 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
     records: records.map((record) => decodePaymentRecordFromNative(record)),
     nextCursor: Number(raw['next_cursor']),
     hasMore: Boolean(raw['has_more']),
+  };
+}
+
+/**
+ * Decode the stable `config()` response returned by the contract.
+ *
+ * Rust fields are snake_case:
+ * - admin
+ * - initialized
+ * - version.contract_version
+ * - version.storage_schema_version
+ * - allowlist_mode.native_allowed
+ * - allowlist_mode.requires_token_allowlist
+ */
+export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const version = raw['version'] as Record<string, unknown>;
+  const allowlistMode = raw['allowlist_mode'] as Record<string, unknown>;
+
+  return {
+    admin:
+      raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+    initialized: Boolean(raw['initialized']),
+    version: {
+      contractVersion: Number(version['contract_version']),
+      storageSchemaVersion: Number(version['storage_schema_version']),
+    },
+    allowlistMode: {
+      nativeAllowed: Boolean(allowlistMode['native_allowed']),
+      requiresTokenAllowlist: Boolean(
+        allowlistMode['requires_token_allowlist'],
+      ),
+    },
   };
 }
 

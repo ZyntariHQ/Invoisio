@@ -95,6 +95,34 @@ function decodePaymentHistoryPage(scVal) {
         hasMore: Boolean(raw['has_more']),
     };
 }
+/**
+ * Decode the stable `config()` response returned by the contract.
+ *
+ * Rust fields are snake_case:
+ * - admin
+ * - initialized
+ * - version.contract_version
+ * - version.storage_schema_version
+ * - allowlist_mode.native_allowed
+ * - allowlist_mode.requires_token_allowlist
+ */
+function decodeContractConfig(scVal) {
+    const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const version = raw['version'];
+    const allowlistMode = raw['allowlist_mode'];
+    return {
+        admin: raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+        initialized: Boolean(raw['initialized']),
+        version: {
+            contractVersion: Number(version['contract_version']),
+            storageSchemaVersion: Number(version['storage_schema_version']),
+        },
+        allowlistMode: {
+            nativeAllowed: Boolean(allowlistMode['native_allowed']),
+            requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
+        },
+    };
+}
 // ─── Error parsing ────────────────────────────────────────────────────────────
 /**
  * Matches the numeric code in Soroban host error strings.
