@@ -1,0 +1,8 @@
+[package]
+name = "invoice-payment-bindings-gen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+soroban-spec-rust = "25.1.1"
