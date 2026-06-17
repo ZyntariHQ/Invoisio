@@ -101,7 +101,7 @@ jobs:
           REDIS_PORT: 6379
           REDIS_PASSWORD: ""
           REDIS_DB: 1
-          JWT_SECRET: ci-e2e-jwt-secret-not-a-real-secret-0123456789
+          JWT_SECRET: e2e-test-secret
         run: npm run test:e2e
 
       - name: Build
