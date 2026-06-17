@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
+import { AuthService } from "../lib/auth-service";
 
 const AUTH_STORAGE_KEY = "@invoisio:auth";
 
@@ -70,6 +71,15 @@ export const useAuthStore = create<AuthState>((set) => ({
       };
 
       if (authData.accessToken && authData.publicKey) {
+        const isValid = await AuthService.verifyToken(authData.accessToken);
+
+        if (!isValid) {
+          // Token expired — clear stored credentials and return to login
+          await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+          set({ isLoading: false });
+          return false;
+        }
+
         set({
           accessToken: authData.accessToken,
           publicKey: authData.publicKey,
