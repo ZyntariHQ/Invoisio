@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::errors::ContractError;
+use crate::events;
 
 // TTL budget
 // At ~5-second ledger close times:
