@@ -119,26 +119,31 @@ function InvoicesContent() {
   const [dueDateFilter, setDueDateFilter] = useState(urlDueDate);
   const [searchQuery, setSearchQuery] = useState(urlQ);
 
+  const [prevSearchParams, setPrevSearchParams] = useState(searchParams);
+
+  if (searchParams !== prevSearchParams) {
+    setPrevSearchParams(searchParams);
+    setStatusFilter(urlStatus);
+    setAssetFilter(urlAsset);
+    setDueDateFilter(urlDueDate);
+    setSearchQuery(urlQ);
+  }
+
   const [customQueries, setCustomQueries] = useState<SavedQuery[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveName, setSaveName] = useState('');
 
   const pageSize = 20;
 
-  // Sync state with URL when searchParams changes (e.g., on back/forward navigation)
-  useEffect(() => {
-    setStatusFilter(searchParams.get('status') || 'all');
-    setAssetFilter(searchParams.get('asset') || 'all');
-    setDueDateFilter(searchParams.get('dueDate') || 'all');
-    setSearchQuery(searchParams.get('q') || '');
-  }, [searchParams]);
-
   // Load custom queries on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem('invoisio_saved_queries');
       if (stored) {
-        setCustomQueries(JSON.parse(stored));
+        const parsed = JSON.parse(stored);
+        setTimeout(() => {
+          setCustomQueries(parsed);
+        }, 0);
       }
     } catch (e) {
       console.error('Failed to load saved queries', e);
@@ -596,7 +601,7 @@ function InvoicesContent() {
             </div>
             <h3 className="text-lg font-bold text-gray-900">No matching invoices</h3>
             <p className="mt-2 text-sm text-gray-500 leading-relaxed max-w-xs mx-auto">
-              We couldn't find any invoices matching your current filters and search criteria.
+              {"We couldn't find any invoices matching your current filters and search criteria."}
             </p>
             {/* Show summarized filters info */}
             <div className="mt-4 bg-gray-50 rounded-lg p-3 text-xs text-gray-600 max-w-xs mx-auto text-left space-y-1">
@@ -610,7 +615,7 @@ function InvoicesContent() {
                 <div>• Due Date is <span className="font-semibold text-gray-800">{dueDateFilter.replace('_', ' ')}</span></div>
               )}
               {searchQuery.trim() !== '' && (
-                <div>• Search is <span className="font-semibold text-gray-800">"{searchQuery}"</span></div>
+                <div>• Search is <span className="font-semibold text-gray-800">&quot;{searchQuery}&quot;</span></div>
               )}
             </div>
             <div className="mt-6">
