@@ -1658,7 +1658,6 @@ fn test_legacy_deployment_without_metadata_then_write() {
     );
 }
 
-
 // ─── Storage Schema Migration Tests ────────────────────────────────────────
 
 #[test]
@@ -1667,14 +1666,14 @@ fn test_upgrade_storage_schema_v0_to_v1() {
     let admin = Address::generate(&env);
     let contract_id = env.register(InvoicePaymentContract, ());
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
-    
+
     // Simulate legacy deployment (schema version 0)
     env.as_contract(&client.address, || {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::PaymentCount, &0u32);
         // No ContractMeta set = legacy deployment
     });
-    
+
     // Verify schema version is 0
     assert_eq!(
         client.version_info(),
@@ -1683,12 +1682,12 @@ fn test_upgrade_storage_schema_v0_to_v1() {
             storage_schema_version: 0,
         }
     );
-    
+
     // Upgrade storage schema
     env.mock_all_auths();
     let result = client.try_upgrade_storage(&admin);
     assert!(result.is_ok());
-    
+
     // Verify schema version is now current
     assert_eq!(
         client.version_info(),
@@ -1705,7 +1704,7 @@ fn test_upgrade_storage_preserves_payment_records() {
     let admin = Address::generate(&env);
     let contract_id = env.register(InvoicePaymentContract, ());
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
-    
+
     // Simulate legacy deployment with payments
     let invoice_id = String::from_str(&env, "invoisio-legacy-migration");
     let payer = Address::generate(&env);
@@ -1716,7 +1715,7 @@ fn test_upgrade_storage_preserves_payment_records() {
         amount: 10_000_000i128,
         timestamp: 1234u64,
     };
-    
+
     env.as_contract(&client.address, || {
         env.storage().instance().set(&DataKey::Admin, &admin);
         env.storage().instance().set(&DataKey::PaymentCount, &0u32);
@@ -1724,20 +1723,20 @@ fn test_upgrade_storage_preserves_payment_records() {
             .persistent()
             .set(&DataKey::Payment(invoice_id.clone()), &legacy_record);
     });
-    
+
     // Verify record exists in legacy format
     let loaded = client.get_payment(&invoice_id);
     assert_eq!(loaded, legacy_record);
-    
+
     // Upgrade storage
     env.mock_all_auths();
     let result = client.try_upgrade_storage(&admin);
     assert!(result.is_ok());
-    
+
     // Verify record is still readable and migrated
     let migrated = client.get_payment(&invoice_id);
     assert_eq!(migrated, legacy_record);
-    
+
     // Verify it was migrated to v1 key
     let has_v1 = env.as_contract(&client.address, || {
         env.storage()
@@ -1753,11 +1752,11 @@ fn test_upgrade_storage_only_admin_can_call() {
     env.mock_all_auths();
     let (client, admin) = setup(&env);
     let attacker = Address::generate(&env);
-    
+
     // Attacker tries to upgrade storage
     let result = client.try_upgrade_storage(&attacker);
     assert!(result.is_err());
-    
+
     // Admin can upgrade
     let result = client.try_upgrade_storage(&admin);
     assert!(result.is_ok());
@@ -1768,11 +1767,11 @@ fn test_upgrade_storage_idempotent() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
-    
+
     // First upgrade
     let result1 = client.try_upgrade_storage(&admin);
     assert!(result1.is_ok());
-    
+
     // Second upgrade (should be idempotent)
     let result2 = client.try_upgrade_storage(&admin);
     assert!(result2.is_ok());
@@ -1782,13 +1781,11 @@ fn test_upgrade_storage_idempotent() {
 fn test_schema_compatibility_check() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
-    
+
     // Wrap the storage access in as_contract
-    let compatible = env.as_contract(&client.address, || {
-        storage::is_schema_compatible(&env)
-    });
+    let compatible = env.as_contract(&client.address, || storage::is_schema_compatible(&env));
     assert!(compatible);
-    
+
     // Version info should match current
     let info = client.version_info();
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);

@@ -527,7 +527,6 @@ pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
     env.storage().persistent().remove(&key);
 }
 
-
 // ─── Storage Schema Migration ───────────────────────────────────────────────
 
 /// Error returned when migration is not supported.
@@ -546,15 +545,15 @@ pub struct MigrationError;
 /// Emits `StorageSchemaUpgraded` event on successful migration.
 pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), ContractError> {
     let current = get_storage_schema_version(env);
-    
+
     if current == target_version {
         return Ok(());
     }
-    
+
     if current > target_version {
         return Err(ContractError::StorageSchemaTooNew);
     }
-    
+
     // Migrate step by step from current to target
     let mut version = current;
     while version < target_version {
@@ -567,16 +566,16 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
         }
         version += 1;
     }
-    
+
     // Update metadata to reflect new schema version
     let old_version = current;
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = target_version;
     set_contract_meta(env, &meta);
-    
+
     // Emit upgrade event
     events::emit_storage_schema_upgraded(env, old_version, target_version);
-    
+
     Ok(())
 }
 

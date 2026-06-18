@@ -407,17 +407,14 @@ impl InvoicePaymentContract {
     /// ## Errors
     /// - `StorageSchemaTooNew` if storage schema is newer than contract
     /// - `StorageSchemaTooOld` if schema version is not supported for migration
-    pub fn upgrade_storage(
-        env: Env,
-        caller: Address,
-    ) -> Result<(), ContractError> {
+    pub fn upgrade_storage(env: Env, caller: Address) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         caller.require_auth();
-        
+
         if caller != admin {
             return Err(ContractError::Unauthorized);
         }
-        
+
         let target = STORAGE_SCHEMA_VERSION;
         storage::upgrade_storage_schema(&env, target)
     }
