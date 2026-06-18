@@ -278,6 +278,133 @@ fn test_payment_history_page_size_is_capped() {
     assert!(!second_page.has_more);
 }
 
+// payments_by_payer
+
+#[test]
+fn test_payments_by_payer_filters_to_single_payer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer_a = Address::generate(&env);
+    let payer_b = Address::generate(&env);
+
+    record_xlm(&env, &client, "invoisio-payer-a-001", &payer_a, 10_000_000);
+    record_xlm(&env, &client, "invoisio-payer-b-001", &payer_b, 20_000_000);
+    record_xlm(&env, &client, "invoisio-payer-a-002", &payer_a, 30_000_000);
+
+    let page = client.payments_by_payer(&payer_a, &0u32, &10u32);
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(
+        page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-a-001")
+    );
+    assert_eq!(
+        page.records.get(1).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-a-002")
+    );
+    assert!(!page.has_more);
+
+    let page_b = client.payments_by_payer(&payer_b, &0u32, &10u32);
+    assert_eq!(page_b.records.len(), 1);
+    assert_eq!(
+        page_b.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-b-001")
+    );
+}
+
+#[test]
+fn test_payments_by_payer_pages_deterministically() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-payer-history-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((idx as i128 + 1) * 10_000_000i128),
+        );
+    }
+
+    let first_page = client.payments_by_payer(&payer, &0u32, &2u32);
+    assert_eq!(first_page.records.len(), 2);
+    assert_eq!(first_page.next_cursor, 2);
+    assert!(first_page.has_more);
+    assert_eq!(
+        first_page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-history-00")
+    );
+    assert_eq!(
+        first_page.records.get(1).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-history-01")
+    );
+
+    let second_page = client.payments_by_payer(&payer, &first_page.next_cursor, &2u32);
+    assert_eq!(second_page.records.len(), 1);
+    assert_eq!(second_page.next_cursor, 3);
+    assert!(!second_page.has_more);
+    assert_eq!(
+        second_page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-payer-history-02")
+    );
+
+    let empty_page = client.payments_by_payer(&payer, &99u32, &2u32);
+    assert_eq!(empty_page.records.len(), 0);
+    assert_eq!(empty_page.next_cursor, 3);
+    assert!(!empty_page.has_more);
+}
+
+#[test]
+fn test_payments_by_payer_unknown_payer_returns_empty_page() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let unknown_payer = Address::generate(&env);
+    let page = client.payments_by_payer(&unknown_payer, &0u32, &10u32);
+    assert_eq!(page.records.len(), 0);
+    assert_eq!(page.next_cursor, 0);
+    assert!(!page.has_more);
+}
+
+#[test]
+fn test_payments_by_payer_page_size_is_capped() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..26u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-payer-cap-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &(10_000_000i128 + idx as i128),
+        );
+    }
+
+    let first_page = client.payments_by_payer(&payer, &0u32, &100u32);
+    assert_eq!(first_page.records.len(), 25);
+    assert_eq!(first_page.next_cursor, 25);
+    assert!(first_page.has_more);
+
+    let second_page = client.payments_by_payer(&payer, &first_page.next_cursor, &100u32);
+    assert_eq!(second_page.records.len(), 1);
+    assert_eq!(second_page.next_cursor, 26);
+    assert!(!second_page.has_more);
+}
+
 #[test]
 fn test_duplicate_invoice_id_returns_error() {
     let env = Env::default();

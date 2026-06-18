@@ -89,6 +89,18 @@ invoke-payment-history:
 	  --cursor $(CURSOR) \
 	  --limit $(LIMIT)
 
+# Read a bounded page of payment history filtered to a single payer
+# Usage: make invoke-payments-by-payer CONTRACT_ID=<id> PAYER=<G...> CURSOR=0 LIMIT=25
+invoke-payments-by-payer:
+	stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source invoisio-admin \
+	  --network testnet \
+	  -- payments_by_payer \
+	  --payer "$(PAYER)" \
+	  --cursor $(CURSOR) \
+	  --limit $(LIMIT)
+
 # Check whether an invoice has been recorded (returns true/false)
 # Usage: make invoke-has-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
 invoke-has-payment:
@@ -123,4 +135,5 @@ schema:
 .PHONY: default all build test fmt clean schema \
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
-	invoke-has-payment invoke-payment-count invoke-payment-history events
+	invoke-has-payment invoke-payment-count invoke-payment-history \
+	invoke-payments-by-payer events
