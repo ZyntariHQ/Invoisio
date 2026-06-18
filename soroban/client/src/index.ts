@@ -1,9 +1,11 @@
 export { SorobanInvoiceClient } from './soroban-invoice-client';
 
 export type {
+  AllowlistMode,
   Asset,
   AssetNative,
   AssetToken,
+  ContractConfig,
   ContractErrorCode,
   ContractMeta,
   ContractMethodName,

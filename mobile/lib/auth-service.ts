@@ -49,6 +49,21 @@ export const AuthService = {
   },
 
   /**
+   * Verify a stored access token is still valid against the backend.
+   * Returns false if expired or invalid (safe to call on app boot).
+   */
+  async verifyToken(accessToken: string): Promise<boolean> {
+    try {
+      await axios.get(`${API_URL}/auth/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
    * Helper to create SIWE-style message for Stellar
    * Format: "Sign this message to authenticate with Invoisio\n\nNonce: {nonce}"
    */

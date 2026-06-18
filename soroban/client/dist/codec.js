@@ -3,7 +3,9 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
+exports.encodeU32 = encodeU32;
 exports.decodePaymentRecord = decodePaymentRecord;
+exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
@@ -21,6 +23,9 @@ function encodeAddress(address) {
  */
 function encodeI128(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'i128' });
+}
+function encodeU32(value) {
+    return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'u32' });
 }
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 /**
@@ -59,6 +64,15 @@ function decodeAsset(raw) {
     }
     throw new Error(`Unexpected Asset XDR encoding: ${JSON.stringify(raw)}`);
 }
+function decodePaymentRecordFromNative(raw) {
+    return {
+        invoiceId: String(raw['invoice_id']),
+        payer: String(raw['payer']),
+        asset: decodeAsset(raw['asset']),
+        amount: BigInt(raw['amount']),
+        timestamp: BigInt(raw['timestamp']),
+    };
+}
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
@@ -67,13 +81,46 @@ function decodeAsset(raw) {
  * Space: O(1) — fixed-size output struct.
  */
 function decodePaymentRecord(scVal) {
+    return decodePaymentRecordFromNative((0, stellar_sdk_1.scValToNative)(scVal));
+}
+/**
+ * Decode a bounded payment-history page returned by `payment_history()`.
+ */
+function decodePaymentHistoryPage(scVal) {
     const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const records = raw['records'] ?? [];
     return {
-        invoiceId: String(raw['invoice_id']),
-        payer: String(raw['payer']),
-        asset: decodeAsset(raw['asset']),
-        amount: BigInt(raw['amount']),
-        timestamp: BigInt(raw['timestamp']),
+        records: records.map((record) => decodePaymentRecordFromNative(record)),
+        nextCursor: Number(raw['next_cursor']),
+        hasMore: Boolean(raw['has_more']),
+    };
+}
+/**
+ * Decode the stable `config()` response returned by the contract.
+ *
+ * Rust fields are snake_case:
+ * - admin
+ * - initialized
+ * - version.contract_version
+ * - version.storage_schema_version
+ * - allowlist_mode.native_allowed
+ * - allowlist_mode.requires_token_allowlist
+ */
+function decodeContractConfig(scVal) {
+    const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const version = raw['version'];
+    const allowlistMode = raw['allowlist_mode'];
+    return {
+        admin: raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+        initialized: Boolean(raw['initialized']),
+        version: {
+            contractVersion: Number(version['contract_version']),
+            storageSchemaVersion: Number(version['storage_schema_version']),
+        },
+        allowlistMode: {
+            nativeAllowed: Boolean(allowlistMode['native_allowed']),
+            requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
+        },
     };
 }
 // ─── Error parsing ────────────────────────────────────────────────────────────

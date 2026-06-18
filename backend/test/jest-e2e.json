@@ -8,5 +8,6 @@
   },
   "moduleNameMapper": {
     "^@invoisio/soroban-client$": "<rootDir>/../src/soroban/__mocks__/soroban-client.ts"
-  }
+  },
+  "setupFiles": ["<rootDir>/setup-e2e.ts"]
 }

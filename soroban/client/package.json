@@ -11,7 +11,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
-    "example:query": "ts-node -r dotenv/config examples/query-payment.ts"
+    "example:query": "ts-node -r dotenv/config examples/query-payment.ts",
+    "example:config": "ts-node -r dotenv/config examples/query-config.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.0"

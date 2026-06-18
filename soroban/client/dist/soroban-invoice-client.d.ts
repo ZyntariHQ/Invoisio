@@ -1,4 +1,4 @@
-import { PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
+import { PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
 /**
  * Minimal client helper for the Invoisio `invoice-payment` Soroban contract.
  *
@@ -38,6 +38,14 @@ export declare class SorobanInvoiceClient {
      */
     recordPayment(params: RecordPaymentParams): Promise<TransactionResult>;
     /**
+     * Return the stable high-level contract configuration snapshot.
+     *
+     * This is the preferred single-call read for deployment checks, backend
+     * health probes, and UI bootstrapping because it includes admin ownership,
+     * initialization status, version metadata, and allowlist policy together.
+     */
+    getConfig(): Promise<ContractConfig>;
+    /**
      * Fetch the full `PaymentRecord` for an invoice.
      *
      * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded
@@ -52,6 +60,13 @@ export declare class SorobanInvoiceClient {
      * Return the total number of payments recorded in this contract instance.
      */
     getPaymentCount(): Promise<number>;
+    /**
+     * Fetch a bounded page of payment history using a cursor-based read.
+     *
+     * `cursor` is the next history index to read, and `limit` is capped by the
+     * contract so responses remain bounded and predictable.
+     */
+    getPaymentHistory(cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
     /**
      * Build and simulate a read-only contract call without submitting a transaction.
      *

@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, Env, String};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::errors::ContractError;
 
@@ -32,6 +32,9 @@ pub const CONTRACT_VERSION: u32 = pack_version(
     CONTRACT_VERSION_PATCH,
 );
 
+/// Maximum number of payment records returned in one history page.
+pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
+
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMeta {
@@ -48,6 +51,37 @@ pub fn current_contract_meta() -> ContractMeta {
     }
 }
 
+/// Stable, high-level summary of allowlist policy for integration consumers.
+///
+/// `requires_token_allowlist` is currently always `true`: issued assets must be
+/// explicitly added via `allow_asset(code, issuer)` before `record_payment`
+/// accepts them. `native_allowed` reflects the mutable XLM toggle controlled by
+/// `set_allow_native`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowlistMode {
+    pub native_allowed: bool,
+    pub requires_token_allowlist: bool,
+}
+
+/// Stable read model for ops tooling and client integrations.
+///
+/// Returned by the contract `config()` view so consumers can inspect
+/// initialization status, admin ownership, version metadata, and allowlist
+/// policy in a single permissionless call.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ContractConfig {
+    /// `Some(admin)` once `initialize(admin)` has been called; `None` before.
+    pub admin: Option<Address>,
+    /// Whether the contract has been initialised and can accept admin-gated writes.
+    pub initialized: bool,
+    /// On-chain version metadata associated with the current stored state.
+    pub version: ContractMeta,
+    /// High-level asset policy snapshot for native XLM and issued tokens.
+    pub allowlist_mode: AllowlistMode,
+}
+
 // Storage keys
 
 /// All keys used in this contract's instance and persistent storage.
@@ -61,12 +95,24 @@ pub enum DataKey {
     Admin,
     /// Running count of recorded payments in **instance** storage.
     PaymentCount,
+    /// Running count of history-indexed payment records in **instance** storage.
+    PaymentHistoryCount,
     /// Contract-level version metadata in **instance** storage.
     ContractMeta,
     /// Legacy pre-versioning key: kept for backward-compatible reads.
     Payment(String),
     /// Schema v1 key: active write path for payment records.
     PaymentV1(String),
+    /// Append-only history index used for deterministic paging.
+    PaymentHistory(u32),
+    /// Append-only per-payer history index used for deterministic paging.
+    /// Key: PayerHistory(payer, index)
+    PayerHistory(Address, u32),
+    /// Running count of history-indexed entries for a specific payer.
+    /// Lives in **persistent** storage (not instance) because it is keyed
+    /// per payer and would otherwise grow the bounded instance footprint
+    /// loaded on every invocation.
+    PayerHistoryCount(Address),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -122,6 +168,18 @@ pub struct PaymentRecord {
     pub timestamp: u64,
 }
 
+/// A bounded, cursor-friendly slice of payment history.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaymentHistoryPage {
+    /// Records returned for this page.
+    pub records: Vec<PaymentRecord>,
+    /// Cursor to pass to the next call.
+    pub next_cursor: u32,
+    /// True when more entries are available after `next_cursor`.
+    pub has_more: bool,
+}
+
 // Version helpers (instance storage)
 
 pub fn get_contract_meta(env: &Env) -> Option<ContractMeta> {
@@ -156,6 +214,21 @@ pub fn get_state_contract_version(env: &Env) -> u32 {
         .unwrap_or(LEGACY_CONTRACT_VERSION)
 }
 
+pub fn get_contract_config(env: &Env) -> ContractConfig {
+    ContractConfig {
+        admin: env.storage().instance().get(&DataKey::Admin),
+        initialized: has_admin(env),
+        version: ContractMeta {
+            contract_version: get_state_contract_version(env),
+            storage_schema_version: get_storage_schema_version(env),
+        },
+        allowlist_mode: AllowlistMode {
+            native_allowed: is_native_allowed(env),
+            requires_token_allowlist: true,
+        },
+    }
+}
+
 // Admin helpers (instance storage)
 
 /// Return `true` if the contract has been initialised.
@@ -187,6 +260,10 @@ fn payment_key_legacy(invoice_id: &String) -> DataKey {
 
 fn payment_key_v1(invoice_id: &String) -> DataKey {
     DataKey::PaymentV1(invoice_id.clone())
+}
+
+fn payment_history_key(index: u32) -> DataKey {
+    DataKey::PaymentHistory(index)
 }
 
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
@@ -242,6 +319,16 @@ pub fn set_payment(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
+/// Append a record to the deterministic history index.
+pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
+    let index = get_history_count(env);
+    let key = payment_history_key(index);
+    env.storage().persistent().set(&key, record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
 // Payment counter helpers (instance storage)
 
 /// Return the current payment count (0 if not yet set).
@@ -259,6 +346,144 @@ pub fn bump_count(env: &Env) {
         .instance()
         .set(&DataKey::PaymentCount, &(count + 1u32));
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// Payment history helpers (instance storage)
+
+/// Return the number of indexed payment history entries.
+pub fn get_history_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PaymentHistoryCount)
+        .unwrap_or(0u32)
+}
+
+/// Increment the history index counter and extend instance TTL.
+pub fn bump_history_count(env: &Env) {
+    let count = get_history_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
+    let key = payment_history_key(index);
+    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    record
+}
+
+/// Read a bounded page of history starting at `cursor`.
+pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+    let total = get_history_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+    let end = start.saturating_add(capped_limit).min(total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    while index < end {
+        match get_history_record(env, index) {
+            Some(record) => records.push_back(record),
+            None => break,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+    }
+}
+
+// Payer history helpers (persistent storage)
+//
+// Keyed per `payer` so the index can grow without inflating the bounded
+// instance storage footprint that is loaded on every contract invocation.
+
+fn payer_history_key(payer: &Address, index: u32) -> DataKey {
+    DataKey::PayerHistory(payer.clone(), index)
+}
+
+fn payer_history_count_key(payer: &Address) -> DataKey {
+    DataKey::PayerHistoryCount(payer.clone())
+}
+
+/// Return the number of indexed history entries for `payer` (0 if none).
+pub fn get_payer_history_count(env: &Env, payer: &Address) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&payer_history_count_key(payer))
+        .unwrap_or(0u32)
+}
+
+/// Increment `payer`'s history index counter and extend its TTL.
+pub fn bump_payer_history_count(env: &Env, payer: &Address) {
+    let key = payer_history_count_key(payer);
+    let count = get_payer_history_count(env, payer);
+    env.storage().persistent().set(&key, &(count + 1u32));
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Append a record to `payer`'s deterministic history index.
+pub fn append_payer_history(env: &Env, payer: &Address, record: &PaymentRecord) {
+    let index = get_payer_history_count(env, payer);
+    let key = payer_history_key(payer, index);
+    env.storage().persistent().set(&key, record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+fn get_payer_history_record(env: &Env, payer: &Address, index: u32) -> Option<PaymentRecord> {
+    let key = payer_history_key(payer, index);
+    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    record
+}
+
+/// Read a bounded page of `payer`'s history starting at `cursor`.
+///
+/// Mirrors [`get_payment_history_page`] but scoped to a single payer, using
+/// the same cursor/limit semantics and the same page-size cap.
+pub fn get_payer_history_page(
+    env: &Env,
+    payer: &Address,
+    cursor: u32,
+    limit: u32,
+) -> PaymentHistoryPage {
+    let total = get_payer_history_count(env, payer);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+    let end = start.saturating_add(capped_limit).min(total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    while index < end {
+        match get_payer_history_record(env, payer, index) {
+            Some(record) => records.push_back(record),
+            None => break,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+    }
 }
 
 // Allowlist helpers

@@ -11,6 +11,8 @@ export class User {
 
   nonceExpiresAt?: number | bigint | null;
 
+  isAdmin: boolean;
+
   createdAt?: Date;
 
   updatedAt?: Date;
