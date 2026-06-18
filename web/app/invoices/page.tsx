@@ -135,6 +135,12 @@ export default function InvoicesPage() {
             >
               Refresh
             </button>
+            <Link
+              href="/pos"
+              className="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700"
+            >
+              + Quick Sale
+            </Link>
           </div>
         </div>
 
