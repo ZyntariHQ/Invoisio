@@ -79,3 +79,20 @@ pub fn emit_native_allow_changed(env: &Env, allowed: bool) {
     let payload = NativeAllowChanged { allowed };
     payload.publish(env);
 }
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct StorageSchemaUpgraded {
+    pub from_version: u32,
+    pub to_version: u32,
+    pub upgraded_at: u64,
+}
+
+pub fn emit_storage_schema_upgraded(env: &Env, from_version: u32, to_version: u32) {
+    let payload = StorageSchemaUpgraded {
+        from_version,
+        to_version,
+        upgraded_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
