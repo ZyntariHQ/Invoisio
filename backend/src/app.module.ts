@@ -20,6 +20,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { BackfillModule } from "./backfill/backfill.module";
+import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
 
 /**
  * Root application module
@@ -85,6 +86,7 @@ import { BackfillModule } from "./backfill/backfill.module";
     UsersModule,
     WebhooksModule,
     BackfillModule,
+    AdminAnalyticsModule,
   ],
 })
 export class AppModule {}
