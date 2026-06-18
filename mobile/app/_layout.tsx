@@ -88,6 +88,10 @@ export default function RootLayout() {
               name="invoices/[id]"
               options={{ title: "Invoice", headerShown: false }}
             />
+            <Stack.Screen
+              name="scan"
+              options={{ title: "Scan to Pay", headerShown: false }}
+            />
           </Stack>
         </AuthGuard>
       </QueryClientProvider>

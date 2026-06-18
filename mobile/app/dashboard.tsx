@@ -164,16 +164,29 @@ export default function DashboardScreen() {
               >
                 Active invoices
               </Text>
-              <Link href="/create-invoice" asChild>
-                <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
+              <View className="flex-row gap-2">
+                <Pressable
+                  className="rounded-2xl bg-[#2663FF] px-4 py-2"
+                  onPress={() => router.push("/scan")}
+                >
                   <Text
                     className="text-white"
                     style={{ fontFamily: "SpaceGrotesk_500Medium" }}
                   >
-                    New invoice
+                    📷 Scan QR
                   </Text>
                 </Pressable>
-              </Link>
+                <Link href="/create-invoice" asChild>
+                  <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
+                    <Text
+                      className="text-white"
+                      style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                    >
+                      New invoice
+                    </Text>
+                  </Pressable>
+                </Link>
+              </View>
             </View>
           </View>
         }
