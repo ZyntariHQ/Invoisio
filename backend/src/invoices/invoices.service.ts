@@ -597,6 +597,7 @@ export class InvoicesService implements OnModuleInit {
       ...inv,
       amount: numericAmount,
       asset_code: inv.assetCode,
+      asset: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
       memo_type: inv.memoType,
       tx_hash: inv.txHash,
