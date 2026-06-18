@@ -42,6 +42,11 @@ class FakePrisma {
     findMany: async () =>
       Array.from((FakePrisma as any).instance.invoice._store.values()),
   };
+  invoiceStatusHistory = {
+    create: async ({ data }: any) => {
+      return { id: "fake-id", ...data, createdAt: new Date() };
+    },
+  };
   static instance: any;
   constructor() {
     (FakePrisma as any).instance = this;

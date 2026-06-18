@@ -16,6 +16,9 @@ describe("InvoicesService Cron", () => {
       update: jest.fn(),
       count: jest.fn(),
     },
+    invoiceStatusHistory: {
+      create: jest.fn().mockResolvedValue({}),
+    },
   };
 
   const mockWebhooksService = {

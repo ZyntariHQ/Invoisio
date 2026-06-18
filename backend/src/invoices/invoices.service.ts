@@ -197,6 +197,11 @@ export class InvoicesService implements OnModuleInit {
   async findOne(id: string, merchantId: string): Promise<Invoice> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, merchantId },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
     if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
@@ -235,6 +240,16 @@ export class InvoicesService implements OnModuleInit {
         sorobanContractId: null,
         metadata: Prisma.JsonNull,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        statusHistory: {
+          create: {
+            status: "pending",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     return this.normalizeInvoice(created);
@@ -266,6 +281,14 @@ export class InvoicesService implements OnModuleInit {
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
     }
 
+    // Create status history entry
+    await this.prisma.invoiceStatusHistory.create({
+      data: {
+        invoiceId: updated.id,
+        status,
+      },
+    });
+
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(
       id,
@@ -274,7 +297,16 @@ export class InvoicesService implements OnModuleInit {
       merchantId,
     );
 
-    return this.normalizeInvoice(updated);
+    const updatedWithHistory = await this.prisma.invoice.findFirst({
+      where,
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    return this.normalizeInvoice(updatedWithHistory || updated);
   }
 
   /**
@@ -286,7 +318,20 @@ export class InvoicesService implements OnModuleInit {
   async markAsPaid(id: string, txHash: string): Promise<Invoice> {
     const updated = await this.prisma.invoice.update({
       where: { id },
-      data: { status: "paid", txHash: txHash },
+      data: {
+        status: "paid",
+        txHash: txHash,
+        statusHistory: {
+          create: {
+            status: "paid",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
 
     // Enqueue webhook
@@ -312,6 +357,16 @@ export class InvoicesService implements OnModuleInit {
       data: {
         sorobanTxHash: sorobanTxHash,
         sorobanContractId: contractId,
+        statusHistory: {
+          create: {
+            status: "anchored",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     return this.normalizeInvoice(updated);
@@ -374,6 +429,16 @@ export class InvoicesService implements OnModuleInit {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
           },
+          statusHistory: {
+            create: {
+              status: "paid",
+            },
+          },
+        },
+        include: {
+          statusHistory: {
+            orderBy: { createdAt: "asc" },
+          },
         },
       });
       return this.normalizeInvoice(updated);
@@ -384,6 +449,11 @@ export class InvoicesService implements OnModuleInit {
           metadata: {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
+          },
+        },
+        include: {
+          statusHistory: {
+            orderBy: { createdAt: "asc" },
           },
         },
       });
@@ -516,6 +586,11 @@ export class InvoicesService implements OnModuleInit {
         metadata: {
           ...((invoice.metadata as any) ?? {}),
           cancellation: { reason, cancelledAt: cancelledAt.toISOString() },
+        },
+        statusHistory: {
+          create: {
+            status: "cancelled",
+          },
         },
       },
     });
