@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
@@ -209,6 +209,96 @@ describe("InvoicesService", () => {
       await expect(
         service.searchInvoices(undefined as any, "Acme"),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe("cancelInvoice", () => {
+    it("cancels a pending invoice and returns status + reason", async () => {
+      const result = await service.cancelInvoice(
+        "invoice-a-1",
+        MERCHANT_A,
+        "customer request",
+      );
+      expect(result.status).toBe("cancelled");
+      expect(result.reason).toBe("customer request");
+      expect(result.id).toBe("invoice-a-1");
+      expect(result.cancelledAt).toBeInstanceOf(Date);
+    });
+
+    it("uses default reason 'cancelled' when none is supplied", async () => {
+      const result = await service.cancelInvoice("invoice-b-1", MERCHANT_B);
+      expect(result.reason).toBe("cancelled");
+    });
+
+    it("throws NotFoundException when invoice belongs to a different merchant", async () => {
+      await expect(
+        service.cancelInvoice("invoice-b-1", MERCHANT_A),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("throws NotFoundException for a non-existent invoice", async () => {
+      await expect(
+        service.cancelInvoice("no-such-id", MERCHANT_A),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it("throws BadRequestException when the invoice is already paid", async () => {
+      // First pay the invoice via updateStatus, then attempt to cancel it
+      await service.updateStatus("invoice-a-1", "paid" as any, MERCHANT_A);
+      await expect(
+        service.cancelInvoice("invoice-a-1", MERCHANT_A),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("throws BadRequestException when the invoice is already cancelled", async () => {
+      await service.cancelInvoice("invoice-a-1", MERCHANT_A);
+      await expect(
+        service.cancelInvoice("invoice-a-1", MERCHANT_A),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("enqueues a webhook after cancellation", async () => {
+      const webhookSpy = jest.spyOn(
+        (service as any).webhooksService,
+        "enqueueWebhook",
+      );
+      await service.cancelInvoice("invoice-a-1", MERCHANT_A, "test");
+      expect(webhookSpy).toHaveBeenLastCalledWith(
+        "invoice-a-1",
+        "cancelled",
+        undefined,
+        MERCHANT_A,
+      );
+    });
+  });
+
+  describe("findByMemo", () => {
+    it("returns null for a cancelled invoice (reconciliation guard)", async () => {
+      // Cancel invoice-a-1 first
+      await service.cancelInvoice("invoice-a-1", MERCHANT_A);
+      const found = await service.findByMemo("1001");
+      expect(found).toBeNull();
+    });
+
+    it("returns the invoice for a non-cancelled memo", async () => {
+      const found = await service.findByMemo("1001");
+      expect(found).not.toBeNull();
+      expect(found!.memo).toBe("1001");
+    });
+  });
+
+  describe("reconcilePayment", () => {
+    it("throws BadRequestException when attempting to pay a cancelled invoice", async () => {
+      await service.cancelInvoice("invoice-a-1", MERCHANT_A);
+      await expect(
+        service.reconcilePayment(
+          "invoice-a-1",
+          "GPAYER",
+          "XLM",
+          "",
+          "1000000",
+        ),
+      ).rejects.toThrow(BadRequestException);
     });
   });
 });
