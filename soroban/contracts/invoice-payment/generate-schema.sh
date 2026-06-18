@@ -135,6 +135,28 @@ cat > "$OUT" <<JSON
       },
       "required": ["admin", "initialized", "version", "allowlist_mode"],
       "additionalProperties": false
+    },
+    "PaymentHistoryPage": {
+      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() and payments_by_payer().",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "\$ref": "#/types/PaymentRecord" },
+          "description": "Records returned for this page."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        }
+      },
+      "required": ["records", "next_cursor", "has_more"],
+      "additionalProperties": false
     }
   },
   "events": {
@@ -194,6 +216,8 @@ cat > "$OUT" <<JSON
     "get_payment":       { "auth": "none",  "description": "Return PaymentRecord for invoice_id." },
     "has_payment":       { "auth": "none",  "description": "Return true if a payment exists for invoice_id." },
     "payment_count":     { "auth": "none",  "description": "Return total recorded payment count." },
+    "payment_history":   { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
+    "payments_by_payer": { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
     "config":            { "auth": "none",  "description": "Return ContractConfig snapshot." },
     "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
     "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },

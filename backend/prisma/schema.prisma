@@ -33,14 +33,15 @@ model User {
   email          String?
   nonce          String?
   nonceExpiresAt BigInt?
+  isAdmin        Boolean   @default(false) @map("is_admin")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
 
-  invoices Invoice[]
-  webhooks WebhookDelivery[]
+  invoices       Invoice[]
+  webhooks       WebhookDelivery[]
 
   @@index([merchantId])
   @@map("users")
@@ -107,4 +108,41 @@ enum InvoiceStatus {
   paid
   overdue
   cancelled
+}
+
+
+
+// Backfill tracking tables
+model BackfillRun {
+  id              Int      @id @default(autoincrement())
+  startedAt       DateTime @default(now()) @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  startLedger     BigInt?  @map("start_ledger")
+  endLedger       BigInt?  @map("end_ledger")
+  eventsProcessed Int      @default(0) @map("events_processed")
+  eventsMatched   Int      @default(0) @map("events_matched")
+  eventsSkipped   Int      @default(0) @map("events_skipped")
+  eventsFailed    Int      @default(0) @map("events_failed")
+  status          String   @default("running")
+  errorMessage    String?  @map("error_message")
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  @@map("backfill_runs")
+}
+
+model ProcessedEvent {
+  id            Int      @id @default(autoincrement())
+  txHash        String   @map("tx_hash")
+  ledger        BigInt
+  invoiceId     String   @map("invoice_id")
+  contractId    String   @map("contract_id")
+  status        String   @default("success") // success | skipped | failed
+  errorMessage  String?  @map("error_message")
+  processedAt   DateTime @default(now()) @map("processed_at")
+  
+  @@unique([txHash, invoiceId, contractId])
+  @@index([ledger])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("processed_events")
 }

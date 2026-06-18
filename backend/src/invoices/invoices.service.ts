@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -326,6 +327,8 @@ export class InvoicesService implements OnModuleInit {
       where: { memo: memo },
     });
     if (!invoice) return null;
+    // Cancelled invoices must never be matched by the reconciliation watcher
+    if (invoice.status === "cancelled") return null;
     return this.normalizeInvoice(invoice);
   }
 
@@ -424,6 +427,13 @@ export class InvoicesService implements OnModuleInit {
       throw new NotFoundException(`Invoice with ID "${invoiceId}" not found`);
     }
 
+    // Cancelled invoices must never transition to paid through the watcher flow
+    if (invoice.status === "cancelled") {
+      throw new BadRequestException(
+        `Invoice "${invoiceId}" is cancelled and cannot be paid`,
+      );
+    }
+
     // Step 2 — idempotency gate: check if already recorded on-chain.
     const alreadyOnChain =
       await this.sorobanService.hasInvoicePayment(invoiceId);
@@ -461,6 +471,63 @@ export class InvoicesService implements OnModuleInit {
       "paid" as InvoiceStatus,
     );
     return { ...updated, txHash, ledger };
+  }
+
+  /**
+   * Cancel or void an unpaid invoice.
+   *
+   * Only invoices in `pending` or `overdue` status may be cancelled.
+   * Paid invoices cannot be reversed through this endpoint.
+   * Already-cancelled invoices are rejected to prevent duplicate webhooks.
+   *
+   * The cancellation reason and timestamp are stored in `metadata.cancellation`
+   * so they survive for audit purposes.
+   *
+   * @param id         - Invoice UUID
+   * @param merchantId - Merchant scope (enforces ownership)
+   * @param reason     - Human-readable reason string (e.g. "cancelled", "voided")
+   * @returns          - Plain object with id, status, reason, and cancelledAt
+   */
+  async cancelInvoice(
+    id: string,
+    merchantId: string,
+    reason = "cancelled",
+  ): Promise<{ id: string; status: string; reason: string; cancelledAt: Date }> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id, merchantId },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
+    if (invoice.status === "paid") {
+      throw new BadRequestException("Cannot cancel a paid invoice");
+    }
+    if (invoice.status === "cancelled") {
+      throw new BadRequestException("Invoice is already cancelled");
+    }
+
+    const cancelledAt = new Date();
+
+    await this.prisma.invoice.update({
+      where: { id },
+      data: {
+        status: "cancelled",
+        metadata: {
+          ...((invoice.metadata as any) ?? {}),
+          cancellation: { reason, cancelledAt: cancelledAt.toISOString() },
+        },
+      },
+    });
+
+    await this.webhooksService.enqueueWebhook(
+      id,
+      "cancelled" as any,
+      invoice.txHash,
+      merchantId,
+    );
+
+    return { id, status: "cancelled", reason, cancelledAt };
   }
 
   /**

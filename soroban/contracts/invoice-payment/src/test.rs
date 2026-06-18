@@ -2,6 +2,7 @@
 #![allow(clippy::all)]
 
 use super::*;
+use alloc::format;
 use soroban_sdk::{
     testutils::{Address as _, MockAuth, MockAuthInvoke},
     Address, Env, IntoVal, String,
