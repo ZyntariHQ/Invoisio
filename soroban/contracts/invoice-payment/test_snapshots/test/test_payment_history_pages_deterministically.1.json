@@ -36,7 +36,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-001"
+                  "string": "invoisio-history-00"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -64,29 +64,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_allow_native",
-              "args": [
-                {
-                  "bool": true
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-002"
+                  "string": "invoisio-history-01"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -114,29 +95,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_allow_native",
-              "args": [
-                {
-                  "bool": true
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-003"
+                  "string": "invoisio-history-02"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -157,6 +119,8 @@
         }
       ]
     ],
+    [],
+    [],
     []
   ],
   "ledger": {
@@ -199,46 +163,6 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "2032731177588607455"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "4270020994084947596"
                 }
               },
               "durability": "temporary",
@@ -337,7 +261,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-001"
+                      "string": "invoisio-history-00"
                     }
                   },
                   {
@@ -412,7 +336,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-002"
+                      "string": "invoisio-history-01"
                     }
                   },
                   {
@@ -487,7 +411,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-003"
+                      "string": "invoisio-history-02"
                     }
                   },
                   {
@@ -586,7 +510,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-001"
+                      "string": "invoisio-history-00"
                     }
                   },
                   {
@@ -658,7 +582,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-002"
+                      "string": "invoisio-history-01"
                     }
                   },
                   {
@@ -730,7 +654,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-003"
+                      "string": "invoisio-history-02"
                     }
                   },
                   {
@@ -770,7 +694,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-001"
+                    "string": "invoisio-history-00"
                   }
                 ]
               },
@@ -802,7 +726,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-001"
+                      "string": "invoisio-history-00"
                     }
                   },
                   {
@@ -842,7 +766,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-002"
+                    "string": "invoisio-history-01"
                   }
                 ]
               },
@@ -874,7 +798,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-002"
+                      "string": "invoisio-history-01"
                     }
                   },
                   {
@@ -914,7 +838,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-003"
+                    "string": "invoisio-history-02"
                   }
                 ]
               },
@@ -946,7 +870,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-003"
+                      "string": "invoisio-history-02"
                     }
                   },
                   {

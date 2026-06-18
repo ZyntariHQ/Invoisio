@@ -1783,8 +1783,11 @@ fn test_schema_compatibility_check() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
     
-    // After initialization, schema should be compatible
-    assert!(storage::is_schema_compatible(&env));
+    // Wrap the storage access in as_contract
+    let compatible = env.as_contract(&client.address, || {
+        storage::is_schema_compatible(&env)
+    });
+    assert!(compatible);
     
     // Version info should match current
     let info = client.version_info();

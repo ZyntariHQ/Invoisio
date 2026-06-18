@@ -7,6 +7,7 @@
   "auth": [
     [],
     [],
+    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -36,7 +37,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-amount-at-max"
+                  "string": "invoisio-legacy-deploy"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -48,7 +49,7 @@
                   "string": ""
                 },
                 {
-                  "i128": "9223372036854775807"
+                  "i128": "10000000"
                 }
               ]
             }
@@ -137,7 +138,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -157,7 +158,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-legacy-deploy"
                     }
                   },
                   {
@@ -236,7 +237,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -256,7 +257,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-legacy-deploy"
                     }
                   },
                   {
@@ -296,7 +297,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-amount-at-max"
+                    "string": "invoisio-legacy-deploy"
                   }
                 ]
               },
@@ -308,7 +309,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -328,7 +329,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-legacy-deploy"
                     }
                   },
                   {

@@ -1,10 +1,11 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 0,
     "mux_id": 0
   },
   "auth": [
+    [],
     [],
     [],
     [
@@ -36,10 +37,10 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-amount-at-max"
+                  "string": "invoisio-new-mix"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
                   "string": "XLM"
@@ -48,7 +49,7 @@
                   "string": ""
                 },
                 {
-                  "i128": "9223372036854775807"
+                  "i128": "20000000"
                 }
               ]
             }
@@ -57,6 +58,8 @@
         }
       ]
     ],
+    [],
+    [],
     []
   ],
   "ledger": {
@@ -122,7 +125,7 @@
                     "symbol": "PayerHistory"
                   },
                   {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   },
                   {
                     "u32": 0
@@ -137,7 +140,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "20000000"
                     }
                   },
                   {
@@ -157,7 +160,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-new-mix"
                     }
                   },
                   {
@@ -165,7 +168,7 @@
                       "symbol": "payer"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   },
                   {
@@ -197,13 +200,85 @@
                     "symbol": "PayerHistoryCount"
                   },
                   {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
                 "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "Payment"
+                  },
+                  {
+                    "string": "invoisio-legacy-mix"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "amount"
+                    },
+                    "val": {
+                      "i128": "10000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Native"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "invoice_id"
+                    },
+                    "val": {
+                      "string": "invoisio-legacy-mix"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "payer"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "1234"
+                    }
+                  }
+                ]
               }
             }
           },
@@ -236,7 +311,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "20000000"
                     }
                   },
                   {
@@ -256,7 +331,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-new-mix"
                     }
                   },
                   {
@@ -264,7 +339,7 @@
                       "symbol": "payer"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   },
                   {
@@ -296,7 +371,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-amount-at-max"
+                    "string": "invoisio-legacy-mix"
                   }
                 ]
               },
@@ -308,7 +383,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "9223372036854775807"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -328,7 +403,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-amount-at-max"
+                      "string": "invoisio-legacy-mix"
                     }
                   },
                   {
@@ -337,6 +412,78 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "1234"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PaymentV1"
+                  },
+                  {
+                    "string": "invoisio-new-mix"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "amount"
+                    },
+                    "val": {
+                      "i128": "20000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Native"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "invoice_id"
+                    },
+                    "val": {
+                      "string": "invoisio-new-mix"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "payer"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   },
                   {
