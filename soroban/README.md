@@ -250,6 +250,45 @@ Deploys the contract to Stellar testnet and initializes it.
 4. Initializes the contract with the admin address
 5. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
 
+### Deploy Manifests
+
+Network configuration is stored in `manifests/` as TOML files. `deploy.sh`
+reads the correct manifest automatically based on `STELLAR_NETWORK`.
+
+| File | Purpose |
+|------|---------|
+| `manifests/testnet.toml` | Testnet (default) — Friendbot-funded, SDF RPC |
+| `manifests/mainnet.toml` | Mainnet — pre-funded admin required |
+
+Each manifest covers:
+
+- **`[network]`** — passphrase, RPC URL, Horizon URL
+- **`[identity]`** — local keys identity name and the env var that holds the secret key
+- **`[contract]`** — WASM path and where to write the deployed contract ID
+- **`[assets]`** — allowlist of accepted payment assets (`CODE:ISSUER` or `"native"`)
+
+Secrets are never stored in the manifest — they are referenced by env var name only.
+
+**Testnet (default):**
+```bash
+./build.sh
+./deploy.sh
+# or explicitly:
+STELLAR_NETWORK=testnet ./deploy.sh
+```
+
+**Mainnet:**
+```bash
+./build.sh
+STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+```
+
+**Adding a new environment** (e.g. futurenet): copy `manifests/testnet.toml`,
+rename it `manifests/futurenet.toml`, update the `[network]` block, and run:
+```bash
+STELLAR_NETWORK=futurenet ./deploy.sh
+```
+
 ### `./invoke-record-payment.sh`
 
 Records an invoice payment on-chain.
