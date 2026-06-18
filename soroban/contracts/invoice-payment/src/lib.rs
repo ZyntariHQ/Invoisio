@@ -387,6 +387,40 @@ impl InvoicePaymentContract {
         emit_native_allow_changed(&env, allowed);
         Ok(())
     }
+
+    /// Upgrade the storage schema to the current version.
+    ///
+    /// Admin-only function that explicitly migrates the storage schema
+    /// to the version expected by this contract code.
+    ///
+    /// ## When to call
+    /// - After upgrading contract code that introduces a new schema
+    /// - To explicitly migrate all data (lazy migration happens on reads)
+    /// - As part of deployment pipeline after code upgrade
+    ///
+    /// ## Idempotency
+    /// Safe to call multiple times - checks current schema version first.
+    ///
+    /// ## Events
+    /// Emits `StorageSchemaUpgraded` event on successful migration.
+    ///
+    /// ## Errors
+    /// - `StorageSchemaTooNew` if storage schema is newer than contract
+    /// - `StorageSchemaTooOld` if schema version is not supported for migration
+    pub fn upgrade_storage(
+        env: Env,
+        caller: Address,
+    ) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        caller.require_auth();
+        
+        if caller != admin {
+            return Err(ContractError::Unauthorized);
+        }
+        
+        let target = STORAGE_SCHEMA_VERSION;
+        storage::upgrade_storage_schema(&env, target)
+    }
 }
 
 mod test;
