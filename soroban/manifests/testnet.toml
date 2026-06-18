@@ -1,0 +1,49 @@
+# Invoisio — Testnet deployment manifest
+#
+# All secret values (keys, seeds) must be supplied via environment variables.
+# Never commit real private keys or secret seeds to this file.
+#
+# Usage:
+#   source manifests/testnet.toml  (not directly; read by deploy.sh)
+#   STELLAR_NETWORK=testnet ./deploy.sh
+#
+# Required environment variables (set before running deploy.sh):
+#   INVOISIO_ADMIN_SECRET   — secret key for the admin identity (for CI/CD)
+#                             Leave unset to use an existing stellar keys identity.
+
+[network]
+name            = "testnet"
+passphrase      = "Test SDF Network ; September 2015"
+rpc_url         = "https://soroban-testnet.stellar.org"
+horizon_url     = "https://horizon-testnet.stellar.org"
+friendbot_url   = "https://friendbot.stellar.org"
+
+[identity]
+# Name of the local stellar keys identity to use.
+# Create with: stellar keys generate --global invoisio-admin --network testnet
+name = "invoisio-admin"
+# Secret key injected from env at deploy time (optional; identity name used if absent).
+secret_key_env = "INVOISIO_ADMIN_SECRET"
+
+[contract]
+# Path to the compiled WASM relative to the soroban/ directory.
+wasm_path       = "target/wasm32v1-none/release/invoice_payment.wasm"
+# File where the deployed contract ID is written after a successful deploy.
+contract_id_file = "contracts/invoice-payment/.contract-id"
+
+[assets]
+# Allowlist of accepted payment assets.
+# Format: CODE:ISSUER  (use "native" for XLM)
+# Testnet USDC issued by the SDF test anchor.
+allowlist = [
+  "native",
+  "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+]
+
+# Example overrides for local development:
+#
+# [network]
+# rpc_url = "http://localhost:8000/soroban/rpc"
+#
+# To deploy:
+#   INVOISIO_ADMIN_SECRET=S... STELLAR_NETWORK=testnet ./deploy.sh

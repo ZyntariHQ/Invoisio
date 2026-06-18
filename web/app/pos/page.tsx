@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
 import { apiClient, extractApiErrorMessage } from '@/lib/api-client';
 import { generatePaymentUri } from '@/lib/sep0007';
+import { RequireAuth } from '@/components/require-auth';
 
 // Stellar mainnet USDC issuer — override via NEXT_PUBLIC_USDC_ISSUER for testnet
 const USDC_ISSUER =
@@ -286,7 +287,7 @@ function PaymentView({
   );
 }
 
-export default function POSPage() {
+function POSContent() {
   const router = useRouter();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
 
@@ -317,5 +318,13 @@ export default function POSPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function POSPage() {
+  return (
+    <RequireAuth>
+      <POSContent />
+    </RequireAuth>
   );
 }

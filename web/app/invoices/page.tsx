@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { WalletAuthControls } from '@/components/wallet-auth-controls';
+import { RequireAuth } from '@/components/require-auth';
 
 interface Invoice {
   id: string;
@@ -65,7 +66,7 @@ async function fetchInvoicesPage(page: number, pageSize: number): Promise<Invoic
     : { items, page, pageSize, hasMore };
 }
 
-export default function InvoicesPage() {
+function InvoicesContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid' | 'overdue' | 'cancelled'>('all');
   const pageSize = 20;
@@ -348,5 +349,13 @@ export default function InvoicesPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function InvoicesPage() {
+  return (
+    <RequireAuth>
+      <InvoicesContent />
+    </RequireAuth>
   );
 }

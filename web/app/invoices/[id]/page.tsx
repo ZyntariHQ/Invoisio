@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
+import { RequireAuth } from '@/components/require-auth';
 
 interface Invoice {
   id: string;
@@ -31,7 +32,7 @@ interface WalletInfo {
   message: string;
 }
 
-export default function InvoiceDetailPage() {
+function InvoiceDetailContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const invoiceId = params?.id as string;
@@ -391,5 +392,13 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function InvoiceDetailPage() {
+  return (
+    <RequireAuth>
+      <InvoiceDetailContent />
+    </RequireAuth>
   );
 }
