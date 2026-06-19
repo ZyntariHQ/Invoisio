@@ -5,6 +5,8 @@ import {
   Patch,
   Delete,
   UseGuards,
+  Param,
+  Body,
 } from "@nestjs/common";
 
 import { JwtAuthGuard } from "../auth/guard/auth.guard";
@@ -12,10 +14,34 @@ import { MerchantMembershipGuard } from "../common/guards/merchant-membership.gu
 import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 import { Roles } from "../common/decorators/roles.decorator";
 import { MerchantRole } from "../common/enums/merchant-role.enum";
+import { MerchantService } from "./merchant.service";
+import { UpdateMerchantProfileDto } from "./dtos/update-merchant-profile.dto";
 
 @UseGuards(JwtAuthGuard, MerchantMembershipGuard, MerchantRolesGuard)
 @Controller("merchants")
 export class MerchantController {
+  constructor(private readonly merchantService: MerchantService) {}
+
+  @Get(":merchantId/profile")
+  @Roles(
+    MerchantRole.OWNER,
+    MerchantRole.ADMIN,
+    MerchantRole.OPERATOR,
+    MerchantRole.VIEWER,
+  )
+  getProfile(@Param("merchantId") merchantId: string) {
+    return this.merchantService.getProfile(merchantId);
+  }
+
+  @Patch(":merchantId/profile")
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  updateProfile(
+    @Param("merchantId") merchantId: string,
+    @Body() data: UpdateMerchantProfileDto,
+  ) {
+    return this.merchantService.updateProfile(merchantId, data);
+  }
+
   @Get(":merchantId/export")
   @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
   exportMerchantData() {

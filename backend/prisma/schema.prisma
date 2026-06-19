@@ -14,6 +14,9 @@ model Merchant {
   id               String    @id @default(uuid())
   name             String
   stellarPublicKey String    @unique @map("stellar_public_key")
+  businessEmail    String?   @map("business_email")
+  preferredAsset   String?   @map("preferred_asset")
+  payoutWallet     String?   @map("payout_wallet")
   webhookUrl       String?   @map("webhook_url")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
