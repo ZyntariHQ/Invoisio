@@ -355,20 +355,22 @@ function validateExpectedMethods(methods) {
 }
 
 function validateExpectedStruct(structDef, expectedFields) {
-  const actual = structDef.fields.map((field) => field.name);
+  const actual = structDef.fields.map((field) => field.name).sort();
+  const expected = [...expectedFields].sort();
   if (
-    expectedFields.length !== actual.length ||
-    expectedFields.some((name, index) => name !== actual[index])
+    expected.length !== actual.length ||
+    expected.some((name, index) => name !== actual[index])
   ) {
     throw new Error(`Unexpected ${structDef.name} fields: ${actual.join(', ')}`);
   }
 }
 
 function validateExpectedEnum(enumDef, expectedVariants) {
-  const actual = enumDef.variants.map((variant) => variant.name);
+  const actual = enumDef.variants.map((variant) => variant.name).sort();
+  const expected = [...expectedVariants].sort();
   if (
-    expectedVariants.length !== actual.length ||
-    expectedVariants.some((name, index) => name !== actual[index])
+    expected.length !== actual.length ||
+    expected.some((name, index) => name !== actual[index])
   ) {
     throw new Error(`Unexpected ${enumDef.name} variants: ${actual.join(', ')}`);
   }
