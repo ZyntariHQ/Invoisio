@@ -340,9 +340,13 @@ function validateExpectedMethods(methods) {
     'allow_asset',
     'revoke_asset',
     'set_allow_native',
-  ];
+    'payment_history',
+    'payments_by_payer',
+    'config',
+    'upgrade_storage',
+  ].sort();
 
-  const actual = methods.map((entry) => entry.name);
+  const actual = methods.map((entry) => entry.name).sort();
   if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
     throw new Error(`Unexpected contract methods: ${actual.join(', ')}`);
   }
