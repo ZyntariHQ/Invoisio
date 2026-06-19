@@ -2,6 +2,7 @@ import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 class FakePrisma {
   invoice = {
@@ -69,6 +70,11 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
     enqueueWebhook: async () => {},
   } as unknown as WebhooksService;
 
+  const notificationsStub = {
+    notifyInvoicePaid: async () => {},
+    notifyInvoiceOverdue: async () => {},
+  } as unknown as NotificationsService;
+
   beforeEach(async () => {
     prisma = new FakePrisma();
     service = new InvoicesService(
@@ -76,6 +82,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       sorobanStub,
       prisma,
       webhooksStub,
+      notificationsStub,
     );
   });
 

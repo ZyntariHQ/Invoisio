@@ -4,6 +4,7 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 describe("InvoicesService Cron", () => {
   let service: InvoicesService;
@@ -36,6 +37,7 @@ describe("InvoicesService Cron", () => {
         { provide: WebhooksService, useValue: mockWebhooksService },
         { provide: StellarService, useValue: mockStellarService },
         { provide: SorobanService, useValue: mockSorobanService },
+        { provide: NotificationsService, useValue: { notifyInvoicePaid: jest.fn(), notifyInvoiceOverdue: jest.fn() } },
       ],
     }).compile();
 

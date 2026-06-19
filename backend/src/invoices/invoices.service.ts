@@ -14,6 +14,7 @@ import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
@@ -27,6 +28,7 @@ export class InvoicesService implements OnModuleInit {
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
     private readonly webhooksService: WebhooksService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async onModuleInit() {
@@ -306,6 +308,12 @@ export class InvoicesService implements OnModuleInit {
       },
     });
 
+    if (status === 'paid') {
+      await this.notificationsService.notifyInvoicePaid(updatedWithHistory || updated);
+    } else if (status === 'overdue') {
+      await this.notificationsService.notifyInvoiceOverdue(updatedWithHistory || updated);
+    }
+
     return this.normalizeInvoice(updatedWithHistory || updated);
   }
 
@@ -336,6 +344,7 @@ export class InvoicesService implements OnModuleInit {
 
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(id, "paid", txHash);
+    await this.notificationsService.notifyInvoicePaid(updated);
 
     return this.normalizeInvoice(updated);
   }
@@ -441,6 +450,7 @@ export class InvoicesService implements OnModuleInit {
           },
         },
       });
+      await this.notificationsService.notifyInvoicePaid(updated);
       return this.normalizeInvoice(updated);
     } else {
       const updated = await this.prisma.invoice.update({

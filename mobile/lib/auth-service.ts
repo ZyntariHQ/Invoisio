@@ -70,4 +70,35 @@ export const AuthService = {
   createSiweMessage(nonce: string): string {
     return `Sign this message to authenticate with Invoisio\n\nNonce: ${nonce}`;
   },
+
+  async registerPushToken(accessToken: string, token: string): Promise<void> {
+    try {
+      await axios.post(`${API_URL}/users/push-token`, { token }, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error registering push token:", error);
+    }
+  },
+
+  async unregisterPushToken(accessToken: string, token: string): Promise<void> {
+    try {
+      await axios.delete(`${API_URL}/users/push-token`, {
+        data: { token },
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error unregistering push token:", error);
+    }
+  },
+
+  async updatePushPreferences(accessToken: string, enabled: boolean): Promise<void> {
+    try {
+      await axios.patch(`${API_URL}/users/preferences`, { pushNotificationsEnabled: enabled }, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error updating push preferences:", error);
+    }
+  },
 };

@@ -21,6 +21,7 @@ import { WebhooksModule } from "./webhooks/webhooks.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { BackfillModule } from "./backfill/backfill.module";
 import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
+import { NotificationsModule } from "./notifications/notifications.module";
 
 /**
  * Root application module
@@ -103,6 +104,7 @@ import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
     WebhooksModule,
     BackfillModule,
     AdminAnalyticsModule,
+    NotificationsModule,
   ],
 })
 export class AppModule {}

@@ -5,6 +5,7 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 const MERCHANT_A = "merchant-a";
 const MERCHANT_B = "merchant-b";
@@ -210,6 +211,7 @@ describe("InvoicesService", () => {
         { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
         { provide: WebhooksService, useValue: mockWebhooksService },
+        { provide: NotificationsService, useValue: { notifyInvoicePaid: jest.fn(), notifyInvoiceOverdue: jest.fn() } },
       ],
     }).compile();
 
