@@ -49,17 +49,26 @@ export const AuthService = {
   },
 
   /**
-   * Verify a stored access token is still valid against the backend.
-   * Returns false if expired or invalid (safe to call on app boot).
+   * Verify a stored access token against the backend.
+   * A network failure resolves to "unknown" so a flaky connection does not
+   * force a logout; only an explicit 401/403 means the token is rejected.
    */
-  async verifyToken(accessToken: string): Promise<boolean> {
+  async verifyToken(
+    accessToken: string,
+  ): Promise<"valid" | "invalid" | "unknown"> {
     try {
       await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      return true;
-    } catch {
-      return false;
+      return "valid";
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        const status = error.response.status;
+        if (status === 401 || status === 403) {
+          return "invalid";
+        }
+      }
+      return "unknown";
     }
   },
 
