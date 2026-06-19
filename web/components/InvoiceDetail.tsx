@@ -51,8 +51,9 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
           dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000).toLocaleString(),
           status: simulatedTicks > 1 ? 'PAID' : 'PENDING',
           history: [
-            { status: 'PENDING', timestamp: '2026-06-19 07:00' },
-            ...(simulatedTicks > 1 ? [{ status: 'PAID', timestamp: new Date().toLocaleTimeString(), txHash: '0x8f3c4b9a2d1e6f7c8b9a' }] : [])
+            { status: 'PENDING' as const, timestamp: '2026-06-19 07:00' },
+            // FIX: Added 'as const' to ensure 'PAID' is evaluated as a strict literal type rather than a generic string
+            ...(simulatedTicks > 1 ? [{ status: 'PAID' as const, timestamp: new Date().toLocaleTimeString(), txHash: '0x8f3c4b9a2d1e6f7c8b9a' }] : [])
           ]
         };
         setInvoice(mockInvoice);
