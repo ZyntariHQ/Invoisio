@@ -308,10 +308,14 @@ export class InvoicesService implements OnModuleInit {
       },
     });
 
-    if (status === 'paid') {
-      await this.notificationsService.notifyInvoicePaid(updatedWithHistory || updated);
-    } else if (status === 'overdue') {
-      await this.notificationsService.notifyInvoiceOverdue(updatedWithHistory || updated);
+    if (status === "paid") {
+      await this.notificationsService.notifyInvoicePaid(
+        updatedWithHistory || updated,
+      );
+    } else if (status === "overdue") {
+      await this.notificationsService.notifyInvoiceOverdue(
+        updatedWithHistory || updated,
+      );
     }
 
     return this.normalizeInvoice(updatedWithHistory || updated);
@@ -572,7 +576,12 @@ export class InvoicesService implements OnModuleInit {
     id: string,
     merchantId: string,
     reason = "cancelled",
-  ): Promise<{ id: string; status: string; reason: string; cancelledAt: Date }> {
+  ): Promise<{
+    id: string;
+    status: string;
+    reason: string;
+    cancelledAt: Date;
+  }> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, merchantId },
     });

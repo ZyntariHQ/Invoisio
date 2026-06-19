@@ -1,6 +1,12 @@
 export class Expo {
-  chunkPushNotifications() { return []; }
-  async sendPushNotificationsAsync() { return []; }
-  static isExpoPushToken() { return true; }
+  chunkPushNotifications() {
+    return [];
+  }
+  async sendPushNotificationsAsync() {
+    return [];
+  }
+  static isExpoPushToken() {
+    return true;
+  }
 }
-export interface ExpoPushMessage {}
+export type ExpoPushMessage = Record<string, unknown>;

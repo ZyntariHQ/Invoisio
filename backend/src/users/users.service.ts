@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class UsersService {
@@ -7,7 +7,7 @@ export class UsersService {
 
   async addPushToken(userId: string, token: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException("User not found");
 
     if (!user.pushTokens.includes(token)) {
       await this.prisma.user.update({
@@ -24,7 +24,7 @@ export class UsersService {
 
   async removePushToken(userId: string, token: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) throw new NotFoundException('User not found');
+    if (!user) throw new NotFoundException("User not found");
 
     const newTokens = user.pushTokens.filter((t) => t !== token);
     await this.prisma.user.update({

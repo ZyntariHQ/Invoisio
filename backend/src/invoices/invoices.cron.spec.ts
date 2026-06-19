@@ -37,7 +37,13 @@ describe("InvoicesService Cron", () => {
         { provide: WebhooksService, useValue: mockWebhooksService },
         { provide: StellarService, useValue: mockStellarService },
         { provide: SorobanService, useValue: mockSorobanService },
-        { provide: NotificationsService, useValue: { notifyInvoicePaid: jest.fn(), notifyInvoiceOverdue: jest.fn() } },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyInvoicePaid: jest.fn(),
+            notifyInvoiceOverdue: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

@@ -1,5 +1,9 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
@@ -134,12 +138,13 @@ describe("InvoicesService", () => {
           return Promise.resolve(filterByWhere(where).length);
         }),
         findFirst: jest.fn().mockImplementation(({ where }: any) => {
-          return Promise.resolve(populateHistory(filterByWhere(where)[0] ?? null));
+          return Promise.resolve(
+            populateHistory(filterByWhere(where)[0] ?? null),
+          );
         }),
         findUnique: jest.fn().mockImplementation(({ where }: any) => {
           const inv = invoices.find(
-            (invoice) =>
-              invoice.id === where.id || invoice.memo === where.memo,
+            (invoice) => invoice.id === where.id || invoice.memo === where.memo,
           );
           return Promise.resolve(populateHistory(inv ?? null));
         }),
@@ -211,7 +216,13 @@ describe("InvoicesService", () => {
         { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
         { provide: WebhooksService, useValue: mockWebhooksService },
-        { provide: NotificationsService, useValue: { notifyInvoicePaid: jest.fn(), notifyInvoiceOverdue: jest.fn() } },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyInvoicePaid: jest.fn(),
+            notifyInvoiceOverdue: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -348,13 +359,7 @@ describe("InvoicesService", () => {
     it("throws BadRequestException when attempting to pay a cancelled invoice", async () => {
       await service.cancelInvoice("invoice-a-1", MERCHANT_A);
       await expect(
-        service.reconcilePayment(
-          "invoice-a-1",
-          "GPAYER",
-          "XLM",
-          "",
-          "1000000",
-        ),
+        service.reconcilePayment("invoice-a-1", "GPAYER", "XLM", "", "1000000"),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -405,7 +410,11 @@ describe("InvoicesService", () => {
     });
 
     it("appends status history entry on updateSorobanMetadata (anchored)", async () => {
-      const updated = await service.updateSorobanMetadata("invoice-a-1", "soroban-tx", "contract-123");
+      const updated = await service.updateSorobanMetadata(
+        "invoice-a-1",
+        "soroban-tx",
+        "contract-123",
+      );
       expect(updated.statusHistory!.map((h) => h.status)).toContain("anchored");
     });
   });
