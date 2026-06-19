@@ -181,15 +181,17 @@ function extractMethods(source) {
   const block = extractBlock(source, 'pub trait Contract {');
   const methods = [];
 
-  for (const line of block.split('\n')) {
-    const match = line.trim().match(/^fn\s+([a-zA-Z0-9_]+)\((.*)\)\s*->\s*(.*);$/);
-    if (!match) {
-      continue;
-    }
+  const methodRegex = /fn\s+([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\)\s*(?:->\s*([^;]*?))?;/g;
+  let match;
 
-    const [, name, paramsText, returnType] = match;
+  while ((match = methodRegex.exec(block)) !== null) {
+    const name = match[1];
+    const paramsText = match[2];
+    const returnTypeRaw = match[3];
+    const returnType = returnTypeRaw ? returnTypeRaw.trim().replace(/\s+/g, ' ') : '()';
+
     const params = splitTopLevel(paramsText)
-      .map((part) => part.trim())
+      .map((part) => part.trim().replace(/\s+/g, ' '))
       .filter((part) => part.length > 0)
       .map((part) => {
         const colonIndex = part.indexOf(':');
