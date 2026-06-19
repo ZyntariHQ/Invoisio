@@ -40,6 +40,9 @@ model User {
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
 
+  pushTokens     String[]  @default([]) @map("push_tokens")
+  pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
+
   invoices       Invoice[]
   webhooks       WebhookDelivery[]
 

@@ -63,4 +63,3 @@ export class InvoiceStatusHistory {
   status: string;
   createdAt: Date;
 }
-

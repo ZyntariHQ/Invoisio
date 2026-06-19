@@ -80,17 +80,30 @@ export default function DashboardScreen() {
                   Base-native receivables in one glass dashboard.
                 </Text>
               </View>
-              <Pressable
-                className="rounded-2xl border border-red-500/30 px-4 py-2"
-                onPress={handleLogout}
-              >
-                <Text
-                  className="text-sm text-red-400"
-                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+              <View className="flex-row gap-2">
+                <Pressable
+                  className="rounded-2xl border border-white/20 px-4 py-2"
+                  onPress={() => router.push("/settings")}
                 >
-                  Logout
-                </Text>
-              </Pressable>
+                  <Text
+                    className="text-sm text-white"
+                    style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                  >
+                    Settings
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="rounded-2xl border border-red-500/30 px-4 py-2"
+                  onPress={handleLogout}
+                >
+                  <Text
+                    className="text-sm text-red-400"
+                    style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                  >
+                    Logout
+                  </Text>
+                </Pressable>
+              </View>
             </View>
             {publicKey && (
               <Text

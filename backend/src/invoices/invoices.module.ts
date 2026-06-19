@@ -6,6 +6,7 @@ import { SorobanModule } from "../soroban/soroban.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { WebhooksModule } from "../webhooks/webhooks.module";
 import { AuthModule } from "../auth/auth.module";
+import { NotificationsModule } from "../notifications/notifications.module";
 
 /**
  * Invoices module
@@ -18,6 +19,7 @@ import { AuthModule } from "../auth/auth.module";
     PrismaModule,
     WebhooksModule,
     AuthModule,
+    NotificationsModule,
   ],
   controllers: [InvoicesController],
   providers: [InvoicesService],

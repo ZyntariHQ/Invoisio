@@ -80,27 +80,34 @@ export const AuthService = {
     return `Sign this message to authenticate with Invoisio\n\nNonce: ${nonce}`;
   },
 
-  /**
-   * Decode a JWT's `exp` claim into epoch milliseconds without verifying the
-   * signature. Used only to store session metadata so expiry can be checked
-   * locally (e.g. offline) on app boot. Returns null if the token has no
-   * readable numeric `exp`.
-   */
-  decodeTokenExpiry(accessToken: string): number | null {
+  async registerPushToken(accessToken: string, token: string): Promise<void> {
     try {
-      const payload = accessToken.split(".")[1];
-      if (!payload) {
-        return null;
-      }
-      const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-      const json = Buffer.from(normalized, "base64").toString("utf-8");
-      const claims = JSON.parse(json) as { exp?: unknown };
-      if (typeof claims.exp === "number" && Number.isFinite(claims.exp)) {
-        return claims.exp * 1000;
-      }
-      return null;
-    } catch {
-      return null;
+      await axios.post(`${API_URL}/users/push-token`, { token }, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error registering push token:", error);
+    }
+  },
+
+  async unregisterPushToken(accessToken: string, token: string): Promise<void> {
+    try {
+      await axios.delete(`${API_URL}/users/push-token`, {
+        data: { token },
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error unregistering push token:", error);
+    }
+  },
+
+  async updatePushPreferences(accessToken: string, enabled: boolean): Promise<void> {
+    try {
+      await axios.patch(`${API_URL}/users/preferences`, { pushNotificationsEnabled: enabled }, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+    } catch (error) {
+      console.error("Error updating push preferences:", error);
     }
   },
 };
