@@ -1,0 +1,189 @@
+name: Backend Release Validation
+
+on:
+  release:
+    types: [published]
+  push:
+    branches: ["release/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  validate-release:
+    name: Release Pre-flight & Smoke Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./backend
+
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_DB: testdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        env:
+          REDIS_PASSWORD: ""
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate Required Secrets
+        shell: bash
+        run: |
+          echo "Checking required production release secrets..."
+          MISSING_SECRETS=()
+
+          if [ -z "${{ secrets.DATABASE_URL }}" ] && [ -z "${{ secrets.PROD_DATABASE_URL }}" ]; then
+            MISSING_SECRETS+=("DATABASE_URL / PROD_DATABASE_URL")
+          fi
+          if [ -z "${{ secrets.MERCHANT_PUBLIC_KEY }}" ] && [ -z "${{ secrets.PROD_MERCHANT_PUBLIC_KEY }}" ]; then
+            MISSING_SECRETS+=("MERCHANT_PUBLIC_KEY / PROD_MERCHANT_PUBLIC_KEY")
+          fi
+          if [ -z "${{ secrets.ADMIN_SECRET_KEY }}" ] && [ -z "${{ secrets.PROD_ADMIN_SECRET_KEY }}" ]; then
+            MISSING_SECRETS+=("ADMIN_SECRET_KEY / PROD_ADMIN_SECRET_KEY")
+          fi
+          if [ -z "${{ secrets.JWT_SECRET }}" ] && [ -z "${{ secrets.PROD_JWT_SECRET }}" ]; then
+            MISSING_SECRETS+=("JWT_SECRET / PROD_JWT_SECRET")
+          fi
+
+          if [ ${#MISSING_SECRETS[@]} -ne 0 ]; then
+            echo "::error::Release aborted! The following required secrets are missing:"
+            for secret in "${MISSING_SECRETS[@]}"; do
+              echo "  - $secret"
+            done
+            echo "Please set these secrets in your repository settings before releasing."
+            exit 1
+          fi
+          echo "All required secrets are present."
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20.x"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Linter
+        run: npm run lint
+
+      - name: Run Format Check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: Generate Prisma Client
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: npx prisma generate
+
+      - name: Run Unit Tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+          MERCHANT_PUBLIC_KEY: ${{ secrets.PROD_MERCHANT_PUBLIC_KEY || secrets.MERCHANT_PUBLIC_KEY || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' }}
+        run: npm run test
+
+      - name: Run E2E Tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+          MERCHANT_PUBLIC_KEY: ${{ secrets.PROD_MERCHANT_PUBLIC_KEY || secrets.MERCHANT_PUBLIC_KEY || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' }}
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ""
+          REDIS_DB: 1
+          JWT_SECRET: e2e-test-secret
+        run: npm run test:e2e
+
+      - name: Build Code
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: npm run build
+
+      - name: Run Database Migrations Dry-Run
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: |
+          echo "=== Step 1: Checking migration status ==="
+          npx prisma migrate status || { echo "::error::Migration status check failed! There may be schema conflicts or unapplied migrations."; exit 1; }
+          
+          echo "=== Step 2: Applying pending migrations to test database ==="
+          npx prisma migrate deploy || { echo "::error::Prisma migrate deploy failed! Pending migrations could not be applied cleanly."; exit 1; }
+
+      - name: Smoke Verification Test
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          REDIS_PASSWORD: ""
+          REDIS_DB: 1
+          JWT_SECRET: ${{ secrets.PROD_JWT_SECRET || secrets.JWT_SECRET || 'smoke-test-jwt-secret' }}
+          MERCHANT_PUBLIC_KEY: ${{ secrets.PROD_MERCHANT_PUBLIC_KEY || secrets.MERCHANT_PUBLIC_KEY || 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN' }}
+          ADMIN_SECRET_KEY: ${{ secrets.PROD_ADMIN_SECRET_KEY || secrets.ADMIN_SECRET_KEY || 'SDAAAAAAAAAMERCHANTSECRETKEY' }}
+          PORT: 3001
+        run: |
+          echo "=== Starting application in the background ==="
+          npm run start:prod > app.log 2>&1 &
+          APP_PID=$!
+
+          echo "=== Polling backend /health endpoint ==="
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          HEALTH_URL="http://localhost:3001/health"
+          SUCCESS=false
+
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            # Check if health check endpoint returns 200 OK
+            if curl -s -f $HEALTH_URL > /dev/null; then
+              echo "Smoke test passed! Response from /health:"
+              curl -s $HEALTH_URL
+              SUCCESS=true
+              break
+            fi
+
+            # Check if process is still running
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "::error::Application crashed during startup!"
+              echo "=== Application logs (dist/main) ==="
+              cat app.log
+              exit 1
+            fi
+
+            echo "Attempt $((ATTEMPT+1))/$MAX_ATTEMPTS: Waiting for app to respond..."
+            sleep 1
+            ATTEMPT=$((ATTEMPT+1))
+          done
+
+          if [ "$SUCCESS" = "false" ]; then
+            echo "::error::Smoke test failed! Backend did not respond on /health within 30 seconds."
+            echo "=== Application logs (dist/main) ==="
+            cat app.log
+            kill $APP_PID || true
+            exit 1
+          fi
+
+          echo "Shutting down smoke-test backend server cleanly..."
+          kill $APP_PID || true
+          echo "Release pre-flight validation completed successfully!"

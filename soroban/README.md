@@ -15,7 +15,10 @@ soroban/
 ├── deploy.sh                       # Deploy to testnet + initialize
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
+├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
+├── invoke-payment-history.sh       # Page through payment history
+├── invoke-payments-by-payer.sh     # Page through payment history for one payer
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -195,6 +198,31 @@ Network:     testnet
 }
 ```
 
+### Step 5: Inspect contract config
+
+Use one permissionless call to read admin ownership, initialization status,
+version metadata, and current allowlist policy:
+
+```bash
+./invoke-config.sh
+```
+
+**Expected output:**
+```json
+{
+  "admin": "GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL",
+  "initialized": true,
+  "version": {
+    "contract_version": 1000000,
+    "storage_schema_version": 1
+  },
+  "allowlist_mode": {
+    "native_allowed": false,
+    "requires_token_allowlist": true
+  }
+}
+```
+
 ---
 
 ## Script Reference
@@ -221,6 +249,45 @@ Deploys the contract to Stellar testnet and initializes it.
 3. Deploys the WASM to the network
 4. Initializes the contract with the admin address
 5. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
+
+### Deploy Manifests
+
+Network configuration is stored in `manifests/` as TOML files. `deploy.sh`
+reads the correct manifest automatically based on `STELLAR_NETWORK`.
+
+| File | Purpose |
+|------|---------|
+| `manifests/testnet.toml` | Testnet (default) — Friendbot-funded, SDF RPC |
+| `manifests/mainnet.toml` | Mainnet — pre-funded admin required |
+
+Each manifest covers:
+
+- **`[network]`** — passphrase, RPC URL, Horizon URL
+- **`[identity]`** — local keys identity name and the env var that holds the secret key
+- **`[contract]`** — WASM path and where to write the deployed contract ID
+- **`[assets]`** — allowlist of accepted payment assets (`CODE:ISSUER` or `"native"`)
+
+Secrets are never stored in the manifest — they are referenced by env var name only.
+
+**Testnet (default):**
+```bash
+./build.sh
+./deploy.sh
+# or explicitly:
+STELLAR_NETWORK=testnet ./deploy.sh
+```
+
+**Mainnet:**
+```bash
+./build.sh
+STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+```
+
+**Adding a new environment** (e.g. futurenet): copy `manifests/testnet.toml`,
+rename it `manifests/futurenet.toml`, update the `[network]` block, and run:
+```bash
+STELLAR_NETWORK=futurenet ./deploy.sh
+```
 
 ### `./invoke-record-payment.sh`
 
@@ -263,6 +330,17 @@ Retrieves a payment record from the contract.
 
 **Returns:** JSON payment record with invoice_id, payer, asset, amount, timestamp
 
+### Contract `config()` view
+
+Returns a stable JSON snapshot with:
+
+- `admin` — current admin address, or `null` before initialization
+- `initialized` — whether `initialize(admin)` has been called
+- `version.contract_version` — packed semver for the state-writing contract build
+- `version.storage_schema_version` — storage layout version
+- `allowlist_mode.native_allowed` — whether native XLM is accepted
+- `allowlist_mode.requires_token_allowlist` — whether issued assets must be explicitly allowlisted
+
 ### `./invoke-has-payment.sh`
 
 Checks if a payment exists for an invoice (non-panicking).
@@ -273,6 +351,30 @@ Checks if a payment exists for an invoice (non-panicking).
 ```
 
 **Returns:** `true` if payment exists, `false` otherwise
+
+### `./invoke-payment-history.sh`
+
+Retrieves a bounded page of payment history.
+
+**Usage:**
+```bash
+./invoke-payment-history.sh <cursor> [limit]
+```
+
+**Returns:** a page of payment records with `next_cursor` and `has_more`
+
+### `./invoke-payments-by-payer.sh`
+
+Retrieves a bounded page of payment history filtered to a single payer.
+
+**Usage:**
+```bash
+./invoke-payments-by-payer.sh <payer> <cursor> [limit]
+```
+
+**Returns:** a page of payment records made by `payer`, with `next_cursor` and
+`has_more`. A payer with no recorded payments returns an empty page rather
+than an error.
 
 ---
 
@@ -356,10 +458,13 @@ Contract v1 (C1) live
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
+| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `set_admin(new_admin)` | admin | Transfer admin rights. |
+
+`payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
 ### Contract error codes
 
@@ -628,6 +733,9 @@ const result = await client.recordPayment({
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
 
 // ── Read (permissionless) ────────────────────────────────────────────────────
+const config = await client.getConfig();
+console.log(config.initialized, config.admin, config.allowlistMode.nativeAllowed);
+
 const exists = await client.hasPayment('invoisio-abc123');
 if (exists) {
   const record = await client.getPayment('invoisio-abc123');
@@ -648,6 +756,9 @@ npm run example:record
 
 # Query a payment (requires SOURCE_PUBLIC_KEY in .env)
 npm run example:query
+
+# Query high-level contract config (requires SOURCE_PUBLIC_KEY + CONTRACT_ID)
+npm run example:config
 ```
 
 **Sample output — record:**

@@ -6,6 +6,7 @@ import { useState, useCallback } from 'react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
+import { RequireAuth } from '@/components/require-auth';
 
 interface Invoice {
   id: string;
@@ -31,7 +32,7 @@ interface WalletInfo {
   message: string;
 }
 
-export default function InvoiceDetailPage() {
+function InvoiceDetailContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const invoiceId = params?.id as string;
@@ -146,7 +147,9 @@ export default function InvoiceDetailPage() {
             {pollError || 'The invoice you are looking for does not exist.'}
           </p>
           <button
+            type="button"
             onClick={() => router.back()}
+            aria-label="Go back to previous page"
             className="mt-6 inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             Go Back
@@ -164,7 +167,9 @@ export default function InvoiceDetailPage() {
       <div className="mx-auto max-w-2xl">
         {/* Header */}
         <button
+          type="button"
           onClick={() => router.back()}
+          aria-label="Go back to invoices list"
           className="mb-8 text-sm font-medium text-blue-600 hover:text-blue-700"
         >
           ← Back to Invoices
@@ -189,7 +194,11 @@ export default function InvoiceDetailPage() {
 
             {/* Payment Status Message */}
             {paymentInProgress && (
-              <div className="mb-6 rounded-md bg-blue-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-blue-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-blue-900">
                   ⏳ Waiting for payment... Check your wallet for confirmation.
                 </p>
@@ -197,7 +206,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {isPaid && (
-              <div className="mb-6 rounded-md bg-green-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-green-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-green-900">
                   ✓ Payment received successfully!
                 </p>
@@ -210,7 +223,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {paymentError && (
-              <div className="mb-6 rounded-md bg-red-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-red-50 p-4"
+                role="alert"
+                aria-live="assertive"
+              >
                 <p className="text-sm font-medium text-red-900">
                   Error: {paymentError}
                 </p>
@@ -218,7 +235,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {pollError && !invoice && (
-              <div className="mb-6 rounded-md bg-red-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-red-50 p-4"
+                role="alert"
+                aria-live="assertive"
+              >
                 <p className="text-sm font-medium text-red-900">
                   Error loading invoice: {pollError}
                 </p>
@@ -226,7 +247,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {!walletInfo?.hasWallet && isPending && (
-              <div className="mb-6 rounded-md bg-amber-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-amber-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-amber-900">
                   ⚠️ {walletInfo?.message || 'No wallet detected'}
                 </p>
@@ -321,8 +346,10 @@ export default function InvoiceDetailPage() {
             <div className="flex flex-col gap-3 sm:flex-row">
               {isPending && walletInfo?.hasWallet && (
                 <button
+                  type="button"
                   onClick={handlePayClick}
                   disabled={paymentInProgress || isLoading}
+                  aria-label={paymentInProgress ? 'Waiting for payment confirmation' : 'Pay invoice via Stellar wallet'}
                   className="flex-1 rounded-md bg-green-600 px-4 py-3 text-center font-medium text-white hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   {paymentInProgress ? '⏳ Waiting for Payment...' : '💳 Pay Invoice'}
@@ -330,8 +357,10 @@ export default function InvoiceDetailPage() {
               )}
 
               <button
+                type="button"
                 onClick={refreshStatus}
                 disabled={isLoading}
+                aria-label="Refresh invoice payment status"
                 className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
               >
                 🔄 Refresh Status
@@ -339,7 +368,9 @@ export default function InvoiceDetailPage() {
 
               {isPaid && (
                 <button
+                  type="button"
                   onClick={() => window.print()}
+                  aria-label="Print invoice"
                   className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
                 >
                   🖨️ Print
@@ -361,5 +392,13 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function InvoiceDetailPage() {
+  return (
+    <RequireAuth>
+      <InvoiceDetailContent />
+    </RequireAuth>
   );
 }

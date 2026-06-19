@@ -145,4 +145,50 @@ export class InvoicesController {
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(csv);
   }
+
+  /**
+   * Cancel an unpaid invoice.
+   * Only pending or overdue invoices may be cancelled.
+   * @param id     - Invoice UUID
+   * @param reason - Optional reason string (defaults to "cancelled")
+   * @returns      - { id, status, reason, cancelledAt }
+   */
+  @Auth()
+  @Patch(":id/cancel")
+  async cancelInvoice(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body("reason") reason?: string,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.cancelInvoice(
+        id,
+        user.merchantId,
+        reason ?? "cancelled",
+      ),
+    );
+  }
+
+  /**
+   * Void an unpaid invoice (alias for cancel with reason "voided").
+   * Semantically indicates the invoice was created in error.
+   * @param id     - Invoice UUID
+   * @param reason - Optional reason string (defaults to "voided")
+   * @returns      - { id, status, reason, cancelledAt }
+   */
+  @Auth()
+  @Patch(":id/void")
+  async voidInvoice(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body("reason") reason?: string,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.cancelInvoice(
+        id,
+        user.merchantId,
+        reason ?? "voided",
+      ),
+    );
+  }
 }

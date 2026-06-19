@@ -9,6 +9,39 @@ export type AssetToken = {
     readonly issuer: string;
 };
 export type Asset = AssetNative | AssetToken;
+/**
+ * Stable summary of the contract's asset-acceptance policy.
+ *
+ * `requiresTokenAllowlist` is currently always `true`: issued Stellar assets
+ * must be explicitly allowlisted on-chain before `record_payment` accepts them.
+ */
+export interface AllowlistMode {
+    /** Whether native XLM payments are currently accepted. */
+    readonly nativeAllowed: boolean;
+    /** Whether non-native assets must be explicitly allowlisted. */
+    readonly requiresTokenAllowlist: boolean;
+}
+/** On-chain version metadata attached to contract state. */
+export interface ContractVersionInfo {
+    /** Packed semver: MAJOR * 1_000_000 + MINOR * 1_000 + PATCH */
+    readonly contractVersion: number;
+    /** Storage schema version for the persisted state layout. */
+    readonly storageSchemaVersion: number;
+}
+/**
+ * Stable high-level configuration snapshot returned by the contract `config()`
+ * view. This is the preferred single-call read for clients and ops tooling.
+ */
+export interface ContractConfig {
+    /** Admin Stellar account (G...) after initialization; `null` before. */
+    readonly admin: string | null;
+    /** Whether `initialize(admin)` has already completed. */
+    readonly initialized: boolean;
+    /** Version metadata describing the current stored state. */
+    readonly version: ContractVersionInfo;
+    /** High-level asset allowlist policy. */
+    readonly allowlistMode: AllowlistMode;
+}
 /** On-chain record stored for each invoice payment. */
 export interface PaymentRecord {
     readonly invoiceId: string;
@@ -24,6 +57,12 @@ export interface PaymentRecord {
     /** Unix seconds at which the ledger included this record */
     readonly timestamp: bigint;
 }
+/** Bounded page of payment history returned by the contract. */
+export interface PaymentHistoryPage {
+    readonly records: PaymentRecord[];
+    readonly nextCursor: number;
+    readonly hasMore: boolean;
+}
 /** Numeric codes matching the Rust `ContractError` enum. */
 export declare const CONTRACT_ERROR_CODES: {
     readonly 1: "AlreadyInitialized";
@@ -33,6 +72,8 @@ export declare const CONTRACT_ERROR_CODES: {
     readonly 5: "InvalidAmount";
     readonly 6: "InvalidInvoiceId";
     readonly 7: "InvalidAsset";
+    readonly 8: "AssetNotAllowed";
+    readonly 9: "Unauthorized";
 };
 export type ContractErrorCode = (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTRACT_ERROR_CODES] | 'Unknown';
 export declare class SorobanContractError extends Error {

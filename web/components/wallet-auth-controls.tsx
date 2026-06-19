@@ -65,6 +65,7 @@ export function WalletAuthControls() {
           <div className="mt-2 flex items-center gap-2">
             <span
               className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${getChipClasses(status)}`}
+              aria-live="polite"
             >
               {getStatusLabel(status)}
             </span>
@@ -79,10 +80,12 @@ export function WalletAuthControls() {
         <div className="flex flex-wrap gap-2">
           {status === 'disconnected' && (
             <button
+              type="button"
               onClick={() => {
                 void connectWallet().catch(() => undefined);
               }}
               disabled={isLoading}
+              aria-label={isLoading ? 'Connecting wallet' : 'Connect Freighter wallet'}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400"
             >
               {isLoading ? 'Connecting...' : 'Connect Wallet'}
@@ -91,10 +94,12 @@ export function WalletAuthControls() {
 
           {status === 'connected' && (
             <button
+              type="button"
               onClick={() => {
                 void signIn().catch(() => undefined);
               }}
               disabled={isLoading}
+              aria-label={isLoading ? 'Signing challenge' : 'Sign authentication challenge'}
               className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-400"
             >
               {isLoading ? 'Signing...' : 'Sign Challenge'}
@@ -103,7 +108,9 @@ export function WalletAuthControls() {
 
           {status === 'signed-in' && (
             <button
+              type="button"
               onClick={signOut}
+              aria-label="Sign out of wallet"
               className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Sign Out
@@ -113,19 +120,31 @@ export function WalletAuthControls() {
       </div>
 
       {!isFreighterReady && (
-        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+        <p 
+          className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900"
+          role="status"
+          aria-live="polite"
+        >
           Freighter extension not detected. Install Freighter to connect your Stellar wallet.
         </p>
       )}
 
       {message && (
-        <p className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-900">
+        <p 
+          className="mt-3 rounded-md border border-green-200 bg-green-50 p-2 text-sm text-green-900"
+          role="status"
+          aria-live="polite"
+        >
           {message}
         </p>
       )}
 
       {error && (
-        <p className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-900">
+        <p 
+          className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-900"
+          role="alert"
+          aria-live="assertive"
+        >
           {error}
         </p>
       )}

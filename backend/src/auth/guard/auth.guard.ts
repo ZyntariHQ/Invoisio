@@ -22,7 +22,7 @@ export const Public = () => SetMetadata(IS_PUBLIC_KEY, true);
  */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard("jwt") implements CanActivate {
-  constructor(private readonly reflector: Reflector) {
+  constructor(protected readonly reflector: Reflector) {
     super();
   }
 

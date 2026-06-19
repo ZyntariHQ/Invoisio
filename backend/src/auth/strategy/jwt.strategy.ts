@@ -38,6 +38,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       email: user.email,
+      isAdmin: user.isAdmin,
     } as any;
   }
 }

@@ -142,6 +142,18 @@
                       "val": {
                         "u32": 0
                       }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "PaymentHistoryCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 0
+                      }
                     }
                   ]
                 }

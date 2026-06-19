@@ -2,6 +2,8 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { View, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
+import axios from "axios";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -10,23 +12,27 @@ import {
   SpaceGrotesk_700Bold,
 } from "@expo-google-fonts/space-grotesk";
 import { AuthGuard } from "../components/auth-guard";
-import { useEffect } from "react";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { usePushNotifications } from "../hooks/usePushNotifications";
+import { AuthService } from "../lib/auth-service";
 
 export default function RootLayout() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 30_000,
-        gcTime: 5 * 60_000,
-        retry: 1,
-        refetchOnMount: false,
-        refetchOnReconnect: true,
-        refetchOnWindowFocus: false,
-      },
-    },
-  });
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            staleTime: 30_000,
+            gcTime: 5 * 60_000,
+            retry: 1,
+            refetchOnMount: false,
+            refetchOnReconnect: true,
+            refetchOnWindowFocus: false,
+          },
+        },
+      }),
+  );
   const [fontsLoaded] = useFonts({
     SpaceGrotesk_400Regular,
     SpaceGrotesk_500Medium,
@@ -34,7 +40,8 @@ export default function RootLayout() {
     SpaceGrotesk_700Bold,
   });
 
-  const { loadAuth } = useAuthStore();
+  const { loadAuth, isAuthenticated, accessToken } = useAuthStore();
+  const { expoPushToken } = usePushNotifications();
 
   // Load authentication state on app start
   useEffect(() => {
@@ -43,6 +50,13 @@ export default function RootLayout() {
     };
     void initAuth();
   }, [loadAuth]);
+
+  // Sync push token with backend when authenticated
+  useEffect(() => {
+    if (isAuthenticated && accessToken && expoPushToken?.data) {
+      AuthService.registerPushToken(accessToken, expoPushToken.data);
+    }
+  }, [isAuthenticated, accessToken, expoPushToken]);
 
   if (!fontsLoaded) {
     return (
@@ -84,6 +98,14 @@ export default function RootLayout() {
             <Stack.Screen
               name="invoices/[id]"
               options={{ title: "Invoice", headerShown: false }}
+            />
+            <Stack.Screen
+              name="scan"
+              options={{ title: "Scan to Pay", headerShown: false }}
+            />
+            <Stack.Screen
+              name="settings"
+              options={{ title: "Settings", headerShown: false }}
             />
           </Stack>
         </AuthGuard>
