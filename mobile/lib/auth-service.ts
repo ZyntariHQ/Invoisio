@@ -49,17 +49,26 @@ export const AuthService = {
   },
 
   /**
-   * Verify a stored access token is still valid against the backend.
-   * Returns false if expired or invalid (safe to call on app boot).
+   * Verify a stored access token against the backend.
+   * A network failure resolves to "unknown" so a flaky connection does not
+   * force a logout; only an explicit 401/403 means the token is rejected.
    */
-  async verifyToken(accessToken: string): Promise<boolean> {
+  async verifyToken(
+    accessToken: string,
+  ): Promise<"valid" | "invalid" | "unknown"> {
     try {
       await axios.get(`${API_URL}/auth/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      return true;
-    } catch {
-      return false;
+      return "valid";
+    } catch (error) {
+      if (axios.isAxiosError(error) && error.response) {
+        const status = error.response.status;
+        if (status === 401 || status === 403) {
+          return "invalid";
+        }
+      }
+      return "unknown";
     }
   },
 
@@ -69,5 +78,29 @@ export const AuthService = {
    */
   createSiweMessage(nonce: string): string {
     return `Sign this message to authenticate with Invoisio\n\nNonce: ${nonce}`;
+  },
+
+  /**
+   * Decode a JWT's `exp` claim into epoch milliseconds without verifying the
+   * signature. Used only to store session metadata so expiry can be checked
+   * locally (e.g. offline) on app boot. Returns null if the token has no
+   * readable numeric `exp`.
+   */
+  decodeTokenExpiry(accessToken: string): number | null {
+    try {
+      const payload = accessToken.split(".")[1];
+      if (!payload) {
+        return null;
+      }
+      const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+      const json = Buffer.from(normalized, "base64").toString("utf-8");
+      const claims = JSON.parse(json) as { exp?: unknown };
+      if (typeof claims.exp === "number" && Number.isFinite(claims.exp)) {
+        return claims.exp * 1000;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   },
 };

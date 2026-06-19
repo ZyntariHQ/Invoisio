@@ -3,6 +3,7 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { View, ActivityIndicator } from "react-native";
 import { useEffect, useState } from "react";
+import axios from "axios";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -46,6 +47,31 @@ export default function RootLayout() {
     };
     void initAuth();
   }, [loadAuth]);
+
+  // Handle mid-session expiry: if any authenticated request is rejected because
+  // the token is no longer valid, clear the session. AuthGuard then redirects
+  // the merchant back to login.
+  useEffect(() => {
+    const interceptorId = axios.interceptors.response.use(
+      (response) => response,
+      (error: unknown) => {
+        if (axios.isAxiosError(error) && error.response) {
+          const status = error.response.status;
+          if (status === 401 || status === 403) {
+            const { isAuthenticated, clearAuth } = useAuthStore.getState();
+            if (isAuthenticated) {
+              void clearAuth();
+            }
+          }
+        }
+        throw error;
+      },
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptorId);
+    };
+  }, []);
 
   if (!fontsLoaded) {
     return (
