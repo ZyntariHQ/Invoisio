@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CheckCircle, Clock, Copy, Check, ArrowLeft, RefreshCw, FileText } from 'lucide-react';
 
+// 1. Interfaces declared first to ensure predictable layout loading boundaries
 interface PaymentStatusHistory {
   status: 'PENDING' | 'PROCESSING' | 'PAID' | 'EXPIRED';
   timestamp: string;
@@ -23,33 +24,35 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  
+  // Localized state tracking ticks to simulate real-time blockchain payments cleanly
+  const [simulatedTicks, setSimulatedTicks] = useState<number>(0);
 
-  // 1. Core live synchronization tracker pipeline
+  // 2. Core live status checking synchronization loop
   useEffect(() => {
-    let timerId: NodeJS.Timeout;
-
     const fetchInvoiceStatus = async (isSilent = false) => {
       if (!isSilent) setIsLoading(true);
       else setIsSyncing(true);
 
       try {
-        // Replace with your active Axios/Fetch client integration tier
-        // const response = await api.get(`/invoices/${invoiceId}`);
+        // --- LIVE BACKEND REPLACEMENT REFERENCE HOOK ---
+        // Once APIs go live, replace this simulation block completely with:
+        // const response = await axios.get(`/api/invoices/${invoiceId}`);
         // setInvoice(response.data);
         
-        // --- DEVELOPMENT SIMULATION FIXTURE MOCK ---
         await new Promise((resolve) => setTimeout(resolve, 600));
+        
         const mockInvoice: InvoiceData = {
           id: invoiceId,
           amount: '250.00',
           assetCode: 'USDC',
           memo: 'REN-48291-INV',
-          destinationAddress: 'GBXGQ...4X27N', // Standard abbreviated Stellar/Soroban target key format
-          dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000).toLocaleString(), // 2 hours remaining window
-          status: dbStoreSimulationCounter > 1 ? 'PAID' : 'PENDING',
+          destinationAddress: 'GBXGQ3V6S52EX733U6NWQY6V6Z7K7SZX4M27N',
+          dueDate: new Date(Date.now() + 2 * 60 * 60 * 1000).toLocaleString(),
+          status: simulatedTicks > 1 ? 'PAID' : 'PENDING',
           history: [
-            { status: 'PENDING', timestamp: '2026-06-18 14:30' },
-            ...(dbStoreSimulationCounter > 1 ? [{ status: 'PAID', timestamp: new Date().toLocaleTimeString(), txHash: '0x8f3c...2a1b' }] : [])
+            { status: 'PENDING', timestamp: '2026-06-19 07:00' },
+            ...(simulatedTicks > 1 ? [{ status: 'PAID', timestamp: new Date().toLocaleTimeString(), txHash: '0x8f3c4b9a2d1e6f7c8b9a' }] : [])
           ]
         };
         setInvoice(mockInvoice);
@@ -63,32 +66,23 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
 
     fetchInvoiceStatus();
 
-    // Establish short-interval state checking loops to mimic server-sent live pushes
-    timerId = setInterval(() => {
-      // Auto-stop evaluation loops if the invoice has reached its finalized successful state register
+    // Constant evaluation polling handler matching safe prefer-const guidelines
+    const timerId = setInterval(() => {
       if (invoice?.status !== 'PAID' && invoice?.status !== 'EXPIRED') {
         fetchInvoiceStatus(true);
-        incrementSimulationCounter(); // Simulates changing backend states over ticks
+        setSimulatedTicks((prev) => prev + 1);
       }
     }, 4000);
 
     return () => clearInterval(timerId);
-  }, [invoiceId, invoice?.status]);
+  }, [invoiceId, invoice?.status, simulatedTicks]);
 
-  // 2. Interactive user copy-to-clipboard operational action helper
+  // 3. Data clip-capture action utility mapping
   const handleCopyToClipboard = (text: string, fieldName: string) => {
     navigator.clipboard.writeText(text);
     setCopiedField(fieldName);
     setTimeout(() => setCopiedField(null), 2000);
   };
-
-  if (isLoading || !invoice) {
-    return (
-      <div className="flex h-64 items-center justify-center">
-        <RefreshCw className="h-8 w-8 animate-spin text-indigo-600" />
-      </div>
-    );
-  }
 
   const getStatusStyle = (status: string) => {
     switch (status) {
@@ -98,6 +92,14 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
       default: return 'bg-blue-100 text-blue-800 border-blue-200';
     }
   };
+
+  if (isLoading || !invoice) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <RefreshCw className="h-8 w-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-2xl rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -176,7 +178,6 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
         <div className="relative border-l-2 border-slate-100 pl-4 space-y-4">
           {invoice.history.map((evt, idx) => (
             <div key={idx} className="relative">
-              {/* Dot Icon Indicator */}
               <div className={`absolute -left-[25px] top-1 h-3 w-3 rounded-full border-2 bg-white ${evt.status === 'PAID' ? 'border-emerald-500' : 'border-blue-500'}`} />
               <div className="flex items-center justify-between text-xs">
                 <span className="font-semibold text-slate-700">Lifecycle Phase: {evt.status}</span>
@@ -194,7 +195,3 @@ export const InvoiceDetail: React.FC<{ invoiceId: string; onBack: () => void }> 
     </div>
   );
 };
-
-// Global environment tracker hooks simulating ledger emission state shifts
-let dbStoreSimulationCounter = 0;
-const incrementSimulationCounter = () => { dbStoreSimulationCounter += 1; };
