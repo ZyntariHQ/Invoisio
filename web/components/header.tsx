@@ -4,115 +4,335 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useMerchant } from '@/hooks/use-merchant';
 import { useWalletAuth } from '@/hooks/use-wallet-auth';
-import { DASHBOARD_NAV_ITEMS, isDashboardNavActive } from '@/components/dashboard-nav';
-import { LogOut, Wallet } from 'lucide-react';
+import { useSidebar } from '@/components/sidebar-context';
+import {
+  DASHBOARD_NAV_ITEMS,
+  isDashboardNavActive,
+} from '@/components/dashboard-nav';
+import { LogOut, Wallet, Menu, Globe, ChevronRight } from 'lucide-react';
 
 export function Header() {
   const { wallet, isLoading } = useMerchant();
   const { publicKey, status, signOut } = useWalletAuth();
+  const { isCollapsed, openMobile } = useSidebar();
   const pathname = usePathname();
 
   const formatAddress = (addr: string) => {
-    if (!addr) return 'Wallet not connected';
-
-    if (addr.length <= 12) {
-      return addr;
-    }
-
-    return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`;
+    if (!addr) return '—';
+    if (addr.length <= 12) return addr;
+    return `${addr.substring(0, 6)}…${addr.substring(addr.length - 4)}`;
   };
 
-  const merchantName = wallet?.name || 'Merchant workspace';
+  // Derive page title from pathname
+  const getPageTitle = () => {
+    const segments = pathname.split('/').filter(Boolean);
+    if (segments.length <= 1) return 'Dashboard';
+    const last = segments[segments.length - 1];
+    return last.charAt(0).toUpperCase() + last.slice(1);
+  };
+
+  // Derive breadcrumb segments
+  const getBreadcrumbs = () => {
+    const segments = pathname.split('/').filter(Boolean);
+    return segments.map((seg, i) => ({
+      label: seg.charAt(0).toUpperCase() + seg.slice(1),
+      href: '/' + segments.slice(0, i + 1).join('/'),
+      isLast: i === segments.length - 1,
+    }));
+  };
+
   const merchantWallet = wallet?.publicKey || publicKey || '';
-  const statusLabel = status === 'signed-in' ? 'Authenticated' : 'Waiting for wallet';
-  const statusClass =
-    status === 'signed-in'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : 'border-amber-200 bg-amber-50 text-amber-700';
+  const isAuthenticated = status === 'signed-in';
 
   return (
-    <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/90 backdrop-blur supports-[backdrop-filter]:bg-white/75">
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0 space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
-              <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
-                Merchant Dashboard
-              </p>
-              <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusClass}`}>
-                {statusLabel}
-              </span>
-            </div>
-            <div>
-              <h1 className="truncate text-xl font-semibold text-slate-950 sm:text-2xl">
-                {isLoading ? 'Loading wallet context...' : merchantName}
-              </h1>
-              <p className="mt-1 truncate text-sm text-slate-500">
-                {merchantWallet ? formatAddress(merchantWallet) : 'Connecting to backend wallet context'}
-              </p>
-            </div>
-          </div>
+    <header
+      className="sticky top-0 z-20 glass-panel"
+      style={{
+        minHeight: 'var(--header-height)',
+        borderBottom: '1px solid var(--color-border-default)',
+      }}
+    >
+      <div className="mx-auto flex items-center gap-4 px-4 py-4 sm:px-6 lg:px-8"
+        style={{ maxWidth: '1400px' }}
+      >
+        {/* ── Left: Mobile hamburger + Breadcrumb ─────── */}
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          {/* Mobile menu button */}
+          <button
+            type="button"
+            onClick={openMobile}
+            className="flex items-center justify-center rounded-lg p-2 md:hidden"
+            style={{
+              color: 'var(--color-text-secondary)',
+              border: '1px solid var(--color-border-default)',
+              transition: 'var(--transition-fast)',
+            }}
+            aria-label="Open navigation menu"
+          >
+            <Menu size={20} />
+          </button>
 
-          <div className="hidden items-center gap-3 sm:flex">
-            <div className="flex items-center gap-3 rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 shadow-sm">
-              <div className="rounded-2xl bg-white p-2 text-slate-600 shadow-sm">
-                <Wallet size={18} />
-              </div>
-              <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Balance</p>
-                <p className="text-sm font-semibold text-slate-950">
-                  {isLoading ? 'Loading...' : `${wallet?.balance || '0'} ${wallet?.currency || 'XLM'}`}
-                </p>
-                {wallet?.balanceUSD && (
-                  <p className="text-xs text-slate-500">≈ ${wallet.balanceUSD}</p>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={signOut}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100"
+          <div className="min-w-0">
+            {/* Breadcrumb */}
+            <div className="mb-0.5 hidden items-center gap-1 text-xs sm:flex"
+              style={{ color: 'var(--color-text-muted)' }}
             >
-              <LogOut size={18} />
-              <span>Sign Out</span>
-            </button>
+              {getBreadcrumbs().map((crumb) => (
+                <span key={crumb.href} className="flex items-center gap-1">
+                  {crumb.isLast ? (
+                    <span style={{ color: 'var(--color-text-secondary)' }}>
+                      {crumb.label}
+                    </span>
+                  ) : (
+                    <>
+                      <Link
+                        href={crumb.href}
+                        className="hover:underline"
+                        style={{
+                          transition: 'var(--transition-fast)',
+                          color: 'var(--color-text-muted)',
+                        }}
+                      >
+                        {crumb.label}
+                      </Link>
+                      <ChevronRight size={12} />
+                    </>
+                  )}
+                </span>
+              ))}
+            </div>
+
+            {/* Page title */}
+            <h1
+              className="truncate text-lg font-semibold sm:text-xl"
+              style={{ color: 'var(--color-text-primary)' }}
+            >
+              {getPageTitle()}
+            </h1>
           </div>
         </div>
 
-        <nav className="grid grid-cols-3 gap-2 md:hidden">
-          {DASHBOARD_NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const active = isDashboardNavActive(pathname, item.href);
+        {/* ── Right: Status + Wallet + Actions ────────── */}
+        <div className="flex shrink-0 items-center gap-3">
+          {/* Network badge — hidden on mobile */}
+          <div
+            className="hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium sm:flex"
+            style={{
+              background: 'var(--color-warning-muted)',
+              color: 'var(--color-warning)',
+              border: '1px solid rgba(245, 158, 11, 0.2)',
+            }}
+          >
+            <Globe size={12} />
+            <span>Testnet</span>
+          </div>
 
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex flex-col items-center justify-center gap-1 rounded-2xl border px-3 py-3 text-center transition-colors ${
-                  active
-                    ? 'border-slate-950 bg-slate-950 text-white'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
-                }`}
+          {/* Auth status pill */}
+          <div
+            className="hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium md:flex"
+            style={{
+              background: isAuthenticated
+                ? 'var(--color-success-muted)'
+                : 'var(--color-warning-muted)',
+              color: isAuthenticated
+                ? 'var(--color-success)'
+                : 'var(--color-warning)',
+              border: `1px solid ${isAuthenticated ? 'rgba(34, 197, 94, 0.2)' : 'rgba(245, 158, 11, 0.2)'}`,
+            }}
+          >
+            <span
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                background: isAuthenticated
+                  ? 'var(--color-success)'
+                  : 'var(--color-warning)',
+                animation: isAuthenticated ? 'none' : 'pulseGlow 2s infinite',
+              }}
+            />
+            <span>{isAuthenticated ? 'Authenticated' : 'Connecting'}</span>
+          </div>
+
+          {/* Wallet balance card */}
+          <div
+            className="hidden items-center gap-3 rounded-xl px-4 py-2.5 lg:flex"
+            style={{
+              background: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-default)',
+              transition: 'var(--transition-fast)',
+            }}
+          >
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg"
+              style={{
+                background: 'var(--color-accent-muted)',
+                color: 'var(--color-accent)',
+              }}
+            >
+              <Wallet size={16} />
+            </div>
+            <div>
+              <p
+                className="text-xs font-medium"
+                style={{ color: 'var(--color-text-muted)' }}
               >
-                <Icon size={18} />
-                <span className="text-xs font-medium">{item.label}</span>
-              </Link>
-            );
-          })}
-        </nav>
+                Balance
+              </p>
+              <p
+                className="text-sm font-semibold"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                {isLoading
+                  ? '...'
+                  : `${wallet?.balance || '0'} ${wallet?.currency || 'XLM'}`}
+              </p>
+            </div>
+            {wallet?.balanceUSD && (
+              <span
+                className="text-xs"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                ≈ ${wallet.balanceUSD}
+              </span>
+            )}
+          </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:hidden">
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Wallet</p>
-            <p className="mt-1 text-sm font-medium text-slate-950">{formatAddress(merchantWallet)}</p>
+          {/* Wallet address chip */}
+          <div
+            className="hidden items-center gap-2 rounded-xl px-3 py-2 sm:flex"
+            style={{
+              background: 'var(--color-bg-surface)',
+              border: '1px solid var(--color-border-default)',
+            }}
+          >
+            <div
+              className="h-2 w-2 rounded-full"
+              style={{
+                background: isAuthenticated
+                  ? 'var(--color-success)'
+                  : 'var(--color-text-muted)',
+              }}
+            />
+            <span
+              className="text-xs font-mono font-medium"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              {merchantWallet ? formatAddress(merchantWallet) : 'Not connected'}
+            </span>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-xs uppercase tracking-[0.24em] text-slate-500">Balance</p>
-            <p className="mt-1 text-sm font-medium text-slate-950">
-              {isLoading ? 'Loading...' : `${wallet?.balance || '0'} ${wallet?.currency || 'XLM'}`}
-            </p>
-          </div>
+
+          {/* Sign out button */}
+          <button
+            type="button"
+            onClick={signOut}
+            className="flex items-center justify-center rounded-xl p-2.5"
+            style={{
+              color: 'var(--color-text-muted)',
+              border: '1px solid var(--color-border-default)',
+              transition: 'var(--transition-fast)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--color-danger-muted)';
+              e.currentTarget.style.color = 'var(--color-danger)';
+              e.currentTarget.style.borderColor = 'var(--color-danger)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent';
+              e.currentTarget.style.color = 'var(--color-text-muted)';
+              e.currentTarget.style.borderColor = 'var(--color-border-default)';
+            }}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Mobile bottom nav bar ──────────────────────── */}
+      <nav
+        className="grid gap-2 px-4 pb-3 md:hidden"
+        style={{ gridTemplateColumns: `repeat(${DASHBOARD_NAV_ITEMS.length}, 1fr)` }}
+      >
+        {DASHBOARD_NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const active = isDashboardNavActive(pathname, item.href);
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex flex-col items-center justify-center gap-1 rounded-xl px-2 py-2.5 text-center"
+              style={{
+                transition: 'var(--transition-fast)',
+                background: active
+                  ? 'var(--color-accent-muted)'
+                  : 'var(--color-bg-surface)',
+                color: active
+                  ? 'var(--color-accent-hover)'
+                  : 'var(--color-text-muted)',
+                border: active
+                  ? '1px solid var(--color-accent)'
+                  : '1px solid var(--color-border-default)',
+              }}
+            >
+              <Icon size={18} />
+              <span className="text-[10px] font-medium">{item.shortLabel}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* ── Mobile wallet info row ─────────────────────── */}
+      <div
+        className="grid grid-cols-2 gap-2 px-4 pb-3 sm:hidden"
+      >
+        <div
+          className="rounded-xl px-3 py-2"
+          style={{
+            background: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-default)',
+          }}
+        >
+          <p
+            className="text-[10px] font-medium uppercase"
+            style={{
+              letterSpacing: '0.15em',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            Wallet
+          </p>
+          <p
+            className="mt-0.5 text-xs font-medium"
+            style={{ color: 'var(--color-text-primary)' }}
+          >
+            {formatAddress(merchantWallet)}
+          </p>
+        </div>
+        <div
+          className="rounded-xl px-3 py-2"
+          style={{
+            background: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border-default)',
+          }}
+        >
+          <p
+            className="text-[10px] font-medium uppercase"
+            style={{
+              letterSpacing: '0.15em',
+              color: 'var(--color-text-muted)',
+            }}
+          >
+            Balance
+          </p>
+          <p
+            className="mt-0.5 text-xs font-medium"
+            style={{ color: 'var(--color-text-primary)' }}
+          >
+            {isLoading
+              ? '...'
+              : `${wallet?.balance || '0'} ${wallet?.currency || 'XLM'}`}
+          </p>
         </div>
       </div>
     </header>
