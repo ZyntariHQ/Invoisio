@@ -7,7 +7,7 @@
   "files": ["dist", "src"],
   "scripts": {
     "generate:bindings": "node scripts/generate-bindings.mjs",
-    "generate:bindings:check": "node scripts/generate-bindings.mjs --check",
+    "generate:bindings:check": "node scripts/generate-bindings.mjs && git diff --exit-code soroban/client/src/generated/invoice-payment-bindings.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
