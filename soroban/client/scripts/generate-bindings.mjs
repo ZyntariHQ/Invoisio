@@ -97,6 +97,8 @@ function renderBindings(rustSource) {
     'InvalidAsset',
     'AssetNotAllowed',
     'Unauthorized',
+    'StorageSchemaTooNew',
+    'StorageSchemaTooOld',
   ]);
 
   const contractErrorCodes = contractErrors
