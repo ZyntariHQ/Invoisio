@@ -47,4 +47,6 @@ pub enum ContractError {
     StorageSchemaTooNew = 10,
     /// The storage schema is too old and requires migration.
     StorageSchemaTooOld = 11,
+    /// The contract is paused and cannot perform the requested operation.
+    ContractPaused = 12,
 }
