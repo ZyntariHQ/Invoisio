@@ -7,17 +7,52 @@ import {
   View,
   Alert,
   RefreshControl,
+  AppState,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useWalletAuth } from "../hooks/use-wallet-auth";
 import { useInvoicesList, Invoice } from "../lib/invoices";
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
+import { getInvoicesLastSynced } from "../lib/cache";
 
 export default function DashboardScreen() {
   const router = useRouter();
   const { publicKey, disconnectWallet } = useWalletAuth();
   const { data, isLoading, isFetching, refetch, hasNextPage, fetchNextPage } =
     useInvoicesList(20);
+
+  const [lastSynced, setLastSynced] = useState<number | undefined>(undefined);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const ts = await getInvoicesLastSynced();
+        if (mounted) setLastSynced(ts);
+      } catch (err) {
+        console.error("load lastSynced", err);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        void refetch();
+        // refresh stored timestamp after a short delay to allow onSuccess
+        setTimeout(async () => {
+          try {
+            const ts = await getInvoicesLastSynced();
+            setLastSynced(ts);
+          } catch {}
+        }, 1000);
+      }
+    });
+    return () => sub.remove();
+  }, [refetch]);
 
   const invoices: Invoice[] = useMemo(() => {
     return (data?.pages ?? []).flatMap((p) => p.items);
@@ -157,23 +192,33 @@ export default function DashboardScreen() {
               )}
             />
 
-            <View className="flex-row items-center justify-between">
-              <Text
-                className="text-lg text-white"
-                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
-              >
-                Active invoices
-              </Text>
-              <Link href="/create-invoice" asChild>
-                <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
-                  <Text
-                    className="text-white"
-                    style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-                  >
-                    New invoice
-                  </Text>
-                </Pressable>
-              </Link>
+            <View>
+              <View className="flex-row items-center justify-between">
+                <Text
+                  className="text-lg text-white"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Active invoices
+                </Text>
+                <Link href="/create-invoice" asChild>
+                  <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
+                    <Text
+                      className="text-white"
+                      style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                    >
+                      New invoice
+                    </Text>
+                  </Pressable>
+                </Link>
+              </View>
+              {lastSynced ? (
+                <Text
+                  className="mt-2 text-xs text-slate-400"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                >
+                  Last synced: {new Date(lastSynced).toLocaleString()}
+                </Text>
+              ) : null}
             </View>
           </View>
         }
