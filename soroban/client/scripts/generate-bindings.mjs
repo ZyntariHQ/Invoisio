@@ -101,7 +101,7 @@ function renderBindings(rustSource) {
     'StorageSchemaTooOld',
   ]);
 
-  const contractErrorCodes = contractErrors
+  const contractErrorCodes = contractErrors.variants
     .map((variant) => `  ${variant.value}: '${variant.name}',`)
     .join('\n');
   const contractMethodSignatures = methods.map(formatMethodSignature).join('\n');
