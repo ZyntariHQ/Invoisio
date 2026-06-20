@@ -43,4 +43,12 @@ pub enum ContractError {
 
     /// The caller is not authorized to perform this operation.
     Unauthorized = 9,
+
+    /// `upgrade_storage()` was called on a deployment whose on-chain
+    /// `storage_schema_version` is newer than this WASM knows about.
+    StorageSchemaTooNew = 10,
+
+    /// `upgrade_storage()` was called but the schema is already at or beyond
+    /// the version this WASM implements — nothing to do.
+    StorageSchemaTooOld = 11,
 }

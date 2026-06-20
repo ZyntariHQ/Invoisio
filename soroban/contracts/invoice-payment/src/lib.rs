@@ -9,8 +9,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    Asset, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord, CONTRACT_VERSION,
-    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
+    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
+    STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -18,9 +19,9 @@ use events::{
 };
 use storage::{
     allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
-    ensure_current_contract_meta, get_admin, get_count, get_payment, get_payment_history_page,
-    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
-    is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    ensure_current_contract_meta, get_admin, get_contract_config, get_count, get_payment,
+    get_payment_history_page, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
     set_native_allowed, set_payment,
 };
 
@@ -166,8 +167,7 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
-        // Reject malformed token descriptors: Stellar asset codes are at most
-        // 12 characters, so anything longer is invalid.
+        // Stellar asset code max length is 12 characters.
         if asset_code.len() > 12 {
             return Err(ContractError::InvalidAsset);
         }
@@ -177,6 +177,7 @@ impl InvoicePaymentContract {
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.is_empty();
+
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
             return Err(ContractError::InvalidAsset);
@@ -197,7 +198,7 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 3. Amount guard.
+        // 3. Amount guard: must be strictly positive and within i64::MAX.
         if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
@@ -224,12 +225,14 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 7. Persist the ordered history entry and increment counters.
-        append_payment_history(&env, &record);
-        bump_history_count(&env);
+        // 7. Increment running counter (also bumps instance TTL).
         bump_count(&env);
 
-        // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
+        // 8. Append to deterministic history index for paged reads.
+        append_payment_history(&env, &record);
+        bump_history_count(&env);
+
+        // 9. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
             record.invoice_id,
@@ -270,18 +273,6 @@ impl InvoicePaymentContract {
         get_count(&env)
     }
 
-    /// Return a bounded, cursor-friendly page of payment history.
-    ///
-    /// `cursor` is the next history index to read, and `limit` is capped so
-    /// the response remains bounded and predictable.
-    pub fn payment_history(
-        env: Env,
-        cursor: u32,
-        limit: u32,
-    ) -> PaymentHistoryPage {
-        get_payment_history_page(&env, cursor, limit)
-    }
-
     /// Return the current **code** version as packed semver
     /// (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`).
     pub fn contract_version(_env: Env) -> u32 {
@@ -299,7 +290,6 @@ impl InvoicePaymentContract {
         }
     }
 
-    // Admin
     /// Return the current admin address.
     ///
     /// Returns [`ContractError::NotInitialized`] if the contract has not been
@@ -362,8 +352,94 @@ impl InvoicePaymentContract {
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
+
         set_native_allowed(&env, allowed);
         emit_native_allow_changed(&env, allowed);
+        Ok(())
+    }
+
+    // Config / Read-only views
+
+    /// Return a high-level snapshot of contract state for ops tooling.
+    ///
+    /// Permissionless — any account can call this to inspect initialization
+    /// status, admin address, version metadata, and allowlist policy.
+    pub fn config(env: Env) -> ContractConfig {
+        get_contract_config(&env)
+    }
+
+    /// Return a paginated slice of payment history.
+    ///
+    /// - `cursor` — zero-based index to start from (pass `0` for the first page).
+    /// - `limit` — maximum records to return (capped internally at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+        get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return all payments made by `payer`, paginated.
+    ///
+    /// Scans the deterministic history index and filters by payer address.
+    /// - `cursor` — history index to start scanning from.
+    /// - `limit` — maximum records to return (capped at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn payments_by_payer(
+        env: Env,
+        payer: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> PaymentHistoryPage {
+        use storage::{get_history_count, MAX_PAYMENT_HISTORY_PAGE_SIZE};
+        let total = get_history_count(&env);
+        let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+        let start = core::cmp::min(cursor, total);
+
+        let mut records = soroban_sdk::Vec::new(&env);
+        let mut index = start;
+        let mut collected: u32 = 0;
+
+        while index < total && collected < capped_limit {
+            let key = DataKey::PaymentHistory(index);
+            let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+            if let Some(rec) = record {
+                if rec.payer == payer {
+                    records.push_back(rec);
+                    collected += 1;
+                }
+            }
+            index += 1;
+        }
+
+        PaymentHistoryPage {
+            records,
+            next_cursor: index,
+            has_more: index < total,
+        }
+    }
+
+    /// Migrate on-chain storage layout to the current schema version.
+    ///
+    /// Must be called by the admin after a WASM upgrade that introduces a new
+    /// `STORAGE_SCHEMA_VERSION`. Returns an error without mutating state if
+    /// the on-chain schema is already current or newer.
+    pub fn upgrade_storage(env: Env) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        admin.require_auth();
+
+        let on_chain = get_storage_schema_version(&env);
+
+        if on_chain > STORAGE_SCHEMA_VERSION {
+            return Err(ContractError::StorageSchemaTooNew);
+        }
+        if on_chain == STORAGE_SCHEMA_VERSION {
+            return Err(ContractError::StorageSchemaTooOld);
+        }
+
+        // Apply any necessary migrations here as schema versions increase.
+        // For now, just write the current metadata to mark the upgrade done.
+        set_contract_meta(&env, &current_contract_meta());
         Ok(())
     }
 }
