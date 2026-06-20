@@ -6,18 +6,22 @@
  */
 
 export const CONTRACT_METHODS = [
-  'initialize',
-  'record_payment',
-  'get_payment',
-  'has_payment',
-  'payment_count',
-  'contract_version',
-  'version_info',
-  'admin',
-  'set_admin',
-  'allow_asset',
-  'revoke_asset',
-  'set_allow_native',
+  "initialize",
+  "record_payment",
+  "get_payment",
+  "has_payment",
+  "payment_count",
+  "payment_history",
+  "payments_by_payer",
+  "config",
+  "contract_version",
+  "version_info",
+  "admin",
+  "set_admin",
+  "allow_asset",
+  "revoke_asset",
+  "set_allow_native",
+  "upgrade_storage"
 ] as const;
 
 export type ContractMethodName = (typeof CONTRACT_METHODS)[number];
@@ -96,6 +100,43 @@ export const CONTRACT_METHOD_SIGNATURES = [
     returnType: 'u32',
   },
   {
+    name: 'payment_history',
+    params: [
+      {
+        name: 'cursor',
+        type: 'u32',
+      },
+      {
+        name: 'limit',
+        type: 'u32',
+      }
+    ],
+    returnType: 'PaymentHistoryPage',
+  },
+  {
+    name: 'payments_by_payer',
+    params: [
+      {
+        name: 'payer',
+        type: 'Address',
+      },
+      {
+        name: 'cursor',
+        type: 'u32',
+      },
+      {
+        name: 'limit',
+        type: 'u32',
+      }
+    ],
+    returnType: 'PaymentHistoryPage',
+  },
+  {
+    name: 'config',
+    params: [],
+    returnType: 'ContractConfig',
+  },
+  {
     name: 'contract_version',
     params: [],
     returnType: 'u32',
@@ -158,6 +199,16 @@ export const CONTRACT_METHOD_SIGNATURES = [
     ],
     returnType: 'Result<(), ContractError>',
   },
+  {
+    name: 'upgrade_storage',
+    params: [
+      {
+        name: 'caller',
+        type: 'Address',
+      }
+    ],
+    returnType: 'Result<(), ContractError>',
+  },
 ] as const;
 
 export interface AssetNative {
@@ -166,26 +217,37 @@ export interface AssetNative {
 
 export interface AssetToken {
   readonly type: 'token';
+  /** Token code, e.g. "USDC" */
   readonly code: string;
+  /** Issuer Stellar address (G...) */
   readonly issuer: string;
 }
 
 export type Asset = AssetNative | AssetToken;
 
 export interface ContractMeta {
+  /** Contract code version that most recently wrote state. */
   readonly contract_version: number;
+  /** Storage layout/schema version in this contract instance. */
   readonly storage_schema_version: number;
 }
 
 export interface PaymentRecord {
+  /** Unique invoice identifier, e.g. "invoisio-abc123" */
   readonly invoiceId: string;
+  /** Stellar account (G...) that made the payment */
   readonly payer: string;
   readonly asset: Asset;
+  /**
+   * Amount in smallest denomination.
+   * - XLM: stroops - 1 XLM = 10_000_000 stroops
+   * - Token: 7-decimal units - 1 USDC = 10_000_000 units
+   */
   readonly amount: bigint;
+  /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
 }
 
-/** Numeric codes matching the Rust `ContractError` enum. */
 export const CONTRACT_ERROR_CODES = {
   1: 'AlreadyInitialized',
   2: 'NotInitialized',
@@ -196,6 +258,8 @@ export const CONTRACT_ERROR_CODES = {
   7: 'InvalidAsset',
   8: 'AssetNotAllowed',
   9: 'Unauthorized',
+  10: 'StorageSchemaTooNew',
+  11: 'StorageSchemaTooOld',
 } as const;
 
 export type ContractErrorCode =
