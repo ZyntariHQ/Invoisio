@@ -65,7 +65,7 @@ async function main() {
 
   if (checkOnly) {
     const current = await fs.readFile(outputPath, 'utf8').catch(() => null);
-    if (current !== generated) {
+    if (current !== `${generated}\n`) {
       process.stderr.write(`Binding drift detected in ${path.relative(repoRoot, outputPath)}\n`);
       process.exit(1);
     }
