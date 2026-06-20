@@ -422,25 +422,16 @@ impl InvoicePaymentContract {
     /// Migrate on-chain storage layout to the current schema version.
     ///
     /// Must be called by the admin after a WASM upgrade that introduces a new
-    /// `STORAGE_SCHEMA_VERSION`. Returns an error without mutating state if
-    /// the on-chain schema is already current or newer.
-    pub fn upgrade_storage(env: Env) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
+    /// `STORAGE_SCHEMA_VERSION`. Safe to call multiple times — idempotent.
+    pub fn upgrade_storage(env: Env, admin: Address) -> Result<(), ContractError> {
+        // Verify caller is the current contract admin.
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
         admin.require_auth();
 
-        let on_chain = get_storage_schema_version(&env);
-
-        if on_chain > STORAGE_SCHEMA_VERSION {
-            return Err(ContractError::StorageSchemaTooNew);
-        }
-        if on_chain == STORAGE_SCHEMA_VERSION {
-            return Err(ContractError::StorageSchemaTooOld);
-        }
-
-        // Apply any necessary migrations here as schema versions increase.
-        // For now, just write the current metadata to mark the upgrade done.
-        set_contract_meta(&env, &current_contract_meta());
-        Ok(())
+        storage::upgrade_storage_schema(&env, STORAGE_SCHEMA_VERSION)
     }
 }
 
