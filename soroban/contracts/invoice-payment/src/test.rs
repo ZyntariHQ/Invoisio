@@ -82,6 +82,7 @@ fn test_config_before_initialize_reports_uninitialized_state() {
                 native_allowed: false,
                 requires_token_allowlist: true,
             },
+            paused: false
         }
     );
 }
@@ -104,6 +105,7 @@ fn test_config_after_initialize_returns_high_level_snapshot() {
                 native_allowed: false,
                 requires_token_allowlist: true,
             },
+            paused: false
         }
     );
 }
@@ -1288,6 +1290,7 @@ fn test_config_reflects_allowlist_mode_changes() {
                 native_allowed: true,
                 requires_token_allowlist: true,
             },
+            paused: false
         }
     );
 }
@@ -1791,7 +1794,6 @@ fn test_schema_compatibility_check() {
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);
 }
 
-
 // ─── Pause Tests ────────────────────────────────────────────────────────────
 
 #[test]
@@ -1855,7 +1857,13 @@ fn test_pause_allows_reads() {
     // All read operations should still work
     assert!(client.has_payment(&String::from_str(&env, "invoisio-read-test")));
     assert_eq!(client.payment_count(), 1);
-    assert!(client.get_payment(&String::from_str(&env, "invoisio-read-test")).is_ok());
+    assert!(
+        client
+            .get_payment(&String::from_str(&env, "invoisio-read-test"))
+            .invoice_id
+            .len()
+            > 0
+    );
     assert_eq!(client.payment_history(&0u32, &10u32).records.len(), 1);
 }
 
@@ -1888,7 +1896,6 @@ fn test_pause_only_admin_can_call() {
 #[test]
 fn test_pause_event_emitted() {
     use soroban_sdk::testutils::Events as _;
-    use soroban_sdk::Symbol;
 
     let env = Env::default();
     env.mock_all_auths();
@@ -1897,7 +1904,7 @@ fn test_pause_event_emitted() {
     // Pause
     client.set_paused(&admin, &true);
     assert_eq!(
-        env.events().all().len(),
+        env.events().all().events().len(),
         1,
         "Pause event should be emitted"
     );
@@ -1905,9 +1912,9 @@ fn test_pause_event_emitted() {
     // Unpause
     client.set_paused(&admin, &false);
     assert_eq!(
-        env.events().all().len(),
+        env.events().all().events().len(),
         1,
-        "Unpause event should be emitted"
+        "Unpause event should be emitted and accumulated"
     );
 }
 

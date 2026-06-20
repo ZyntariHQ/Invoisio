@@ -23,7 +23,7 @@ use storage::{
     get_count, get_payer_history_page, get_payment, get_payment_history_page,
     get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
     is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
-    set_native_allowed, set_payment
+    set_native_allowed, set_payment,
 };
 
 // Contract
