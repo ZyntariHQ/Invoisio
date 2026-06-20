@@ -2,6 +2,7 @@
 #![allow(clippy::all)]
 
 use super::*;
+use crate::storage::{AllowlistMode, ContractConfig};
 use alloc::format;
 use soroban_sdk::{
     testutils::{Address as _, MockAuth, MockAuthInvoke},
@@ -224,11 +225,11 @@ fn test_payment_history_pages_deterministically() {
     assert_eq!(first_page.next_cursor, 2);
     assert!(first_page.has_more);
     assert_eq!(
-        first_page.records[0].invoice_id,
+        first_page.records.get(0).unwrap().invoice_id,
         String::from_str(&env, "invoisio-history-00")
     );
     assert_eq!(
-        first_page.records[1].invoice_id,
+        first_page.records.get(1).unwrap().invoice_id,
         String::from_str(&env, "invoisio-history-01")
     );
 
@@ -237,7 +238,7 @@ fn test_payment_history_pages_deterministically() {
     assert_eq!(second_page.next_cursor, 3);
     assert!(!second_page.has_more);
     assert_eq!(
-        second_page.records[0].invoice_id,
+        second_page.records.get(0).unwrap().invoice_id,
         String::from_str(&env, "invoisio-history-02")
     );
 
