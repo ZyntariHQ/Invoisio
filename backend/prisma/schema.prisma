@@ -40,6 +40,9 @@ model User {
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
 
+  pushTokens     String[]  @default([]) @map("push_tokens")
+  pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
+
   invoices       Invoice[]
   webhooks       WebhookDelivery[]
 
@@ -98,10 +101,23 @@ model Invoice {
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
   webhooks           WebhookDelivery[]
+  statusHistory      InvoiceStatusHistory[]
 
   @@index([merchantId])
   @@map("invoices")
 }
+
+model InvoiceStatusHistory {
+  id        String   @id @default(uuid())
+  invoiceId String   @map("invoice_id")
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  status    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([invoiceId])
+  @@map("invoice_status_history")
+}
+
 
 enum InvoiceStatus {
   pending

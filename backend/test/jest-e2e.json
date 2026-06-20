@@ -7,7 +7,8 @@
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "moduleNameMapper": {
-    "^@invoisio/soroban-client$": "<rootDir>/../src/soroban/__mocks__/soroban-client.ts"
+    "^@invoisio/soroban-client$": "<rootDir>/../src/soroban/__mocks__/soroban-client.ts",
+    "^expo-server-sdk$": "<rootDir>/../src/__mocks__/expo-server-sdk.ts"
   },
   "setupFiles": ["<rootDir>/setup-e2e.ts"]
 }

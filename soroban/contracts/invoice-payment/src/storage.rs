@@ -1,6 +1,7 @@
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::errors::ContractError;
+use crate::events;
 
 // TTL budget
 // At ~5-second ledger close times:
@@ -432,4 +433,81 @@ pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
 pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     env.storage().persistent().remove(&key);
+}
+
+// ─── Storage Schema Migration ───────────────────────────────────────────────
+
+/// Error returned when migration is not supported.
+#[derive(Debug)]
+pub struct MigrationError;
+
+/// Upgrade storage schema from current version to target version.
+///
+/// This is the main entry point for schema migrations. It handles all
+/// version upgrades from V0 (legacy) to the current schema version.
+///
+/// # Idempotency
+/// Safe to call multiple times - checks current version first.
+///
+/// # Events
+/// Emits `StorageSchemaUpgraded` event on successful migration.
+pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), ContractError> {
+    let current = get_storage_schema_version(env);
+
+    if current == target_version {
+        return Ok(());
+    }
+
+    if current > target_version {
+        return Err(ContractError::StorageSchemaTooNew);
+    }
+
+    // Migrate step by step from current to target
+    let mut version = current;
+    while version < target_version {
+        match version {
+            0 => migrate_schema_v0_to_v1(env)?,
+            // Future migrations:
+            // 1 => migrate_schema_v1_to_v2(env)?,
+            // 2 => migrate_schema_v2_to_v3(env)?,
+            _ => return Err(ContractError::StorageSchemaTooOld),
+        }
+        version += 1;
+    }
+
+    // Update metadata to reflect new schema version
+    let old_version = current;
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = target_version;
+    set_contract_meta(env, &meta);
+
+    // Emit upgrade event
+    events::emit_storage_schema_upgraded(env, old_version, target_version);
+
+    Ok(())
+}
+
+/// Migration from schema version 0 (legacy) to version 1.
+///
+/// Schema V0: No ContractMeta, Payment keys only.
+/// Schema V1: ContractMeta + PaymentV1 keys (with lazy migration on read).
+fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
+    // The lazy migration path in get_payment() already handles data migration.
+    // We just need to ensure ContractMeta exists and is correct.
+    ensure_current_contract_meta(env);
+    Ok(())
+}
+
+/// Check if the current storage schema is compatible with this contract version.
+///
+/// Returns true if the schema version is <= the version expected by the contract.
+/// This prevents code from reading a newer schema it doesn't understand.
+pub fn is_schema_compatible(env: &Env) -> bool {
+    let current = get_storage_schema_version(env);
+    current <= STORAGE_SCHEMA_VERSION
+}
+
+/// Get the current storage schema version or 0 if not set.
+pub fn get_schema_version(env: &Env) -> u32 {
+    get_storage_schema_version(env)
 }

@@ -1,10 +1,15 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { BadRequestException, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  NotFoundException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 const MERCHANT_A = "merchant-a";
 const MERCHANT_B = "merchant-b";
@@ -70,6 +75,32 @@ describe("InvoicesService", () => {
       },
     ];
 
+    const statusHistories: any[] = [
+      {
+        id: "hist-a-1",
+        invoiceId: "invoice-a-1",
+        status: "pending",
+        createdAt: new Date(Date.now() - 10000),
+      },
+      {
+        id: "hist-b-1",
+        invoiceId: "invoice-b-1",
+        status: "pending",
+        createdAt: new Date(Date.now() - 10000),
+      },
+    ];
+
+    const populateHistory = (invoice: any) => {
+      if (!invoice) return null;
+      const history = statusHistories
+        .filter((h) => h.invoiceId === invoice.id)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+      return {
+        ...invoice,
+        statusHistory: history,
+      };
+    };
+
     const filterByWhere = (where: any) =>
       invoices.filter((invoice) => {
         if (!where) return true;
@@ -88,33 +119,53 @@ describe("InvoicesService", () => {
       }));
 
     return {
+      invoiceStatusHistory: {
+        create: jest.fn().mockImplementation(({ data }: any) => {
+          const entry = {
+            id: `hist-${Math.random()}`,
+            ...data,
+            createdAt: new Date(),
+          };
+          statusHistories.push(entry);
+          return Promise.resolve(entry);
+        }),
+      },
       invoice: {
         findMany: jest.fn().mockImplementation(({ where }: any) => {
-          return Promise.resolve(filterByWhere(where));
+          return Promise.resolve(filterByWhere(where).map(populateHistory));
         }),
         count: jest.fn().mockImplementation(({ where }: any) => {
           return Promise.resolve(filterByWhere(where).length);
         }),
         findFirst: jest.fn().mockImplementation(({ where }: any) => {
-          return Promise.resolve(filterByWhere(where)[0] ?? null);
-        }),
-        findUnique: jest.fn().mockImplementation(({ where }: any) => {
           return Promise.resolve(
-            invoices.find(
-              (invoice) =>
-                invoice.id === where.id || invoice.memo === where.memo,
-            ) ?? null,
+            populateHistory(filterByWhere(where)[0] ?? null),
           );
         }),
+        findUnique: jest.fn().mockImplementation(({ where }: any) => {
+          const inv = invoices.find(
+            (invoice) => invoice.id === where.id || invoice.memo === where.memo,
+          );
+          return Promise.resolve(populateHistory(inv ?? null));
+        }),
         create: jest.fn().mockImplementation(({ data }: any) => {
+          const { statusHistory, ...rest } = data;
           const created = {
             id: "created-invoice",
-            ...data,
+            ...rest,
             createdAt: new Date(),
             updatedAt: new Date(),
           };
           invoices.push(created);
-          return Promise.resolve(created);
+          if (statusHistory && statusHistory.create) {
+            statusHistories.push({
+              id: `hist-${Math.random()}`,
+              invoiceId: created.id,
+              status: statusHistory.create.status,
+              createdAt: new Date(),
+            });
+          }
+          return Promise.resolve(populateHistory(created));
         }),
         updateMany: jest.fn().mockImplementation(({ where, data }: any) => {
           let count = 0;
@@ -123,7 +174,8 @@ describe("InvoicesService", () => {
               ([key, value]) => (invoice as any)[key] === value,
             );
             if (matches) {
-              Object.assign(invoice, data);
+              const { statusHistory, ...rest } = data;
+              Object.assign(invoice, rest);
               count++;
             }
           }
@@ -134,12 +186,21 @@ describe("InvoicesService", () => {
           if (!invoice) {
             return Promise.reject(new Error("not found"));
           }
-          Object.assign(invoice, data);
-          return Promise.resolve(invoice);
+          const { statusHistory, ...rest } = data;
+          Object.assign(invoice, rest);
+          if (statusHistory && statusHistory.create) {
+            statusHistories.push({
+              id: `hist-${Math.random()}`,
+              invoiceId: invoice.id,
+              status: statusHistory.create.status,
+              createdAt: new Date(),
+            });
+          }
+          return Promise.resolve(populateHistory(invoice));
         }),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      $queryRaw: jest.fn().mockResolvedValue(queryRows),
+      $queryRaw: jest.fn().mockResolvedValue(queryRows.map(populateHistory)),
     };
   };
 
@@ -155,6 +216,13 @@ describe("InvoicesService", () => {
         { provide: SorobanService, useValue: mockSorobanService },
         { provide: PrismaService, useFactory: mockPrisma },
         { provide: WebhooksService, useValue: mockWebhooksService },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyInvoicePaid: jest.fn(),
+            notifyInvoiceOverdue: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -291,14 +359,63 @@ describe("InvoicesService", () => {
     it("throws BadRequestException when attempting to pay a cancelled invoice", async () => {
       await service.cancelInvoice("invoice-a-1", MERCHANT_A);
       await expect(
-        service.reconcilePayment(
-          "invoice-a-1",
-          "GPAYER",
-          "XLM",
-          "",
-          "1000000",
-        ),
+        service.reconcilePayment("invoice-a-1", "GPAYER", "XLM", "", "1000000"),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe("status history audit trail", () => {
+    it("creates a status history entry on invoice creation", async () => {
+      const created = await service.create(
+        {
+          invoiceNumber: "INV-NEW-99",
+          clientName: "New Client",
+          clientEmail: "new@example.com",
+          amount: 500,
+          asset_code: "XLM",
+        },
+        USER_A,
+        MERCHANT_A,
+      );
+
+      expect(created.statusHistory).toBeDefined();
+      expect(created.statusHistory).toHaveLength(1);
+      expect(created.statusHistory![0].status).toBe("pending");
+    });
+
+    it("appends status history entry on updateStatus", async () => {
+      const updated = await service.updateStatus(
+        "invoice-a-1",
+        "paid" as any,
+        MERCHANT_A,
+      );
+
+      expect(updated.statusHistory).toBeDefined();
+      expect(updated.statusHistory!.map((h) => h.status)).toContain("paid");
+    });
+
+    it("appends status history entry on cancelInvoice", async () => {
+      const result = await service.cancelInvoice("invoice-a-1", MERCHANT_A);
+      expect(result.status).toBe("cancelled");
+
+      const detail = await service.findOne("invoice-a-1", MERCHANT_A);
+      expect(detail.statusHistory).toBeDefined();
+      expect(detail.statusHistory!.map((h) => h.status)).toContain("cancelled");
+    });
+
+    it("appends status history entry on markAsPaid", async () => {
+      const updated = await service.markAsPaid("invoice-a-1", "tx-xyz");
+      expect(updated.status).toBe("paid");
+      expect(updated.statusHistory!.map((h) => h.status)).toContain("paid");
+    });
+
+    it("appends status history entry on updateSorobanMetadata (anchored)", async () => {
+      const updated = await service.updateSorobanMetadata(
+        "invoice-a-1",
+        "soroban-tx",
+        "contract-123",
+      );
+      expect(updated.statusHistory!.map((h) => h.status)).toContain("anchored");
     });
   });
 });

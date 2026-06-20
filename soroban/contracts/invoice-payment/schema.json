@@ -175,34 +175,47 @@
         "allowed": { "type": "boolean", "description": "New value of the native XLM allow flag." }
       },
       "required": ["allowed"]
+    },
+    "StorageSchemaUpgraded": {
+      "description": "Emitted by upgrade_storage(). Signals a storage schema version upgrade.",
+      "topic": "storage_schema_upgraded",
+      "fields": {
+        "from_version": { "type": "integer", "description": "Previous schema version." },
+        "to_version":   { "type": "integer", "description": "New schema version." },
+        "upgraded_at":  { "type": "integer", "description": "Ledger timestamp when upgrade occurred." }
+      },
+      "required": ["from_version", "to_version", "upgraded_at"]
     }
   },
   "errors": {
-    "AlreadyInitialized":   { "code": 1, "description": "initialize() called on an already-initialised contract." },
-    "NotInitialized":       { "code": 2, "description": "Admin-gated method called before initialize()." },
+    "AlreadyInitialized": { "code": 1, "description": "initialize() called on an already-initialised contract." },
+    "NotInitialized": { "code": 2, "description": "Admin-gated method called before initialize()." },
     "PaymentAlreadyRecorded": { "code": 3, "description": "record_payment() called with an invoice_id that was already recorded." },
-    "PaymentNotFound":      { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
-    "InvalidAmount":        { "code": 5, "description": "amount was zero or negative." },
-    "InvalidInvoiceId":     { "code": 6, "description": "invoice_id was an empty string." },
-    "InvalidAsset":         { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
-    "AssetNotAllowed":      { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
-    "Unauthorized":         { "code": 9, "description": "Caller is not authorized." }
+    "PaymentNotFound": { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
+    "InvalidAmount": { "code": 5, "description": "amount was zero or negative." },
+    "InvalidInvoiceId": { "code": 6, "description": "invoice_id was an empty string." },
+    "InvalidAsset": { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
+    "AssetNotAllowed": { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
+    "Unauthorized": { "code": 9, "description": "Caller is not authorized." },
+    "StorageSchemaTooNew": { "code": 10, "description": "Contract code is too old for the current storage schema." },
+    "StorageSchemaTooOld": { "code": 11, "description": "Storage schema is too old and requires migration." }
   },
   "methods": {
-    "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
-    "record_payment":    { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
-    "get_payment":       { "auth": "none",  "description": "Return PaymentRecord for invoice_id." },
-    "has_payment":       { "auth": "none",  "description": "Return true if a payment exists for invoice_id." },
-    "payment_count":     { "auth": "none",  "description": "Return total recorded payment count." },
-    "payment_history":   { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
-    "payments_by_payer": { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
-    "config":            { "auth": "none",  "description": "Return ContractConfig snapshot." },
-    "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
-    "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },
-    "admin":             { "auth": "none",  "description": "Return current admin address." },
-    "set_admin":         { "auth": "admin+new_admin", "description": "Transfer admin rights." },
-    "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
-    "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
-    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." }
+    "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
+    "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
+    "get_payment": { "auth": "none", "description": "Return PaymentRecord for invoice_id." },
+    "has_payment": { "auth": "none", "description": "Return true if a payment exists for invoice_id." },
+    "payment_count": { "auth": "none", "description": "Return total recorded payment count." },
+    "payment_history": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
+    "payments_by_payer": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
+    "config": { "auth": "none", "description": "Return ContractConfig snapshot." },
+    "contract_version": { "auth": "none", "description": "Return packed semver as u32." },
+    "version_info": { "auth": "none", "description": "Return on-chain ContractMeta." },
+    "admin": { "auth": "none", "description": "Return current admin address." },
+    "set_admin": { "auth": "admin+new_admin", "description": "Transfer admin rights." },
+    "allow_asset": { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
+    "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
+    "set_allow_native": { "auth": "admin", "description": "Toggle native XLM acceptance." },
+    "upgrade_storage": { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." }
   }
 }

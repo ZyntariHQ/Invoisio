@@ -48,10 +48,10 @@ export default function InvoiceDetailScreen() {
     invoice && destination
       ? generatePaymentUri({
           amount: String(invoice.amount),
-          assetCode,
-          assetIssuer: invoice.asset_issuer,
           destination,
-          memo: invoice.memo,
+          ...(assetCode !== undefined && { assetCode }),
+          ...(invoice.asset_issuer !== undefined && { assetIssuer: invoice.asset_issuer }),
+          ...(invoice.memo !== undefined && { memo: invoice.memo }),
           memoType: getInvoiceMemoType(invoice),
         })
       : undefined;

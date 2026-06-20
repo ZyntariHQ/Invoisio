@@ -14,6 +14,7 @@ import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
@@ -27,6 +28,7 @@ export class InvoicesService implements OnModuleInit {
     private readonly sorobanService: SorobanService,
     private readonly prisma: PrismaService,
     private readonly webhooksService: WebhooksService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   async onModuleInit() {
@@ -197,6 +199,11 @@ export class InvoicesService implements OnModuleInit {
   async findOne(id: string, merchantId: string): Promise<Invoice> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, merchantId },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
     if (!invoice)
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
@@ -235,6 +242,16 @@ export class InvoicesService implements OnModuleInit {
         sorobanContractId: null,
         metadata: Prisma.JsonNull,
         dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+        statusHistory: {
+          create: {
+            status: "pending",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     return this.normalizeInvoice(created);
@@ -266,6 +283,14 @@ export class InvoicesService implements OnModuleInit {
       throw new NotFoundException(`Invoice with ID "${id}" not found`);
     }
 
+    // Create status history entry
+    await this.prisma.invoiceStatusHistory.create({
+      data: {
+        invoiceId: updated.id,
+        status,
+      },
+    });
+
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(
       id,
@@ -274,7 +299,26 @@ export class InvoicesService implements OnModuleInit {
       merchantId,
     );
 
-    return this.normalizeInvoice(updated);
+    const updatedWithHistory = await this.prisma.invoice.findFirst({
+      where,
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (status === "paid") {
+      await this.notificationsService.notifyInvoicePaid(
+        updatedWithHistory || updated,
+      );
+    } else if (status === "overdue") {
+      await this.notificationsService.notifyInvoiceOverdue(
+        updatedWithHistory || updated,
+      );
+    }
+
+    return this.normalizeInvoice(updatedWithHistory || updated);
   }
 
   /**
@@ -286,11 +330,25 @@ export class InvoicesService implements OnModuleInit {
   async markAsPaid(id: string, txHash: string): Promise<Invoice> {
     const updated = await this.prisma.invoice.update({
       where: { id },
-      data: { status: "paid", txHash: txHash },
+      data: {
+        status: "paid",
+        txHash: txHash,
+        statusHistory: {
+          create: {
+            status: "paid",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
 
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(id, "paid", txHash);
+    await this.notificationsService.notifyInvoicePaid(updated);
 
     return this.normalizeInvoice(updated);
   }
@@ -312,6 +370,16 @@ export class InvoicesService implements OnModuleInit {
       data: {
         sorobanTxHash: sorobanTxHash,
         sorobanContractId: contractId,
+        statusHistory: {
+          create: {
+            status: "anchored",
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
     return this.normalizeInvoice(updated);
@@ -374,8 +442,19 @@ export class InvoicesService implements OnModuleInit {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
           },
+          statusHistory: {
+            create: {
+              status: "paid",
+            },
+          },
+        },
+        include: {
+          statusHistory: {
+            orderBy: { createdAt: "asc" },
+          },
         },
       });
+      await this.notificationsService.notifyInvoicePaid(updated);
       return this.normalizeInvoice(updated);
     } else {
       const updated = await this.prisma.invoice.update({
@@ -384,6 +463,11 @@ export class InvoicesService implements OnModuleInit {
           metadata: {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
+          },
+        },
+        include: {
+          statusHistory: {
+            orderBy: { createdAt: "asc" },
           },
         },
       });
@@ -492,7 +576,12 @@ export class InvoicesService implements OnModuleInit {
     id: string,
     merchantId: string,
     reason = "cancelled",
-  ): Promise<{ id: string; status: string; reason: string; cancelledAt: Date }> {
+  ): Promise<{
+    id: string;
+    status: string;
+    reason: string;
+    cancelledAt: Date;
+  }> {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, merchantId },
     });
@@ -516,6 +605,11 @@ export class InvoicesService implements OnModuleInit {
         metadata: {
           ...((invoice.metadata as any) ?? {}),
           cancellation: { reason, cancelledAt: cancelledAt.toISOString() },
+        },
+        statusHistory: {
+          create: {
+            status: "cancelled",
+          },
         },
       },
     });
@@ -597,6 +691,7 @@ export class InvoicesService implements OnModuleInit {
       ...inv,
       amount: numericAmount,
       asset_code: inv.assetCode,
+      asset: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
       memo_type: inv.memoType,
       tx_hash: inv.txHash,
