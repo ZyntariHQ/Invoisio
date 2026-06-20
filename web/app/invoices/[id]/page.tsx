@@ -32,6 +32,14 @@ interface WalletInfo {
   message: string;
 }
 
+interface TimelineStep {
+  label: string;
+  description: string;
+  datetime: string;
+  status: 'completed' | 'failed' | 'pending';
+  txHash?: string;
+}
+
 function InvoiceDetailContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -77,10 +85,10 @@ function InvoiceDetailContent() {
     fetchInvoice,
   );
 
-  const statusTimeline = useMemo(() => {
-    if (!invoice) return [] as Array<{label:string; description:string; datetime:string; status:string; txHash?: string}>;
+  const statusTimeline = useMemo<TimelineStep[]>(() => {
+    if (!invoice) return [] as TimelineStep[];
 
-    const timeline = [
+    const timeline: TimelineStep[] = [
       {
         label: 'Invoice Created',
         description: 'Invoice was issued and is waiting for payment.',
