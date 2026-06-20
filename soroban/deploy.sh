@@ -1,29 +1,65 @@
 #!/usr/bin/env bash
 #
-# Deploy the Invoisio invoice-payment contract to Stellar testnet
+# Deploy the Invoisio invoice-payment contract to Stellar
 #
-# Usage: ./deploy.sh
+# Usage:
+#   ./deploy.sh                          # deploys to testnet (default)
+#   STELLAR_NETWORK=mainnet ./deploy.sh  # deploys to mainnet
 #
 # Environment variables:
-#   STELLAR_NETWORK   - Network to deploy to (default: testnet)
-#   STELLAR_IDENTITY  - Identity name to use (default: invoisio-admin)
+#   STELLAR_NETWORK        - Network to deploy to (default: testnet)
+#   STELLAR_IDENTITY       - Override identity name from manifest
+#   INVOISIO_ADMIN_SECRET  - Admin secret key (optional; falls back to local keys identity)
+#
+# Manifest files (read automatically based on STELLAR_NETWORK):
+#   manifests/testnet.toml
+#   manifests/mainnet.toml
 #
 # The script will:
-#   1. Create/verify the identity exists
-#   2. Fund the account from Friendbot (testnet only)
-#   3. Deploy the contract WASM
-#   4. Initialize the contract with the admin address
-#   5. Save the CONTRACT_ID to contracts/invoice-payment/.contract-id
+#   1. Load the network manifest for the target environment
+#   2. Create/verify the identity exists
+#   3. Fund the account from Friendbot (testnet only)
+#   4. Deploy the contract WASM
+#   5. Initialize the contract with the admin address
+#   6. Save the CONTRACT_ID to the path defined in the manifest
 
 set -e
 
 cd "$(dirname "$0")"
 
-# Configuration
+# ── Load manifest ────────────────────────────────────────────────────────────
+
 NETWORK="${STELLAR_NETWORK:-testnet}"
-IDENTITY="${STELLAR_IDENTITY:-invoisio-admin}"
-WASM_PATH="target/wasm32v1-none/release/invoice_payment.wasm"
-CONTRACT_ID_FILE="contracts/invoice-payment/.contract-id"
+MANIFEST_FILE="manifests/${NETWORK}.toml"
+
+if [ ! -f "$MANIFEST_FILE" ]; then
+    echo "❌ Error: No manifest found for network '${NETWORK}'"
+    echo "   Expected: ${MANIFEST_FILE}"
+    echo "   Available manifests: $(ls manifests/*.toml 2>/dev/null | xargs -n1 basename | tr '\n' ' ')"
+    exit 1
+fi
+
+echo "📋 Loading manifest: ${MANIFEST_FILE}"
+
+# Parse TOML values with grep (no external deps required)
+_toml_get() {
+    grep -E "^${1}\s*=" "$MANIFEST_FILE" | head -1 | sed 's/^[^=]*=\s*//' | tr -d '"' | tr -d "'"
+}
+
+MANIFEST_IDENTITY="$(_toml_get identity.name 2>/dev/null || true)"
+MANIFEST_WASM_PATH="$(_toml_get wasm_path 2>/dev/null || true)"
+MANIFEST_CONTRACT_ID_FILE="$(_toml_get contract_id_file 2>/dev/null || true)"
+MANIFEST_SECRET_KEY_ENV="$(_toml_get secret_key_env 2>/dev/null || true)"
+
+# Resolve configuration (env overrides manifest)
+IDENTITY="${STELLAR_IDENTITY:-${MANIFEST_IDENTITY:-invoisio-admin}}"
+WASM_PATH="${MANIFEST_WASM_PATH:-target/wasm32v1-none/release/invoice_payment.wasm}"
+CONTRACT_ID_FILE="${MANIFEST_CONTRACT_ID_FILE:-contracts/invoice-payment/.contract-id}"
+
+# If a secret key env var is configured in the manifest, try to use it
+if [ -n "$MANIFEST_SECRET_KEY_ENV" ]; then
+    ADMIN_SECRET="${!MANIFEST_SECRET_KEY_ENV:-}"
+fi
 
 echo "========================================="
 echo "Deploying Invoisio Contract"

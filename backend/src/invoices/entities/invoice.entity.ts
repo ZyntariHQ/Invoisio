@@ -53,4 +53,13 @@ export class Invoice {
 
   // Not persisted in DB — added at runtime for compatibility with existing DTOs
   destination_address?: string;
+
+  statusHistory?: InvoiceStatusHistory[];
+}
+
+export class InvoiceStatusHistory {
+  id: string;
+  invoiceId: string;
+  status: string;
+  createdAt: Date;
 }

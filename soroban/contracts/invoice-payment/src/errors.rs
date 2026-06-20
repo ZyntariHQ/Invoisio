@@ -43,4 +43,8 @@ pub enum ContractError {
 
     /// The caller is not authorized to perform this operation.
     Unauthorized = 9,
+    /// The contract code is too old for the current storage schema version.
+    StorageSchemaTooNew = 10,
+    /// The storage schema is too old and requires migration.
+    StorageSchemaTooOld = 11,
 }

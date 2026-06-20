@@ -1,4 +1,5 @@
 #![no_std]
+extern crate alloc;
 use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 pub mod errors;
@@ -8,8 +9,8 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentRecord, CONTRACT_VERSION,
-    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
+    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
+    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
     STORAGE_SCHEMA_VERSION,
 };
 
@@ -17,14 +18,15 @@ use events::{
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, bump_count, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_contract_config, get_count, get_payment, get_state_contract_version,
-    get_storage_schema_version, has_admin, has_payment, is_asset_allowed, is_native_allowed,
-    revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
+    allow_asset, append_payer_history, append_payment_history, bump_count, bump_history_count,
+    bump_payer_history_count, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_count, get_payer_history_page, get_payment, get_payment_history_page,
+    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
+    is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    set_native_allowed, set_payment,
 };
 
 // Contract
-
 /// # Invoisio Invoice Payment Tracking Contract
 ///
 /// A minimal, auditable Soroban contract whose **sole purpose** is to provide a
@@ -64,23 +66,24 @@ use storage::{
 ///     using `require_auth()`.
 ///   - [`set_admin`] requires **both** the current admin and the new admin to
 ///     authorise, ensuring the new admin explicitly consents to taking over.
-/// - **Read methods** (`config`, `get_payment`, `has_payment`, `payment_count`,
-///   `contract_version`, `version_info`, `admin`) are permissionless, so any
-///   account can inspect on-chain payment state.
+/// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
+///   `payment_history`, `payments_by_payer`, `contract_version`,
+///   `version_info`, `admin`) are permissionless, so any account can inspect
+///   on-chain payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
 /// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
 /// 4. Contract stores record + emits event.
-/// 5. Any observer calls `get_payment(invoice_id)` or streams `getEvents` to verify.
+/// 5. Any observer calls `get_payment(invoice_id)`, `payment_history(cursor, limit)`,
+///    `payments_by_payer(payer, cursor, limit)`, or streams `getEvents` to verify.
 #[contract]
 pub struct InvoicePaymentContract;
 
 #[contractimpl]
 impl InvoicePaymentContract {
     // Lifecycle
-
     /// Initialise the contract and register the `admin`.
     ///
     /// Must be called **once** right after deployment. The `admin` is the only
@@ -94,13 +97,15 @@ impl InvoicePaymentContract {
         set_admin(&env, &admin);
         // Persist explicit metadata so clients can reason about upgrades.
         set_contract_meta(&env, &current_contract_meta());
-        // Initialise counter explicitly so `payment_count` is always readable.
+        // Initialise counters explicitly so read methods are always readable.
         env.storage().instance().set(&DataKey::PaymentCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &0u32);
         Ok(())
     }
 
     // Write
-
     /// Record a payment for `invoice_id` on-chain and emit a Soroban event.
     ///
     /// ## Authorization
@@ -147,6 +152,7 @@ impl InvoicePaymentContract {
         // 1. Admin authorisation.
         let admin = get_admin(&env)?;
         admin.require_auth();
+
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
 
@@ -163,12 +169,17 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
+        // Reject malformed token descriptors: Stellar asset codes are at most
+        // 12 characters, so anything longer is invalid.
+        if asset_code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+
         // Asset validation:
         // - XLM (native) must have an empty issuer
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.is_empty();
-
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
             return Err(ContractError::InvalidAsset);
@@ -190,7 +201,7 @@ impl InvoicePaymentContract {
         }
 
         // 3. Amount guard.
-        if amount <= 0 {
+        if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
 
@@ -216,7 +227,11 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 7. Increment running counter (also bumps instance TTL).
+        // 7. Persist the ordered history entries and increment counters.
+        append_payment_history(&env, &record);
+        bump_history_count(&env);
+        append_payer_history(&env, &record.payer, &record);
+        bump_payer_history_count(&env, &record.payer);
         bump_count(&env);
 
         // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
@@ -233,7 +248,6 @@ impl InvoicePaymentContract {
     }
 
     // Read
-
     /// Return the [`PaymentRecord`] for `invoice_id`.
     ///
     /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
@@ -261,32 +275,32 @@ impl InvoicePaymentContract {
         get_count(&env)
     }
 
-    /// Return a stable, high-level contract configuration snapshot.
+    /// Return a bounded, cursor-friendly page of payment history.
     ///
-    /// This view is intended for backend health checks, deployment scripts, and
-    /// UI clients that need one permissionless call instead of stitching
-    /// together multiple reads. The response shape is stable and uses named
-    /// fields so integrations can decode it predictably.
+    /// `cursor` is the next history index to read, and `limit` is capped so
+    /// the response remains bounded and predictable.
+    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+        get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return a bounded, cursor-friendly page of payment history for a single `payer`.
     ///
-    /// ## Returned fields
-    /// - `admin` — `Some(address)` once initialised, otherwise `None`
-    /// - `initialized` — whether `initialize(admin)` has completed
-    /// - `version` — detected on-chain version and storage schema metadata
-    /// - `allowlist_mode.native_allowed` — whether native XLM payments are accepted
-    /// - `allowlist_mode.requires_token_allowlist` — whether issued assets must
-    ///   be explicitly allowlisted (currently always `true`)
-    ///
-    /// ## Example
-    /// ```text
-    /// ContractConfig {
-    ///   admin: Some(G...ADMIN),
-    ///   initialized: true,
-    ///   version: ContractMeta { contract_version: 1000000, storage_schema_version: 1 },
-    ///   allowlist_mode: AllowlistMode { native_allowed: true, requires_token_allowlist: true }
-    /// }
-    /// ```
+    /// Mirrors [`Self::payment_history`] but scoped to payments made by
+    /// `payer`, using the same cursor/limit semantics and page-size cap. A
+    /// `payer` with no recorded payments returns an empty page rather than
+    /// an error.
+    pub fn payments_by_payer(
+        env: Env,
+        payer: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> PaymentHistoryPage {
+        get_payer_history_page(&env, &payer, cursor, limit)
+    }
+
+    /// Return a high-level snapshot of contract configuration.
     pub fn config(env: Env) -> ContractConfig {
-        get_contract_config(&env)
+        storage::get_contract_config(&env)
     }
 
     /// Return the current **code** version as packed semver
@@ -307,7 +321,6 @@ impl InvoicePaymentContract {
     }
 
     // Admin
-
     /// Return the current admin address.
     ///
     /// Returns [`ContractError::NotInitialized`] if the contract has not been
@@ -342,11 +355,9 @@ impl InvoicePaymentContract {
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-
         allow_asset(&env, &code, &issuer);
         emit_asset_allowlisted(&env, code, issuer);
         Ok(())
@@ -358,11 +369,9 @@ impl InvoicePaymentContract {
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-
         revoke_asset(&env, &code, &issuer);
         emit_asset_revoked(&env, code, issuer);
         Ok(())
@@ -374,10 +383,40 @@ impl InvoicePaymentContract {
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
-
         set_native_allowed(&env, allowed);
         emit_native_allow_changed(&env, allowed);
         Ok(())
+    }
+
+    /// Upgrade the storage schema to the current version.
+    ///
+    /// Admin-only function that explicitly migrates the storage schema
+    /// to the version expected by this contract code.
+    ///
+    /// ## When to call
+    /// - After upgrading contract code that introduces a new schema
+    /// - To explicitly migrate all data (lazy migration happens on reads)
+    /// - As part of deployment pipeline after code upgrade
+    ///
+    /// ## Idempotency
+    /// Safe to call multiple times - checks current schema version first.
+    ///
+    /// ## Events
+    /// Emits `StorageSchemaUpgraded` event on successful migration.
+    ///
+    /// ## Errors
+    /// - `StorageSchemaTooNew` if storage schema is newer than contract
+    /// - `StorageSchemaTooOld` if schema version is not supported for migration
+    pub fn upgrade_storage(env: Env, caller: Address) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        caller.require_auth();
+
+        if caller != admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        let target = STORAGE_SCHEMA_VERSION;
+        storage::upgrade_storage_schema(&env, target)
     }
 }
 

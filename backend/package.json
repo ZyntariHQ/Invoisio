@@ -25,7 +25,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev --name init",
     "db:seed": "npx prisma db seed",
-    "db:migrate": "npx prisma migrate deploy"
+    "db:migrate": "npx prisma migrate deploy",
+    "backfill": "ts-node scripts/backfill-cli.ts",
+    "backfill:reconcile": "ts-node scripts/backfill-cli.ts reconcile",
+    "backfill:from-last": "ts-node scripts/backfill-cli.ts reconcile --from-last",
+    "backfill:report": "ts-node scripts/backfill-cli.ts report",
+    "backfill:stats": "ts-node scripts/backfill-cli.ts stats"
   },
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
@@ -38,8 +43,9 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.0.1",
-    "@nestjs/schedule": "^6.1.1",
+    "@nestjs/platform-express": "^11.1.27",
+    "@nestjs/schedule": "^6.1.3",
+    "@nestjs/swagger": "^11.4.4",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@prisma/adapter-pg": "^7.4.2",
@@ -48,9 +54,12 @@
     "axios": "^1.13.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
+    "commander": "^11.1.0",
     "cross-env": "^10.1.0",
+    "expo-server-sdk": "^6.1.0",
     "ioredis": "^5.10.0",
-    "joi": "^17.13.3",
+    "joi": "^17.13.4",
+    "node-fetch": "^2.7.0",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.19.0",
@@ -69,9 +78,11 @@
     "@types/dotenv": "^6.1.1",
     "@types/express": "^5.0.0",
     "@types/jest": "^30.0.0",
+    "@types/joi": "^17.2.2",
     "@types/node": "^22.10.7",
+    "@types/node-fetch": "^2.6.12",
     "@types/passport-jwt": "^4.0.1",
-    "@types/supertest": "^6.0.2",
+    "@types/supertest": "^6.0.3",
     "@types/uuid": "^10.0.0",
     "ajv": "8.18.0",
     "ajv-formats": "2.1.1",
@@ -92,7 +103,7 @@
     "prisma": "^7.4.2",
     "schema-utils": "4.3.3",
     "source-map-support": "^0.5.21",
-    "supertest": "^7.0.0",
+    "supertest": "^7.2.2",
     "ts-jest": "^29.4.6",
     "ts-loader": "^9.5.2",
     "ts-node": "^10.9.2",
@@ -113,7 +124,8 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "moduleNameMapper": {
-      "^@invoisio/soroban-client$": "<rootDir>/soroban/__mocks__/soroban-client.ts"
+      "^@invoisio/soroban-client$": "<rootDir>/soroban/__mocks__/soroban-client.ts",
+      "^expo-server-sdk$": "<rootDir>/__mocks__/expo-server-sdk.ts"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
