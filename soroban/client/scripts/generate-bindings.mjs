@@ -97,6 +97,8 @@ function renderBindings(rustSource) {
     'InvalidAsset',
     'AssetNotAllowed',
     'Unauthorized',
+    'StorageSchemaTooNew',
+    'StorageSchemaTooOld',
   ]);
 
   const contractErrorCodes = contractErrors
@@ -181,15 +183,17 @@ function extractMethods(source) {
   const block = extractBlock(source, 'pub trait Contract {');
   const methods = [];
 
-  for (const line of block.split('\n')) {
-    const match = line.trim().match(/^fn\s+([a-zA-Z0-9_]+)\((.*)\)\s*->\s*(.*);$/);
-    if (!match) {
-      continue;
-    }
+  const methodRegex = /fn\s+([a-zA-Z0-9_]+)\s*\(([\s\S]*?)\)\s*(?:->\s*([^;]*?))?;/g;
+  let match;
 
-    const [, name, paramsText, returnType] = match;
+  while ((match = methodRegex.exec(block)) !== null) {
+    const name = match[1];
+    const paramsText = match[2];
+    const returnTypeRaw = match[3];
+    const returnType = returnTypeRaw ? returnTypeRaw.trim().replace(/\s+/g, ' ') : '()';
+
     const params = splitTopLevel(paramsText)
-      .map((part) => part.trim())
+      .map((part) => part.trim().replace(/\s+/g, ' '))
       .filter((part) => part.length > 0)
       .map((part) => {
         const colonIndex = part.indexOf(':');
@@ -340,29 +344,35 @@ function validateExpectedMethods(methods) {
     'allow_asset',
     'revoke_asset',
     'set_allow_native',
-  ];
+    'payment_history',
+    'payments_by_payer',
+    'config',
+    'upgrade_storage',
+  ].sort();
 
-  const actual = methods.map((entry) => entry.name);
+  const actual = methods.map((entry) => entry.name).sort();
   if (expected.length !== actual.length || expected.some((name, index) => name !== actual[index])) {
     throw new Error(`Unexpected contract methods: ${actual.join(', ')}`);
   }
 }
 
 function validateExpectedStruct(structDef, expectedFields) {
-  const actual = structDef.fields.map((field) => field.name);
+  const actual = structDef.fields.map((field) => field.name).sort();
+  const expected = [...expectedFields].sort();
   if (
-    expectedFields.length !== actual.length ||
-    expectedFields.some((name, index) => name !== actual[index])
+    expected.length !== actual.length ||
+    expected.some((name, index) => name !== actual[index])
   ) {
     throw new Error(`Unexpected ${structDef.name} fields: ${actual.join(', ')}`);
   }
 }
 
 function validateExpectedEnum(enumDef, expectedVariants) {
-  const actual = enumDef.variants.map((variant) => variant.name);
+  const actual = enumDef.variants.map((variant) => variant.name).sort();
+  const expected = [...expectedVariants].sort();
   if (
-    expectedVariants.length !== actual.length ||
-    expectedVariants.some((name, index) => name !== actual[index])
+    expected.length !== actual.length ||
+    expected.some((name, index) => name !== actual[index])
   ) {
     throw new Error(`Unexpected ${enumDef.name} variants: ${actual.join(', ')}`);
   }
