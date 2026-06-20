@@ -24,17 +24,18 @@ export default function DashboardScreen() {
   const [lastSynced, setLastSynced] = useState<number | undefined>(undefined);
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
+    let cancelled = false;
+    void (async () => {
       try {
         const ts = await getInvoicesLastSynced();
-        if (mounted) setLastSynced(ts);
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancelled may be mutated by cleanup
+        if (!cancelled) setLastSynced(ts);
       } catch (err) {
         console.error("load lastSynced", err);
       }
     })();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, []);
 
@@ -43,15 +44,21 @@ export default function DashboardScreen() {
       if (state === "active") {
         void refetch();
         // refresh stored timestamp after a short delay to allow onSuccess
-        setTimeout(async () => {
-          try {
-            const ts = await getInvoicesLastSynced();
-            setLastSynced(ts);
-          } catch {}
+        setTimeout(() => {
+          void (async () => {
+            try {
+              const ts = await getInvoicesLastSynced();
+              setLastSynced(ts);
+            } catch (e) {
+              console.warn("refresh lastSynced failed", e);
+            }
+          })();
         }, 1000);
       }
     });
-    return () => sub.remove();
+    return () => {
+      sub.remove();
+    };
   }, [refetch]);
 
   const invoices: Invoice[] = useMemo(() => {
@@ -118,7 +125,9 @@ export default function DashboardScreen() {
               <View className="flex-row gap-2">
                 <Pressable
                   className="rounded-2xl border border-white/20 px-4 py-2"
-                  onPress={() => router.push("/settings")}
+                  onPress={() => {
+                    router.push("/settings");
+                  }}
                 >
                   <Text
                     className="text-sm text-white"
@@ -213,35 +222,31 @@ export default function DashboardScreen() {
                 >
                   Active invoices
                 </Text>
-            <View className="flex-row items-center justify-between">
-              <Text
-                className="text-lg text-white"
-                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
-              >
-                Active invoices
-              </Text>
-              <View className="flex-row gap-2">
-                <Pressable
-                  className="rounded-2xl bg-[#2663FF] px-4 py-2"
-                  onPress={() => router.push("/scan")}
-                >
-                  <Text
-                    className="text-white"
-                    style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                <View className="flex-row gap-2">
+                  <Pressable
+                    className="rounded-2xl bg-[#2663FF] px-4 py-2"
+                    onPress={() => {
+                      router.push("/scan");
+                    }}
                   >
-                    📷 Scan QR
-                  </Text>
-                </Pressable>
-                <Link href="/create-invoice" asChild>
-                  <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
                     <Text
                       className="text-white"
                       style={{ fontFamily: "SpaceGrotesk_500Medium" }}
                     >
-                      New invoice
+                      📷 Scan QR
                     </Text>
                   </Pressable>
-                </Link>
+                  <Link href="/create-invoice" asChild>
+                    <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
+                      <Text
+                        className="text-white"
+                        style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                      >
+                        New invoice
+                      </Text>
+                    </Pressable>
+                  </Link>
+                </View>
               </View>
               {lastSynced ? (
                 <Text

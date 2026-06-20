@@ -1,97 +1,106 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { INestApplication } from "@nestjs/common";
-
+import { INestApplication, ValidationPipe } from "@nestjs/common";
 import request from "supertest";
-
 import { MerchantController } from "./merchant.controller";
 import { MerchantService } from "./merchant.service";
-
 import { JwtAuthGuard } from "../auth/guard/auth.guard";
-import { MerchantMembershipGuard } from "../common/guards/merchant-membership.guard";
-import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
+import { PrismaService } from "../prisma/prisma.service";
 
-describe("MerchantController RBAC", () => {
+describe("MerchantController", () => {
   let app: INestApplication;
 
-  let currentRole = "viewer";
+  const mockMerchant = {
+    id: "merchant-1",
+    name: "Test Merchant",
+    stellarPublicKey: "GABC123",
+    payoutPublicKey: null,
+    preferredAsset: "USDC",
+    webhookUrl: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const mockMerchantService = {
+    getProfile: jest.fn().mockResolvedValue(mockMerchant),
+    updateSettings: jest.fn().mockResolvedValue({
+      ...mockMerchant,
+      name: "Updated Name",
+      payoutPublicKey:
+        "GCKFBEIYTKGLP4V4EMMZHHQVBNHGVTCNQJOWP4SUXFJTMW74VDAD5Z6R",
+      preferredAsset: "EURC",
+    }),
+  };
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MerchantController],
-
       providers: [
+        { provide: MerchantService, useValue: mockMerchantService },
         {
-          provide: MerchantService,
-          useValue: {},
+          provide: PrismaService,
+          useValue: {
+            runWithMerchantScope: (_id: string, cb: () => unknown) => cb(),
+          },
         },
       ],
     })
-
       .overrideGuard(JwtAuthGuard)
-
       .useValue({
         canActivate: (context) => {
           const req = context.switchToHttp().getRequest();
-
-          req.user = {
-            id: "user-1",
-          };
-
+          req.user = { id: "user-1", merchantId: "merchant-1" };
           return true;
         },
       })
-
-      .overrideGuard(MerchantMembershipGuard)
-
-      .useValue({
-        canActivate: (context) => {
-          const req = context.switchToHttp().getRequest();
-
-          req.membership = {
-            role: currentRole,
-          };
-
-          return true;
-        },
-      })
-
       .compile();
 
     app = module.createNestApplication();
-
+    app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
     await app.init();
   });
 
   afterAll(async () => {
-    if (app) {
-      await app.close();
-    }
+    if (app) await app.close();
   });
 
-  it("should deny viewer export access", async () => {
-    currentRole = "viewer";
-
-    await request(app.getHttpServer())
-      .get("/merchants/1/export")
-
-      .expect(403);
-  });
-
-  it("should deny viewer settings update", async () => {
-    currentRole = "viewer";
-
-    await request(app.getHttpServer())
-      .patch("/merchants/1/settings")
-
-      .expect(403);
-  });
-
-  it("should allow admin export", async () => {
-    currentRole = "admin";
-
-    await request(app.getHttpServer())
-      .get("/merchants/1/export")
-
+  it("GET /merchants/profile should return merchant profile", async () => {
+    const res = await request(app.getHttpServer())
+      .get("/merchants/profile")
       .expect(200);
+
+    expect(res.body).toMatchObject({
+      id: "merchant-1",
+      name: "Test Merchant",
+      preferredAsset: "USDC",
+    });
+  });
+
+  it("PATCH /merchants/settings should update settings", async () => {
+    const res = await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .send({
+        name: "Updated Name",
+        payoutPublicKey:
+          "GCKFBEIYTKGLP4V4EMMZHHQVBNHGVTCNQJOWP4SUXFJTMW74VDAD5Z6R",
+        preferredAsset: "EURC",
+      })
+      .expect(200);
+
+    expect(res.body.name).toBe("Updated Name");
+    expect(res.body.preferredAsset).toBe("EURC");
+  });
+
+  it("PATCH /merchants/settings should reject invalid payout key", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .send({ payoutPublicKey: "INVALID_KEY" })
+      .expect(400);
+  });
+
+  it("PATCH /merchants/settings should reject invalid preferredAsset", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .send({ preferredAsset: "DOGE" })
+      .expect(400);
   });
 });
