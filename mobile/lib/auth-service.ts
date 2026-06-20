@@ -80,11 +80,35 @@ export const AuthService = {
     return `Sign this message to authenticate with Invoisio\n\nNonce: ${nonce}`;
   },
 
+  /**
+   * Decode the expiry timestamp from a JWT access token.
+   * Returns the expiration time in milliseconds since epoch,
+   * or null if the token cannot be decoded.
+   */
+  decodeTokenExpiry(token: string): number | null {
+    try {
+      const parts = token.split(".");
+      if (parts.length !== 3) return null;
+      const segment = parts[1];
+      if (!segment) return null;
+      const payload = JSON.parse(
+        atob(segment.replace(/-/g, "+").replace(/_/g, "/")),
+      ) as { exp?: number };
+      return typeof payload.exp === "number" ? payload.exp * 1000 : null;
+    } catch {
+      return null;
+    }
+  },
+
   async registerPushToken(accessToken: string, token: string): Promise<void> {
     try {
-      await axios.post(`${API_URL}/users/push-token`, { token }, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await axios.post(
+        `${API_URL}/users/push-token`,
+        { token },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
     } catch (error) {
       console.error("Error registering push token:", error);
     }
@@ -101,11 +125,18 @@ export const AuthService = {
     }
   },
 
-  async updatePushPreferences(accessToken: string, enabled: boolean): Promise<void> {
+  async updatePushPreferences(
+    accessToken: string,
+    enabled: boolean,
+  ): Promise<void> {
     try {
-      await axios.patch(`${API_URL}/users/preferences`, { pushNotificationsEnabled: enabled }, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      await axios.patch(
+        `${API_URL}/users/preferences`,
+        { pushNotificationsEnabled: enabled },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      );
     } catch (error) {
       console.error("Error updating push preferences:", error);
     }

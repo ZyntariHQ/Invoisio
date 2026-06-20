@@ -3,7 +3,6 @@ import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { View, ActivityIndicator } from "react-native";
 import { useEffect, useState } from "react";
-import axios from "axios";
 import {
   useFonts,
   SpaceGrotesk_400Regular,
@@ -54,7 +53,7 @@ export default function RootLayout() {
   // Sync push token with backend when authenticated
   useEffect(() => {
     if (isAuthenticated && accessToken && expoPushToken?.data) {
-      AuthService.registerPushToken(accessToken, expoPushToken.data);
+      void AuthService.registerPushToken(accessToken, expoPushToken.data);
     }
   }, [isAuthenticated, accessToken, expoPushToken]);
 

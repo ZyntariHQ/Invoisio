@@ -78,7 +78,9 @@ export function buildInvoiceShareMessage(invoice: Invoice): string {
         amount: String(invoice.amount),
         assetCode,
         destination,
-        ...(invoice.asset_issuer !== undefined && { assetIssuer: invoice.asset_issuer }),
+        ...(invoice.asset_issuer !== undefined && {
+          assetIssuer: invoice.asset_issuer,
+        }),
         ...(invoice.memo !== undefined && { memo: invoice.memo }),
         memoType: getInvoiceMemoType(invoice),
       })

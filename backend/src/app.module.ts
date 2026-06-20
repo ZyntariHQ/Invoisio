@@ -22,6 +22,7 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { BackfillModule } from "./backfill/backfill.module";
 import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
 import { NotificationsModule } from "./notifications/notifications.module";
+import { MerchantModule } from "./merchant/merchant.module";
 
 /**
  * Root application module
@@ -105,6 +106,7 @@ import { NotificationsModule } from "./notifications/notifications.module";
     BackfillModule,
     AdminAnalyticsModule,
     NotificationsModule,
+    MerchantModule,
   ],
 })
 export class AppModule {}
