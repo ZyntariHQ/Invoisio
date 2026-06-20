@@ -2,7 +2,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
@@ -40,6 +40,30 @@ function InvoiceDetailContent() {
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopyToClipboard = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  }, []);
+
+  const formatDateTime = useCallback((value: string | Date | null) => {
+    if (!value) return 'Unavailable';
+    const date = typeof value === 'string' ? new Date(value) : value;
+    if (Number.isNaN(date.getTime())) return 'Unavailable';
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }, []);
 
   // Fetch invoice function for polling
   const fetchInvoice = useCallback(async (id: string) => {
@@ -52,6 +76,54 @@ function InvoiceDetailContent() {
     invoiceId,
     fetchInvoice,
   );
+
+  const statusTimeline = useMemo(() => {
+    if (!invoice) return [] as Array<{label:string; description:string; datetime:string; status:string; txHash?: string}>;
+
+    const timeline = [
+      {
+        label: 'Invoice Created',
+        description: 'Invoice was issued and is waiting for payment.',
+        datetime: invoice.createdAt,
+        status: 'completed',
+      },
+    ];
+
+    if (invoice.dueDate) {
+      timeline.push({
+        label: 'Due Date',
+        description: 'Payment is expected by this date.',
+        datetime: invoice.dueDate,
+        status: invoice.status === 'overdue' || invoice.status === 'cancelled' ? 'failed' : 'pending',
+      });
+    }
+
+    if (invoice.status === 'paid') {
+      timeline.push({
+        label: 'Payment Received',
+        description: 'The payment was confirmed on the network.',
+        datetime: lastUpdated ? lastUpdated.toISOString() : invoice.createdAt,
+        status: 'completed',
+        txHash: invoice.tx_hash,
+      });
+    } else if (invoice.status === 'overdue' || invoice.status === 'cancelled') {
+      timeline.push({
+        label: 'Invoice Expired',
+        description: 'This invoice is no longer payable.',
+        datetime: invoice.dueDate ?? (lastUpdated ? lastUpdated.toISOString() : invoice.createdAt),
+        status: 'failed',
+      });
+    } else {
+      timeline.push({
+        label: 'Awaiting Payment',
+        description: 'The invoice is open and ready to be paid.',
+        datetime: lastUpdated ? lastUpdated.toISOString() : invoice.createdAt,
+        status: 'pending',
+      });
+    }
+
+    return timeline;
+  }, [invoice, lastUpdated]);
 
   const handlePayClick = useCallback(async () => {
     if (!invoice || paymentInProgress) return;
@@ -313,27 +385,80 @@ function InvoiceDetailContent() {
             {/* Payment Instructions */}
             {isPending && (
               <div className="mb-8 rounded-md border border-blue-200 bg-blue-50 p-4">
-                <p className="text-xs font-medium uppercase text-blue-900 mb-2">Payment Instructions</p>
-                <div className="space-y-2 text-sm text-gray-700">
-                  <p>
-                    <strong>Destination:</strong>{' '}
-                    <code className="font-mono break-all">{invoice.destination_address}</code>
-                  </p>
-                  <p>
-                    <strong>Memo:</strong> <code className="font-mono">{invoice.memo}</code>
-                  </p>
-                  <p>
-                    <strong>Asset:</strong> {invoice.asset}
-                    {invoice.asset_issuer && (
-                      <>
-                        {' '}
-                        (Issuer: <code className="font-mono break-all">{invoice.asset_issuer}</code>)
-                      </>
-                    )}
-                  </p>
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="text-xs font-medium uppercase text-blue-900">Payment Instructions</p>
+                  <span className="text-xs text-slate-500">Copy destination and memo to pay</span>
+                </div>
+                <div className="space-y-3 text-sm text-gray-700">
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-blue-100 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-blue-700">Destination</p>
+                      <code className="font-mono break-all text-sm text-slate-700">{invoice.destination_address}</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyToClipboard(invoice.destination_address, 'destination')}
+                      className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {copiedField === 'destination' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-blue-100 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-blue-700">Memo</p>
+                      <code className="font-mono break-all text-sm text-slate-700">{invoice.memo}</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyToClipboard(invoice.memo, 'memo')}
+                      className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {copiedField === 'memo' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <div className="rounded-md border border-blue-100 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase text-blue-700">Asset</p>
+                    <p className="mt-1 text-sm text-slate-900">
+                      {invoice.asset}
+                      {invoice.asset_issuer && (
+                        <> (Issuer: <code className="font-mono break-all">{invoice.asset_issuer}</code>)</>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Status Timeline */}
+            <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
+                <span className="text-xs text-slate-500">
+                  {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}
+                </span>
+              </div>
+              <div className="space-y-4">
+                {statusTimeline.map((step) => (
+                  <div key={step.label} className="grid gap-3 sm:grid-cols-[auto_1fr]">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold text-white" style={{ backgroundColor: step.status === 'completed' ? '#10b981' : step.status === 'failed' ? '#ef4444' : '#f59e0b' }}>
+                      {step.status === 'completed' ? '✓' : step.status === 'failed' ? '✕' : '…'}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-900">{step.label}</p>
+                        <p className="text-xs text-slate-500">{formatDateTime(step.datetime)}</p>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{step.description}</p>
+                      {step.txHash && (
+                        <p className="mt-2 truncate text-xs font-mono text-slate-800">Transaction: {step.txHash}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Status Info */}
             {lastUpdated && (
