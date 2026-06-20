@@ -6,11 +6,17 @@ import {
   Param,
   Patch,
   Query,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import { Throttle } from "@nestjs/throttler";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { SearchInvoicesDto } from "./dto/search-invoices.dto";
+import { ImportSummaryDto } from "./dto/import-result.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { InvoiceStatus } from "@prisma/client";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
@@ -98,6 +104,45 @@ export class InvoicesController {
   ): Promise<Invoice> {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.invoicesService.create(dto, user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Bulk import invoices from a CSV file.
+   * Invalid rows are reported without losing valid rows.
+   * Requires a valid JWT Bearer token.
+   * @param file - Uploaded CSV file (multipart field name "file")
+   * @returns Import summary with created/failed/skipped row counts
+   */
+  @Post("import")
+  @Auth()
+  @Throttle({ default: { limit: 3, ttl: 3600 } }) // 3 imports per hour per user
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: 2 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => {
+        const isCsv =
+          file.mimetype === "text/csv" ||
+          file.mimetype === "application/vnd.ms-excel" ||
+          file.originalname.toLowerCase().endsWith(".csv");
+        if (!isCsv) {
+          cb(new BadRequestException("Only .csv files are accepted"), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async importCsv(
+    @CurrentUser() user: User,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ImportSummaryDto> {
+    if (!file) {
+      throw new BadRequestException("CSV file is required");
+    }
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.importFromCsv(file.buffer, user.id, user.merchantId),
     );
   }
 

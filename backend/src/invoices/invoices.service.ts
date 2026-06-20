@@ -7,14 +7,27 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { Cron } from "@nestjs/schedule";
+import { parse } from "csv-parse/sync";
+import { plainToInstance } from "class-transformer";
+import { validate } from "class-validator";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
+import { ImportRowError, ImportSummaryDto } from "./dto/import-result.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
+
+const REQUIRED_CSV_HEADERS = [
+  "invoiceNumber",
+  "clientName",
+  "clientEmail",
+  "amount",
+  "asset_code",
+] as const;
+const MAX_IMPORT_ROWS = 500;
 
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
@@ -211,6 +224,44 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Build the Prisma create-data payload for a new invoice.
+   * Shared by single-invoice create() and bulk CSV import so both
+   * stay in sync on memo generation, dueDate, and destination address.
+   */
+  private buildInvoiceCreateData(
+    dto: CreateInvoiceDto,
+    userId: string,
+    merchantId: string,
+  ) {
+    const now = new Date();
+    return {
+      userId,
+      merchantId,
+      invoiceNumber: dto.invoiceNumber,
+      clientName: dto.clientName,
+      clientEmail: dto.clientEmail,
+      description: dto.description || null,
+      amount: dto.amount as any,
+      assetCode: dto.asset_code.toUpperCase(),
+      assetIssuer: dto.asset_issuer ?? undefined,
+      memo: this.generateMemoId(),
+      memoType: "ID",
+      status: "pending" as const,
+      destinationAddress: this.stellarService.getMerchantPublicKey(),
+      txHash: null,
+      sorobanTxHash: null,
+      sorobanContractId: null,
+      metadata: Prisma.JsonNull,
+      dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      statusHistory: {
+        create: {
+          status: "pending" as const,
+        },
+      },
+    };
+  }
+
+  /**
    * Create a new invoice
    * @param dto - Create invoice DTO
    * @returns The created invoice including payment instructions
@@ -220,34 +271,8 @@ export class InvoicesService implements OnModuleInit {
     userId: string,
     merchantId: string,
   ): Promise<Invoice> {
-    const memo = this.generateMemoId();
-    const now = new Date();
     const created = await this.prisma.invoice.create({
-      data: {
-        userId,
-        merchantId,
-        invoiceNumber: dto.invoiceNumber,
-        clientName: dto.clientName,
-        clientEmail: dto.clientEmail,
-        description: dto.description || null,
-        amount: dto.amount as any,
-        assetCode: dto.asset_code.toUpperCase(),
-        assetIssuer: dto.asset_issuer ?? undefined,
-        memo: memo,
-        memoType: "ID",
-        status: "pending",
-        destinationAddress: this.stellarService.getMerchantPublicKey(),
-        txHash: null,
-        sorobanTxHash: null,
-        sorobanContractId: null,
-        metadata: Prisma.JsonNull,
-        dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
-        statusHistory: {
-          create: {
-            status: "pending",
-          },
-        },
-      },
+      data: this.buildInvoiceCreateData(dto, userId, merchantId),
       include: {
         statusHistory: {
           orderBy: { createdAt: "asc" },
@@ -255,6 +280,170 @@ export class InvoicesService implements OnModuleInit {
       },
     });
     return this.normalizeInvoice(created);
+  }
+
+  /**
+   * Bulk-create invoices from an uploaded CSV file.
+   * Invalid rows are reported without discarding valid rows.
+   * @param buffer - Raw CSV file contents
+   * @returns Import summary with created/failed/skipped counts and per-row detail
+   */
+  async importFromCsv(
+    buffer: Buffer,
+    userId: string,
+    merchantId: string,
+  ): Promise<ImportSummaryDto> {
+    const rows = this.parseCsvBuffer(buffer);
+
+    if (rows.length > MAX_IMPORT_ROWS) {
+      throw new BadRequestException(
+        `CSV exceeds maximum of ${MAX_IMPORT_ROWS} rows`,
+      );
+    }
+
+    const created: ImportSummaryDto["created"] = [];
+    const failed: ImportRowError[] = [];
+    const skipped: ImportRowError[] = [];
+    const seenInvoiceNumbers = new Set<string>();
+
+    for (let i = 0; i < rows.length; i++) {
+      const rowNum = i + 2; // +1 for 0-index, +1 for header row
+      const { dto, errors } = await this.validateRow(rows[i], rowNum);
+
+      if (errors.length > 0) {
+        skipped.push(...errors);
+        continue;
+      }
+
+      if (seenInvoiceNumbers.has(dto.invoiceNumber)) {
+        skipped.push({
+          row: rowNum,
+          field: "invoiceNumber",
+          message: "Duplicate invoiceNumber within this CSV",
+        });
+        continue;
+      }
+      seenInvoiceNumbers.add(dto.invoiceNumber);
+
+      try {
+        const invoice = await this.prisma.invoice.create({
+          data: this.buildInvoiceCreateData(dto, userId, merchantId),
+        });
+        created.push({
+          row: rowNum,
+          id: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+        });
+      } catch (err) {
+        this.logger.error(
+          `CSV import: failed to create invoice at row ${rowNum}`,
+          err as Error,
+        );
+        failed.push({
+          row: rowNum,
+          field: "invoiceNumber",
+          message: this.describeImportDbError(err),
+        });
+      }
+    }
+
+    return {
+      totalRows: rows.length,
+      createdCount: created.length,
+      failedCount: failed.length,
+      skippedCount: skipped.length,
+      created,
+      failed,
+      skipped,
+    };
+  }
+
+  /**
+   * Parse a CSV buffer into header-mapped row objects, validating that all
+   * required columns are present before any row is processed.
+   */
+  private parseCsvBuffer(buffer: Buffer): Record<string, string>[] {
+    if (!buffer || buffer.length === 0) {
+      throw new BadRequestException("CSV file is empty");
+    }
+
+    let records: Record<string, string>[];
+    try {
+      records = parse(buffer, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      });
+    } catch {
+      throw new BadRequestException("Unable to parse CSV file");
+    }
+
+    if (records.length === 0) {
+      return [];
+    }
+
+    const headers = Object.keys(records[0]);
+    const missing = REQUIRED_CSV_HEADERS.filter((h) => !headers.includes(h));
+    if (missing.length > 0) {
+      throw new BadRequestException(
+        `CSV is missing required column(s): ${missing.join(", ")}`,
+      );
+    }
+
+    return records;
+  }
+
+  /**
+   * Validate a single CSV row against the same rules as CreateInvoiceDto.
+   */
+  private async validateRow(
+    raw: Record<string, string>,
+    rowNum: number,
+  ): Promise<{ dto: CreateInvoiceDto; errors: ImportRowError[] }> {
+    const amountValue = Number(String(raw.amount ?? "").trim());
+    const errors: ImportRowError[] = [];
+
+    if (raw.amount === undefined || raw.amount === "" || isNaN(amountValue)) {
+      errors.push({
+        row: rowNum,
+        field: "amount",
+        message: "amount must be a numeric value",
+      });
+    }
+
+    const plain = {
+      invoiceNumber: raw.invoiceNumber,
+      clientName: raw.clientName,
+      clientEmail: raw.clientEmail,
+      description: raw.description || undefined,
+      amount: isNaN(amountValue) ? undefined : amountValue,
+      asset_code: raw.asset_code,
+      asset_issuer: raw.asset_issuer || undefined,
+    };
+
+    const dto = plainToInstance(CreateInvoiceDto, plain);
+    const validationErrors = await validate(dto);
+    for (const error of validationErrors) {
+      errors.push({
+        row: rowNum,
+        field: error.property,
+        message: Object.values(error.constraints ?? {}).join("; "),
+      });
+    }
+
+    return { dto, errors };
+  }
+
+  /** Translate a DB write failure during import into a user-facing message */
+  private describeImportDbError(err: unknown): string {
+    if (
+      err &&
+      typeof err === "object" &&
+      (err as { code?: string }).code === "P2002"
+    ) {
+      return "invoiceNumber or memo already exists";
+    }
+    return "Failed to create invoice";
   }
 
   /**
