@@ -1790,3 +1790,137 @@ fn test_schema_compatibility_check() {
     let info = client.version_info();
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);
 }
+
+
+// ─── Pause Tests ────────────────────────────────────────────────────────────
+
+#[test]
+fn test_pause_prevents_record_payment() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // Try to record a payment - should fail
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-paused"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(result, Err(Ok(ContractError::ContractPaused)));
+
+    // Unpause
+    client.set_paused(&admin, &false);
+    assert!(!client.is_paused());
+
+    // Now record should succeed
+    client.set_allow_native(&true);
+    client.record_payment(
+        &String::from_str(&env, "invoisio-unpaused"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_pause_allows_reads() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Record a payment first
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    client.record_payment(
+        &String::from_str(&env, "invoisio-read-test"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+    );
+
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // All read operations should still work
+    assert!(client.has_payment(&String::from_str(&env, "invoisio-read-test")));
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.get_payment(&String::from_str(&env, "invoisio-read-test")).is_ok());
+    assert_eq!(client.payment_history(&0u32, &10u32).records.len(), 1);
+}
+
+#[test]
+fn test_pause_only_admin_can_call() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    // Attacker tries to pause
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &attacker,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_paused",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_paused(&attacker, &true);
+    assert!(result.is_err());
+
+    // Admin can pause
+    env.mock_all_auths();
+    let result = client.try_set_paused(&admin, &true);
+    assert!(result.is_ok());
+}
+
+#[test]
+fn test_pause_event_emitted() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Pause
+    client.set_paused(&admin, &true);
+    assert_eq!(
+        env.events().all().len(),
+        1,
+        "Pause event should be emitted"
+    );
+
+    // Unpause
+    client.set_paused(&admin, &false);
+    assert_eq!(
+        env.events().all().len(),
+        1,
+        "Unpause event should be emitted"
+    );
+}
+
+#[test]
+fn test_config_includes_paused_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let config = client.config();
+    assert!(!config.paused);
+
+    client.set_paused(&admin, &true);
+    let config = client.config();
+    assert!(config.paused);
+}
