@@ -637,6 +637,24 @@ export class InvoicesService implements OnModuleInit {
       return null;
     }
 
+    const txHash = `soroban:${evt.eventId}`;
+    const contractId = evt.contractId ?? "unknown";
+
+    // Replay guard: this exact (txHash, invoice, contract) combination was
+    // already applied — most likely a redelivered/replayed RPC event.
+    // Skip without touching amountPaid/Payment rows again.
+    const alreadyProcessed = await this.prisma.processedEvent.findUnique({
+      where: {
+        txHash_invoiceId_contractId: { txHash, invoiceId, contractId },
+      },
+    });
+    if (alreadyProcessed) {
+      this.logger.warn(
+        `Skipped replayed Soroban payment event: invoiceId=${invoiceId} eventId=${evt.eventId} txHash=${txHash} — already processed at ${alreadyProcessed.processedAt.toISOString()}`,
+      );
+      return this.normalizeInvoice(existing);
+    }
+
     const sorobanMeta = {
       lastEventId: evt.eventId,
       contractId: evt.contractId ?? null,
@@ -657,36 +675,58 @@ export class InvoicesService implements OnModuleInit {
       const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
       const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
 
-      const updated = await this.prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          status: newStatus as any,
-          txHash:
-            newStatus === "paid" ? `soroban:${evt.eventId}` : existing.txHash,
-          amountPaid: newAmountPaid,
-          amountDue: newAmountDue,
-          payments: {
-            create: {
-              amount: paymentAmount,
-              txHash: `soroban:${evt.eventId}`,
+      let updated;
+      try {
+        updated = await this.prisma.invoice.update({
+          where: { id: invoiceId },
+          data: {
+            status: newStatus as any,
+            txHash: newStatus === "paid" ? txHash : existing.txHash,
+            amountPaid: newAmountPaid,
+            amountDue: newAmountDue,
+            payments: {
+              create: {
+                amount: paymentAmount,
+                txHash,
+              },
+            },
+            metadata: {
+              ...((existing.metadata as any) ?? {}),
+              soroban: sorobanMeta,
+            },
+            statusHistory: {
+              create: {
+                status: newStatus as any,
+              },
             },
           },
-          metadata: {
-            ...((existing.metadata as any) ?? {}),
-            soroban: sorobanMeta,
-          },
-          statusHistory: {
-            create: {
-              status: newStatus as any,
+          include: {
+            statusHistory: {
+              orderBy: { createdAt: "asc" },
             },
           },
-        },
-        include: {
-          statusHistory: {
-            orderBy: { createdAt: "asc" },
-          },
-        },
+        });
+      } catch (err) {
+        // Defense-in-depth: a concurrent call recorded this txHash first.
+        // The unique constraint on Payment.txHash caught a replay we
+        // didn't already know about — treat it as a skipped replay.
+        if ((err as { code?: string }).code === "P2002") {
+          this.logger.warn(
+            `Skipped replayed Soroban payment event: invoiceId=${invoiceId} eventId=${evt.eventId} txHash=${txHash} — duplicate Payment.txHash detected`,
+          );
+          return this.normalizeInvoice(existing);
+        }
+        throw err;
+      }
+
+      await this.recordReconciliationDecision({
+        txHash,
+        invoiceId,
+        contractId,
+        ledger: evt.ledger,
+        status: "success",
       });
+
       if (newStatus === "paid") {
         await this.notificationsService.notifyInvoicePaid(updated);
       }
@@ -707,8 +747,39 @@ export class InvoicesService implements OnModuleInit {
           },
         },
       });
+      await this.recordReconciliationDecision({
+        txHash,
+        invoiceId,
+        contractId,
+        ledger: evt.ledger,
+        status: "success",
+      });
       return this.normalizeInvoice(updated);
     }
+  }
+
+  /**
+   * Persist a record of a reconciliation decision for observability/dedup,
+   * mirroring the ledger kept by BackfillService.processEvent.
+   */
+  private async recordReconciliationDecision(params: {
+    txHash: string;
+    invoiceId: string;
+    contractId: string;
+    ledger?: number;
+    status: "success" | "skipped" | "failed";
+    errorMessage?: string;
+  }): Promise<void> {
+    await this.prisma.processedEvent.create({
+      data: {
+        txHash: params.txHash,
+        ledger: BigInt(params.ledger ?? 0),
+        invoiceId: params.invoiceId,
+        contractId: params.contractId,
+        status: params.status,
+        errorMessage: params.errorMessage,
+      },
+    });
   }
 
   /**
@@ -752,6 +823,20 @@ export class InvoicesService implements OnModuleInit {
       throw new BadRequestException(
         `Invoice "${invoiceId}" is cancelled and cannot be paid`,
       );
+    }
+
+    // Replay guard: the invoice is already fully paid in the database.
+    // Re-running reconciliation (e.g. a redelivered webhook/watcher tick)
+    // must not double-count amountPaid or create a duplicate Payment row.
+    if (invoice.status === "paid") {
+      this.logger.warn(
+        `Skipped replayed reconciliation: invoiceId=${invoiceId} is already paid — no changes applied`,
+      );
+      return {
+        ...this.normalizeInvoice(invoice),
+        txHash: invoice.txHash ?? "",
+        ledger: 0,
+      };
     }
 
     const paymentAmount = Number(amount || 0);
@@ -807,7 +892,11 @@ export class InvoicesService implements OnModuleInit {
         payments: {
           create: {
             amount: paymentAmount,
-            txHash: txHash,
+            // Only the final, fully-paid record carries a real on-chain
+            // hash; partial payments have no confirmed hash yet, and
+            // reusing the "pending_full_payment" placeholder across rows
+            // would collide with the unique constraint on Payment.txHash.
+            txHash: newStatus === "paid" ? txHash : null,
           },
         },
         statusHistory: {
