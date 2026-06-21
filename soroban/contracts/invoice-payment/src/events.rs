@@ -99,3 +99,20 @@ pub fn emit_storage_schema_upgraded(env: &Env, from_version: u32, to_version: u3
     };
     payload.publish(env);
 }
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContractPaused {
+    pub paused: bool,
+    pub triggered_by: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
+    let payload = ContractPaused {
+        paused,
+        triggered_by,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
