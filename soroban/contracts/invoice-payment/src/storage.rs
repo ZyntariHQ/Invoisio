@@ -171,6 +171,14 @@ pub struct PaymentRecord {
 
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
+
+    /// Normalised settlement reference for backend deduplication and auditing.
+    ///
+    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or
+    /// a well-known reconciliation identifier) that the backend uses for
+    /// idempotent settlement reconciliation. Stored on-chain so any observer
+    /// can verify the settlement reference associated with a payment.
+    pub settlement_ref: String,
 }
 
 /// A bounded, cursor-friendly slice of payment history.

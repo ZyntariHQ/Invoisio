@@ -96,40 +96,43 @@ export function useInvoicesList(pageSize = 20) {
   // without blocking the hook caller. Read AsyncStorage in effect and set
   // the query data so components render immediately from cache when offline.
   useEffect(() => {
-    let mounted = true;
-    (async () => {
+    let cancelled = false;
+    void (async () => {
       try {
         const cached = await getCachedInvoices();
-        if (mounted && cached?.pages) {
-          queryClient.setQueryData([
-            "invoices",
-            pageSize,
-            accessToken,
-          ], { pages: cached.pages, pageParams: cached.pages.map((_, i) => i + 1) });
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancelled may be mutated by cleanup
+        if (!cancelled && cached?.pages) {
+          queryClient.setQueryData(["invoices", pageSize, accessToken], {
+            pages: cached.pages,
+            pageParams: cached.pages.map((_, i) => i + 1),
+          });
         }
       } catch (err) {
         console.error("seed cache error:", err);
       }
     })();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
   }, [accessToken, pageSize, queryClient]);
 
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
     queryKey: ["invoices", pageSize, accessToken],
     queryFn: async ({ pageParam }: { pageParam: number }) =>
       fetchInvoicesPage(pageParam, pageSize, accessToken),
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.hasMore ? lastPage.page + 1 : undefined,
-    onSuccess: async (data) => {
-      try {
-        // persist pages to AsyncStorage for offline use
-        await setCachedInvoices(data.pages ?? []);
-      } catch (err) {
-        console.error("cache persist error:", err);
-      }
-    },
   });
+
+  // Persist fetched pages to AsyncStorage for offline use
+  useEffect(() => {
+    if (query.data) {
+      setCachedInvoices(query.data.pages).catch((err: unknown) => {
+        console.error("cache persist error:", err);
+      });
+    }
+  }, [query.data]);
+
+  return query;
 }

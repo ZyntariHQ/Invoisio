@@ -7,8 +7,6 @@
   "auth": [
     [],
     [],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -38,7 +36,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-meta-backfill"
+                  "string": "invoisio-settle-001"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -53,7 +51,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "sha256-abcdef1234567890"
                 }
               ]
             }
@@ -162,7 +160,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-001"
                     }
                   },
                   {
@@ -178,7 +176,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "sha256-abcdef1234567890"
                     }
                   },
                   {
@@ -269,7 +267,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-001"
                     }
                   },
                   {
@@ -285,7 +283,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "sha256-abcdef1234567890"
                     }
                   },
                   {
@@ -317,7 +315,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-meta-backfill"
+                    "string": "invoisio-settle-001"
                   }
                 ]
               },
@@ -349,7 +347,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-001"
                     }
                   },
                   {
@@ -365,7 +363,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "sha256-abcdef1234567890"
                     }
                   },
                   {

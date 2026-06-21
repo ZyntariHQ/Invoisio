@@ -14,6 +14,8 @@ model Merchant {
   id               String    @id @default(uuid())
   name             String
   stellarPublicKey String    @unique @map("stellar_public_key")
+  payoutPublicKey  String?   @map("payout_public_key")
+  preferredAsset   String    @default("USDC") @map("preferred_asset")
   webhookUrl       String?   @map("webhook_url")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
@@ -32,7 +34,8 @@ model User {
   publicKey      String    @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?
+  nonceExpiresAt BigInt?   @map("nonce_expires_at")
+  nonceUsedAt    DateTime? @map("nonce_used_at")
   isAdmin        Boolean   @default(false) @map("is_admin")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt

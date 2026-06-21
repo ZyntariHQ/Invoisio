@@ -15,15 +15,18 @@ export async function setCachedInvoices(pages: unknown[]) {
 
 export async function getCachedInvoices(): Promise<{
   pages: unknown[];
-  ts?: number;
+  ts?: number | undefined;
 } | null> {
   try {
     const raw = await AsyncStorage.getItem(INVOICES_KEY);
     const tsRaw = await AsyncStorage.getItem(INVOICES_TS_KEY);
     if (!raw) return null;
     const pages = JSON.parse(raw) as unknown[];
-    const ts = tsRaw ? Number(tsRaw) : undefined;
-    return { pages, ts };
+    const result: { pages: unknown[]; ts?: number | undefined } = { pages };
+    if (tsRaw) {
+      result["ts"] = Number(tsRaw);
+    }
+    return result;
   } catch (err) {
     console.error("getCachedInvoices error:", err);
     return null;

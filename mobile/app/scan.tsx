@@ -57,7 +57,12 @@ export default function ScanScreen() {
             Grant permission
           </Text>
         </Pressable>
-        <Pressable className="mt-4 px-4 py-3" onPress={() => router.back()}>
+        <Pressable
+          className="mt-4 px-4 py-3"
+          onPress={() => {
+            router.back();
+          }}
+        >
           <Text
             className="text-slate-400"
             style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -130,7 +135,9 @@ export default function ScanScreen() {
       <View className="flex-row items-center px-6 py-4">
         <Pressable
           className="mr-4 rounded-xl border border-white/20 px-4 py-2"
-          onPress={() => router.back()}
+          onPress={() => {
+            router.back();
+          }}
         >
           <Text
             className="text-white"
@@ -195,7 +202,11 @@ export default function ScanScreen() {
 
             {payment && (
               <View className="mt-5 gap-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <ConfirmRow label="Destination" value={payment.destination} mono />
+                <ConfirmRow
+                  label="Destination"
+                  value={payment.destination}
+                  mono
+                />
                 {payment.amount && (
                   <ConfirmRow
                     label="Amount"
@@ -267,7 +278,11 @@ function ConfirmRow({
       <Text
         className="text-sm text-white"
         numberOfLines={mono ? 2 : undefined}
-        style={{ fontFamily: mono ? "SpaceGrotesk_500Medium" : "SpaceGrotesk_400Regular" }}
+        style={{
+          fontFamily: mono
+            ? "SpaceGrotesk_500Medium"
+            : "SpaceGrotesk_400Regular",
+        }}
       >
         {value}
       </Text>

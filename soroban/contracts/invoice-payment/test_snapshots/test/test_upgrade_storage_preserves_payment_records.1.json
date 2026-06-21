@@ -118,6 +118,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-migration"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -186,6 +194,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-migration"
                     }
                   },
                   {
