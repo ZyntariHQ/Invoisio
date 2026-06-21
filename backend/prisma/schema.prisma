@@ -88,6 +88,8 @@ model Invoice {
   clientEmail        String        @map("client_email")
   description        String?
   amount             Decimal       @db.Decimal(18, 7)
+  amountPaid         Decimal       @default(0) @db.Decimal(18, 7) @map("amount_paid")
+  amountDue          Decimal       @db.Decimal(18, 7) @map("amount_due")
   assetCode          String        @map("asset_code")
   assetIssuer        String?       @map("asset_issuer")
   memo               String        @unique
@@ -104,6 +106,7 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
   statusHistory      InvoiceStatusHistory[]
+  payments           Payment[]
 
   @@index([merchantId])
   @@map("invoices")
@@ -123,12 +126,25 @@ model InvoiceStatusHistory {
 
 enum InvoiceStatus {
   pending
+  partially_paid
   paid
   overdue
   cancelled
 }
 
 
+
+model Payment {
+  id          String   @id @default(uuid())
+  invoiceId   String   @map("invoice_id")
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount      Decimal  @db.Decimal(18, 7)
+  txHash      String?  @map("tx_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([invoiceId])
+  @@map("payments")
+}
 
 // Backfill tracking tables
 model BackfillRun {
