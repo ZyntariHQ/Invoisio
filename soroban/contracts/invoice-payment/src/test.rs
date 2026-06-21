@@ -156,7 +156,10 @@ fn test_record_payment_xlm_stores_record() {
     assert_eq!(record.payer, payer);
     assert_eq!(record.asset, Asset::Native);
     assert_eq!(record.amount, 10_000_000i128);
-    assert_eq!(record.settlement_ref, String::from_str(&env, "settle-xlm-abc123"));
+    assert_eq!(
+        record.settlement_ref,
+        String::from_str(&env, "settle-xlm-abc123")
+    );
 }
 
 #[test]
@@ -189,7 +192,10 @@ fn test_record_payment_usdc_stores_issuer() {
         Asset::Token(String::from_str(&env, "USDC"), issuer.clone(),)
     );
     assert_eq!(record.amount, 50_000_000i128);
-    assert_eq!(record.settlement_ref, String::from_str(&env, "settle-usdc-01"));
+    assert_eq!(
+        record.settlement_ref,
+        String::from_str(&env, "settle-usdc-01")
+    );
 }
 
 #[test]
@@ -1238,21 +1244,39 @@ fn test_allowlist_enforcement() {
     let issuer = String::from_str(&env, "GBIssuer");
 
     // 1. Initially rejected
-    let result = client.try_record_payment(&invoice_id, &payer, &code, &issuer, &100i128,
-        &String::from_str(&env, "settle-al-1"));
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-al-1"),
+    );
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 
     // 2. Allow and succeed
     client.allow_asset(&code, &issuer);
-    client.record_payment(&invoice_id, &payer, &code, &issuer, &100i128,
-        &String::from_str(&env, "settle-al-2"));
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-al-2"),
+    );
     assert!(client.has_payment(&invoice_id));
 
     // 3. Revoke and reject next one
     client.revoke_asset(&code, &issuer);
     let invoice_id_2 = String::from_str(&env, "inv-2");
-    let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128,
-        &String::from_str(&env, "settle-al-3"));
+    let result = client.try_record_payment(
+        &invoice_id_2,
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-al-3"),
+    );
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }
 
@@ -1295,21 +1319,39 @@ fn test_native_allow_toggle() {
     let empty = String::from_str(&env, "");
 
     // 1. Initially rejected (default is false)
-    let result = client.try_record_payment(&invoice_id, &payer, &xlm, &empty, &100i128,
-        &String::from_str(&env, "settle-native-1"));
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &xlm,
+        &empty,
+        &100i128,
+        &String::from_str(&env, "settle-native-1"),
+    );
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 
     // 2. Allow native and succeed
     client.set_allow_native(&true);
-    client.record_payment(&invoice_id, &payer, &xlm, &empty, &100i128,
-        &String::from_str(&env, "settle-native-2"));
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &xlm,
+        &empty,
+        &100i128,
+        &String::from_str(&env, "settle-native-2"),
+    );
     assert!(client.has_payment(&invoice_id));
 
     // 3. Block native and reject next
     client.set_allow_native(&false);
     let invoice_id_2 = String::from_str(&env, "inv-native-2");
-    let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128,
-        &String::from_str(&env, "settle-native-3"));
+    let result = client.try_record_payment(
+        &invoice_id_2,
+        &payer,
+        &xlm,
+        &empty,
+        &100i128,
+        &String::from_str(&env, "settle-native-3"),
+    );
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }
 
@@ -1490,8 +1532,14 @@ fn test_asset_code_exactly_12_chars_succeeds() {
     // A 12-char code is valid; allowlist it so it passes the allowlist guard.
     client.allow_asset(&code, &issuer);
     let invoice_id = String::from_str(&env, "invoisio-12-char-code");
-    client.record_payment(&invoice_id, &payer, &code, &issuer, &50_000_000i128,
-        &String::from_str(&env, "settle-12-char"));
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &code,
+        &issuer,
+        &50_000_000i128,
+        &String::from_str(&env, "settle-12-char"),
+    );
     assert!(client.has_payment(&invoice_id));
 }
 
@@ -1961,13 +2009,19 @@ fn test_pause_event_emitted() {
 
     // Pause
     client.set_paused(&admin, &true);
-    let events = env.events().all();
-    assert!(!events.is_empty(), "Pause event should be emitted");
+    assert_eq!(
+        env.events().all().events().len(),
+        1,
+        "Pause event should be emitted"
+    );
 
     // Unpause
     client.set_paused(&admin, &false);
-    let events = env.events().all();
-    assert!(!events.is_empty(), "Unpause event should be emitted");
+    assert_eq!(
+        env.events().all().events().len(),
+        1,
+        "Unpause event should be emitted"
+    );
 }
 
 #[test]
