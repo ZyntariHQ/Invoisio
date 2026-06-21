@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   OnModuleInit,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -19,6 +20,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { InvoiceEventsService } from "../realtime/invoice-events.service";
 
 const REQUIRED_CSV_HEADERS = [
   "invoiceNumber",
@@ -42,7 +44,27 @@ export class InvoicesService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly webhooksService: WebhooksService,
     private readonly notificationsService: NotificationsService,
+    @Optional()
+    private readonly invoiceEvents?: InvoiceEventsService,
   ) {}
+
+  /**
+   * Publish an invoice status change to the realtime SSE stream.
+   * No-op when the realtime module isn't wired in (e.g. unit tests).
+   */
+  private emitStatusChange(
+    invoice: { id: string; status: string; merchantId?: string | null },
+    merchantId?: string,
+  ): void {
+    const scope = merchantId ?? invoice.merchantId ?? undefined;
+    if (!scope) return;
+    this.invoiceEvents?.publishStatusChange({
+      merchantId: scope,
+      invoiceId: invoice.id,
+      status: invoice.status,
+      at: new Date().toISOString(),
+    });
+  }
 
   async onModuleInit() {
     // Skip seeding in test environment
@@ -509,6 +531,8 @@ export class InvoicesService implements OnModuleInit {
       );
     }
 
+    this.emitStatusChange(updatedWithHistory || updated, merchantId);
+
     return this.normalizeInvoice(updatedWithHistory || updated);
   }
 
@@ -540,6 +564,8 @@ export class InvoicesService implements OnModuleInit {
     // Enqueue webhook
     await this.webhooksService.enqueueWebhook(id, "paid", txHash);
     await this.notificationsService.notifyInvoicePaid(updated);
+
+    this.emitStatusChange(updated);
 
     return this.normalizeInvoice(updated);
   }
@@ -664,6 +690,7 @@ export class InvoicesService implements OnModuleInit {
       if (newStatus === "paid") {
         await this.notificationsService.notifyInvoicePaid(updated);
       }
+      this.emitStatusChange(updated);
       return this.normalizeInvoice(updated);
     } else {
       const updated = await this.prisma.invoice.update({
@@ -813,6 +840,8 @@ export class InvoicesService implements OnModuleInit {
       );
     }
 
+    this.emitStatusChange(updated);
+
     return { ...this.normalizeInvoice(updated), txHash, ledger };
   }
 
@@ -879,6 +908,8 @@ export class InvoicesService implements OnModuleInit {
       invoice.txHash,
       merchantId,
     );
+
+    this.emitStatusChange({ id, status: "cancelled", merchantId }, merchantId);
 
     return { id, status: "cancelled", reason, cancelledAt };
   }
