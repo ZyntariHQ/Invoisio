@@ -5,7 +5,7 @@ import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { setCachedInvoices, getCachedInvoices } from "./cache";
 
-export type InvoiceStatus = "pending" | "paid" | "expired";
+export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";
 
 export interface Invoice {
   id: string;
@@ -39,6 +39,8 @@ async function fetchInvoicesPage(
   page: number,
   pageSize: number,
   token: string | null,
+  search?: string,
+  status?: string,
 ): Promise<InvoicesPage> {
   const headers =
     token != null
@@ -50,8 +52,14 @@ async function fetchInvoicesPage(
   const params = new URLSearchParams({
     page: String(page),
     limit: String(pageSize),
-  }).toString();
-  const url = `${API_URL}/invoices?${params}`;
+  });
+  if (search && search.trim().length > 0) {
+    params.set("search", search.trim());
+  }
+  if (status && status !== "all") {
+    params.set("status", status);
+  }
+  const url = `${API_URL}/invoices?${params.toString()}`;
   const response = await axios.get(url, headers ? { headers } : undefined);
   const data: unknown = response.data;
 
@@ -88,9 +96,18 @@ async function fetchInvoicesPage(
     : { items, page, pageSize, hasMore };
 }
 
-export function useInvoicesList(pageSize = 20) {
+export function useInvoicesList(
+  pageSize = 20,
+  search?: string,
+  status?: string,
+) {
   const { accessToken } = useAuthStore();
   const queryClient = useQueryClient();
+
+  // Derive effective filter values
+  const effectiveSearch =
+    search && search.trim().length > 0 ? search.trim() : undefined;
+  const effectiveStatus = status && status !== "all" ? status : undefined;
 
   // seed cached data (if any) into the query cache so UI can show offline data
   // without blocking the hook caller. Read AsyncStorage in effect and set
@@ -102,10 +119,19 @@ export function useInvoicesList(pageSize = 20) {
         const cached = await getCachedInvoices();
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancelled may be mutated by cleanup
         if (!cancelled && cached?.pages) {
-          queryClient.setQueryData(["invoices", pageSize, accessToken], {
-            pages: cached.pages,
-            pageParams: cached.pages.map((_, i) => i + 1),
-          });
+          queryClient.setQueryData(
+            [
+              "invoices",
+              pageSize,
+              accessToken,
+              effectiveSearch,
+              effectiveStatus,
+            ],
+            {
+              pages: cached.pages,
+              pageParams: cached.pages.map((_, i) => i + 1),
+            },
+          );
         }
       } catch (err) {
         console.error("seed cache error:", err);
@@ -114,12 +140,24 @@ export function useInvoicesList(pageSize = 20) {
     return () => {
       cancelled = true;
     };
-  }, [accessToken, pageSize, queryClient]);
+  }, [accessToken, pageSize, queryClient, effectiveSearch, effectiveStatus]);
 
   const query = useInfiniteQuery({
-    queryKey: ["invoices", pageSize, accessToken],
+    queryKey: [
+      "invoices",
+      pageSize,
+      accessToken,
+      effectiveSearch,
+      effectiveStatus,
+    ],
     queryFn: async ({ pageParam }: { pageParam: number }) =>
-      fetchInvoicesPage(pageParam, pageSize, accessToken),
+      fetchInvoicesPage(
+        pageParam,
+        pageSize,
+        accessToken,
+        effectiveSearch,
+        effectiveStatus,
+      ),
     initialPageParam: 1,
     getNextPageParam: (lastPage) =>
       lastPage.hasMore ? lastPage.page + 1 : undefined,

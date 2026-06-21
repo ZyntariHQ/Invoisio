@@ -51,6 +51,8 @@ export class InvoicesService implements OnModuleInit {
     merchantId: string,
     page = 1,
     limit = 20,
+    search?: string,
+    status?: string,
   ): Promise<{
     items: Invoice[];
     total: number;
@@ -59,14 +61,32 @@ export class InvoicesService implements OnModuleInit {
     hasMore: boolean;
   }> {
     const skip = (page - 1) * limit;
+
+    // Build where clause from filters
+    const where: Record<string, unknown> = { merchantId };
+
+    if (search && search.trim().length > 0) {
+      const term = search.trim();
+      where["OR"] = [
+        { invoiceNumber: { contains: term, mode: "insensitive" } },
+        { clientName: { contains: term, mode: "insensitive" } },
+        { clientEmail: { contains: term, mode: "insensitive" } },
+        { memo: { contains: term, mode: "insensitive" } },
+      ];
+    }
+
+    if (status && status.trim().length > 0) {
+      where["status"] = status;
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.invoice.findMany({
-        where: { merchantId },
+        where,
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
       }),
-      this.prisma.invoice.count({ where: { merchantId } }),
+      this.prisma.invoice.count({ where }),
     ]);
 
     const normalizedItems = items.map((inv) => this.normalizeInvoice(inv));
