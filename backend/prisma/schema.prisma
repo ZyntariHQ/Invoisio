@@ -140,7 +140,7 @@ model Payment {
   invoiceId   String   @map("invoice_id")
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   amount      Decimal  @db.Decimal(18, 7)
-  txHash      String?  @map("tx_hash")
+  txHash      String?  @unique @map("tx_hash")
   createdAt   DateTime @default(now()) @map("created_at")
 
   @@index([invoiceId])
