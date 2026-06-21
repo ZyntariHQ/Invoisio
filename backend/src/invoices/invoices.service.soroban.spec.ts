@@ -140,11 +140,13 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
     await service.applySorobanPaymentEvent({
       eventId: "evt-1",
       invoice_id: `invoisio-${id}`,
+      amount: "500",
     } as any);
     const first = await prisma.invoice.findUnique({ where: { id } });
     await service.applySorobanPaymentEvent({
       eventId: "evt-1",
       invoice_id: `invoisio-${id}`,
+      amount: "500",
     } as any);
     const normalized = await service.findOne(id, "dummyMerchantId");
     expect(first.status).toBe("paid");
