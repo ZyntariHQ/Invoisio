@@ -7,8 +7,6 @@
   "auth": [
     [],
     [],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -38,7 +36,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-meta-backfill"
+                  "string": "invoisio-ref-event"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -53,7 +51,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-hash-abc123"
                 }
               ]
             }
@@ -61,8 +59,7 @@
           "sub_invocations": []
         }
       ]
-    ],
-    []
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -162,7 +159,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-ref-event"
                     }
                   },
                   {
@@ -178,7 +175,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-hash-abc123"
                     }
                   },
                   {
@@ -269,7 +266,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-ref-event"
                     }
                   },
                   {
@@ -285,7 +282,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-hash-abc123"
                     }
                   },
                   {
@@ -317,7 +314,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-meta-backfill"
+                    "string": "invoisio-ref-event"
                   }
                 ]
               },
@@ -349,7 +346,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-ref-event"
                     }
                   },
                   {
@@ -365,7 +362,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-hash-abc123"
                     }
                   },
                   {
@@ -501,5 +498,75 @@
       }
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "invoice_payment_recorded"
+              }
+            ],
+            "data": {
+              "map": [
+                {
+                  "key": {
+                    "symbol": "amount"
+                  },
+                  "val": {
+                    "i128": "10000000"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "asset_code"
+                  },
+                  "val": {
+                    "string": "XLM"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "asset_issuer"
+                  },
+                  "val": {
+                    "string": ""
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "invoice_id"
+                  },
+                  "val": {
+                    "string": "invoisio-ref-event"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "payer"
+                  },
+                  "val": {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                },
+                {
+                  "key": {
+                    "symbol": "settlement_ref"
+                  },
+                  "val": {
+                    "string": "settle-hash-abc123"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }

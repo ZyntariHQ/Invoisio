@@ -7,8 +7,6 @@
   "auth": [
     [],
     [],
-    [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -16,10 +14,13 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_allow_native",
+              "function_name": "allow_asset",
               "args": [
                 {
-                  "bool": true
+                  "string": "USDC"
+                },
+                {
+                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                 }
               ]
             }
@@ -38,22 +39,22 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-meta-backfill"
+                  "string": "invoisio-settle-usdc"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
+                  "string": "USDC"
                 },
                 {
-                  "string": ""
+                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                 },
                 {
-                  "i128": "10000000"
+                  "i128": "50000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-usdc-hash-789"
                 }
               ]
             }
@@ -124,6 +125,34 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "AllowList"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "PayerHistory"
                   },
                   {
@@ -142,7 +171,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "50000000"
                     }
                   },
                   {
@@ -152,7 +181,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -162,7 +197,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-usdc"
                     }
                   },
                   {
@@ -178,7 +213,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-usdc-hash-789"
                     }
                   },
                   {
@@ -249,7 +284,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "50000000"
                     }
                   },
                   {
@@ -259,7 +294,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -269,7 +310,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-usdc"
                     }
                   },
                   {
@@ -285,7 +326,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-usdc-hash-789"
                     }
                   },
                   {
@@ -317,7 +358,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-meta-backfill"
+                    "string": "invoisio-settle-usdc"
                   }
                 ]
               },
@@ -329,7 +370,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "50000000"
                     }
                   },
                   {
@@ -339,7 +380,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -349,7 +396,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-meta-backfill"
+                      "string": "invoisio-settle-usdc"
                     }
                   },
                   {
@@ -365,7 +412,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-usdc-hash-789"
                     }
                   },
                   {
@@ -409,18 +456,6 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "AllowNative"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
                       }
                     },
                     {

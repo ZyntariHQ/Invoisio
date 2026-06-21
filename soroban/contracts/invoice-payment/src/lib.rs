@@ -129,15 +129,19 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`   — unique invoice identifier (e.g. `"invoisio-abc123"`)
-    /// - `payer`        — Stellar account address that sent the payment
-    /// - `asset_code`   — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer` — issuer public key for tokens; `""` for native XLM
-    /// - `amount`       — payment amount in smallest denomination (must be > 0)
+    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `payer`           — Stellar account address that sent the payment
+    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
+    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
+    /// - `amount`          — payment amount in smallest denomination (must be > 0)
+    /// - `settlement_ref`  — normalised settlement hash or reference ID for
+    ///                       backend deduplication and idempotent reconciliation
+    ///                       (must be non-empty, max 128 chars)
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
     /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is an empty string
+    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty or exceeds 128 chars
     /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
@@ -148,6 +152,7 @@ impl InvoicePaymentContract {
         asset_code: String,
         asset_issuer: String,
         amount: i128,
+        settlement_ref: String,
     ) -> Result<(), ContractError> {
         // 1. Admin authorisation.
         let admin = get_admin(&env)?;
@@ -162,6 +167,18 @@ impl InvoicePaymentContract {
         // invoice_id must be non-empty.
         if invoice_id.is_empty() {
             return Err(ContractError::InvalidInvoiceId);
+        }
+
+        // settlement_ref must be non-empty.
+        if settlement_ref.is_empty() {
+            return Err(ContractError::InvalidSettlementRef);
+        }
+
+        // settlement_ref length guard — reject unreasonably long references
+        // (e.g. a full transaction blob pasted by mistake).
+        // A SHA-256 hex string is 64 chars; this allows some headroom.
+        if settlement_ref.len() > 128 {
+            return Err(ContractError::InvalidSettlementRef);
         }
 
         // asset_code must be non-empty.
@@ -224,6 +241,7 @@ impl InvoicePaymentContract {
             asset,
             amount,
             timestamp: env.ledger().timestamp(),
+            settlement_ref: settlement_ref.clone(),
         };
         set_payment(&env, &record);
 
@@ -242,6 +260,7 @@ impl InvoicePaymentContract {
             asset_code,
             asset_issuer,
             record.amount,
+            settlement_ref,
         );
 
         Ok(())

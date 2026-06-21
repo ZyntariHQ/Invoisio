@@ -8,6 +8,7 @@ pub struct InvoicePaymentRecorded {
     pub asset_code: String,
     pub asset_issuer: String,
     pub amount: i128,
+    pub settlement_ref: String,
 }
 
 /// Emit an `"invoice_payment_recorded"` Soroban event carrying the flattened
@@ -33,6 +34,7 @@ pub fn emit_payment_recorded(
     asset_code: String,
     asset_issuer: String,
     amount: i128,
+    settlement_ref: String,
 ) {
     let payload = InvoicePaymentRecorded {
         invoice_id,
@@ -40,6 +42,7 @@ pub fn emit_payment_recorded(
         asset_code,
         asset_issuer,
         amount,
+        settlement_ref,
     };
 
     payload.publish(env);
