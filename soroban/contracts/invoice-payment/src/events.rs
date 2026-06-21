@@ -1,8 +1,14 @@
 use soroban_sdk::{contractevent, Address, Env, String};
 
+/// Schema version for the `invoice_payment_recorded` event payload.
+/// Bumped only when the payload shape changes in a breaking way so that
+/// off-chain indexers can detect and adapt to the event format.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct InvoicePaymentRecorded {
+    pub schema_version: u32,
     pub invoice_id: String,
     pub payer: Address,
     pub asset_code: String,
@@ -37,6 +43,7 @@ pub fn emit_payment_recorded(
     settlement_ref: String,
 ) {
     let payload = InvoicePaymentRecorded {
+        schema_version: EVENT_SCHEMA_VERSION,
         invoice_id,
         payer,
         asset_code,
