@@ -34,7 +34,8 @@ model User {
   publicKey      String    @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?
+  nonceExpiresAt BigInt?   @map("nonce_expires_at")
+  nonceUsedAt    DateTime? @map("nonce_used_at")
   isAdmin        Boolean   @default(false) @map("is_admin")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
