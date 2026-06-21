@@ -110,18 +110,22 @@ describe("AuthService", () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it("throws when signature is invalid", async () => {
-      prisma.user.findUnique.mockResolvedValue({
-        merchantId: "merchant-id",
-        publicKey,
-        nonce: "testnonce",
-        nonceExpiresAt: BigInt(Date.now() + 60_000),
-      });
+ it("throws when signature is invalid", async () => {
+  const nonce = "testnonce";
+  // Valid base64, correct length, but not a real signature over `nonce`
+  const fakeSignature = Buffer.alloc(64, 0).toString("base64");
 
-      await expect(
-        service.verify({ publicKey, signedNonce: "badsignature" }),
-      ).rejects.toThrow(UnauthorizedException);
-    });
+  prisma.user.findUnique.mockResolvedValue({
+    merchantId: "merchant-id",
+    publicKey,
+    nonce,
+    nonceExpiresAt: BigInt(Date.now() + 60_000),
+  });
+
+  await expect(
+    service.verify({ publicKey, signedNonce: fakeSignature }),
+  ).rejects.toThrow(UnauthorizedException);
+});
 
     it("throws when no nonce exists for user", async () => {
       prisma.user.findUnique.mockResolvedValue(null);

@@ -90,12 +90,18 @@ export class AuthService {
   }
 
   /**
-   * Verify a signed nonce, create user if new, and issue a JWT.
+   * Verify a signed nonce and issue a JWT.
+   * Check order is intentional:
+   *   1. user existence  → UnauthorizedException
+   *   2. replay guard    → UnauthorizedException
+   *   3. expiry          → UnauthorizedException
+   *   4. format check    → BadRequestException  (only reached with a real nonce)
+   *   5. crypto verify   → UnauthorizedException
    */
   async verify(dto: VerifyRequestDto): Promise<{ accessToken: string }> {
     this.assertValidPublicKey(dto.publicKey);
-    this.assertValidSignatureFormat(dto.signedNonce);
 
+    // 1. Find user — unauthorized if no record or no active nonce
     const user = await this.prisma.user.findUnique({
       where: { publicKey: dto.publicKey },
     });
@@ -106,18 +112,24 @@ export class AuthService {
       );
     }
 
+    // 2. Replay guard — unauthorized if nonce already consumed
     if (user.nonceUsedAt != null) {
       throw new UnauthorizedException(
         "Nonce has already been used. Request a new nonce.",
       );
     }
 
+    // 3. Expiry — unauthorized if nonce has expired
     if (Date.now() > Number(user.nonceExpiresAt ?? 0n)) {
       throw new UnauthorizedException(
         "Nonce has expired. Request a new nonce.",
       );
     }
 
+    // 4. Format check — bad request only if payload is structurally invalid
+    this.assertValidSignatureFormat(dto.signedNonce);
+
+    // 5. Cryptographic verification — unauthorized if signature doesn't match
     this.verifySignature(dto.publicKey, user.nonce, dto.signedNonce);
 
     await this.prisma.user.update({
