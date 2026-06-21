@@ -264,6 +264,8 @@ export class InvoicesService implements OnModuleInit {
       clientEmail: dto.clientEmail,
       description: dto.description || null,
       amount: dto.amount as any,
+      amountPaid: 0 as any,
+      amountDue: dto.amount as any,
       assetCode: dto.asset_code.toUpperCase(),
       assetIssuer: dto.asset_issuer ?? undefined,
       memo: this.generateMemoId(),
@@ -648,18 +650,34 @@ export class InvoicesService implements OnModuleInit {
     };
 
     if (existing.status !== "paid") {
+      const paymentAmount = Number(evt.amount || 0);
+      const currentPaid = Number(existing.amountPaid || 0);
+      const newAmountPaid = currentPaid + paymentAmount;
+      const currentAmount = Number(existing.amount);
+      const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
+      const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+
       const updated = await this.prisma.invoice.update({
         where: { id: invoiceId },
         data: {
-          status: "paid",
-          txHash: `soroban:${evt.eventId}`,
+          status: newStatus as any,
+          txHash:
+            newStatus === "paid" ? `soroban:${evt.eventId}` : existing.txHash,
+          amountPaid: newAmountPaid,
+          amountDue: newAmountDue,
+          payments: {
+            create: {
+              amount: paymentAmount,
+              txHash: `soroban:${evt.eventId}`,
+            },
+          },
           metadata: {
             ...((existing.metadata as any) ?? {}),
             soroban: sorobanMeta,
           },
           statusHistory: {
             create: {
-              status: "paid",
+              status: newStatus as any,
             },
           },
         },
@@ -669,7 +687,9 @@ export class InvoicesService implements OnModuleInit {
           },
         },
       });
-      await this.notificationsService.notifyInvoicePaid(updated);
+      if (newStatus === "paid") {
+        await this.notificationsService.notifyInvoicePaid(updated);
+      }
       this.emitStatusChange(updated);
       return this.normalizeInvoice(updated);
     } else {
@@ -734,43 +754,95 @@ export class InvoicesService implements OnModuleInit {
       );
     }
 
-    // Step 2 — idempotency gate: check if already recorded on-chain.
-    const alreadyOnChain =
-      await this.sorobanService.hasInvoicePayment(invoiceId);
+    const paymentAmount = Number(amount || 0);
+    const currentPaid = Number((invoice as any).amountPaid || 0);
+    const newAmountPaid = currentPaid + paymentAmount;
+    const currentAmount = Number(invoice.amount);
+    const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
+    const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
 
-    let txHash = "";
+    let txHash = "pending_full_payment";
     let ledger = 0;
 
-    if (!alreadyOnChain) {
-      // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
-      const result = await this.sorobanService.recordInvoicePayment({
-        invoiceId,
-        payer,
-        assetCode,
-        assetIssuer,
-        amount,
-      });
-      txHash = result.hash;
-      ledger = result.ledger;
-      this.logger.log(
-        `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
-      );
-    } else {
-      this.logger.log(
-        `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
-      );
-      // Retrieve confirmed details for the return value.
-      const record = await this.sorobanService.getInvoicePayment(invoiceId);
-      txHash = `on-chain@ledger`;
-      ledger = Number(record.timestamp);
+    // Step 2 — idempotency gate: check if already recorded on-chain.
+    // We only record on-chain once the invoice is fully paid.
+    if (newStatus === "paid") {
+      const alreadyOnChain =
+        await this.sorobanService.hasInvoicePayment(invoiceId);
+
+      if (!alreadyOnChain) {
+        // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
+        // For the contract, we can just pass the total amount that was paid.
+        const result = await this.sorobanService.recordInvoicePayment({
+          invoiceId,
+          payer,
+          assetCode,
+          assetIssuer,
+          amount: newAmountPaid.toString(),
+        });
+        txHash = result.hash;
+        ledger = result.ledger;
+        this.logger.log(
+          `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
+        );
+      } else {
+        this.logger.log(
+          `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
+        );
+        // Retrieve confirmed details for the return value.
+        const record = await this.sorobanService.getInvoicePayment(invoiceId);
+        txHash = `on-chain@ledger`;
+        ledger = Number(record.timestamp);
+      }
     }
 
     // Step 4 — mark invoice as paid in the database.
-    const updated = await this.updateStatus(
-      invoice.id,
-      "paid" as InvoiceStatus,
-    );
-    return { ...updated, txHash, ledger };
+    const updated = await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: newStatus as any,
+        txHash: newStatus === "paid" ? txHash : invoice.txHash,
+        amountPaid: newAmountPaid,
+        amountDue: newAmountDue,
+        payments: {
+          create: {
+            amount: paymentAmount,
+            txHash: txHash,
+          },
+        },
+        statusHistory: {
+          create: {
+            status: newStatus as any,
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    if (newStatus === "paid") {
+      await this.webhooksService.enqueueWebhook(
+        invoice.id,
+        "paid",
+        txHash,
+        invoice.merchantId,
+      );
+      await this.notificationsService.notifyInvoicePaid(updated);
+    } else {
+      await this.webhooksService.enqueueWebhook(
+        invoice.id,
+        "partially_paid" as any,
+        txHash,
+        invoice.merchantId,
+      );
+    }
+
+    this.emitStatusChange(updated);
+
+    return { ...this.normalizeInvoice(updated), txHash, ledger };
   }
 
   /**
@@ -970,6 +1042,8 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "billing@acme.com",
           description: "Web development services - March 2026",
           amount: 1500.0 as any,
+          amountPaid: 0 as any,
+          amountDue: 1500.0 as any,
           assetCode: "USDC",
           assetIssuer:
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
@@ -990,6 +1064,8 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "payments@techstart.io",
           description: "Consulting services - Q1 2026",
           amount: 5000.0 as any,
+          amountPaid: 5000.0 as any,
+          amountDue: 0 as any,
           assetCode: "XLM",
           assetIssuer: null,
           memo: this.generateMemoId(),
@@ -1009,6 +1085,8 @@ export class InvoicesService implements OnModuleInit {
           clientEmail: "accounts@globalsolutions.com",
           description: "API integration project",
           amount: 3200.5 as any,
+          amountPaid: 0 as any,
+          amountDue: 3200.5 as any,
           assetCode: "USDC",
           assetIssuer:
             "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
