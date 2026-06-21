@@ -85,6 +85,9 @@
                 },
                 {
                   "i128": "7000000"
+                },
+                {
+                  "string": "settle-xlm-default"
                 }
               ]
             }
@@ -182,6 +185,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "settle-xlm-default"
                     }
                   },
                   {
@@ -285,6 +296,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "settle-xlm-default"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -353,6 +372,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "settle-xlm-default"
                     }
                   },
                   {

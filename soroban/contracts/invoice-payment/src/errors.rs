@@ -47,4 +47,6 @@ pub enum ContractError {
     StorageSchemaTooNew = 10,
     /// The storage schema is too old and requires migration.
     StorageSchemaTooOld = 11,
+    /// `settlement_ref` was empty or exceeded the maximum allowed length.
+    InvalidSettlementRef = 12,
 }

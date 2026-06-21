@@ -34,6 +34,7 @@ fn record_xlm(
         &String::from_str(env, "XLM"),
         &String::from_str(env, ""), // no issuer for native asset
         &stroops,
+        &String::from_str(env, "settle-xlm-default"),
     );
 }
 
@@ -145,6 +146,7 @@ fn test_record_payment_xlm_stores_record() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128, // 1 XLM
+        &String::from_str(&env, "settle-xlm-abc123"),
     );
 
     let record = client.get_payment(&invoice_id);
@@ -152,6 +154,7 @@ fn test_record_payment_xlm_stores_record() {
     assert_eq!(record.payer, payer);
     assert_eq!(record.asset, Asset::Native);
     assert_eq!(record.amount, 10_000_000i128);
+    assert_eq!(record.settlement_ref, String::from_str(&env, "settle-xlm-abc123"));
 }
 
 #[test]
@@ -175,6 +178,7 @@ fn test_record_payment_usdc_stores_issuer() {
         &String::from_str(&env, "USDC"),
         &issuer,
         &50_000_000i128, // 5 USDC (7-decimal)
+        &String::from_str(&env, "settle-usdc-01"),
     );
 
     let record = client.get_payment(&invoice_id);
@@ -183,6 +187,7 @@ fn test_record_payment_usdc_stores_issuer() {
         Asset::Token(String::from_str(&env, "USDC"), issuer.clone(),)
     );
     assert_eq!(record.amount, 50_000_000i128);
+    assert_eq!(record.settlement_ref, String::from_str(&env, "settle-usdc-01"));
 }
 
 #[test]
@@ -216,6 +221,7 @@ fn test_payment_history_pages_deterministically() {
             &String::from_str(&env, "XLM"),
             &String::from_str(&env, ""),
             &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-hist-{idx:02}")),
         );
     }
 
@@ -264,6 +270,7 @@ fn test_payment_history_page_size_is_capped() {
             &String::from_str(&env, "XLM"),
             &String::from_str(&env, ""),
             &(10_000_000i128 + idx as i128),
+            &String::from_str(&env, &format!("settle-cap-{idx:02}")),
         );
     }
 
@@ -331,6 +338,7 @@ fn test_payments_by_payer_pages_deterministically() {
             &String::from_str(&env, "XLM"),
             &String::from_str(&env, ""),
             &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-ph-{idx:02}")),
         );
     }
 
@@ -391,6 +399,7 @@ fn test_payments_by_payer_page_size_is_capped() {
             &String::from_str(&env, "XLM"),
             &String::from_str(&env, ""),
             &(10_000_000i128 + idx as i128),
+            &String::from_str(&env, &format!("settle-pcap-{idx:02}")),
         );
     }
 
@@ -422,6 +431,7 @@ fn test_duplicate_invoice_id_returns_error() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-dup"),
     );
     assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
 }
@@ -449,6 +459,7 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-dedup-happy"),
     );
 
     // Check event BEFORE any further contract call; env.events().all() returns
@@ -458,6 +469,7 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
     let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
     let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
     let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
+    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-dedup-happy").into_val(&env);
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -474,7 +486,8 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
                     (Symbol::new(&env, "payer"), pyr_val),
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val)
+                    (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "settlement_ref"), ref_val)
                 ]
                 .into_val(&env),
             ),
@@ -507,6 +520,7 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-dedup-dup2"),
     );
     assert_eq!(client.payment_count(), 1);
 
@@ -517,6 +531,7 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-dedup-dup2-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
 
@@ -556,6 +571,7 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-cross-xlm"),
     );
     assert_eq!(client.payment_count(), 1);
 
@@ -566,6 +582,7 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
         &String::from_str(&env, "USDC"),
         &usdc_issuer,
         &50_000_000i128,
+        &String::from_str(&env, "settle-cross-usdc"),
     );
     assert_eq!(
         result,
@@ -597,6 +614,7 @@ fn test_record_payment_rejects_when_admin_not_authorised() {
                 String::from_str(&env, "XLM"),
                 String::from_str(&env, ""),
                 10_000_000i128,
+                String::from_str(&env, "settle-unauth"),
             )
                 .into_val(&env),
             sub_invokes: &[],
@@ -610,6 +628,7 @@ fn test_record_payment_rejects_when_admin_not_authorised() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-unauth"),
     );
     assert!(result.is_err());
 }
@@ -634,6 +653,7 @@ fn test_record_payment_succeeds_with_admin_auth() {
                     String::from_str(&env, "XLM"),
                     String::from_str(&env, ""),
                     10_000_000i128,
+                    String::from_str(&env, "settle-auth"),
                 )
                     .into_val(&env),
                 sub_invokes: &[],
@@ -657,6 +677,7 @@ fn test_record_payment_succeeds_with_admin_auth() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-auth"),
     );
 
     assert!(client.has_payment(&invoice_id));
@@ -676,6 +697,7 @@ fn test_zero_amount_returns_error() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &0i128,
+        &String::from_str(&env, "settle-zero"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
@@ -694,6 +716,7 @@ fn test_negative_amount_returns_error() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &(-1i128),
+        &String::from_str(&env, "settle-neg"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
@@ -753,6 +776,7 @@ fn test_get_payment_reads_and_migrates_legacy_key() {
         asset: Asset::Native,
         amount: 10_000_000i128,
         timestamp: 1234u64,
+        settlement_ref: String::from_str(&env, "legacy"),
     };
 
     env.as_contract(&client.address, || {
@@ -845,6 +869,7 @@ fn test_empty_invoice_id_returns_error() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-empty-inv"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
 }
@@ -862,6 +887,7 @@ fn test_empty_asset_code_returns_error() {
         &String::from_str(&env, ""), // empty asset_code
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-bad-asset"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -880,6 +906,7 @@ fn test_token_without_issuer_returns_error() {
         &String::from_str(&env, "USDC"),
         &String::from_str(&env, ""), // missing issuer for non-native asset
         &50_000_000i128,
+        &String::from_str(&env, "settle-no-issuer"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -905,6 +932,7 @@ fn test_record_payment_emits_payment_recorded_event() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-event-test"),
     );
 
     // env.events().all() returns events from the LAST contract invocation only.
@@ -916,6 +944,7 @@ fn test_record_payment_emits_payment_recorded_event() {
     let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
     let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
     let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
+    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-event-test").into_val(&env);
 
     assert_eq!(
         env.events().all(),
@@ -933,7 +962,8 @@ fn test_record_payment_emits_payment_recorded_event() {
                     (Symbol::new(&env, "payer"), pyr_val),
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val)
+                    (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "settlement_ref"), ref_val)
                 ]
                 .into_val(&env),
             ),
@@ -1060,6 +1090,7 @@ fn test_record_payment_multiple_asset_types() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128, // 1 XLM
+        &String::from_str(&env, "settle-multi-xlm"),
     );
 
     // Record USDC payment
@@ -1069,6 +1100,7 @@ fn test_record_payment_multiple_asset_types() {
         &usdc_code,
         &usdc_issuer,
         &50_000_000i128, // 5 USDC
+        &String::from_str(&env, "settle-multi-usdc"),
     );
 
     // Record another token payment (e.g., EURT)
@@ -1078,6 +1110,7 @@ fn test_record_payment_multiple_asset_types() {
         &eurt_code,
         &eurt_issuer,
         &100_000_000i128, // 10 EURT
+        &String::from_str(&env, "settle-multi-eurt"),
     );
 
     // Verify all payments were recorded with correct asset types
@@ -1109,6 +1142,7 @@ fn test_asset_validation_backward_compatibility() {
         &String::from_str(&env, ""),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-empty-asset"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 
@@ -1119,6 +1153,7 @@ fn test_asset_validation_backward_compatibility() {
         &String::from_str(&env, "BTC"),
         &String::from_str(&env, ""),
         &100_000_000i128,
+        &String::from_str(&env, "settle-no-issuer-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 
@@ -1129,6 +1164,7 @@ fn test_asset_validation_backward_compatibility() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, "GABC123"),
         &10_000_000i128,
+        &String::from_str(&env, "settle-xlm-issuer"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -1150,6 +1186,7 @@ fn test_asset_enum_serialization_deserialization() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000i128,
+        &String::from_str(&env, "settle-serde-xlm"),
     );
 
     // Retrieve and verify the asset is correctly deserialized
@@ -1172,6 +1209,7 @@ fn test_asset_enum_serialization_deserialization() {
         &String::from_str(&env, "USDC"),
         &issuer,
         &50_000_000i128,
+        &String::from_str(&env, "settle-serde-usdc"),
     );
 
     let token_record = client.get_payment(&token_invoice_id);
@@ -1198,18 +1236,21 @@ fn test_allowlist_enforcement() {
     let issuer = String::from_str(&env, "GBIssuer");
 
     // 1. Initially rejected
-    let result = client.try_record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    let result = client.try_record_payment(&invoice_id, &payer, &code, &issuer, &100i128,
+        &String::from_str(&env, "settle-al-1"));
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 
     // 2. Allow and succeed
     client.allow_asset(&code, &issuer);
-    client.record_payment(&invoice_id, &payer, &code, &issuer, &100i128);
+    client.record_payment(&invoice_id, &payer, &code, &issuer, &100i128,
+        &String::from_str(&env, "settle-al-2"));
     assert!(client.has_payment(&invoice_id));
 
     // 3. Revoke and reject next one
     client.revoke_asset(&code, &issuer);
     let invoice_id_2 = String::from_str(&env, "inv-2");
-    let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128);
+    let result = client.try_record_payment(&invoice_id_2, &payer, &code, &issuer, &100i128,
+        &String::from_str(&env, "settle-al-3"));
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }
 
@@ -1252,18 +1293,21 @@ fn test_native_allow_toggle() {
     let empty = String::from_str(&env, "");
 
     // 1. Initially rejected (default is false)
-    let result = client.try_record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    let result = client.try_record_payment(&invoice_id, &payer, &xlm, &empty, &100i128,
+        &String::from_str(&env, "settle-native-1"));
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 
     // 2. Allow native and succeed
     client.set_allow_native(&true);
-    client.record_payment(&invoice_id, &payer, &xlm, &empty, &100i128);
+    client.record_payment(&invoice_id, &payer, &xlm, &empty, &100i128,
+        &String::from_str(&env, "settle-native-2"));
     assert!(client.has_payment(&invoice_id));
 
     // 3. Block native and reject next
     client.set_allow_native(&false);
     let invoice_id_2 = String::from_str(&env, "inv-native-2");
-    let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128);
+    let result = client.try_record_payment(&invoice_id_2, &payer, &xlm, &empty, &100i128,
+        &String::from_str(&env, "settle-native-3"));
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }
 
@@ -1424,6 +1468,7 @@ fn test_asset_code_too_long_returns_error() {
             "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
         ),
         &10_000_000i128,
+        &String::from_str(&env, "settle-long-code"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -1442,7 +1487,8 @@ fn test_asset_code_exactly_12_chars_succeeds() {
     // A 12-char code is valid; allowlist it so it passes the allowlist guard.
     client.allow_asset(&code, &issuer);
     let invoice_id = String::from_str(&env, "invoisio-12-char-code");
-    client.record_payment(&invoice_id, &payer, &code, &issuer, &50_000_000i128);
+    client.record_payment(&invoice_id, &payer, &code, &issuer, &50_000_000i128,
+        &String::from_str(&env, "settle-12-char"));
     assert!(client.has_payment(&invoice_id));
 }
 
@@ -1460,6 +1506,7 @@ fn test_amount_above_max_returns_error() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &(i64::MAX as i128 + 1),
+        &String::from_str(&env, "settle-big-amount"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
@@ -1479,6 +1526,7 @@ fn test_amount_at_max_succeeds() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &(i64::MAX as i128),
+        &String::from_str(&env, "settle-max-amount"),
     );
     assert!(client.has_payment(&invoice_id));
 }
@@ -1505,6 +1553,7 @@ fn test_multiple_legacy_payments_read_and_migrated() {
         asset: Asset::Native,
         amount: 10_000_000i128,
         timestamp: 1000u64,
+        settlement_ref: String::from_str(&env, "legacy-001"),
     };
     let record2 = PaymentRecord {
         invoice_id: invoice_ids.get(1).unwrap(),
@@ -1512,6 +1561,7 @@ fn test_multiple_legacy_payments_read_and_migrated() {
         asset: Asset::Native,
         amount: 20_000_000i128,
         timestamp: 2000u64,
+        settlement_ref: String::from_str(&env, "legacy-002"),
     };
     let record3 = PaymentRecord {
         invoice_id: invoice_ids.get(2).unwrap(),
@@ -1519,6 +1569,7 @@ fn test_multiple_legacy_payments_read_and_migrated() {
         asset: Asset::Native,
         amount: 30_000_000i128,
         timestamp: 3000u64,
+        settlement_ref: String::from_str(&env, "legacy-003"),
     };
 
     // Write all records to legacy keys
@@ -1578,6 +1629,7 @@ fn test_mixed_legacy_and_new_payments() {
         asset: Asset::Native,
         amount: 10_000_000,
         timestamp: 1234,
+        settlement_ref: String::from_str(&env, "legacy-mix"),
     };
     env.as_contract(&client.address, || {
         env.storage()
@@ -1595,6 +1647,7 @@ fn test_mixed_legacy_and_new_payments() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &20_000_000,
+        &String::from_str(&env, "settle-new-mix"),
     );
 
     // Verify both are readable
@@ -1646,6 +1699,7 @@ fn test_legacy_deployment_without_metadata_then_write() {
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
         &10_000_000,
+        &String::from_str(&env, "settle-legacy-deploy"),
     );
 
     // Now metadata should be present and current
@@ -1714,6 +1768,7 @@ fn test_upgrade_storage_preserves_payment_records() {
         asset: Asset::Native,
         amount: 10_000_000i128,
         timestamp: 1234u64,
+        settlement_ref: String::from_str(&env, "legacy-migration"),
     };
 
     env.as_contract(&client.address, || {
@@ -1789,4 +1844,184 @@ fn test_schema_compatibility_check() {
     // Version info should match current
     let info = client.version_info();
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);
+}
+
+// ─── settlement_ref Tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_record_payment_with_settlement_ref_stores_and_returns() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-settle-001");
+    let payer = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "sha256-abcdef1234567890");
+
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(record.settlement_ref, settlement_ref);
+}
+
+#[test]
+fn test_empty_settlement_ref_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-empty-ref"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, ""), // empty settlement_ref
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+#[test]
+fn test_settlement_ref_too_long_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    // 129 chars exceeds the 128-char limit
+    let long_ref = String::from_str(
+        &env,
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    );
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-long-ref"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &long_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+#[test]
+fn test_settlement_ref_exactly_128_chars_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    // Exactly 128 chars — should be accepted
+    let ref_128 = String::from_str(
+        &env,
+        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+    );
+    let invoice_id = String::from_str(&env, "invoisio-ref-128");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &ref_128,
+    );
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(record.settlement_ref, ref_128);
+}
+
+#[test]
+fn test_settlement_ref_emitted_in_event() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-ref-event");
+    let payer = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "settle-hash-abc123");
+
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
+    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
+    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
+    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
+    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
+    let ref_val: soroban_sdk::Val = settlement_ref.clone().into_val(&env);
+
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "invoice_payment_recorded").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "invoice_id"), inv_val),
+                    (Symbol::new(&env, "payer"), pyr_val),
+                    (Symbol::new(&env, "asset_code"), code_val),
+                    (Symbol::new(&env, "asset_issuer"), iss_val),
+                    (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "settlement_ref"), ref_val)
+                ]
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_settlement_ref_usdc_payment() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-settle-usdc");
+    let payer = Address::generate(&env);
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &issuer,
+        &50_000_000i128,
+        &String::from_str(&env, "settle-usdc-hash-789"),
+    );
+
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(
+        record.settlement_ref,
+        String::from_str(&env, "settle-usdc-hash-789")
+    );
 }
