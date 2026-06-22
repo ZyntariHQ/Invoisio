@@ -1,21 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
-import { Platform } from 'react-native';
+import { useState, useEffect, useRef } from "react";
+import * as Device from "expo-device";
+import * as Notifications from "expo-notifications";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 
 export interface PushNotificationState {
-  expoPushToken?: Notifications.ExpoPushToken;
-  notification?: Notifications.Notification;
+  expoPushToken?: Notifications.ExpoPushToken | undefined;
+  notification?: Notifications.Notification | undefined;
 }
 
 export const usePushNotifications = (): PushNotificationState => {
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldPlaySound: true,
-      shouldShowAlert: true,
-      shouldSetBadge: false,
-    }),
+    handleNotification: () =>
+      Promise.resolve({
+        shouldPlaySound: true,
+        shouldShowAlert: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldSetBadge: false,
+      }),
   });
 
   const [expoPushToken, setExpoPushToken] = useState<
@@ -25,8 +28,9 @@ export const usePushNotifications = (): PushNotificationState => {
     Notifications.Notification | undefined
   >();
 
-  const notificationListener = useRef<Notifications.EventSubscription>();
-  const responseListener = useRef<Notifications.EventSubscription>();
+  const notificationListener =
+    useRef<Notifications.EventSubscription>(undefined);
+  const responseListener = useRef<Notifications.EventSubscription>(undefined);
 
   async function registerForPushNotificationsAsync() {
     let token;
@@ -35,36 +39,51 @@ export const usePushNotifications = (): PushNotificationState => {
         await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
 
-      if (existingStatus !== 'granted') {
+      if (existingStatus !== Notifications.PermissionStatus.GRANTED) {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
       }
-      if (finalStatus !== 'granted') {
-        console.warn('Failed to get push token for push notification');
+      if (finalStatus !== Notifications.PermissionStatus.GRANTED) {
+        console.warn("Failed to get push token for push notification");
         return;
       }
 
       try {
-        const projectId =
-          Constants?.expoConfig?.extra?.eas?.projectId ??
-          Constants?.easConfig?.projectId;
-        
-        token = await Notifications.getExpoPushTokenAsync({
-          projectId,
-        });
-      } catch (e) {
-        console.warn('Failed to get expo push token:', e);
+        const expoExtra = Constants.expoConfig?.extra as
+          | Record<string, unknown>
+          | undefined;
+        const easObj = expoExtra?.["eas"] as
+          | Record<string, unknown>
+          | undefined;
+        const easProjectId =
+          typeof easObj?.["projectId"] === "string"
+            ? easObj["projectId"]
+            : undefined;
+        const easConfig = Constants.easConfig as Record<string, unknown> | null;
+        const configProjectId =
+          typeof easConfig?.["projectId"] === "string"
+            ? easConfig["projectId"]
+            : undefined;
+        const projectId = easProjectId ?? configProjectId;
+
+        const tokenOptions: Record<string, string> = {};
+        if (typeof projectId === "string") {
+          tokenOptions["projectId"] = projectId;
+        }
+        token = await Notifications.getExpoPushTokenAsync(tokenOptions);
+      } catch (e: unknown) {
+        console.warn("Failed to get expo push token:", e);
       }
     } else {
-      console.warn('Must be using a physical device for Push Notifications');
+      console.warn("Must be using a physical device for Push Notifications");
     }
 
-    if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
+    if (Platform.OS === "android") {
+      void Notifications.setNotificationChannelAsync("default", {
+        name: "default",
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
+        lightColor: "#FF231F7C",
       });
     }
 
@@ -72,13 +91,13 @@ export const usePushNotifications = (): PushNotificationState => {
   }
 
   useEffect(() => {
-    registerForPushNotificationsAsync().then((token) => {
+    void registerForPushNotificationsAsync().then((token) => {
       setExpoPushToken(token);
     });
 
     notificationListener.current =
-      Notifications.addNotificationReceivedListener((notification) => {
-        setNotification(notification);
+      Notifications.addNotificationReceivedListener((n) => {
+        setNotification(n);
       });
 
     responseListener.current =
@@ -88,10 +107,10 @@ export const usePushNotifications = (): PushNotificationState => {
 
     return () => {
       if (notificationListener.current) {
-        Notifications.removeNotificationSubscription(notificationListener.current);
+        notificationListener.current.remove();
       }
       if (responseListener.current) {
-        Notifications.removeNotificationSubscription(responseListener.current);
+        responseListener.current.remove();
       }
     };
   }, []);

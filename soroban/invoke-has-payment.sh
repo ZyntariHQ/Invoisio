@@ -74,5 +74,5 @@ else
     echo "ℹ️  No payment recorded for this invoice"
     echo ""
     echo "Record a payment:"
-    echo "  ./invoke-record-payment.sh $INVOICE_ID <payer> <asset_code> <asset_issuer> <amount>"
+    echo "  ./invoke-record-payment.sh $INVOICE_ID <payer> <asset_code> <asset_issuer> <amount> <settlement_ref>"
 fi

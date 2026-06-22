@@ -493,10 +493,12 @@ Every `record_payment` call publishes a flattened event payload so off-chain ind
 
 ```
 Topics : (Symbol "invoice_payment_recorded")
-Data   : InvoicePaymentRecorded { invoice_id, payer, asset_code, asset_issuer, amount }
+Data   : InvoicePaymentRecorded { schema_version, invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref }
 ```
 
 Note: The `tx_hash` is not directly inside the payload, but is automatically included by Horizon in the event envelope when fetching via RPC.
+
+The leading `schema_version` field (currently `1`, see `EVENT_SCHEMA_VERSION` in `events.rs`) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
 
 Subscribe and decode via CLI:
 ```sh

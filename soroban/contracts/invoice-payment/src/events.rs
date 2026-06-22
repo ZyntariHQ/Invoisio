@@ -1,13 +1,20 @@
 use soroban_sdk::{contractevent, Address, Env, String};
 
+/// Schema version for the `invoice_payment_recorded` event payload.
+/// Bumped only when the payload shape changes in a breaking way so that
+/// off-chain indexers can detect and adapt to the event format.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct InvoicePaymentRecorded {
+    pub schema_version: u32,
     pub invoice_id: String,
     pub payer: Address,
     pub asset_code: String,
     pub asset_issuer: String,
     pub amount: i128,
+    pub settlement_ref: String,
 }
 
 /// Emit an `"invoice_payment_recorded"` Soroban event carrying the flattened
@@ -33,13 +40,16 @@ pub fn emit_payment_recorded(
     asset_code: String,
     asset_issuer: String,
     amount: i128,
+    settlement_ref: String,
 ) {
     let payload = InvoicePaymentRecorded {
+        schema_version: EVENT_SCHEMA_VERSION,
         invoice_id,
         payer,
         asset_code,
         asset_issuer,
         amount,
+        settlement_ref,
     };
 
     payload.publish(env);
@@ -93,6 +103,23 @@ pub fn emit_storage_schema_upgraded(env: &Env, from_version: u32, to_version: u3
         from_version,
         to_version,
         upgraded_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContractPaused {
+    pub paused: bool,
+    pub triggered_by: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
+    let payload = ContractPaused {
+        paused,
+        triggered_by,
+        timestamp: env.ledger().timestamp(),
     };
     payload.publish(env);
 }

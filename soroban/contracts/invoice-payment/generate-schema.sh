@@ -79,9 +79,15 @@ cat > "$OUT" <<JSON
           "type": "integer",
           "description": "Unix timestamp (seconds) sourced from the ledger at recording time.",
           "minimum": 0
+        },
+        "settlement_ref": {
+          "type": "string",
+          "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation (e.g. SHA-256 hex). Max 128 chars.",
+          "minLength": 1,
+          "maxLength": 128
         }
       },
-      "required": ["invoice_id", "payer", "asset", "amount", "timestamp"],
+      "required": ["invoice_id", "payer", "asset", "amount", "timestamp", "settlement_ref"],
       "additionalProperties": false
     },
     "ContractMeta": {
@@ -168,9 +174,10 @@ cat > "$OUT" <<JSON
         "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
         "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
         "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
-        "amount":       { "type": "integer", "description": "Payment amount in smallest denomination. Must be > 0.", "minimum": 1 }
+        "amount":       { "type": "integer", "description": "Payment amount in smallest denomination. Must be > 0.", "minimum": 1 },
+        "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
       },
-      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount"]
+      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "settlement_ref"]
     },
     "AssetAllowlisted": {
       "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
@@ -208,7 +215,10 @@ cat > "$OUT" <<JSON
     "InvalidInvoiceId":     { "code": 6, "description": "invoice_id was an empty string." },
     "InvalidAsset":         { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
     "AssetNotAllowed":      { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
-    "Unauthorized":         { "code": 9, "description": "Caller is not authorized." }
+    "Unauthorized":         { "code": 9, "description": "Caller is not authorized." },
+    "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
+    "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
+    "InvalidSettlementRef": { "code": 12, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
   },
   "methods": {
     "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },

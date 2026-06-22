@@ -50,7 +50,9 @@ export default function InvoiceDetailScreen() {
           amount: String(invoice.amount),
           destination,
           ...(assetCode !== undefined && { assetCode }),
-          ...(invoice.asset_issuer !== undefined && { assetIssuer: invoice.asset_issuer }),
+          ...(invoice.asset_issuer !== undefined && {
+            assetIssuer: invoice.asset_issuer,
+          }),
           ...(invoice.memo !== undefined && { memo: invoice.memo }),
           memoType: getInvoiceMemoType(invoice),
         })

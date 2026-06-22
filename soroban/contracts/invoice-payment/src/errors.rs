@@ -51,4 +51,10 @@ pub enum ContractError {
     /// `upgrade_storage()` was called but the schema is already at or beyond
     /// the version this WASM implements — nothing to do.
     StorageSchemaTooOld = 11,
+
+    /// The contract is paused and cannot perform the requested operation.
+    ContractPaused = 12,
+
+    /// `settlement_ref` was empty or exceeded the maximum allowed length.
+    InvalidSettlementRef = 13,
 }
