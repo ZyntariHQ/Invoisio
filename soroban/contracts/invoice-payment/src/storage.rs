@@ -81,6 +81,8 @@ pub struct ContractConfig {
     pub version: ContractMeta,
     /// High-level asset policy snapshot for native XLM and issued tokens.
     pub allowlist_mode: AllowlistMode,
+    /// Whether the contract is currently paused (writes disabled).
+    pub paused: bool,
 }
 
 // Storage keys
@@ -119,6 +121,8 @@ pub enum DataKey {
     AllowList(String, String),
     /// Flag for allowing native XLM in **instance** storage.
     AllowNative,
+    /// Flag indicating whether the contract is paused (instance storage).
+    Paused,
 }
 
 // Data structures
@@ -167,6 +171,14 @@ pub struct PaymentRecord {
 
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
+
+    /// Normalised settlement reference for backend deduplication and auditing.
+    ///
+    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or
+    /// a well-known reconciliation identifier) that the backend uses for
+    /// idempotent settlement reconciliation. Stored on-chain so any observer
+    /// can verify the settlement reference associated with a payment.
+    pub settlement_ref: String,
 }
 
 /// A bounded, cursor-friendly slice of payment history.
@@ -227,6 +239,7 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
             native_allowed: is_native_allowed(env),
             requires_token_allowlist: true,
         },
+        paused: is_paused(env),
     }
 }
 
@@ -602,4 +615,20 @@ pub fn is_schema_compatible(env: &Env) -> bool {
 /// Get the current storage schema version or 0 if not set.
 pub fn get_schema_version(env: &Env) -> u32 {
     get_storage_schema_version(env)
+}
+
+// ─── Pause helpers ──────────────────────────────────────────────────────────
+
+/// Return `true` if the contract is paused.
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Set the paused state. Admin-only.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }

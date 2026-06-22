@@ -7,6 +7,7 @@ import { PrismaModule } from "../prisma/prisma.module";
 import { WebhooksModule } from "../webhooks/webhooks.module";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { RealtimeModule } from "../realtime/realtime.module";
 
 /**
  * Invoices module
@@ -20,6 +21,7 @@ import { NotificationsModule } from "../notifications/notifications.module";
     WebhooksModule,
     AuthModule,
     NotificationsModule,
+    RealtimeModule,
   ],
   controllers: [InvoicesController],
   providers: [InvoicesService],

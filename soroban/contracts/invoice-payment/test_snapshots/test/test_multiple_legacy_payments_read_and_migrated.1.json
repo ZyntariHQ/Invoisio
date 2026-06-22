@@ -83,6 +83,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-001"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -155,6 +163,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-002"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -223,6 +239,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-003"
                     }
                   },
                   {
@@ -299,6 +323,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-001"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -371,6 +403,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-002"
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "timestamp"
                     },
                     "val": {
@@ -439,6 +479,14 @@
                     },
                     "val": {
                       "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-003"
                     }
                   },
                   {

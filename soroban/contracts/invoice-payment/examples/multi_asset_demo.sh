@@ -35,7 +35,8 @@ stellar contract invoke \
   --payer "$PAYER" \
   --asset_code "XLM" \
   --asset_issuer "" \
-  --amount "100000000"
+  --amount "100000000" \
+  --settlement_ref "settle-xlm-demo-001"
 
 echo "✅ XLM payment recorded"
 echo ""
@@ -58,7 +59,8 @@ stellar contract invoke \
   --payer "$PAYER" \
   --asset_code "USDC" \
   --asset_issuer "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" \
-  --amount "500000000"
+  --amount "500000000" \
+  --settlement_ref "settle-usdc-demo-001"
 
 echo "✅ USDC payment recorded"
 echo ""

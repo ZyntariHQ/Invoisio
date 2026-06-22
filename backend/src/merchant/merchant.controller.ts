@@ -1,69 +1,48 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  UseGuards,
-} from "@nestjs/common";
+import { Controller, Get, Patch, Body } from "@nestjs/common";
+import { Auth, CurrentUser } from "../auth/guard/auth.guard";
+import { User } from "../users/user.entity";
+import { MerchantService } from "./merchant.service";
+import { UpdateMerchantSettingsDto } from "./dto/update-merchant-settings.dto";
+import { PrismaService } from "../prisma/prisma.service";
 
-import { JwtAuthGuard } from "../auth/guard/auth.guard";
-import { MerchantMembershipGuard } from "../common/guards/merchant-membership.guard";
-import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
-import { Roles } from "../common/decorators/roles.decorator";
-import { MerchantRole } from "../common/enums/merchant-role.enum";
-
-@UseGuards(JwtAuthGuard, MerchantMembershipGuard, MerchantRolesGuard)
+/**
+ * MerchantController
+ * Exposes merchant profile and settings management endpoints.
+ * All routes require JWT authentication; the merchant is scoped
+ * to the authenticated user's merchantId.
+ */
 @Controller("merchants")
 export class MerchantController {
-  @Get(":merchantId/export")
-  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
-  exportMerchantData() {
-    return {
-      message: "Export started",
-    };
+  constructor(
+    private readonly merchantService: MerchantService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /**
+   * GET /merchants/profile
+   * Returns the merchant profile for the authenticated user.
+   */
+  @Auth()
+  @Get("profile")
+  async getProfile(@CurrentUser() user: User) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.merchantService.getProfile(user.merchantId),
+    );
   }
 
-  @Patch(":merchantId/settings")
-  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
-  updateSettings() {
-    return {
-      message: "Settings updated",
-    };
-  }
-
-  @Post(":merchantId/customers")
-  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN, MerchantRole.OPERATOR)
-  createCustomer() {
-    return {
-      message: "Customer created",
-    };
-  }
-
-  @Patch(":merchantId/customers/:id")
-  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN, MerchantRole.OPERATOR)
-  updateCustomer() {
-    return {
-      message: "Customer updated",
-    };
-  }
-
-  @Delete(":merchantId/customers/:id")
-  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
-  deleteCustomer() {
-    return {
-      message: "Customer deleted",
-    };
-  }
-
-  @Get(":merchantId/customers")
-  @Roles(
-    MerchantRole.OWNER,
-    MerchantRole.ADMIN,
-    MerchantRole.OPERATOR,
-    MerchantRole.VIEWER,
-  )
-  findAll() {
-    return [];
+  /**
+   * PATCH /merchants/settings
+   * Updates merchant settings (name, payout key, preferred asset, webhook).
+   * Validates Stellar public key format before persisting.
+   */
+  @Auth()
+  @Patch("settings")
+  async updateSettings(
+    @CurrentUser() user: User,
+    @Body() dto: UpdateMerchantSettingsDto,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.merchantService.updateSettings(user.merchantId, dto),
+    );
   }
 }

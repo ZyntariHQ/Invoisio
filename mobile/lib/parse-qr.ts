@@ -45,7 +45,8 @@ function buildSep0007Uri(p: Omit<ParsedPayment, "sep0007Uri">): string {
   const parts = [`destination=${encodeURIComponent(p.destination)}`];
   if (p.amount) parts.push(`amount=${encodeURIComponent(p.amount)}`);
   if (p.assetCode) parts.push(`asset_code=${encodeURIComponent(p.assetCode)}`);
-  if (p.assetIssuer) parts.push(`asset_issuer=${encodeURIComponent(p.assetIssuer)}`);
+  if (p.assetIssuer)
+    parts.push(`asset_issuer=${encodeURIComponent(p.assetIssuer)}`);
   if (p.memo) {
     parts.push(`memo=${encodeURIComponent(p.memo)}`);
     parts.push(`memo_type=${p.memoType}`);
@@ -97,13 +98,18 @@ export function parseQrCode(raw: string): ParsedPayment | string {
 
   const memoType = parseMemoType(params.get("memo_type"));
 
+  const amount = params.get("amount");
+  const assetCode = params.get("asset_code");
+  const assetIssuer = params.get("asset_issuer");
+  const memo = params.get("memo");
+
   const parsed: Omit<ParsedPayment, "sep0007Uri"> = {
     destination,
     memoType,
-    ...(params.get("amount") !== null && { amount: params.get("amount")! }),
-    ...(params.get("asset_code") !== null && { assetCode: params.get("asset_code")! }),
-    ...(params.get("asset_issuer") !== null && { assetIssuer: params.get("asset_issuer")! }),
-    ...(params.get("memo") !== null && { memo: params.get("memo")! }),
+    ...(amount !== null && { amount }),
+    ...(assetCode !== null && { assetCode }),
+    ...(assetIssuer !== null && { assetIssuer }),
+    ...(memo !== null && { memo }),
   };
 
   return { ...parsed, sep0007Uri: buildSep0007Uri(parsed) };

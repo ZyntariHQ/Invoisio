@@ -438,6 +438,30 @@ describe("InvoicesService", () => {
         service.reconcilePayment("invoice-a-1", "GPAYER", "XLM", "", "1000000"),
       ).rejects.toThrow(BadRequestException);
     });
+
+    it("is a no-op when replayed against an already-paid invoice", async () => {
+      const first = await service.reconcilePayment(
+        "invoice-b-1",
+        "GPAYER",
+        "USDC",
+        "GASDF",
+        "200",
+      );
+      expect(first.status).toBe("paid");
+      mockSorobanService.recordInvoicePayment.mockClear();
+
+      const replayed = await service.reconcilePayment(
+        "invoice-b-1",
+        "GPAYER",
+        "USDC",
+        "GASDF",
+        "200",
+      );
+
+      expect(replayed.status).toBe("paid");
+      expect((replayed as any).amountPaid).toBe((first as any).amountPaid);
+      expect(mockSorobanService.recordInvoicePayment).not.toHaveBeenCalled();
+    });
   });
 
   describe("status history audit trail", () => {

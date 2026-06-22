@@ -129,15 +129,19 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`   — unique invoice identifier (e.g. `"invoisio-abc123"`)
-    /// - `payer`        — Stellar account address that sent the payment
-    /// - `asset_code`   — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer` — issuer public key for tokens; `""` for native XLM
-    /// - `amount`       — payment amount in smallest denomination (must be > 0)
+    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `payer`           — Stellar account address that sent the payment
+    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
+    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
+    /// - `amount`          — payment amount in smallest denomination (must be > 0)
+    /// - `settlement_ref`  — normalised settlement hash or reference ID for
+    ///                       backend deduplication and idempotent reconciliation
+    ///                       (must be non-empty, max 128 chars)
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
     /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is an empty string
+    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty or exceeds 128 chars
     /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
@@ -148,20 +152,38 @@ impl InvoicePaymentContract {
         asset_code: String,
         asset_issuer: String,
         amount: i128,
+        settlement_ref: String,
     ) -> Result<(), ContractError> {
-        // 1. Admin authorisation.
+        // 1. Check if contract is paused (emergency stop)
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
+
+        // 2. Admin authorisation.
         let admin = get_admin(&env)?;
         admin.require_auth();
 
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
 
-        // 2. Input guards — reject obviously malformed arguments early so they
+        // 3. Input guards — reject obviously malformed arguments early so they
         //    never reach persistent storage.
 
         // invoice_id must be non-empty.
         if invoice_id.is_empty() {
             return Err(ContractError::InvalidInvoiceId);
+        }
+
+        // settlement_ref must be non-empty.
+        if settlement_ref.is_empty() {
+            return Err(ContractError::InvalidSettlementRef);
+        }
+
+        // settlement_ref length guard — reject unreasonably long references
+        // (e.g. a full transaction blob pasted by mistake).
+        // A SHA-256 hex string is 64 chars; this allows some headroom.
+        if settlement_ref.len() > 128 {
+            return Err(ContractError::InvalidSettlementRef);
         }
 
         // asset_code must be non-empty.
@@ -200,41 +222,42 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 3. Amount guard.
+        // 4. Amount guard.
         if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
 
-        // 4. Idempotency guard.
+        // 5. Idempotency guard.
         if has_payment(&env, &invoice_id) {
             return Err(ContractError::PaymentAlreadyRecorded);
         }
 
-        // 5. Build the asset enum based on parameters.
+        // 6. Build the asset enum based on parameters.
         let asset = if is_xlm {
             Asset::Native
         } else {
             Asset::Token(asset_code.clone(), asset_issuer.clone())
         };
 
-        // 6. Build and persist the record (also bumps persistent TTL).
+        // 7. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
             invoice_id,
             payer,
             asset,
             amount,
             timestamp: env.ledger().timestamp(),
+            settlement_ref: settlement_ref.clone(),
         };
         set_payment(&env, &record);
 
-        // 7. Persist the ordered history entries and increment counters.
+        // 8. Persist the ordered history entries and increment counters.
         append_payment_history(&env, &record);
         bump_history_count(&env);
         append_payer_history(&env, &record.payer, &record);
         bump_payer_history_count(&env, &record.payer);
         bump_count(&env);
 
-        // 8. Emit Soroban event — off-chain indexers subscribe to these topics.
+        // 9. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
             record.invoice_id,
@@ -242,6 +265,7 @@ impl InvoicePaymentContract {
             asset_code,
             asset_issuer,
             record.amount,
+            settlement_ref,
         );
 
         Ok(())
@@ -417,6 +441,38 @@ impl InvoicePaymentContract {
 
         let target = STORAGE_SCHEMA_VERSION;
         storage::upgrade_storage_schema(&env, target)
+    }
+
+    /// Pause or unpause the contract.
+    ///
+    /// When paused, all write operations (`record_payment`) are rejected.
+    /// Read operations remain accessible.
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    ///
+    /// ## Events
+    /// Emits `ContractPaused` event with the new state.
+    ///
+    /// ## Errors
+    /// - `NotInitialized` if contract not initialized
+    /// - `Unauthorized` if caller is not admin
+    pub fn set_paused(env: Env, caller: Address, paused: bool) -> Result<(), ContractError> {
+        let admin = get_admin(&env)?;
+        caller.require_auth();
+
+        if caller != admin {
+            return Err(ContractError::Unauthorized);
+        }
+
+        storage::set_paused(&env, paused);
+        events::emit_contract_paused(&env, paused, caller);
+        Ok(())
+    }
+
+    /// Return `true` if the contract is currently paused.
+    pub fn is_paused(env: Env) -> bool {
+        storage::is_paused(&env)
     }
 }
 

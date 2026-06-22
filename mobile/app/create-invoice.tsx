@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "expo-router";
 import {
   KeyboardAvoidingView,
@@ -10,17 +10,45 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useAuthStore } from "../hooks/use-auth-store";
+import { MerchantService } from "../lib/merchant-service";
 
 const currencies = ["USDC", "EURC", "USD"];
 const paymentTerms = ["Net 7", "Net 14", "Net 30"];
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
+  const { accessToken } = useAuthStore();
   const [company, setCompany] = useState("Lambda Cargo");
   const [amount, setAmount] = useState("18,750");
   const [currency, setCurrency] = useState("USDC");
   const [terms, setTerms] = useState("Net 14");
   const [memo, setMemo] = useState("Freight settlement for Q1 routes");
+  const [payoutKey, setPayoutKey] = useState<string | null>(null);
+
+  // Load merchant preferred asset and payout key on mount
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const profile = await MerchantService.getProfile(accessToken);
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancelled may be mutated by cleanup
+        if (!cancelled) {
+          // Pre-select the merchant's preferred asset if it's in the currency list
+          if (currencies.includes(profile.preferredAsset)) {
+            setCurrency(profile.preferredAsset);
+          }
+          setPayoutKey(profile.payoutPublicKey ?? null);
+        }
+      } catch (err) {
+        console.error("Failed to load merchant settings:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
 
   const confirmInvoice = () => {
     router.push("/dashboard");
@@ -192,6 +220,24 @@ export default function CreateInvoiceScreen() {
               Each invoice inherits programmable payout splits and Base proofs
               for counterparty transparency.
             </Text>
+            {payoutKey && (
+              <View className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
+                <Text
+                  className="text-xs text-slate-400"
+                  style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                >
+                  Payout destination
+                </Text>
+                <Text
+                  className="mt-1 text-xs text-slate-300"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                  numberOfLines={1}
+                  ellipsizeMode="middle"
+                >
+                  {payoutKey}
+                </Text>
+              </View>
+            )}
           </View>
 
           <Pressable
