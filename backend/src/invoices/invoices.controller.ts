@@ -49,11 +49,13 @@ export class InvoicesController {
     @CurrentUser() user: User,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("search") search?: string,
+    @Query("status") status?: string,
   ): Promise<Invoice[]> {
     const p = page ? parseInt(page, 10) : 1;
     const l = limit ? parseInt(limit, 10) : 20;
     const result = await this.prisma.runWithMerchantScope(user.merchantId, () =>
-      this.invoicesService.findAll(user.merchantId, p, l),
+      this.invoicesService.findAll(user.merchantId, p, l, search, status),
     );
     return result.items;
   }
