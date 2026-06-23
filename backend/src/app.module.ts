@@ -86,6 +86,16 @@ import { MerchantModule } from "./merchant/merchant.module";
         REDIS_PASSWORD: Joi.string().optional().allow(""),
         REDIS_DB: Joi.number().integer().min(0).default(0),
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
+        EMAIL_PROVIDER: Joi.string()
+          .valid("console", "smtp")
+          .default("console"),
+        EMAIL_FROM: Joi.string().default("Invoisio <no-reply@invoisio.app>"),
+        APP_BASE_URL: Joi.string().uri().default("http://localhost:3000"),
+        SMTP_HOST: Joi.string().optional().allow(""),
+        SMTP_PORT: Joi.number().integer().min(1).max(65535).default(587),
+        SMTP_SECURE: Joi.boolean().default(false),
+        SMTP_USER: Joi.string().optional().allow(""),
+        SMTP_PASS: Joi.string().optional().allow(""),
       }),
       validationOptions: {
         abortEarly: false,

@@ -1,15 +1,50 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Expo, ExpoPushMessage } from "expo-server-sdk";
+import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
-import { Invoice } from "@prisma/client";
+import type { Invoice } from "@prisma/client";
+import { MAIL_PROVIDER } from "./mail-provider.interface";
+import type { MailProvider } from "./mail-provider.interface";
+import { buildPaymentRequestEmail } from "./payment-request-email.template";
 
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private expo: Expo;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+    @Inject(MAIL_PROVIDER)
+    private readonly mailProvider: MailProvider,
+  ) {
     this.expo = new Expo();
+  }
+
+  async sendPaymentRequestEmail(invoice: Invoice): Promise<void> {
+    if (!invoice.clientEmail) {
+      this.logger.warn(
+        `Skipping payment request email for invoice ${invoice.id}: missing client email`,
+      );
+      return;
+    }
+
+    const appBaseUrl =
+      this.configService.get<string>("APP_BASE_URL") ||
+      this.configService.get<string>("CORS_ORIGIN") ||
+      "http://localhost:3000";
+
+    const email = buildPaymentRequestEmail(invoice, appBaseUrl);
+    const result = await this.mailProvider.send({
+      to: invoice.clientEmail,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
+    });
+
+    this.logger.log(
+      `Payment request email result for invoice ${invoice.id}: ${JSON.stringify(result)}`,
+    );
   }
 
   async notifyInvoicePaid(invoice: Invoice) {

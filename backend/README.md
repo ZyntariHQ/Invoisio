@@ -44,6 +44,16 @@ USDC_ASSET_CODE=USDC
 
 # Memo Prefix for Payment Matching
 MEMO_PREFIX=invoisio-
+
+# Email delivery
+EMAIL_PROVIDER=console
+EMAIL_FROM="Invoisio <no-reply@invoisio.app>"
+APP_BASE_URL=http://localhost:3000
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=
+SMTP_PASS=
 ```
 
 ### 3. Run the Server
@@ -139,6 +149,17 @@ Content-Type: application/json
 }
 ```
 
+## Email delivery for payment requests
+
+When a new invoice is created, the backend sends a branded payment request email to the invoice `clientEmail`. The email includes the invoice link, amount, asset, memo, and destination address.
+
+Email delivery is handled behind a provider abstraction:
+
+- `EMAIL_PROVIDER=console` logs a mock send result for local development and tests.
+- `EMAIL_PROVIDER=smtp` sends through SMTP using the `SMTP_*` environment variables.
+
+Email sending is intentionally non-blocking. If sending fails, the error is logged and the invoice creation response still succeeds.
+
 ## Testing
 
 ### Unit Tests
@@ -225,6 +246,14 @@ The `StellarModule` currently provides stubbed methods. Future implementation wi
 | `USDC_ISSUER` | USDC issuer on Stellar | GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN |
 | `USDC_ASSET_CODE` | USDC asset code | USDC |
 | `MEMO_PREFIX` | Prefix for invoice memos | invoisi- |
+| `EMAIL_PROVIDER` | Mail provider: `console` or `smtp` | console |
+| `EMAIL_FROM` | Sender used for payment request emails | Invoisio <no-reply@invoisio.app> |
+| `APP_BASE_URL` | Frontend base URL used to build invoice links | http://localhost:3000 |
+| `SMTP_HOST` | SMTP host when `EMAIL_PROVIDER=smtp` | - |
+| `SMTP_PORT` | SMTP port when `EMAIL_PROVIDER=smtp` | 587 |
+| `SMTP_SECURE` | Whether SMTP uses TLS immediately | false |
+| `SMTP_USER` | SMTP username | - |
+| `SMTP_PASS` | SMTP password | - |
 
 ## Future Enhancements
 
