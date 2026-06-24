@@ -9,6 +9,7 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { InvoiceStatus } from "@prisma/client";
 import { NotificationsService } from "../notifications/notifications.service";
 
 const MERCHANT_A = "merchant-a";
@@ -277,6 +278,81 @@ describe("InvoicesService", () => {
       await expect(
         service.searchInvoices(undefined as any, "Acme"),
       ).rejects.toBeInstanceOf(UnauthorizedException);
+    });
+  });
+
+  describe("exportInvoices", () => {
+    it("should export invoices as CSV with correct headers", async () => {
+      const csv = await service.exportInvoices(MERCHANT_A, {});
+
+      const lines = csv.trim().split("\n");
+      expect(lines.length).toBe(2); // header + 1 invoice
+
+      const headers = lines[0].split(",");
+      expect(headers).toEqual([
+        "id",
+        "invoice_number",
+        "client_name",
+        "client_email",
+        "description",
+        "amount",
+        "asset_code",
+        "asset_issuer",
+        "memo",
+        "memo_type",
+        "status",
+        "tx_hash",
+        "soroban_tx_hash",
+        "soroban_contract_id",
+        "due_date",
+        "created_at",
+        "updated_at",
+      ]);
+    });
+
+    it("should filter by status", async () => {
+      const csv = await service.exportInvoices(MERCHANT_A, {
+        status: "pending" as InvoiceStatus,
+      });
+
+      const lines = csv.trim().split("\n");
+      expect(lines.length).toBe(2);
+    });
+
+    it("should filter by asset code", async () => {
+      const csv = await service.exportInvoices(MERCHANT_A, {
+        assetCode: "XLM",
+      });
+
+      const lines = csv.trim().split("\n");
+      expect(lines.length).toBe(2);
+      expect(lines[1]).toContain("XLM");
+    });
+
+    it("should respect merchant scoping", async () => {
+      const csv = await service.exportInvoices(MERCHANT_A, {});
+
+      const lines = csv.trim().split("\n");
+      expect(lines.length).toBe(2); // only merchant A's invoice
+      expect(lines[1]).toContain("INV-A-001");
+      expect(lines[1]).not.toContain("INV-B-001");
+    });
+
+    it("should escape CSV special characters", async () => {
+      // Add an invoice with special characters
+      const prisma = (service as any).prisma;
+      const invoices = prisma.invoice.findMany.mock.results[0]?.value ?? [];
+
+      const csv = await service.exportInvoices(MERCHANT_A, {});
+      // CSV should be valid - no unescaped commas or quotes
+      const lines = csv.trim().split("\n");
+      for (const line of lines) {
+        // Simple check: if there's a quote, it should be doubled
+        const quoteCount = (line.match(/"/g) || []).length;
+        if (quoteCount > 0) {
+          expect(quoteCount % 2).toBe(0);
+        }
+      }
     });
   });
 

@@ -791,6 +791,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "invoice-payment-bindings-gen"
+version = "0.1.0"
+dependencies = [
+ "soroban-spec-rust",
+]
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

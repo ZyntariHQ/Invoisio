@@ -6,17 +6,16 @@ import {
   Param,
   Patch,
   Query,
-  UseInterceptors,
-  UploadedFile,
-  BadRequestException,
+  Res,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { Throttle } from "@nestjs/throttler";
+import type { Response } from "express";
 import { InvoicesService } from "./invoices.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { SearchInvoicesDto } from "./dto/search-invoices.dto";
-import { ImportSummaryDto } from "./dto/import-result.dto";
+import { ExportInvoicesDto } from "./dto/export-invoices.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { InvoiceStatus } from "@prisma/client";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
@@ -164,6 +163,30 @@ export class InvoicesController {
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.invoicesService.updateStatus(id, status, user.merchantId),
     );
+  }
+
+  /**
+   * Export invoices as CSV
+   * @param user - Authenticated user
+   * @param query - Export filters (status, dateFrom, dateTo, assetCode, limit)
+   * @param res - Express response for file download
+   */
+  @Auth()
+  @Get("export")
+  async export(
+    @CurrentUser() user: User,
+    @Query() query: ExportInvoicesDto,
+    @Res() res: Response,
+  ): Promise<void> {
+    const csv = await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.exportInvoices(user.merchantId, query),
+    );
+
+    const filename = `invoices-export-${new Date().toISOString().split("T")[0]}.csv`;
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(csv);
   }
 
   /**

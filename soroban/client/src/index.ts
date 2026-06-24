@@ -7,6 +7,10 @@ export type {
   AssetToken,
   ContractConfig,
   ContractErrorCode,
+  ContractMeta,
+  ContractMethodName,
+  ContractMethodParameter,
+  ContractMethodSignature,
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
@@ -14,4 +18,9 @@ export type {
   TransactionResult,
 } from './types';
 
-export { CONTRACT_ERROR_CODES, SorobanContractError } from './types';
+export {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_METHODS,
+  CONTRACT_METHOD_SIGNATURES,
+  SorobanContractError,
+} from './types';

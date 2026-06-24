@@ -13,7 +13,7 @@ import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { Invoice } from "./entities/invoice.entity";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
-import { ImportRowError, ImportSummaryDto } from "./dto/import-result.dto";
+import { ExportInvoicesDto } from "./dto/export-invoices.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
@@ -132,6 +132,97 @@ export class InvoicesService implements OnModuleInit {
       pageSize: limit,
       hasMore: skip + items.length < total,
     };
+  }
+
+  /**
+   * Export invoices as CSV
+   * @param merchantId - Merchant ID for scoping
+   * @param dto - Export filters
+   * @returns CSV string
+   */
+  async exportInvoices(
+    merchantId: string,
+    dto: ExportInvoicesDto,
+  ): Promise<string> {
+    const where: Prisma.InvoiceWhereInput = { merchantId };
+
+    if (dto.status) {
+      where.status = dto.status;
+    }
+
+    if (dto.assetCode) {
+      where.assetCode = dto.assetCode.toUpperCase();
+    }
+
+    if (dto.dateFrom || dto.dateTo) {
+      where.createdAt = {};
+      if (dto.dateFrom) {
+        where.createdAt.gte = new Date(dto.dateFrom);
+      }
+      if (dto.dateTo) {
+        where.createdAt.lte = new Date(dto.dateTo);
+      }
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: dto.limit ?? 10000,
+    });
+
+    const headers = [
+      "id",
+      "invoice_number",
+      "client_name",
+      "client_email",
+      "description",
+      "amount",
+      "asset_code",
+      "asset_issuer",
+      "memo",
+      "memo_type",
+      "status",
+      "tx_hash",
+      "soroban_tx_hash",
+      "soroban_contract_id",
+      "due_date",
+      "created_at",
+      "updated_at",
+    ];
+
+    const rows = invoices.map((inv) => [
+      inv.id,
+      inv.invoiceNumber,
+      inv.clientName,
+      inv.clientEmail ?? "",
+      inv.description ?? "",
+      inv.amount.toString(),
+      inv.assetCode,
+      inv.assetIssuer ?? "",
+      inv.memo,
+      inv.memoType,
+      inv.status,
+      inv.txHash ?? "",
+      inv.sorobanTxHash ?? "",
+      inv.sorobanContractId ?? "",
+      inv.dueDate ? inv.dueDate.toISOString() : "",
+      inv.createdAt.toISOString(),
+      inv.updatedAt.toISOString(),
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map((cell) => this.escapeCsvCell(cell)).join(",")),
+    ].join("\n");
+
+    return csvContent;
+  }
+
+  private escapeCsvCell(cell: string): string {
+    if (cell.includes(",") || cell.includes('"') || cell.includes("\n")) {
+      return `"${cell.replace(/"/g, '""')}"`;
+    }
+    return cell;
   }
 
   /**

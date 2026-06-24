@@ -27,7 +27,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: soroban/client/package-lock.json
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
@@ -37,5 +44,14 @@ jobs:
       - name: Run Tests
         run: cargo test
 
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release
+      - name: Install Client Dependencies
+        run: npm ci
+        working-directory: ./soroban/client
+
+      - name: Generate Client Bindings
+        run: npm run generate:bindings:check
+        working-directory: ./soroban/client
+
+      - name: Build Client Package
+        run: npm run build
+        working-directory: ./soroban/client
