@@ -18,11 +18,10 @@ use events::{
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payer_history, append_payment_history, bump_count, bump_history_count,
-    bump_payer_history_count, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_count, get_payer_history_page, get_payment, get_payment_history_page,
-    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
-    is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
+    ensure_current_contract_meta, get_admin, get_contract_config, get_count, get_payment,
+    get_payment_history_page, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
     set_native_allowed, set_payment,
 };
 
@@ -67,9 +66,8 @@ use storage::{
 ///   - [`set_admin`] requires **both** the current admin and the new admin to
 ///     authorise, ensuring the new admin explicitly consents to taking over.
 /// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `payment_history`, `payments_by_payer`, `contract_version`,
-///   `version_info`, `admin`) are permissionless, so any account can inspect
-///   on-chain payment state.
+///   `payment_history`, `contract_version`, `version_info`, `admin`) are
+///   permissionless, so any account can inspect on-chain payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
@@ -77,7 +75,7 @@ use storage::{
 /// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
 /// 4. Contract stores record + emits event.
 /// 5. Any observer calls `get_payment(invoice_id)`, `payment_history(cursor, limit)`,
-///    `payments_by_payer(payer, cursor, limit)`, or streams `getEvents` to verify.
+///    or streams `getEvents` to verify.
 #[contract]
 pub struct InvoicePaymentContract;
 
@@ -191,8 +189,7 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidAsset);
         }
 
-        // Reject malformed token descriptors: Stellar asset codes are at most
-        // 12 characters, so anything longer is invalid.
+        // Stellar asset code max length is 12 characters.
         if asset_code.len() > 12 {
             return Err(ContractError::InvalidAsset);
         }
@@ -202,6 +199,7 @@ impl InvoicePaymentContract {
         // - Non-XLM assets (tokens) must have a non-empty issuer
         let is_xlm = asset_code == String::from_str(&env, "XLM");
         let issuer_empty = asset_issuer.is_empty();
+
         if is_xlm && !issuer_empty {
             // XLM with issuer is invalid
             return Err(ContractError::InvalidAsset);
@@ -222,7 +220,7 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 4. Amount guard.
+        // 3. Amount guard: must be strictly positive and within i64::MAX.
         if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
@@ -250,12 +248,12 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 8. Persist the ordered history entries and increment counters.
+        // 7. Increment running counter (also bumps instance TTL).
+        bump_count(&env);
+
+        // 8. Append to deterministic history index for paged reads.
         append_payment_history(&env, &record);
         bump_history_count(&env);
-        append_payer_history(&env, &record.payer, &record);
-        bump_payer_history_count(&env, &record.payer);
-        bump_count(&env);
 
         // 9. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
@@ -299,34 +297,6 @@ impl InvoicePaymentContract {
         get_count(&env)
     }
 
-    /// Return a bounded, cursor-friendly page of payment history.
-    ///
-    /// `cursor` is the next history index to read, and `limit` is capped so
-    /// the response remains bounded and predictable.
-    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
-        get_payment_history_page(&env, cursor, limit)
-    }
-
-    /// Return a bounded, cursor-friendly page of payment history for a single `payer`.
-    ///
-    /// Mirrors [`Self::payment_history`] but scoped to payments made by
-    /// `payer`, using the same cursor/limit semantics and page-size cap. A
-    /// `payer` with no recorded payments returns an empty page rather than
-    /// an error.
-    pub fn payments_by_payer(
-        env: Env,
-        payer: Address,
-        cursor: u32,
-        limit: u32,
-    ) -> PaymentHistoryPage {
-        get_payer_history_page(&env, &payer, cursor, limit)
-    }
-
-    /// Return a high-level snapshot of contract configuration.
-    pub fn config(env: Env) -> ContractConfig {
-        storage::get_contract_config(&env)
-    }
-
     /// Return the current **code** version as packed semver
     /// (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`).
     pub fn contract_version(_env: Env) -> u32 {
@@ -344,7 +314,6 @@ impl InvoicePaymentContract {
         }
     }
 
-    // Admin
     /// Return the current admin address.
     ///
     /// Returns [`ContractError::NotInitialized`] if the contract has not been
@@ -407,40 +376,86 @@ impl InvoicePaymentContract {
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
+
         set_native_allowed(&env, allowed);
         emit_native_allow_changed(&env, allowed);
         Ok(())
     }
 
-    /// Upgrade the storage schema to the current version.
-    ///
-    /// Admin-only function that explicitly migrates the storage schema
-    /// to the version expected by this contract code.
-    ///
-    /// ## When to call
-    /// - After upgrading contract code that introduces a new schema
-    /// - To explicitly migrate all data (lazy migration happens on reads)
-    /// - As part of deployment pipeline after code upgrade
-    ///
-    /// ## Idempotency
-    /// Safe to call multiple times - checks current schema version first.
-    ///
-    /// ## Events
-    /// Emits `StorageSchemaUpgraded` event on successful migration.
-    ///
-    /// ## Errors
-    /// - `StorageSchemaTooNew` if storage schema is newer than contract
-    /// - `StorageSchemaTooOld` if schema version is not supported for migration
-    pub fn upgrade_storage(env: Env, caller: Address) -> Result<(), ContractError> {
-        let admin = get_admin(&env)?;
-        caller.require_auth();
+    // Config / Read-only views
 
-        if caller != admin {
-            return Err(ContractError::Unauthorized);
+    /// Return a high-level snapshot of contract state for ops tooling.
+    ///
+    /// Permissionless — any account can call this to inspect initialization
+    /// status, admin address, version metadata, and allowlist policy.
+    pub fn config(env: Env) -> ContractConfig {
+        get_contract_config(&env)
+    }
+
+    /// Return a paginated slice of payment history.
+    ///
+    /// - `cursor` — zero-based index to start from (pass `0` for the first page).
+    /// - `limit` — maximum records to return (capped internally at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+        get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return all payments made by `payer`, paginated.
+    ///
+    /// Scans the deterministic history index and filters by payer address.
+    /// - `cursor` — history index to start scanning from.
+    /// - `limit` — maximum records to return (capped at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn payments_by_payer(
+        env: Env,
+        payer: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> PaymentHistoryPage {
+        use storage::{get_history_count, MAX_PAYMENT_HISTORY_PAGE_SIZE};
+        let total = get_history_count(&env);
+        let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+        let start = core::cmp::min(cursor, total);
+
+        let mut records = soroban_sdk::Vec::new(&env);
+        let mut index = start;
+        let mut collected: u32 = 0;
+
+        while index < total && collected < capped_limit {
+            let key = DataKey::PaymentHistory(index);
+            let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+            if let Some(rec) = record {
+                if rec.payer == payer {
+                    records.push_back(rec);
+                    collected += 1;
+                }
+            }
+            index += 1;
         }
 
-        let target = STORAGE_SCHEMA_VERSION;
-        storage::upgrade_storage_schema(&env, target)
+        PaymentHistoryPage {
+            records,
+            next_cursor: index,
+            has_more: index < total,
+        }
+    }
+
+    /// Migrate on-chain storage layout to the current schema version.
+    ///
+    /// Must be called by the admin after a WASM upgrade that introduces a new
+    /// `STORAGE_SCHEMA_VERSION`. Safe to call multiple times — idempotent.
+    pub fn upgrade_storage(env: Env, admin: Address) -> Result<(), ContractError> {
+        // Verify caller is the current contract admin.
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        storage::upgrade_storage_schema(&env, STORAGE_SCHEMA_VERSION)
     }
 
     /// Pause or unpause the contract.

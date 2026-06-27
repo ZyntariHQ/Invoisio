@@ -159,6 +159,21 @@ Email delivery is handled behind a provider abstraction:
 - `EMAIL_PROVIDER=smtp` sends through SMTP using the `SMTP_*` environment variables.
 
 Email sending is intentionally non-blocking. If sending fails, the error is logged and the invoice creation response still succeeds.
+### Webhooks
+
+#### Read masked webhook secret metadata
+
+```bash
+GET /webhooks/secret
+```
+
+#### Rotate webhook secret
+
+```bash
+POST /webhooks/secret/rotate
+```
+
+The rotate endpoint generates a fresh signing secret, persists it immediately, and returns the raw value once so the merchant can update their webhook receiver. Subsequent reads only return masked metadata.
 
 ## Testing
 
