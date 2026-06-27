@@ -17,7 +17,8 @@ import { ImportRowError, ImportSummaryDto } from "./dto/import-result.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { Prisma, InvoiceStatus } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { InvoiceStatus, Invoice as PrismaInvoice } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { InvoiceEventsService } from "../realtime/invoice-events.service";
@@ -323,7 +324,21 @@ export class InvoicesService implements OnModuleInit {
         },
       },
     });
+
+    this.dispatchPaymentRequestEmail(created);
+
     return this.normalizeInvoice(created);
+  }
+
+  private dispatchPaymentRequestEmail(invoice: PrismaInvoice): void {
+    void this.notificationsService
+      .sendPaymentRequestEmail(invoice)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send payment request email for invoice ${invoice.id}`,
+          error,
+        );
+      });
   }
 
   /**

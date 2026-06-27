@@ -219,6 +219,7 @@ describe("InvoicesService", () => {
         {
           provide: NotificationsService,
           useValue: {
+            sendPaymentRequestEmail: jest.fn().mockResolvedValue(undefined),
             notifyInvoicePaid: jest.fn(),
             notifyInvoiceOverdue: jest.fn(),
           },
@@ -405,6 +406,57 @@ describe("InvoicesService", () => {
       expect(created.statusHistory).toBeDefined();
       expect(created.statusHistory).toHaveLength(1);
       expect(created.statusHistory![0].status).toBe("pending");
+    });
+
+    it("dispatches a payment request email after invoice creation", async () => {
+      const notificationSpy = jest.spyOn(
+        (service as any).notificationsService,
+        "sendPaymentRequestEmail",
+      );
+
+      await service.create(
+        {
+          invoiceNumber: "INV-EMAIL-1",
+          clientName: "Email Client",
+          clientEmail: "email@example.com",
+          amount: 750,
+          asset_code: "USDC",
+        },
+        USER_A,
+        MERCHANT_A,
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(notificationSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: "created-invoice",
+          invoiceNumber: "INV-EMAIL-1",
+          clientEmail: "email@example.com",
+        }),
+      );
+    });
+
+    it("does not fail invoice creation when payment request email sending fails", async () => {
+      const notificationSpy = jest
+        .spyOn((service as any).notificationsService, "sendPaymentRequestEmail")
+        .mockRejectedValueOnce(new Error("SMTP unavailable"));
+
+      await expect(
+        service.create(
+          {
+            invoiceNumber: "INV-EMAIL-FAIL",
+            clientName: "Fail Client",
+            clientEmail: "fail@example.com",
+            amount: 900,
+            asset_code: "XLM",
+          },
+          USER_A,
+          MERCHANT_A,
+        ),
+      ).resolves.toMatchObject({ invoiceNumber: "INV-EMAIL-FAIL" });
+      await new Promise((resolve) => setImmediate(resolve));
+
+      expect(notificationSpy).toHaveBeenCalled();
     });
 
     it("appends status history entry on updateStatus", async () => {

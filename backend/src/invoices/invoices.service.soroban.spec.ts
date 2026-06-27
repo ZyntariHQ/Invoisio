@@ -112,6 +112,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
   } as unknown as WebhooksService;
 
   const notificationsStub = {
+    sendPaymentRequestEmail: async () => {},
     notifyInvoicePaid: async () => {},
     notifyInvoiceOverdue: async () => {},
   } as unknown as NotificationsService;

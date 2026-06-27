@@ -40,6 +40,7 @@ describe("InvoicesService Cron", () => {
         {
           provide: NotificationsService,
           useValue: {
+            sendPaymentRequestEmail: jest.fn().mockResolvedValue(undefined),
             notifyInvoicePaid: jest.fn(),
             notifyInvoiceOverdue: jest.fn(),
           },
