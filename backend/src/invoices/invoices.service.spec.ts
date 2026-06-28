@@ -10,6 +10,8 @@ import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { mockStructuredLogger } from "../observability/testing/observability.mock";
 
 const MERCHANT_A = "merchant-a";
 const MERCHANT_B = "merchant-b";
@@ -222,6 +224,10 @@ describe("InvoicesService", () => {
             notifyInvoicePaid: jest.fn(),
             notifyInvoiceOverdue: jest.fn(),
           },
+        },
+        {
+          provide: StructuredLogger,
+          useValue: mockStructuredLogger,
         },
       ],
     }).compile();

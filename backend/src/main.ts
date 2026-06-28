@@ -23,7 +23,13 @@ async function bootstrap() {
     origin: corsOrigin,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Correlation-ID",
+      "X-Request-ID",
+    ],
+    exposedHeaders: ["X-Correlation-ID"],
   });
 
   // Global validation pipe

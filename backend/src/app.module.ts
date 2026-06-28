@@ -6,6 +6,8 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import appConfig from "./config/app.config";
 import stellarConfig from "./config/stellar.config";
 import throttlerConfig from "./config/throttler.config";
+import observabilityConfig from "./config/observability.config";
+import { ObservabilityModule } from "./observability/observability.module";
 
 // Modules
 import { HealthModule } from "./health/health.module";
@@ -38,7 +40,7 @@ import { MerchantModule } from "./merchant/merchant.module";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env", ".env.example"],
-      load: [appConfig, stellarConfig, throttlerConfig],
+      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
         CORS_ORIGIN: Joi.string().default("http://localhost:3000"),
@@ -86,12 +88,15 @@ import { MerchantModule } from "./merchant/merchant.module";
         REDIS_PASSWORD: Joi.string().optional().allow(""),
         REDIS_DB: Joi.number().integer().min(0).default(0),
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
+        SLOW_DB_THRESHOLD_MS: Joi.number().integer().min(1).default(200),
+        SLOW_NETWORK_THRESHOLD_MS: Joi.number().integer().min(1).default(500),
       }),
       validationOptions: {
         abortEarly: false,
         allowUnknown: true,
       },
     }),
+    ObservabilityModule,
     CustomThrottlerModule,
     PrismaModule,
     ScheduleModule.forRoot(),

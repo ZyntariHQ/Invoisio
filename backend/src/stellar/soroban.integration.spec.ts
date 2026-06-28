@@ -4,6 +4,12 @@ import { SorobanService } from "./soroban.service";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { ConfigService } from "@nestjs/config";
+import { RequestContextService } from "../observability/request-context.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import {
+  mockRequestContextService,
+  mockStructuredLogger,
+} from "../observability/testing/observability.mock";
 
 describe("Soroban Integration", () => {
   let horizonWatcher: HorizonWatcherService;
@@ -65,12 +71,21 @@ describe("Soroban Integration", () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string) => {
-              const config: Record<string, string> = {
+              const config: Record<string, unknown> = {
                 HORIZON_POLL_INTERVAL: "1000",
+                "observability.slowNetworkThresholdMs": 500,
               };
               return config[key];
             }),
           },
+        },
+        {
+          provide: RequestContextService,
+          useValue: mockRequestContextService,
+        },
+        {
+          provide: StructuredLogger,
+          useValue: mockStructuredLogger,
         },
       ],
     }).compile();

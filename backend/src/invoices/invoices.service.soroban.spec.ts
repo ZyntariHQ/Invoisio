@@ -3,6 +3,8 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { mockStructuredLogger } from "../observability/testing/observability.mock";
 
 class FakePrisma {
   invoice = {
@@ -116,6 +118,9 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
     notifyInvoiceOverdue: async () => {},
   } as unknown as NotificationsService;
 
+  const structuredLoggerStub =
+    mockStructuredLogger as unknown as StructuredLogger;
+
   beforeEach(async () => {
     prisma = new FakePrisma();
     service = new InvoicesService(
@@ -124,6 +129,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       prisma,
       webhooksStub,
       notificationsStub,
+      structuredLoggerStub,
     );
   });
 

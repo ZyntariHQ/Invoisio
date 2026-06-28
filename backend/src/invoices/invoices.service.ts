@@ -21,6 +21,7 @@ import { Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { InvoiceEventsService } from "../realtime/invoice-events.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
 
 const REQUIRED_CSV_HEADERS = [
   "invoiceNumber",
@@ -44,6 +45,7 @@ export class InvoicesService implements OnModuleInit {
     private readonly prisma: PrismaService,
     private readonly webhooksService: WebhooksService,
     private readonly notificationsService: NotificationsService,
+    private readonly structuredLogger: StructuredLogger,
     @Optional()
     private readonly invoiceEvents?: InvoiceEventsService,
   ) {}
@@ -323,6 +325,20 @@ export class InvoicesService implements OnModuleInit {
         },
       },
     });
+
+    this.structuredLogger.info("invoice.created", {
+      domain: "invoices",
+      event: "invoice_created",
+      invoiceId: created.id,
+      invoiceNumber: created.invoiceNumber,
+      memo: created.memo,
+      merchantId,
+      userId,
+      amount: created.amount,
+      assetCode: created.assetCode,
+      status: created.status,
+    });
+
     return this.normalizeInvoice(created);
   }
 
