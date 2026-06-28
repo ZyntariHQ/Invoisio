@@ -4,13 +4,23 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 let accessToken: string | null = null;
 
+function getOrCreateCorrelationId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+
+  return `corr-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export const apiClient = axios.create({
   baseURL: API_URL,
 });
 
 apiClient.interceptors.request.use((config) => {
+  config.headers = config.headers ?? {};
+  config.headers['X-Correlation-ID'] = getOrCreateCorrelationId();
+
   if (accessToken != null && accessToken.length > 0) {
-    config.headers = config.headers ?? {};
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;

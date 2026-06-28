@@ -5,6 +5,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { PrismaService } from "../prisma/prisma.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
 import * as crypto from "crypto";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
@@ -17,6 +18,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly logger: StructuredLogger,
   ) {}
 
   /**
@@ -28,6 +30,12 @@ export class AuthService {
     dto: NonceRequestDto,
   ): Promise<{ nonce: string; expiresAt: number }> {
     this.assertValidPublicKey(dto.publicKey);
+
+    this.logger.info("auth.nonce.start", {
+      domain: "auth",
+      event: "nonce_requested",
+      publicKey: dto.publicKey,
+    });
 
     const existing = await this.prisma.user.findUnique({
       where: { publicKey: dto.publicKey },
@@ -74,6 +82,13 @@ export class AuthService {
           merchantId,
         },
       });
+      this.logger.info("auth.nonce.issued", {
+        domain: "auth",
+        event: "nonce_issued",
+        publicKey: dto.publicKey,
+        isNewUser: true,
+        expiresAt: Number(expiresAt),
+      });
       return { nonce, expiresAt: Number(expiresAt) };
     }
 
@@ -84,6 +99,14 @@ export class AuthService {
         nonceExpiresAt: expiresAt,
         nonceUsedAt: null,
       },
+    });
+
+    this.logger.info("auth.nonce.issued", {
+      domain: "auth",
+      event: "nonce_issued",
+      publicKey: dto.publicKey,
+      isNewUser: false,
+      expiresAt: Number(expiresAt),
     });
 
     return { nonce, expiresAt: Number(expiresAt) };
@@ -101,12 +124,24 @@ export class AuthService {
   async verify(dto: VerifyRequestDto): Promise<{ accessToken: string }> {
     this.assertValidPublicKey(dto.publicKey);
 
+    this.logger.info("auth.verify.start", {
+      domain: "auth",
+      event: "verify_started",
+      publicKey: dto.publicKey,
+    });
+
     // 1. Find user — unauthorized if no record or no active nonce
     const user = await this.prisma.user.findUnique({
       where: { publicKey: dto.publicKey },
     });
 
     if (!user || !user.nonce) {
+      this.logger.warn("auth.verify.failed", {
+        domain: "auth",
+        event: "verify_failed",
+        reason: "no_active_nonce",
+        publicKey: dto.publicKey,
+      });
       throw new UnauthorizedException(
         "No active nonce found. Request a new nonce first.",
       );
@@ -114,6 +149,12 @@ export class AuthService {
 
     // 2. Replay guard — unauthorized if nonce already consumed
     if (user.nonceUsedAt != null) {
+      this.logger.warn("auth.verify.failed", {
+        domain: "auth",
+        event: "verify_failed",
+        reason: "nonce_replay",
+        publicKey: dto.publicKey,
+      });
       throw new UnauthorizedException(
         "Nonce has already been used. Request a new nonce.",
       );
@@ -121,6 +162,12 @@ export class AuthService {
 
     // 3. Expiry — unauthorized if nonce has expired
     if (Date.now() > Number(user.nonceExpiresAt ?? 0n)) {
+      this.logger.warn("auth.verify.failed", {
+        domain: "auth",
+        event: "verify_failed",
+        reason: "nonce_expired",
+        publicKey: dto.publicKey,
+      });
       throw new UnauthorizedException(
         "Nonce has expired. Request a new nonce.",
       );
@@ -147,6 +194,14 @@ export class AuthService {
       merchantId: user.merchantId,
     };
     const accessToken = this.jwtService.sign(payload);
+
+    this.logger.info("auth.verify.success", {
+      domain: "auth",
+      event: "verify_succeeded",
+      userId: user.id,
+      merchantId: user.merchantId ?? undefined,
+      publicKey: dto.publicKey,
+    });
 
     return { accessToken };
   }

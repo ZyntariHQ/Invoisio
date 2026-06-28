@@ -4,6 +4,8 @@ import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import * as StellarSdk from "@stellar/stellar-sdk";
 import { AuthService } from "./auth.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { mockStructuredLogger } from "../observability/testing/observability.mock";
 
 const mockPrisma = () => ({
   merchant: {
@@ -30,6 +32,10 @@ describe("AuthService", () => {
         AuthService,
         { provide: PrismaService, useFactory: mockPrisma },
         { provide: JwtService, useValue: { sign: jest.fn(() => "jwt-token") } },
+        {
+          provide: StructuredLogger,
+          useValue: mockStructuredLogger,
+        },
       ],
     }).compile();
 

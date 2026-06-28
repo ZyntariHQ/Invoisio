@@ -1,6 +1,5 @@
 import {
   Injectable,
-  Logger,
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
@@ -10,10 +9,12 @@ import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { InvoicePaidEvent } from "./events/invoice-paid.event";
 import { SorobanService } from "./soroban.service";
+import { RequestContextService } from "../observability/request-context.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { traceAsync } from "../observability/tracing.util";
 
 @Injectable()
 export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(HorizonWatcherService.name);
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private cursor = "now";
   private polling = false;
@@ -25,21 +26,26 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     private readonly stellarService: StellarService,
     private readonly invoicesService: InvoicesService,
     private readonly sorobanService: SorobanService,
+    private readonly requestContext: RequestContextService,
+    private readonly logger: StructuredLogger,
   ) {}
 
   onModuleInit(): void {
     const merchantKey = this.stellarService.getMerchantPublicKey();
     if (!merchantKey) {
-      this.logger.warn(
-        "MERCHANT_PUBLIC_KEY not configured; Horizon watcher disabled",
-      );
+      this.logger.warn("horizon.watcher.disabled", {
+        domain: "horizon",
+        reason: "missing_merchant_public_key",
+      });
       return;
     }
 
     const intervalMs = this.getPollIntervalMs();
-    this.logger.log(
-      `Horizon payment watcher started (interval: ${intervalMs}ms, account: ${merchantKey})`,
-    );
+    this.logger.info("horizon.watcher.started", {
+      domain: "horizon",
+      intervalMs,
+      account: merchantKey,
+    });
 
     void this.pollPayments();
     this.pollTimer = setInterval(() => void this.pollPayments(), intervalMs);
@@ -59,86 +65,136 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     const merchantKey = this.stellarService.getMerchantPublicKey();
     if (!merchantKey) return;
 
-    this.polling = true;
-    try {
-      const server = this.stellarService.getServer();
-      const config = this.stellarService.getConfig();
-      const memoPrefix: string = config?.memoPrefix ?? "invoisio-";
+    await this.requestContext.runWithWorkerContext(
+      { workerName: "horizon-watcher" },
+      async () => {
+        this.polling = true;
+        try {
+          const server = this.stellarService.getServer();
+          const config = this.stellarService.getConfig();
+          const memoPrefix: string = config?.memoPrefix ?? "invoisio-";
 
-      const response = await server
-        .payments()
-        .forAccount(merchantKey)
-        .cursor(this.cursor)
-        .order("asc")
-        .limit(200)
-        .call();
+          const response = await traceAsync(
+            this.logger,
+            {
+              operation: "horizon.payments.list",
+              category: "network",
+              slowThresholdMs: this.getSlowNetworkThresholdMs(),
+              attributes: { account: merchantKey, cursor: this.cursor },
+            },
+            () =>
+              server
+                .payments()
+                .forAccount(merchantKey)
+                .cursor(this.cursor)
+                .order("asc")
+                .limit(200)
+                .call(),
+          );
 
-      for (const record of response.records) {
-        const type: string = (record as any).type;
-        if (
-          type !== "payment" &&
-          type !== "path_payment_strict_receive" &&
-          type !== "path_payment_strict_send"
-        ) {
-          continue;
+          this.logger.debug("horizon.poll.complete", {
+            domain: "horizon",
+            recordCount: response.records.length,
+            cursor: this.cursor,
+          });
+
+          for (const record of response.records) {
+            const type: string = (record as any).type;
+            if (
+              type !== "payment" &&
+              type !== "path_payment_strict_receive" &&
+              type !== "path_payment_strict_send"
+            ) {
+              continue;
+            }
+
+            if ((record as any).to !== merchantKey) {
+              this.cursor = (record as any).paging_token;
+              continue;
+            }
+
+            await this.processPayment(record, memoPrefix);
+            this.cursor = (record as any).paging_token;
+          }
+        } catch (error) {
+          this.logger.warn("horizon.poll.error", {
+            domain: "horizon",
+            error: (error as Error).message,
+          });
+        } finally {
+          this.polling = false;
         }
-
-        if ((record as any).to !== merchantKey) {
-          this.cursor = (record as any).paging_token;
-          continue;
-        }
-
-        await this.processPayment(record, memoPrefix);
-        this.cursor = (record as any).paging_token;
-      }
-    } catch (error) {
-      this.logger.warn(
-        `Horizon poll error (transient, will retry): ${(error as Error).message}`,
-      );
-    } finally {
-      this.polling = false;
-    }
+      },
+    );
   }
 
   private async processPayment(record: any, memoPrefix: string): Promise<void> {
-    try {
-      const tx = await record.transaction();
-      const rawMemo: string | undefined = tx?.memo;
-      if (!rawMemo) return;
+    const txHash: string = record.transaction_hash;
 
-      const memoId = this.resolveMemoId(rawMemo, memoPrefix);
-      if (!memoId) return;
+    await this.requestContext.runWithChildContext(
+      { correlationId: `horizon:${txHash}` },
+      async () => {
+        try {
+          const tx = await traceAsync(
+            this.logger,
+            {
+              operation: "horizon.transaction.get",
+              category: "network",
+              slowThresholdMs: this.getSlowNetworkThresholdMs(),
+              attributes: { txHash },
+            },
+            () => record.transaction(),
+          );
 
-      const invoice = await this.invoicesService.findByMemo(memoId);
-      if (!invoice || invoice.status === "paid") return;
+          const rawMemo: string | undefined = (tx as { memo?: string } | null)
+            ?.memo;
+          if (!rawMemo) return;
 
-      const txHash: string = record.transaction_hash;
-      await this.invoicesService.markAsPaid(invoice.id, txHash);
+          const memoId = this.resolveMemoId(rawMemo, memoPrefix);
+          if (!memoId) return;
 
-      const event = new InvoicePaidEvent(
-        invoice.id,
-        txHash,
-        memoId,
-        record.amount ?? "0",
-        record.asset_code ?? "XLM",
-      );
-      this.invoicePaid$.next(event);
+          const invoice = await this.invoicesService.findByMemo(memoId);
+          if (!invoice || invoice.status === "paid") return;
 
-      this.logger.log(
-        `Invoice ${invoice.id} marked paid | tx: ${txHash} | memo: ${memoId}`,
-      );
+          await this.invoicesService.markAsPaid(invoice.id, txHash);
 
-      // Anchor to Soroban (non-blocking)
-      this.anchorToSoroban(invoice, record, txHash).catch((err) =>
-        this.logger.error(
-          `Soroban anchor failed for invoice ${invoice.id}: ${err.message}`,
-        ),
-      );
-    } catch (err) {
-      this.logger.warn(
-        `Failed to process payment ${record.id}: ${(err as Error).message}`,
-      );
-    }
+          const event = new InvoicePaidEvent(
+            invoice.id,
+            txHash,
+            memoId,
+            record.amount ?? "0",
+            record.asset_code ?? "XLM",
+          );
+          this.invoicePaid$.next(event);
+
+          this.logger.info("horizon.payment.matched", {
+            domain: "horizon",
+            event: "invoice_marked_paid",
+            invoiceId: invoice.id,
+            txHash,
+            memo: memoId,
+            amount: record.amount ?? "0",
+            assetCode: record.asset_code ?? "XLM",
+          });
+
+          this.anchorToSoroban(invoice, record, txHash).catch((err) =>
+            this.logger.error("horizon.soroban_anchor.failed", {
+              domain: "horizon",
+              invoiceId: invoice.id,
+              txHash,
+              error: err.message,
+            }),
+          );
+        } catch (err) {
+          this.logger.warn("horizon.payment.process_failed", {
+            domain: "horizon",
+            paymentId: record.id,
+            txHash,
+            error: (err as Error).message,
+          });
+        }
+      },
+    );
   }
 
   private async anchorToSoroban(
@@ -148,13 +204,23 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const amount = this.convertToStroops(record.amount, record.asset_code);
 
-    const metadata = await this.sorobanService.recordPayment({
-      invoiceId: invoice.memo,
-      payer: record.from,
-      assetCode: record.asset_code ?? "XLM",
-      assetIssuer: record.asset_issuer ?? "",
-      amount,
-    });
+    const metadata = await traceAsync(
+      this.logger,
+      {
+        operation: "soroban.record_payment",
+        category: "network",
+        slowThresholdMs: this.getSlowNetworkThresholdMs(),
+        attributes: { invoiceId: invoice.id, txHash },
+      },
+      () =>
+        this.sorobanService.recordPayment({
+          invoiceId: invoice.memo,
+          payer: record.from,
+          assetCode: record.asset_code ?? "XLM",
+          assetIssuer: record.asset_issuer ?? "",
+          amount,
+        }),
+    );
 
     if (metadata) {
       await this.invoicesService.updateSorobanMetadata(
@@ -162,9 +228,12 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
         metadata.txHash,
         metadata.contractId,
       );
-      this.logger.log(
-        `Soroban anchor complete for invoice ${invoice.id} | tx: ${metadata.txHash}`,
-      );
+      this.logger.info("horizon.soroban_anchor.complete", {
+        domain: "horizon",
+        invoiceId: invoice.id,
+        sorobanTxHash: metadata.txHash,
+        contractId: metadata.contractId,
+      });
     }
   }
 
@@ -190,5 +259,12 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     const raw = this.configService.get<string>("HORIZON_POLL_INTERVAL");
     const parsed = parseInt(raw ?? "", 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 15_000;
+  }
+
+  private getSlowNetworkThresholdMs(): number {
+    return (
+      this.configService.get<number>("observability.slowNetworkThresholdMs") ??
+      500
+    );
   }
 }
