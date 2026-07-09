@@ -112,6 +112,17 @@ GET /invoices
 GET /invoices/:id
 ```
 
+#### Download invoice and receipt PDFs
+
+```bash
+GET /invoices/:id/export.pdf
+GET /invoices/:id/receipt.pdf
+```
+
+Both endpoints require authentication, are scoped to the caller's merchant, and
+return `application/pdf` attachments with stable filenames such as
+`invoice-INV-001.pdf` and `receipt-INV-001.pdf`.
+
 #### Create a new invoice
 
 ```bash
@@ -249,7 +260,7 @@ The `StellarModule` currently provides stubbed methods. Future implementation wi
 - [ ] Horizon payment streaming
 - [ ] Soroban smart contract integration
 - [ ] Email notifications
-- [ ] PDF invoice generation
+- [x] PDF invoice and receipt generation
 - [ ] Webhook support
 
 ## License

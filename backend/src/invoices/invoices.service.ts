@@ -257,6 +257,10 @@ export class InvoicesService implements OnModuleInit {
     const invoice = await this.prisma.invoice.findFirst({
       where: { id, merchantId },
       include: {
+        merchant: true,
+        payments: {
+          orderBy: { createdAt: "asc" },
+        },
         statusHistory: {
           orderBy: { createdAt: "asc" },
         },
@@ -959,7 +963,7 @@ export class InvoicesService implements OnModuleInit {
     } else {
       await this.webhooksService.enqueueWebhook(
         invoice.id,
-        "partially_paid" as any,
+        "partially_paid",
         txHash,
         invoice.merchantId,
       );
@@ -1029,7 +1033,7 @@ export class InvoicesService implements OnModuleInit {
 
     await this.webhooksService.enqueueWebhook(
       id,
-      "cancelled" as any,
+      "cancelled",
       invoice.txHash,
       merchantId,
     );

@@ -8,6 +8,7 @@ import { WebhooksModule } from "../webhooks/webhooks.module";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { RealtimeModule } from "../realtime/realtime.module";
+import { InvoicePdfService } from "./invoice-pdf.service";
 
 /**
  * Invoices module
@@ -24,7 +25,7 @@ import { RealtimeModule } from "../realtime/realtime.module";
     RealtimeModule,
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService],
-  exports: [InvoicesService],
+  providers: [InvoicesService, InvoicePdfService],
+  exports: [InvoicesService, InvoicePdfService],
 })
 export class InvoicesModule {}

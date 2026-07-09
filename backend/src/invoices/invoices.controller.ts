@@ -9,7 +9,9 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { Throttle } from "@nestjs/throttler";
@@ -22,6 +24,7 @@ import { InvoiceStatus } from "@prisma/client";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
+import { InvoicePdfDocument, InvoicePdfService } from "./invoice-pdf.service";
 
 /**
  * Invoices controller
@@ -37,6 +40,7 @@ export class InvoicesController {
   constructor(
     private readonly invoicesService: InvoicesService,
     private readonly prisma: PrismaService,
+    private readonly invoicePdfService: InvoicePdfService,
   ) {}
 
   /**
@@ -80,6 +84,38 @@ export class InvoicesController {
    * @param id - Invoice UUID
    * @returns The invoice object
    */
+  @Auth()
+  @Get(":id/export.pdf")
+  async exportInvoicePdf(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<Buffer> {
+    const invoice = await this.prisma.runWithMerchantScope(
+      user.merchantId,
+      () => this.invoicesService.findOne(id, user.merchantId),
+    );
+    const document = this.invoicePdfService.createInvoiceExport(invoice);
+    this.setPdfDownloadHeaders(response, document);
+    return document.buffer;
+  }
+
+  @Auth()
+  @Get(":id/receipt.pdf")
+  async exportReceiptPdf(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<Buffer> {
+    const invoice = await this.prisma.runWithMerchantScope(
+      user.merchantId,
+      () => this.invoicesService.findOne(id, user.merchantId),
+    );
+    const document = this.invoicePdfService.createReceipt(invoice);
+    this.setPdfDownloadHeaders(response, document);
+    return document.buffer;
+  }
+
   @Auth()
   @Get(":id")
   async findOne(
@@ -210,5 +246,18 @@ export class InvoicesController {
         reason ?? "voided",
       ),
     );
+  }
+
+  private setPdfDownloadHeaders(
+    response: Response,
+    document: InvoicePdfDocument,
+  ): void {
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${document.filename}"`,
+    );
+    response.setHeader("Content-Length", String(document.buffer.length));
+    response.setHeader("Cache-Control", "private, no-store");
   }
 }

@@ -20,6 +20,14 @@ export class Invoice {
 
   merchantId?: string;
 
+  merchant?: {
+    id: string;
+    name: string;
+    stellarPublicKey: string;
+    payoutPublicKey?: string | null;
+    preferredAsset?: string | null;
+  } | null;
+
   user?: User | null;
 
   invoiceNumber?: string | null;
