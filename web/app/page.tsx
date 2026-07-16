@@ -1,132 +1,100 @@
-import type { ReactNode } from 'react';
+'use client';
+
 import Link from 'next/link';
-import {
-  QrCode,
-  FileText,
-  Wallet,
-  Zap,
-  Shield,
-  Globe,
-  ArrowRight,
-  CheckCircle2,
-  Receipt,
-  BarChart3,
-  Clock,
-} from 'lucide-react';
+import { RequireAuth } from '@/components/require-auth';
+import { ActivationChecklist } from '@/components/activation-checklist';
+import { WalletAuthControls } from '@/components/wallet-auth-controls';
+import { useMerchantChecklist } from '@/hooks/use-merchant-checklist';
+import { useEffect } from 'react';
 
-/* ------------------------------------------------------------------ */
-/*  Small reusable pieces                                              */
-/* ------------------------------------------------------------------ */
+function DashboardContent() {
+  const { checklist, isLoading, progress, isCompleted, syncChecklist } =
+    useMerchantChecklist();
 
-function SectionBadge({ children }: { children: ReactNode }) {
+  // Refresh server-derived completion (e.g. invoices created elsewhere) once on mount.
+  useEffect(() => {
+    syncChecklist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (isLoading && !checklist) {
+    return (
+      <div className="mx-auto max-w-5xl">
+        <div className="h-8 w-56 animate-pulse rounded bg-gray-200" />
+        <div className="mt-6 h-64 animate-pulse rounded-2xl bg-gray-100" />
+      </div>
+    );
+  }
+
   return (
-    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-blue-700 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300">
-      {children}
-    </span>
+    <div className="mx-auto max-w-5xl">
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">Dashboard</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            {isCompleted
+              ? 'Your merchant account is active. Create and track invoices.'
+              : 'Finish setting up your account to start getting paid.'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 self-start sm:self-center">
+          <WalletAuthControls />
+          <Link
+            href="/pos"
+            className="inline-flex items-center rounded-lg bg-blue-600 px-3.5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+          >
+            + New Invoice
+          </Link>
+        </div>
+      </div>
+
+      {!isCompleted ? (
+        <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+          <ActivationChecklist />
+          <aside className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-900">Why activate?</h2>
+            <p className="mt-2 text-sm text-gray-500">
+              Completing these steps ensures your invoices carry your brand, route
+              payouts to your wallet, and default to the asset you want. Progress is
+              saved automatically.
+            </p>
+            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-blue-600 transition-all duration-500"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              {checklist?.completedAt
+                ? 'Activation complete.'
+                : `${progress}% complete`}
+            </p>
+          </aside>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-emerald-800">
+                🎉 You’re all set!
+              </p>
+              <p className="mt-1 text-sm text-emerald-700">
+                Your activation is complete. Create your first invoice to start
+                getting paid on Stellar.
+              </p>
+            </div>
+            <Link
+              href="/invoices"
+              className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+            >
+              Go to Invoices
+            </Link>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
-
-function CtaButton({
-  href,
-  children,
-  variant = 'primary',
-}: {
-  href: string;
-  children: ReactNode;
-  variant?: 'primary' | 'secondary';
-}) {
-  const base =
-    'inline-flex items-center gap-2 rounded-md px-6 py-3 text-sm font-semibold transition-colors';
-  const styles =
-    variant === 'primary'
-      ? 'bg-blue-600 text-white hover:bg-blue-700'
-      : 'border border-gray-300 text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-800';
-  return (
-    <Link href={href} className={`${base} ${styles}`}>
-      {children}
-    </Link>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Data                                                               */
-/* ------------------------------------------------------------------ */
-
-const features = [
-  {
-    icon: QrCode,
-    title: 'Instant QR Payments',
-    description:
-      'Generate payment QR codes in seconds. Customers scan with any Stellar-compatible wallet and pay instantly — no manual address entry.',
-  },
-  {
-    icon: FileText,
-    title: 'Professional Invoices',
-    description:
-      'Create branded invoices with automatic payment tracking. Send them to clients via link or email and get paid on-chain.',
-  },
-  {
-    icon: Wallet,
-    title: 'Wallet-Native Auth',
-    description:
-      'No passwords, no email verification loops. Connect your Freighter wallet, sign a challenge, and you are in.',
-  },
-  {
-    icon: Zap,
-    title: 'Multi-Asset Support',
-    description:
-      'Accept XLM, USDC, and any Stellar asset your business needs. Switch between assets with a single toggle.',
-  },
-  {
-    icon: Shield,
-    title: 'On-Chain Transparency',
-    description:
-      'Every payment is recorded on the Stellar ledger. Reconcile accounts with a single click — no more spreadsheets.',
-  },
-  {
-    icon: Globe,
-    title: 'Built for Global Commerce',
-    description:
-      'Stellar settles cross-border payments in ~5 seconds. Invoice in any currency, get paid anywhere in the world.',
-  },
-];
-
-const workflowSteps = [
-  {
-    step: '01',
-    icon: Wallet,
-    title: 'Connect Your Wallet',
-    description: 'Install the Freighter browser extension and sign in with one click.',
-  },
-  {
-    step: '02',
-    icon: Receipt,
-    title: 'Create an Invoice',
-    description: 'Enter the amount, choose an asset, add a memo — your payment request is ready.',
-  },
-  {
-    step: '03',
-    icon: QrCode,
-    title: 'Share or Display QR',
-    description: 'Show the QR code at your counter or send the invoice link to your client.',
-  },
-  {
-    step: '04',
-    icon: CheckCircle2,
-    title: 'Get Paid & Track',
-    description: 'Payments settle on-chain instantly. Monitor status in real time from your dashboard.',
-  },
-];
-
-const stats = [
-  { value: '~5 s', label: 'Settlement time' },
-  { value: '< $0.001', label: 'Per transaction' },
-  { value: '170+', label: 'Countries supported' },
-];
-
-/* ------------------------------------------------------------------ */
-/*  Page                                                               */
-/* ------------------------------------------------------------------ */
 
 export default function Home() {
   return (
