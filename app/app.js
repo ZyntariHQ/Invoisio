@@ -29,6 +29,7 @@ function renderSummary(containerId, report) {
 }
 
 function renderBarChart(items, targetId) {
+function renderBarChart(items, targetId, labelKey = 'asset') {
   const container = document.getElementById(targetId);
   if (!container) return;
 
@@ -44,6 +45,10 @@ function renderBarChart(items, targetId) {
       return `
         <div class="chart-row">
           <span>${item.asset || item.network || 'Unknown'}</span>
+      const label = item[labelKey] || item.asset || item.network || 'Unknown';
+      return `
+        <div class="chart-row">
+          <span>${label}</span>
           <div class="bar-track"><div class="bar-fill" style="width:${percentage}%"></div></div>
           <span>${currency(item.volume || 0)}</span>
         </div>
@@ -55,12 +60,56 @@ function renderBarChart(items, targetId) {
 function renderMerchantView(report) {
   renderSummary('merchant-summary', report);
   renderBarChart(report.assetBreakdown.slice(0, 5), 'merchant-asset-chart');
+function renderFunnel(funnel, targetId) {
+  const container = document.getElementById(targetId);
+  if (!container) return;
+
+  container.innerHTML = funnel
+    .map((step) => `
+      <div class="chart-row">
+        <span>${step.stage}</span>
+        <div class="bar-track"><div class="bar-fill" style="width:${Math.min(step.conversionRate, 100)}%"></div></div>
+        <span>${step.count}</span>
+      </div>
+    `)
+    .join('');
+}
+
+function renderTimeToPay(metrics, targetId) {
+  const container = document.getElementById(targetId);
+  if (!container) return;
+
+  const summary = metrics || { averageHours: 0, count: 0, method: 'No paid timestamps available' };
+  container.innerHTML = `
+    <div class="summary-tile">
+      <div>Average time-to-pay</div>
+      <strong>${summary.averageHours} hrs</strong>
+    </div>
+    <div class="summary-tile">
+      <div>Computed from</div>
+      <strong>${summary.method}</strong>
+    </div>
+    <div class="summary-tile">
+      <div>Included paid invoices</div>
+      <strong>${summary.count}</strong>
+    </div>
+  `;
+}
+
+function renderMerchantView(report) {
+  renderSummary('merchant-summary', report);
+  renderFunnel(report.conversionMetrics.funnel, 'merchant-funnel');
+  renderBarChart(report.assetBreakdown.slice(0, 5), 'merchant-asset-chart', 'asset');
 }
 
 function renderAdminView(report) {
   renderSummary('admin-summary', report);
   renderBarChart(report.assetBreakdown.slice(0, 5), 'admin-asset-chart');
   renderBarChart(report.networkBreakdown.slice(0, 5), 'admin-network-chart');
+  renderBarChart(report.assetBreakdown.slice(0, 5), 'admin-asset-chart', 'asset');
+  renderBarChart(report.networkBreakdown.slice(0, 5), 'admin-network-chart', 'network');
+  renderFunnel(report.conversionMetrics.funnel, 'admin-funnel');
+  renderTimeToPay(report.conversionMetrics.timeToPay, 'admin-time-to-pay');
 }
 
 async function loadReport() {

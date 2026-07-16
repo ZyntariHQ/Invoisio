@@ -113,6 +113,24 @@ function buildAssetReport(invoices = []) {
       ...xlmVsToken,
       dominant,
       dominantDescription
+    },
+    conversionMetrics: {
+      createdCount,
+      sharedCount,
+      viewedCount,
+      paidCount,
+      funnel: [
+        { stage: 'Created', count: createdCount, conversionRate: 100 },
+        { stage: 'Shared', count: sharedCount, conversionRate: createdCount > 0 ? Number(((sharedCount / createdCount) * 100).toFixed(1)) : 0 },
+        { stage: 'Viewed', count: viewedCount, conversionRate: createdCount > 0 ? Number(((viewedCount / createdCount) * 100).toFixed(1)) : 0 },
+        { stage: 'Paid', count: paidCount, conversionRate: createdCount > 0 ? Number(((paidCount / createdCount) * 100).toFixed(1)) : 0 }
+      ],
+      timeToPay: {
+        unit: 'hours',
+        count: timeToPaySamples.length,
+        averageHours,
+        method: 'Difference between created_at and paid_at timestamps'
+      }
     }
   };
 }
