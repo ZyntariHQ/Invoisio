@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Invoice Asset Usage Insights</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Operational reporting</p>
+          <h1>Asset and network path usage</h1>
+          <p class="subtitle">Merchants and admins can quickly see whether XLM or token payments are leading, with supporting network metadata surfaced next to each trend.</p>
+        </div>
+        <div class="toggle" role="tablist" aria-label="reporting views">
+          <button class="toggle-button active" data-view="merchant">Merchant view</button>
+          <button class="toggle-button" data-view="admin">Admin view</button>
+        </div>
+      </header>
+
+      <section id="merchant-view" class="view-card">
+        <h2>Merchant summary</h2>
+        <div id="merchant-summary" class="summary-grid"></div>
+        <div id="merchant-asset-chart" class="chart-list"></div>
+      </section>
+
+      <section id="admin-view" class="view-card hidden">
+        <h2>Admin insights</h2>
+        <div id="admin-summary" class="summary-grid"></div>
+        <div class="dual-grid">
+          <div>
+            <h3>Top assets</h3>
+            <div id="admin-asset-chart" class="chart-list"></div>
+          </div>
+          <div>
+            <h3>Top network paths</h3>
+            <div id="admin-network-chart" class="chart-list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
