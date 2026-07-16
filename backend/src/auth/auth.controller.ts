@@ -50,4 +50,15 @@ export class AuthController {
       createdAt: user.createdAt,
     };
   }
+
+  /**
+   * POST /auth/logout
+   * Revokes the caller's active JWT session(s) by bumping tokenVersion.
+   */
+  @Auth()
+  @Post("logout")
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(@CurrentUser() user: User) {
+    await this.authService.logout(user.id);
+  }
 }
