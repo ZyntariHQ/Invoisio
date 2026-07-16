@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { WebhooksService } from "./webhooks.service";
 import { PrismaService } from "../prisma/prisma.service";
 import axios from "axios";
+import { BadRequestException } from "@nestjs/common";
 
 jest.mock("axios");
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -9,7 +10,19 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 describe("WebhooksService", () => {
   let service: WebhooksService;
 
+  const mockTransactionClient = {
+    webhookDelivery: {
+      create: jest.fn(),
+      delete: jest.fn(),
+    },
+    webhookDeadLetter: {
+      create: jest.fn(),
+      update: jest.fn(),
+    },
+  };
+
   const mockPrismaService = {
+    $transaction: jest.fn(),
     user: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -21,12 +34,23 @@ describe("WebhooksService", () => {
     webhookDelivery: {
       create: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    webhookDeadLetter: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
       update: jest.fn(),
     },
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockPrismaService.$transaction.mockImplementation(async (callback: any) =>
+      callback(mockTransactionClient),
+    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -127,10 +151,12 @@ describe("WebhooksService", () => {
       mockedAxios.post.mockResolvedValue({ status: 200 } as any);
       mockPrismaService.user.findUnique.mockResolvedValue({
         webhookSecret: "secret",
+        merchantId: "merchant-1",
       } as any);
 
       const delivery = {
         id: "del-1",
+        invoiceId: "inv-1",
         url: "https://example.com/webhook",
         payload: { status: "paid" },
         attempts: 0,
@@ -147,7 +173,7 @@ describe("WebhooksService", () => {
       expect(postArgs[2]?.headers?.["x-invoisio-signature"]).toBeDefined();
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { id: "user-1" },
-        select: { webhookSecret: true },
+        select: { webhookSecret: true, merchantId: true },
       });
       expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith({
         where: { id: "del-1" },
@@ -162,10 +188,12 @@ describe("WebhooksService", () => {
       mockedAxios.post.mockRejectedValue(new Error("Timeout"));
       mockPrismaService.user.findUnique.mockResolvedValue({
         webhookSecret: null,
+        merchantId: "merchant-2",
       } as any);
 
       const delivery = {
         id: "del-2",
+        invoiceId: "inv-2",
         url: "https://example.com/webhook",
         payload: { status: "paid" },
         attempts: 1,
@@ -186,14 +214,16 @@ describe("WebhooksService", () => {
       expect(updateCall.data.nextAttemptAt).toBeInstanceOf(Date);
     });
 
-    it("should mark as failed permanently after 5 attempts", async () => {
+    it("moves exhausted deliveries into the dead-letter queue", async () => {
       mockedAxios.post.mockRejectedValue(new Error("Network Error"));
       mockPrismaService.user.findUnique.mockResolvedValue({
         webhookSecret: null,
+        merchantId: "merchant-9",
       } as any);
 
       const delivery = {
         id: "del-max",
+        invoiceId: "inv-max",
         url: "https://example.com/webhook",
         payload: { status: "paid" },
         attempts: 4,
@@ -203,13 +233,133 @@ describe("WebhooksService", () => {
 
       await service.deliver(delivery);
 
-      expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith({
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockTransactionClient.webhookDeadLetter.create).toHaveBeenCalledWith(
+        {
+          data: expect.objectContaining({
+            originalDeliveryId: "del-max",
+            invoiceId: "inv-max",
+            userId: "user-max",
+            merchantId: "merchant-9",
+            failedAttempts: 5,
+            status: "pending_retry",
+            lastError: "Network Error",
+          }),
+        },
+      );
+      expect(mockTransactionClient.webhookDelivery.delete).toHaveBeenCalledWith({
         where: { id: "del-max" },
+      });
+    });
+
+    it("marks dead-letter jobs as recovered when a manual retry succeeds", async () => {
+      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        webhookSecret: "secret",
+        merchantId: "merchant-1",
+      } as any);
+
+      const delivery = {
+        id: "del-redrive",
+        invoiceId: "inv-redrive",
+        url: "https://example.com/webhook",
+        payload: { status: "paid" },
+        attempts: 0,
+        userId: "user-1",
+        deadLetterId: "dlq-1",
+      };
+
+      await service.deliver(delivery);
+
+      expect(mockPrismaService.webhookDeadLetter.update).toHaveBeenCalledWith({
+        where: { id: "dlq-1" },
         data: expect.objectContaining({
-          status: "failed",
-          attempts: 5,
+          status: "recovered",
+          recoveredAt: expect.any(Date),
         }),
       });
+    });
+  });
+
+  describe("dead-letter admin tooling", () => {
+    it("lists dead-letter jobs with the provided filters", async () => {
+      const expected = [{ id: "dlq-1" }];
+      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue(
+        expected as any,
+      );
+
+      const result = await service.listDeadLetters({
+        status: "pending_retry" as any,
+        limit: 25,
+      });
+
+      expect(result).toBe(expected);
+      expect(mockPrismaService.webhookDeadLetter.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { status: "pending_retry" },
+          take: 25,
+        }),
+      );
+    });
+
+    it("queues a manual retry for a dead-letter job", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-2",
+        invoiceId: "inv-2",
+        userId: "user-2",
+        url: "https://example.com/webhook",
+        payload: { status: "paid" },
+        status: "pending_retry",
+      } as any);
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(null as any);
+      mockTransactionClient.webhookDelivery.create.mockResolvedValue({
+        id: "del-retry",
+      } as any);
+
+      const result = await service.retryDeadLetter("dlq-2");
+
+      expect(result).toEqual({
+        deadLetterId: "dlq-2",
+        deliveryId: "del-retry",
+        status: "requeued",
+      });
+      expect(mockTransactionClient.webhookDelivery.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          invoiceId: "inv-2",
+          userId: "user-2",
+          deadLetterId: "dlq-2",
+          status: "pending",
+          attempts: 0,
+        }),
+      });
+      expect(mockTransactionClient.webhookDeadLetter.update).toHaveBeenCalledWith(
+        {
+          where: { id: "dlq-2" },
+          data: expect.objectContaining({
+            status: "requeued",
+            manualRetryCount: { increment: 1 },
+            lastRetriedAt: expect.any(Date),
+          }),
+        },
+      );
+    });
+
+    it("rejects duplicate manual retries while a retry is already pending", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-3",
+        invoiceId: "inv-3",
+        userId: "user-3",
+        url: "https://example.com/webhook",
+        payload: { status: "paid" },
+        status: "pending_retry",
+      } as any);
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue({
+        id: "del-existing",
+      } as any);
+
+      await expect(service.retryDeadLetter("dlq-3")).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
   });
 });

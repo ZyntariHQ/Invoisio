@@ -46,8 +46,9 @@ model User {
   pushTokens     String[]  @default([]) @map("push_tokens")
   pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
 
-  invoices       Invoice[]
-  webhooks       WebhookDelivery[]
+  invoices            Invoice[]
+  webhooks            WebhookDelivery[]
+  webhookDeadLetters  WebhookDeadLetter[]
 
   @@index([merchantId])
   @@map("users")
@@ -59,6 +60,8 @@ model WebhookDelivery {
   invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   userId         String         @map("user_id")
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deadLetterId   String?        @map("dead_letter_id")
+  deadLetter     WebhookDeadLetter? @relation(fields: [deadLetterId], references: [id], onDelete: SetNull)
   url            String
   payload        Json
   status         DeliveryStatus @default(pending)
@@ -71,10 +74,43 @@ model WebhookDelivery {
   @@map("webhook_deliveries")
 }
 
+model WebhookDeadLetter {
+  id               String           @id @default(uuid())
+  originalDeliveryId String         @unique @map("original_delivery_id")
+  invoiceId        String           @map("invoice_id")
+  invoice          Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId           String           @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId       String           @map("merchant_id")
+  url              String
+  payload          Json
+  lastError        String?          @map("last_error")
+  lastHttpStatus   Int?             @map("last_http_status")
+  failedAttempts   Int              @map("failed_attempts")
+  exhaustedAt      DateTime         @default(now()) @map("exhausted_at")
+  manualRetryCount Int              @default(0) @map("manual_retry_count")
+  lastRetriedAt    DateTime?        @map("last_retried_at")
+  recoveredAt      DateTime?        @map("recovered_at")
+  status           DeadLetterStatus @default(pending_retry)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  redriveDeliveries WebhookDelivery[]
+
+  @@index([merchantId])
+  @@index([status, exhaustedAt])
+  @@map("webhook_dead_letters")
+}
+
 enum DeliveryStatus {
   pending
   success
   failed
+}
+
+enum DeadLetterStatus {
+  pending_retry
+  requeued
+  recovered
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
@@ -105,9 +141,10 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  webhooks           WebhookDelivery[]
-  statusHistory      InvoiceStatusHistory[]
-  payments           Payment[]
+  webhooks              WebhookDelivery[]
+  webhookDeadLetters    WebhookDeadLetter[]
+  statusHistory         InvoiceStatusHistory[]
+  payments              Payment[]
 
   @@index([merchantId])
   @@map("invoices")
