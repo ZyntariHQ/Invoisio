@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Patch,
   Post,
   Req,
@@ -26,6 +27,11 @@ export class UsersController {
   @Delete("push-token")
   async removePushToken(@Req() req, @Body("token") token: string) {
     return this.usersService.removePushToken(req.user.id, token);
+  }
+
+  @Get("preferences")
+  async getPreferences(@Req() req) {
+    return this.usersService.getPreferences(req.user.id);
   }
 
   @Patch("preferences")

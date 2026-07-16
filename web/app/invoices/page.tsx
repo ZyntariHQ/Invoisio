@@ -333,6 +333,12 @@ function InvoicesContent() {
             >
               + Quick Sale
             </Link>
+            <Link
+              href="/settings"
+              className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              Settings
+            </Link>
           </div>
         </div>
 
