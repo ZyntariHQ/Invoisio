@@ -192,6 +192,7 @@ export class AuthService {
       sub: user.id,
       publicKey: user.publicKey,
       merchantId: user.merchantId,
+      tokenVersion: (user as any).tokenVersion ?? 0,
     };
     const accessToken = this.jwtService.sign(payload);
 
@@ -204,6 +205,23 @@ export class AuthService {
     });
 
     return { accessToken };
+  }
+
+  /**
+   * Invalidate active JWTs for the current user by bumping the token version.
+   * Any token minted with the previous version will fail validation.
+   */
+  async logout(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 } } as any,
+    });
+
+    this.logger.info("auth.logout", {
+      domain: "auth",
+      event: "logout",
+      userId,
+    });
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
