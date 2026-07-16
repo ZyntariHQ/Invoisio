@@ -22,6 +22,7 @@ model Merchant {
 
   users    User[]
   invoices Invoice[]
+  activities ActivityEvent[]
 
   @@map("merchants")
 }
@@ -48,6 +49,7 @@ model User {
 
   invoices       Invoice[]
   webhooks       WebhookDelivery[]
+  activities     ActivityEvent[]
 
   @@index([merchantId])
   @@map("users")
@@ -108,6 +110,7 @@ model Invoice {
   webhooks           WebhookDelivery[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
+  activities         ActivityEvent[]
 
   @@index([merchantId])
   @@map("invoices")

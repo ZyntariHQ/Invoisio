@@ -1,6 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
-import { ActivityEventDto, PaginatedActivityEvents } from "./dto/activity-event.dto";
+import {
+  ActivityEventDto,
+  PaginatedActivityEvents,
+} from "./dto/activity-event.dto";
 
 @Injectable()
 export class ActivityFeedService {
@@ -89,7 +92,10 @@ export class ActivityFeedService {
   /**
    * Get a single activity event by ID (scoped to merchant).
    */
-  async findOne(id: string, merchantId: string): Promise<ActivityEventDto | null> {
+  async findOne(
+    id: string,
+    merchantId: string,
+  ): Promise<ActivityEventDto | null> {
     const event = await this.prisma.activityEvent.findFirst({
       where: { id, merchantId },
     });
@@ -109,30 +115,35 @@ export class ActivityFeedService {
   /**
    * Build a human-readable description for a given activity event type.
    */
-  static formatDescription(type: string, metadata?: Record<string, unknown> | null): string {
+  static formatDescription(
+    type: string,
+    metadata?: Record<string, unknown> | null,
+  ): string {
     switch (type) {
       case "invoice_created":
-        return `Invoice #${metadata?.invoiceNumber ?? "Unknown"} created for ${metadata?.clientName ?? "Unknown client"} — ${metadata?.amount ?? "—"} ${metadata?.assetCode ?? "XLM"}`;
+        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} created for ${String(metadata?.clientName ?? "Unknown client")} — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")}`;
       case "invoice_updated":
-        return `Invoice #${metadata?.invoiceNumber ?? "Unknown"} updated`;
+        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} updated`;
       case "invoice_paid":
-        return `Invoice #${metadata?.invoiceNumber ?? "Unknown"} fully paid — ${metadata?.amount ?? "—"} ${metadata?.assetCode ?? "XLM"}`;
+        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} fully paid — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")}`;
       case "invoice_partially_paid":
-        return `Payment received on invoice #${metadata?.invoiceNumber ?? "Unknown"} — ${metadata?.amount ?? "—"} ${metadata?.assetCode ?? "XLM"} (partially paid)`;
+        return `Payment received on invoice #${String(metadata?.invoiceNumber ?? "Unknown")} — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")} (partially paid)`;
       case "invoice_overdue":
-        return `Invoice #${metadata?.invoiceNumber ?? "Unknown"} is now overdue`;
+        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} is now overdue`;
       case "invoice_cancelled":
-        return `Invoice #${metadata?.invoiceNumber ?? "Unknown"} was cancelled${metadata?.reason ? ` — ${metadata.reason}` : ""}`;
+        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} was cancelled${metadata?.reason ? ` — ${String(metadata.reason)}` : ""}`;
       case "payment_received":
-        return `Payment of ${metadata?.amount ?? "—"} ${metadata?.assetCode ?? "XLM"} received for invoice #${metadata?.invoiceNumber ?? "Unknown"}`;
+        return `Payment of ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")} received for invoice #${String(metadata?.invoiceNumber ?? "Unknown")}`;
       case "reminder_sent":
-        return `Reminder sent for invoice #${metadata?.invoiceNumber ?? "Unknown"} to ${metadata?.clientEmail ?? "client"}`;
+        return `Reminder sent for invoice #${String(metadata?.invoiceNumber ?? "Unknown")} to ${String(metadata?.clientEmail ?? "client")}`;
       case "webhook_delivered":
-        return `Webhook delivered successfully for invoice #${metadata?.invoiceNumber ?? "Unknown"}`;
+        return `Webhook delivered successfully for invoice #${String(metadata?.invoiceNumber ?? "Unknown")}`;
       case "webhook_failed":
-        return `Webhook delivery failed for invoice #${metadata?.invoiceNumber ?? "Unknown"} after ${metadata?.attempts ?? "several"} attempts`;
+        return `Webhook delivery failed for invoice #${String(metadata?.invoiceNumber ?? "Unknown")} after ${String(metadata?.attempts ?? "several")} attempts`;
       default:
-        return metadata?.fallbackDescription as string ?? "Activity event recorded";
+        return (
+          (metadata?.fallbackDescription as string) ?? "Activity event recorded"
+        );
     }
   }
 }
