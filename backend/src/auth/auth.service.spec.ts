@@ -22,16 +22,18 @@ const mockPrisma = () => ({
 describe("AuthService", () => {
   let service: AuthService;
   let prisma: ReturnType<typeof mockPrisma>;
+  let jwtService: { sign: jest.Mock };
 
   const keypair = StellarSdk.Keypair.random();
   const publicKey = keypair.publicKey();
 
   beforeEach(async () => {
+    jwtService = { sign: jest.fn(() => "jwt-token") };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useFactory: mockPrisma },
-        { provide: JwtService, useValue: { sign: jest.fn(() => "jwt-token") } },
+        { provide: JwtService, useValue: jwtService },
         {
           provide: StructuredLogger,
           useValue: mockStructuredLogger,
@@ -93,6 +95,7 @@ describe("AuthService", () => {
         publicKey,
         nonce,
         nonceExpiresAt: BigInt(Date.now() + 60_000),
+        tokenVersion: 0,
       });
       prisma.user.update.mockResolvedValue({});
 
@@ -101,6 +104,12 @@ describe("AuthService", () => {
         signedNonce: signature,
       });
       expect(result.accessToken).toBe("jwt-token");
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sub: "user-id",
+          tokenVersion: 0,
+        }),
+      );
     });
 
     it("throws when nonce is expired", async () => {
@@ -222,6 +231,22 @@ describe("AuthService", () => {
         data: Record<string, unknown>;
       };
       expect(updateArg.data.nonceUsedAt).toBeInstanceOf(Date);
+    });
+  });
+
+  describe("logout", () => {
+    it("increments the user's tokenVersion to revoke active tokens", async () => {
+      prisma.user.update.mockResolvedValue({});
+
+      await service.logout("user-id");
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: "user-id" },
+        data: expect.any(Object),
+      });
+
+      const call = prisma.user.update.mock.calls[0]?.[0];
+      expect(call.data).toEqual({ tokenVersion: { increment: 1 } });
     });
   });
 });
