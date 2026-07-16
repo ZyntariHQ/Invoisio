@@ -25,6 +25,7 @@ import { BackfillModule } from "./backfill/backfill.module";
 import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { MerchantModule } from "./merchant/merchant.module";
+import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
 
 /**
  * Root application module
@@ -112,6 +113,7 @@ import { MerchantModule } from "./merchant/merchant.module";
     AdminAnalyticsModule,
     NotificationsModule,
     MerchantModule,
+    ActivityFeedModule,
   ],
 })
 export class AppModule {}

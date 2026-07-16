@@ -148,6 +148,25 @@ model Payment {
 }
 
 // Backfill tracking tables
+model ActivityEvent {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invoiceId  String?  @map("invoice_id")
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  type       String   // e.g. "invoice_created", "payment_received", "reminder_sent", "webhook_delivered"
+  description String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([merchantId])
+  @@index([merchantId, type])
+  @@index([createdAt])
+  @@map("activity_events")
+}
+
 model BackfillRun {
   id              Int      @id @default(autoincrement())
   startedAt       DateTime @default(now()) @map("started_at")
