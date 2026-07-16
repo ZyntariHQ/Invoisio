@@ -1,0 +1,9 @@
+{
+  "name": "invoisio-reporting",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node server/asset-reporting.test.js"
+  }
+}

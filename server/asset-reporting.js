@@ -17,12 +17,6 @@ function classifyAsset(asset) {
   return 'Token';
 }
 
-function parseTimestamp(value) {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
 function buildAssetReport(invoices = []) {
   const safeInvoices = Array.isArray(invoices) ? invoices : [];
   const paidInvoices = safeInvoices.filter((invoice) => {
@@ -37,28 +31,12 @@ function buildAssetReport(invoices = []) {
     token: { count: 0, volume: 0 }
   };
 
-  const createdCount = safeInvoices.length;
-  const sharedCount = safeInvoices.filter((invoice) => Boolean(invoice?.shared_at || invoice?.shared || invoice?.sent_at)).length;
-  const viewedCount = safeInvoices.filter((invoice) => Boolean(invoice?.viewed_at || invoice?.viewed || invoice?.opened_at)).length;
-  const paidCount = paidInvoices.length;
-
-  const timeToPaySamples = [];
-
   paidInvoices.forEach((invoice) => {
     const amount = Number(invoice?.amount ?? invoice?.total ?? invoice?.paid_amount ?? 0);
     const assetName = toDisplayLabel(invoice?.asset_type || invoice?.asset || invoice?.asset_code || invoice?.currency || invoice?.symbol, 'Unknown');
     const networkName = toDisplayLabel(invoice?.network || invoice?.supporting_network || invoice?.network_path || invoice?.payment_network || invoice?.path || invoice?.channel, 'Unknown');
     const assetKind = classifyAsset(assetName);
     const networkKey = normalizeNetwork(networkName);
-    const createdAt = parseTimestamp(invoice?.created_at || invoice?.createdAt || invoice?.created);
-    const paidAt = parseTimestamp(invoice?.paid_at || invoice?.paidAt || invoice?.settled_at || invoice?.settledAt);
-
-    if (createdAt && paidAt) {
-      const diffHours = (paidAt.getTime() - createdAt.getTime()) / 36e5;
-      if (Number.isFinite(diffHours) && diffHours >= 0) {
-        timeToPaySamples.push(diffHours);
-      }
-    }
 
     if (assetKind === 'XLM') {
       xlmVsToken.xlm.count += 1;
@@ -125,10 +103,6 @@ function buildAssetReport(invoices = []) {
     : dominant === 'XLM'
       ? 'XLM payments dominate usage.'
       : 'Token-based payments dominate usage.';
-
-  const averageHours = timeToPaySamples.length > 0
-    ? Number((timeToPaySamples.reduce((sum, value) => sum + value, 0) / timeToPaySamples.length).toFixed(2))
-    : 0;
 
   return {
     totalPaidInvoices: paidInvoices.length,

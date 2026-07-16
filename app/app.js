@@ -28,6 +28,7 @@ function renderSummary(containerId, report) {
   `;
 }
 
+function renderBarChart(items, targetId) {
 function renderBarChart(items, targetId, labelKey = 'asset') {
   const container = document.getElementById(targetId);
   if (!container) return;
@@ -41,6 +42,9 @@ function renderBarChart(items, targetId, labelKey = 'asset') {
   container.innerHTML = items
     .map((item) => {
       const percentage = Math.round(((item.volume || 0) / maxVolume) * 100);
+      return `
+        <div class="chart-row">
+          <span>${item.asset || item.network || 'Unknown'}</span>
       const label = item[labelKey] || item.asset || item.network || 'Unknown';
       return `
         <div class="chart-row">
@@ -53,6 +57,9 @@ function renderBarChart(items, targetId, labelKey = 'asset') {
     .join('');
 }
 
+function renderMerchantView(report) {
+  renderSummary('merchant-summary', report);
+  renderBarChart(report.assetBreakdown.slice(0, 5), 'merchant-asset-chart');
 function renderFunnel(funnel, targetId) {
   const container = document.getElementById(targetId);
   if (!container) return;
@@ -97,6 +104,8 @@ function renderMerchantView(report) {
 
 function renderAdminView(report) {
   renderSummary('admin-summary', report);
+  renderBarChart(report.assetBreakdown.slice(0, 5), 'admin-asset-chart');
+  renderBarChart(report.networkBreakdown.slice(0, 5), 'admin-network-chart');
   renderBarChart(report.assetBreakdown.slice(0, 5), 'admin-asset-chart', 'asset');
   renderBarChart(report.networkBreakdown.slice(0, 5), 'admin-network-chart', 'network');
   renderFunnel(report.conversionMetrics.funnel, 'admin-funnel');

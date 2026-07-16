@@ -2,6 +2,13 @@ const assert = require('assert');
 const { buildAssetReport } = require('./asset-reporting');
 
 const report = buildAssetReport([
+  { id: 'inv-1', status: 'paid', amount: 120, asset_type: 'XLM', network: 'stellar' },
+  { id: 'inv-2', status: 'paid', amount: 80, asset_type: 'USDC', network: 'stellar' },
+  { id: 'inv-3', status: 'paid', amount: 40, asset_type: 'USDT', network: 'ethereum' },
+  { id: 'inv-4', status: 'paid', amount: 18, asset_type: '', network: '' }
+]);
+
+assert.strictEqual(report.totalPaidInvoices, 4);
   { id: 'inv-1', status: 'paid', amount: 120, asset_type: 'XLM', network: 'stellar', created_at: '2024-01-01T10:00:00Z', shared_at: '2024-01-01T10:15:00Z', viewed_at: '2024-01-01T10:30:00Z', paid_at: '2024-01-01T11:00:00Z' },
   { id: 'inv-2', status: 'paid', amount: 80, asset_type: 'USDC', network: 'stellar', created_at: '2024-01-02T10:00:00Z', shared_at: '2024-01-02T10:10:00Z', paid_at: '2024-01-02T10:45:00Z' },
   { id: 'inv-3', status: 'pending', amount: 40, asset_type: 'USDT', network: 'ethereum', created_at: '2024-01-03T10:00:00Z', shared_at: '2024-01-03T10:20:00Z' },
