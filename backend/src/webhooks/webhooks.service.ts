@@ -532,7 +532,7 @@ export class WebhooksService {
   }
 
   private toPrismaJsonValue(
-    value: Prisma.JsonValue,
+    value: unknown,
   ): Prisma.InputJsonValue | typeof Prisma.JsonNull {
     if (value === null) {
       return Prisma.JsonNull;
