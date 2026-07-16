@@ -4,9 +4,12 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { QRCodeSVG } from 'qrcode.react';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiClient, extractApiErrorMessage } from '@/lib/api-client';
 import { generatePaymentUri } from '@/lib/sep0007';
 import { RequireAuth } from '@/components/require-auth';
+import { MerchantService } from '@/lib/merchant-service';
+import { checklistQueryKey } from '@/hooks/use-merchant-checklist';
 
 // Stellar mainnet USDC issuer — override via NEXT_PUBLIC_USDC_ISSUER for testnet
 const USDC_ISSUER =
@@ -289,11 +292,22 @@ function PaymentView({
 
 function POSContent() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
 
-  const handleSuccess = useCallback((created: Invoice) => {
-    setInvoice(created);
-  }, []);
+  const handleSuccess = useCallback(
+    (created: Invoice) => {
+      setInvoice(created);
+      // Mark the first-invoice step and refresh the activation checklist
+      // so the dashboard reflects completion after the user navigates back.
+      void MerchantService.syncChecklist()
+        .then(() => {
+          void queryClient.invalidateQueries({ queryKey: checklistQueryKey });
+        })
+        .catch(() => undefined);
+    },
+    [queryClient],
+  );
 
   const handleNewSale = useCallback(() => {
     setInvoice(null);

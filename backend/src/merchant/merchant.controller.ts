@@ -3,6 +3,7 @@ import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { MerchantService } from "./merchant.service";
 import { UpdateMerchantSettingsDto } from "./dto/update-merchant-settings.dto";
+import { UpdateChecklistDto } from "./dto/update-checklist.dto";
 import { PrismaService } from "../prisma/prisma.service";
 
 /**
@@ -43,6 +44,45 @@ export class MerchantController {
   ) {
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.merchantService.updateSettings(user.merchantId, dto),
+    );
+  }
+
+  /**
+   * GET /merchants/checklist
+   * Returns the activation checklist for the authenticated merchant.
+   */
+  @Auth()
+  @Get("checklist")
+  async getChecklist(@CurrentUser() user: User) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.merchantService.getChecklist(user.merchantId),
+    );
+  }
+
+  /**
+   * PATCH /merchants/checklist
+   * Updates checklist completion status.
+   */
+  @Auth()
+  @Patch("checklist")
+  async updateChecklist(
+    @CurrentUser() user: User,
+    @Body() dto: UpdateChecklistDto,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.merchantService.updateChecklist(user.merchantId, dto),
+    );
+  }
+
+  /**
+   * POST /merchants/checklist/sync
+   * Syncs checklist based on current merchant state.
+   */
+  @Auth()
+  @Patch("checklist/sync")
+  async syncChecklist(@CurrentUser() user: User) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.merchantService.syncChecklist(user.merchantId),
     );
   }
 }

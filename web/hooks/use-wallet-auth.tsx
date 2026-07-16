@@ -102,31 +102,53 @@ function normalizeAuthError(error: unknown): string {
 }
 
 export function WalletAuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
-  const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [isFreighterReady, setIsFreighterReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const initialAuth = useMemo<{
+    status: WalletStatus;
+    publicKey: string | null;
+    isFreighterReady: boolean;
+    accessToken: string | null;
+  }>(() => {
+    const isFreighterReady = isFreighterInstalled();
+    const stored = readStoredAuth();
+
+    if (stored.accessToken) {
+      return {
+        status: 'signed-in',
+        publicKey: stored.publicKey,
+        isFreighterReady,
+        accessToken: stored.accessToken,
+      };
+    }
+
+    if (stored.publicKey) {
+      return {
+        status: 'connected',
+        publicKey: stored.publicKey,
+        isFreighterReady,
+        accessToken: null,
+      };
+    }
+
+    return {
+      status: 'disconnected',
+      publicKey: null,
+      isFreighterReady,
+      accessToken: null,
+    };
+  }, []);
+
+  const [status, setStatus] = useState<WalletStatus>(initialAuth.status);
+  const [publicKey, setPublicKey] = useState<string | null>(initialAuth.publicKey);
+  const [isFreighterReady, setIsFreighterReady] = useState(initialAuth.isFreighterReady);
+  const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const freighterReady = isFreighterInstalled();
-    setIsFreighterReady(freighterReady);
-
-    const stored = readStoredAuth();
-    if (stored.accessToken) {
-      setApiAccessToken(stored.accessToken);
-      setPublicKey(stored.publicKey);
-      setStatus('signed-in');
-    } else if (stored.publicKey) {
-      setPublicKey(stored.publicKey);
-      setStatus('connected');
-    } else {
-      setStatus('disconnected');
+    if (initialAuth.accessToken) {
+      setApiAccessToken(initialAuth.accessToken);
     }
-
-    setIsLoading(false);
-  }, []);
+  }, [initialAuth.accessToken]);
 
   useEffect(() => {
     const validateExistingToken = async () => {

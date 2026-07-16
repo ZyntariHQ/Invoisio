@@ -20,10 +20,32 @@ model Merchant {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  users    User[]
-  invoices Invoice[]
+  users          User[]
+  invoices       Invoice[]
+  activationChecklist MerchantActivationChecklist?
 
   @@map("merchants")
+}
+
+model MerchantActivationChecklist {
+  id                String   @id @default(uuid())
+  merchantId        String   @unique @map("merchant_id")
+  merchant          Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  
+  // Checklist steps
+  profileCompleted      Boolean @default(false) @map("profile_completed")
+  payoutKeyCompleted    Boolean @default(false) @map("payout_key_completed")
+  assetPreferenceCompleted Boolean @default(false) @map("asset_preference_completed")
+  firstInvoiceCompleted Boolean @default(false) @map("first_invoice_completed")
+  
+  // Overall completion
+  isCompleted       Boolean @default(false) @map("is_completed")
+  completedAt       DateTime? @map("completed_at")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("merchant_activation_checklists")
 }
 
 // User model matching backend/src/users/user.entity.ts
