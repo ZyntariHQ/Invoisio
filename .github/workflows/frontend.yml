@@ -1,4 +1,4 @@
-name: Web CI
+name: Web CI & Preview
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
       - '.github/workflows/frontend.yml'
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -39,3 +39,23 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: Deploy to Vercel (Preview)
+        uses: amondnet/vercel-action@v25
+        if: github.event_name == 'pull_request'
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod=false'
+          working-directory: ./web
+
+      - name: Deploy to Vercel (Production)
+        uses: amondnet/vercel-action@v25
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          vercel-args: '--prod'
+          working-directory: ./web
