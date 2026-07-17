@@ -20,11 +20,37 @@ model Merchant {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
+ feat/activity-feed
   users    User[]
   invoices Invoice[]
   activities ActivityEvent[]
+  users          User[]
+  invoices       Invoice[]
+  activationChecklist MerchantActivationChecklist?
+ main
 
   @@map("merchants")
+}
+
+model MerchantActivationChecklist {
+  id                String   @id @default(uuid())
+  merchantId        String   @unique @map("merchant_id")
+  merchant          Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  
+  // Checklist steps
+  profileCompleted      Boolean @default(false) @map("profile_completed")
+  payoutKeyCompleted    Boolean @default(false) @map("payout_key_completed")
+  assetPreferenceCompleted Boolean @default(false) @map("asset_preference_completed")
+  firstInvoiceCompleted Boolean @default(false) @map("first_invoice_completed")
+  
+  // Overall completion
+  isCompleted       Boolean @default(false) @map("is_completed")
+  completedAt       DateTime? @map("completed_at")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("merchant_activation_checklists")
 }
 
 // User model matching backend/src/users/user.entity.ts
@@ -37,6 +63,7 @@ model User {
   nonce          String?
   nonceExpiresAt BigInt?   @map("nonce_expires_at")
   nonceUsedAt    DateTime? @map("nonce_used_at")
+  tokenVersion   Int       @default(0) @map("token_version")
   isAdmin        Boolean   @default(false) @map("is_admin")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -47,9 +74,14 @@ model User {
   pushTokens     String[]  @default([]) @map("push_tokens")
   pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
 
+ feat/activity-feed
   invoices       Invoice[]
   webhooks       WebhookDelivery[]
   activities     ActivityEvent[]
+  invoices            Invoice[]
+  webhooks            WebhookDelivery[]
+  webhookDeadLetters  WebhookDeadLetter[]
+ main
 
   @@index([merchantId])
   @@map("users")
@@ -61,6 +93,8 @@ model WebhookDelivery {
   invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   userId         String         @map("user_id")
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deadLetterId   String?        @map("dead_letter_id")
+  deadLetter     WebhookDeadLetter? @relation(fields: [deadLetterId], references: [id], onDelete: SetNull)
   url            String
   payload        Json
   status         DeliveryStatus @default(pending)
@@ -73,10 +107,43 @@ model WebhookDelivery {
   @@map("webhook_deliveries")
 }
 
+model WebhookDeadLetter {
+  id               String           @id @default(uuid())
+  originalDeliveryId String         @unique @map("original_delivery_id")
+  invoiceId        String           @map("invoice_id")
+  invoice          Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId           String           @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId       String           @map("merchant_id")
+  url              String
+  payload          Json
+  lastError        String?          @map("last_error")
+  lastHttpStatus   Int?             @map("last_http_status")
+  failedAttempts   Int              @map("failed_attempts")
+  exhaustedAt      DateTime         @default(now()) @map("exhausted_at")
+  manualRetryCount Int              @default(0) @map("manual_retry_count")
+  lastRetriedAt    DateTime?        @map("last_retried_at")
+  recoveredAt      DateTime?        @map("recovered_at")
+  status           DeadLetterStatus @default(pending_retry)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  redriveDeliveries WebhookDelivery[]
+
+  @@index([merchantId])
+  @@index([status, exhaustedAt])
+  @@map("webhook_dead_letters")
+}
+
 enum DeliveryStatus {
   pending
   success
   failed
+}
+
+enum DeadLetterStatus {
+  pending_retry
+  requeued
+  recovered
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
@@ -107,10 +174,16 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
+ feat/activity-feed
   webhooks           WebhookDelivery[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
   activities         ActivityEvent[]
+  webhooks              WebhookDelivery[]
+  webhookDeadLetters    WebhookDeadLetter[]
+  statusHistory         InvoiceStatusHistory[]
+  payments              Payment[]
+ main
 
   @@index([merchantId])
   @@map("invoices")
