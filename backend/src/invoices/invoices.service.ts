@@ -1147,6 +1147,83 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Duplicate an existing invoice to create a new invoice with the same details
+   * but with a new invoice number, memo, and pending status
+   * @param id - Invoice UUID to duplicate
+   * @param merchantId - Merchant scope (enforces ownership)
+   * @param userId - User creating the duplicate
+   * @returns The duplicated invoice
+   */
+  async duplicateInvoice(
+    id: string,
+    merchantId: string,
+    userId: string,
+  ): Promise<Invoice> {
+    const existingInvoice = await this.prisma.invoice.findFirst({
+      where: { id, merchantId },
+    });
+
+    if (!existingInvoice) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
+
+    // Generate a new invoice number based on the original
+    const baseNumber = existingInvoice.invoiceNumber || "INV";
+    const newInvoiceNumber = `${baseNumber}-COPY-${Date.now().toString().slice(-4)}`;
+
+    // Create the duplicate invoice
+    const duplicated = await this.prisma.invoice.create({
+      data: {
+        userId,
+        merchantId,
+        invoiceNumber: newInvoiceNumber,
+        clientName: existingInvoice.clientName,
+        clientEmail: existingInvoice.clientEmail,
+        description: existingInvoice.description,
+        amount: existingInvoice.amount,
+        amountPaid: 0 as any,
+        amountDue: existingInvoice.amount,
+        assetCode: existingInvoice.assetCode,
+        assetIssuer: existingInvoice.assetIssuer,
+        memo: this.generateMemoId(),
+        memoType: "ID",
+        status: "pending" as const,
+        destinationAddress: this.stellarService.getMerchantPublicKey(),
+        txHash: null,
+        sorobanTxHash: null,
+        sorobanContractId: null,
+        metadata: Prisma.JsonNull,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        statusHistory: {
+          create: {
+            status: "pending" as const,
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    this.structuredLogger.info("invoice.duplicated", {
+      domain: "invoices",
+      event: "invoice_duplicated",
+      originalInvoiceId: id,
+      newInvoiceId: duplicated.id,
+      invoiceNumber: duplicated.invoiceNumber,
+      memo: duplicated.memo,
+      merchantId,
+      userId,
+      amount: duplicated.amount,
+      assetCode: duplicated.assetCode,
+    });
+
+    return this.normalizeInvoice(duplicated);
+  }
+
+  /**
    * Seed sample invoices for demonstration purposes
    */
   private async seedSampleInvoices(): Promise<void> {

@@ -211,4 +211,20 @@ export class InvoicesController {
       ),
     );
   }
+
+  /**
+   * Duplicate an existing invoice to create a new invoice with the same details
+   * @param id - Invoice UUID to duplicate
+   * @returns The duplicated invoice
+   */
+  @Auth()
+  @Post(":id/duplicate")
+  async duplicateInvoice(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ): Promise<Invoice> {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.duplicateInvoice(id, user.merchantId, user.id),
+    );
+  }
 }

@@ -3,6 +3,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback, useMemo } from 'react';
+import { Copy } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
@@ -161,6 +162,17 @@ function InvoiceDetailContent() {
       setPaymentInProgress(false);
     }
   }, [invoice, paymentInProgress]);
+
+  const handleDuplicateInvoice = async () => {
+    try {
+      const response = await apiClient.post(`/invoices/${invoiceId}/duplicate`);
+      // Navigate to the new invoice detail page
+      router.push(`/invoices/${response.data.id}`);
+    } catch (error) {
+      console.error('Failed to duplicate invoice:', error);
+      alert('Failed to duplicate invoice. Please try again.');
+    }
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -497,6 +509,16 @@ function InvoiceDetailContent() {
                 className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
               >
                 🔄 Refresh Status
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDuplicateInvoice}
+                aria-label="Duplicate this invoice"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Copy className="h-4 w-4" />
+                Duplicate
               </button>
 
               {isPaid && (
