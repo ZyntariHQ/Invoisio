@@ -35,32 +35,39 @@ export class PrismaService
           : ["warn", "error"],
     });
 
-    (this as any).$use(async (params: any, next: any) => {
-      applyMerchantScope(
-        params,
-        this.merchantContext.getMerchantId(),
-        this.logger,
+    const prismaWithMiddleware = this as any;
+    if (typeof prismaWithMiddleware.$use === "function") {
+      prismaWithMiddleware.$use(async (params: any, next: any) => {
+        applyMerchantScope(
+          params,
+          this.merchantContext.getMerchantId(),
+          this.logger,
+        );
+
+        const startedAt = Date.now();
+        const result = await next(params);
+        const durationMs = Date.now() - startedAt;
+        const slowThresholdMs = this.getSlowDbThresholdMs();
+        const operation = params.model
+          ? `${params.model}.${params.action}`
+          : params.action;
+
+        if (durationMs >= slowThresholdMs) {
+          this.structuredLogger.warn("db.query.slow", {
+            category: "database",
+            operation,
+            durationMs,
+            slow: true,
+          });
+        }
+
+        return result;
+      });
+    } else {
+      this.logger.warn(
+        "Prisma middleware hook $use is unavailable; merchant-scope middleware is disabled for this runtime",
       );
-
-      const startedAt = Date.now();
-      const result = await next(params);
-      const durationMs = Date.now() - startedAt;
-      const slowThresholdMs = this.getSlowDbThresholdMs();
-      const operation = params.model
-        ? `${params.model}.${params.action}`
-        : params.action;
-
-      if (durationMs >= slowThresholdMs) {
-        this.structuredLogger.warn("db.query.slow", {
-          category: "database",
-          operation,
-          durationMs,
-          slow: true,
-        });
-      }
-
-      return result;
-    });
+    }
   }
 
   async onModuleInit() {

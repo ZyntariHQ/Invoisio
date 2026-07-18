@@ -451,8 +451,9 @@ export class WebhooksService {
 
     const queuedAt = new Date();
     const delivery = await this.prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        const createdDelivery = await tx.webhookDelivery.create({
+      async (tx) => {
+        const txClient = tx as any;
+        const createdDelivery = await txClient.webhookDelivery.create({
           data: {
             invoiceId: deadLetter.invoiceId,
             userId: deadLetter.userId,
@@ -465,7 +466,7 @@ export class WebhooksService {
           },
         });
 
-        await tx.webhookDeadLetter.update({
+        await txClient.webhookDeadLetter.update({
           where: { id: deadLetterId },
           data: {
             status: "requeued",
@@ -619,9 +620,10 @@ export class WebhooksService {
 
     const exhaustedAt = new Date();
 
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await this.prisma.$transaction(async (tx) => {
+      const txClient = tx as any;
       if (delivery.deadLetterId) {
-        await tx.webhookDeadLetter.update({
+        await txClient.webhookDeadLetter.update({
           where: { id: delivery.deadLetterId },
           data: {
             url: delivery.url,
@@ -635,7 +637,7 @@ export class WebhooksService {
           },
         });
       } else {
-        await tx.webhookDeadLetter.create({
+        await txClient.webhookDeadLetter.create({
           data: {
             originalDeliveryId: delivery.id,
             invoiceId: delivery.invoiceId,
@@ -652,7 +654,7 @@ export class WebhooksService {
         });
       }
 
-      await tx.webhookDelivery.delete({
+      await txClient.webhookDelivery.delete({
         where: { id: delivery.id },
       });
     });

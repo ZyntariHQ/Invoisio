@@ -6,6 +6,7 @@ exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
+exports.decodeContractConfig = decodeContractConfig;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");

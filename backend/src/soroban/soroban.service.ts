@@ -22,7 +22,7 @@ import { RecordPaymentDto } from "./dto/soroban-payment.dto";
 @Injectable()
 export class SorobanService implements OnModuleInit {
   private readonly logger = new Logger(SorobanService.name);
-  private client!: SorobanInvoiceClient;
+  private client?: SorobanInvoiceClient;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -34,6 +34,16 @@ export class SorobanService implements OnModuleInit {
       adminSecretKey: string;
       merchantPublicKey: string;
     };
+
+    const hasContractId = Boolean(cfg.contractId?.trim());
+    const looksLikeContractId = /^C[A-Z2-7]{55}$/.test(cfg.contractId || "");
+
+    if (!hasContractId || !looksLikeContractId) {
+      this.logger.warn(
+        "SOROBAN_CONTRACT_ID is missing or invalid; Soroban client disabled",
+      );
+      return;
+    }
 
     this.client = new SorobanInvoiceClient({
       rpcUrl: cfg.sorobanRpcUrl,
@@ -59,9 +69,10 @@ export class SorobanService implements OnModuleInit {
   async recordInvoicePayment(
     dto: RecordPaymentDto,
   ): Promise<{ hash: string; ledger: number }> {
+    this.ensureClient();
     this.logger.log(`Recording on-chain payment for invoice: ${dto.invoiceId}`);
 
-    const result = await this.client.recordPayment({
+    const result = await this.client!.recordPayment({
       invoiceId: dto.invoiceId,
       payer: dto.payer,
       assetCode: dto.assetCode,
@@ -81,7 +92,8 @@ export class SorobanService implements OnModuleInit {
    * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded
    */
   async getInvoicePayment(invoiceId: string): Promise<PaymentRecord> {
-    return this.client.getPayment(invoiceId);
+    this.ensureClient();
+    return this.client!.getPayment(invoiceId);
   }
 
   /**
@@ -91,9 +103,18 @@ export class SorobanService implements OnModuleInit {
    * to make reconciliation safe to retry after partial failures.
    */
   async hasInvoicePayment(invoiceId: string): Promise<boolean> {
-    return this.client.hasPayment(invoiceId);
+    this.ensureClient();
+    return this.client!.hasPayment(invoiceId);
   }
 
   /** Re-export the typed error class so callers can `catch (e instanceof SorobanContractError)`. */
   static readonly ContractError = SorobanContractError;
+
+  private ensureClient(): void {
+    if (!this.client) {
+      throw new Error(
+        "Soroban client is not configured. Set a valid SOROBAN_CONTRACT_ID to enable Soroban operations.",
+      );
+    }
+  }
 }
