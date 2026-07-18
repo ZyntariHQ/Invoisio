@@ -3,10 +3,10 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback, useMemo } from 'react';
-import { Copy } from 'lucide-react';
+import { Copy, Download, Printer } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
-import { apiClient } from '@/lib/api-client';
+import { apiClient, extractApiErrorMessage } from '@/lib/api-client';
 import { RequireAuth } from '@/components/require-auth';
 
 interface Invoice {
@@ -50,6 +50,7 @@ function InvoiceDetailContent() {
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [downloadInProgress, setDownloadInProgress] = useState<'invoice' | 'receipt' | null>(null);
 
   const handleCopyToClipboard = useCallback(async (text: string, field: string) => {
     try {
@@ -173,6 +174,59 @@ function InvoiceDetailContent() {
       alert('Failed to duplicate invoice. Please try again.');
     }
   };
+
+  const parseDownloadFilename = useCallback(
+    (contentDisposition: string | undefined, fallback: string) => {
+      if (!contentDisposition) return fallback;
+
+      const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+      return match?.[1] ?? fallback;
+    },
+    [],
+  );
+
+  const downloadDocument = useCallback(
+    async (variant: 'invoice' | 'receipt') => {
+      if (!invoice) return;
+
+      const endpoint =
+        variant === 'receipt'
+          ? `/invoices/${invoice.id}/receipt`
+          : `/invoices/${invoice.id}/pdf`;
+
+      const fallbackName =
+        variant === 'receipt'
+          ? `receipt-${invoice.invoiceNumber ?? invoice.id}.pdf`
+          : `invoice-${invoice.invoiceNumber ?? invoice.id}.pdf`;
+
+      try {
+        setDownloadInProgress(variant);
+        const response = await apiClient.get(endpoint, {
+          responseType: 'blob',
+        });
+
+        const filename = parseDownloadFilename(
+          response.headers['content-disposition'],
+          fallbackName,
+        );
+
+        const blob = new Blob([response.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } catch (error) {
+        alert(extractApiErrorMessage(error));
+      } finally {
+        setDownloadInProgress(null);
+      }
+    },
+    [invoice, parseDownloadFilename],
+  );
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -488,7 +542,7 @@ function InvoiceDetailContent() {
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               {isPending && walletInfo?.hasWallet && (
                 <button
                   type="button"
@@ -521,15 +575,42 @@ function InvoiceDetailContent() {
                 Duplicate
               </button>
 
+              <button
+                type="button"
+                onClick={() => downloadDocument('invoice')}
+                disabled={downloadInProgress !== null}
+                aria-label="Download invoice PDF"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
+              >
+                <Download className="h-4 w-4" />
+                {downloadInProgress === 'invoice' ? 'Preparing...' : 'Invoice PDF'}
+              </button>
+
               {isPaid && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  aria-label="Print invoice"
-                  className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  🖨️ Print
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => downloadDocument('receipt')}
+                    disabled={downloadInProgress !== null}
+                    aria-label="Download paid receipt PDF"
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
+                  >
+                    <Download className="h-4 w-4" />
+                    {downloadInProgress === 'receipt'
+                      ? 'Preparing...'
+                      : 'Receipt PDF'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    aria-label="Print invoice"
+                    className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Print
+                  </button>
+                </>
               )}
             </div>
           </div>
