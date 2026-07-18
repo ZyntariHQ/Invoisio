@@ -39,7 +39,10 @@ describe("ActivityFeedService", () => {
         },
         {
           provide: MerchantContextService,
-          useValue: { getMerchantId: jest.fn(), runWithMerchantScope: jest.fn() },
+          useValue: {
+            getMerchantId: jest.fn(),
+            runWithMerchantScope: jest.fn(),
+          },
         },
         {
           provide: StructuredLogger,

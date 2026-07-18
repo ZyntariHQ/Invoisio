@@ -1,6 +1,9 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ActivityFeedService } from "./activity-feed.service";
-import { ActivityEventDto, PaginatedActivityEvents } from "./dto/activity-event.dto";
+import {
+  ActivityEventDto,
+  PaginatedActivityEvents,
+} from "./dto/activity-event.dto";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";

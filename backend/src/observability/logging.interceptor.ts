@@ -25,8 +25,9 @@ export class LoggingInterceptor implements NestInterceptor {
     const res = context.switchToHttp().getResponse<Response>();
     const startedAt = Date.now();
 
-    const user = (req as Request & { user?: { id?: string; merchantId?: string } })
-      .user;
+    const user = (
+      req as Request & { user?: { id?: string; merchantId?: string } }
+    ).user;
     if (user?.id || user?.merchantId) {
       this.requestContext.setUserContext(user.id, user.merchantId ?? undefined);
     }

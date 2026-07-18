@@ -87,10 +87,7 @@ describe("WebhooksService", () => {
     it("rotates and persists a new secret", async () => {
       mockPrismaService.user.updateMany.mockResolvedValue({ count: 1 } as any);
 
-      const result = await service.rotateWebhookSecret(
-        "user-2",
-        "merchant-2",
-      );
+      const result = await service.rotateWebhookSecret("user-2", "merchant-2");
 
       expect(result.secret).toHaveLength(64);
       expect(result.metadata.hasSecret).toBe(true);

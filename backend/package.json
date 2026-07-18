@@ -99,6 +99,7 @@
     "estraverse": "4.3.0",
     "globals": "^16.0.0",
     "jest": "^29.7.0",
+    "jest-util": "^30.4.1",
     "json-schema-traverse": "1.0.0",
     "mime-db": "1.52.0",
     "mime-types": "2.1.35",

@@ -119,30 +119,39 @@ export class ActivityFeedService {
     type: string,
     metadata?: Record<string, unknown> | null,
   ): string {
+    const safeStr = (val: unknown, fallback: string): string => {
+      if (val === null || val === undefined) return fallback;
+      if (typeof val === "string") return val;
+      if (typeof val === "number" || typeof val === "boolean")
+        return String(val);
+      return fallback;
+    };
+
     switch (type) {
       case "invoice_created":
-        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} created for ${String(metadata?.clientName ?? "Unknown client")} — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")}`;
+        return `Invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} created for ${safeStr(metadata?.clientName, "Unknown client")} — ${safeStr(metadata?.amount, "—")} ${safeStr(metadata?.assetCode, "XLM")}`;
       case "invoice_updated":
-        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} updated`;
+        return `Invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} updated`;
       case "invoice_paid":
-        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} fully paid — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")}`;
+        return `Invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} fully paid — ${safeStr(metadata?.amount, "—")} ${safeStr(metadata?.assetCode, "XLM")}`;
       case "invoice_partially_paid":
-        return `Payment received on invoice #${String(metadata?.invoiceNumber ?? "Unknown")} — ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")} (partially paid)`;
+        return `Payment received on invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} — ${safeStr(metadata?.amount, "—")} ${safeStr(metadata?.assetCode, "XLM")} (partially paid)`;
       case "invoice_overdue":
-        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} is now overdue`;
+        return `Invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} is now overdue`;
       case "invoice_cancelled":
-        return `Invoice #${String(metadata?.invoiceNumber ?? "Unknown")} was cancelled${metadata?.reason ? ` — ${String(metadata.reason)}` : ""}`;
+        return `Invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} was cancelled${metadata?.reason ? ` — ${safeStr(metadata.reason, "")}` : ""}`;
       case "payment_received":
-        return `Payment of ${String(metadata?.amount ?? "—")} ${String(metadata?.assetCode ?? "XLM")} received for invoice #${String(metadata?.invoiceNumber ?? "Unknown")}`;
+        return `Payment of ${safeStr(metadata?.amount, "—")} ${safeStr(metadata?.assetCode, "XLM")} received for invoice #${safeStr(metadata?.invoiceNumber, "Unknown")}`;
       case "reminder_sent":
-        return `Reminder sent for invoice #${String(metadata?.invoiceNumber ?? "Unknown")} to ${String(metadata?.clientEmail ?? "client")}`;
+        return `Reminder sent for invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} to ${safeStr(metadata?.clientEmail, "client")}`;
       case "webhook_delivered":
-        return `Webhook delivered successfully for invoice #${String(metadata?.invoiceNumber ?? "Unknown")}`;
+        return `Webhook delivered successfully for invoice #${safeStr(metadata?.invoiceNumber, "Unknown")}`;
       case "webhook_failed":
-        return `Webhook delivery failed for invoice #${String(metadata?.invoiceNumber ?? "Unknown")} after ${String(metadata?.attempts ?? "several")} attempts`;
+        return `Webhook delivery failed for invoice #${safeStr(metadata?.invoiceNumber, "Unknown")} after ${safeStr(metadata?.attempts, "several")} attempts`;
       default:
-        return (
-          (metadata?.fallbackDescription as string) ?? "Activity event recorded"
+        return safeStr(
+          metadata?.fallbackDescription,
+          "Activity event recorded",
         );
     }
   }
