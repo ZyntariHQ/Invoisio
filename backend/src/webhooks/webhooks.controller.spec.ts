@@ -8,6 +8,7 @@ describe("WebhooksController", () => {
 
   const mockWebhooksService = {
     getWebhookSecretMetadata: jest.fn(),
+    listInvoiceWebhookAttempts: jest.fn(),
     rotateWebhookSecret: jest.fn(),
   };
 
@@ -53,6 +54,44 @@ describe("WebhooksController", () => {
     expect(mockWebhooksService.getWebhookSecretMetadata).toHaveBeenCalledWith(
       "user-1",
       "merchant-1",
+    );
+  });
+
+  it("returns webhook attempt history for a merchant-owned invoice", async () => {
+    mockWebhooksService.listInvoiceWebhookAttempts.mockResolvedValue([
+      {
+        id: "attempt-1",
+        attemptNumber: 1,
+        responseStatusCode: 200,
+        signaturePreview: "abcdef...123456",
+      },
+    ]);
+
+    const result = await controller.listInvoiceAttempts(
+      {
+        id: "user-1",
+        merchantId: "merchant-1",
+      } as any,
+      "invoice-1",
+      { limit: 10 },
+    );
+
+    expect(result).toEqual([
+      {
+        id: "attempt-1",
+        attemptNumber: 1,
+        responseStatusCode: 200,
+        signaturePreview: "abcdef...123456",
+      },
+    ]);
+    expect(mockPrismaService.runWithMerchantScope).toHaveBeenCalledWith(
+      "merchant-1",
+      expect.any(Function),
+    );
+    expect(mockWebhooksService.listInvoiceWebhookAttempts).toHaveBeenCalledWith(
+      "invoice-1",
+      "merchant-1",
+      { limit: 10 },
     );
   });
 

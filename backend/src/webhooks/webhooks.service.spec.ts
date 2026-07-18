@@ -38,6 +38,10 @@ describe("WebhooksService", () => {
       update: jest.fn(),
       delete: jest.fn(),
     },
+    webhookAttempt: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+    },
     webhookDeadLetter: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -175,6 +179,21 @@ describe("WebhooksService", () => {
         where: { id: "user-1" },
         select: { webhookSecret: true, merchantId: true },
       });
+      expect(mockPrismaService.webhookAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          deliveryId: "del-1",
+          invoiceId: "inv-1",
+          userId: "user-1",
+          requestUrl: "https://example.com/webhook",
+          attemptNumber: 1,
+          responseStatusCode: 200,
+          status: "success",
+          signaturePresent: true,
+          signatureAlgorithm: "hmac-sha256",
+          signaturePreview: expect.stringMatching(/^.{6}\.\.\..{6}$/),
+          signatureLength: expect.any(Number),
+        }),
+      });
       expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith({
         where: { id: "del-1" },
         data: expect.objectContaining({
@@ -212,6 +231,21 @@ describe("WebhooksService", () => {
       expect(updateCall.data.attempts).toBe(2);
       expect(updateCall.data.status).toBeUndefined();
       expect(updateCall.data.nextAttemptAt).toBeInstanceOf(Date);
+      expect(mockPrismaService.webhookAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          deliveryId: "del-2",
+          invoiceId: "inv-2",
+          userId: "user-2",
+          attemptNumber: 2,
+          responseStatusCode: null,
+          errorMessage: "Timeout",
+          status: "failed",
+          signaturePresent: false,
+          signatureAlgorithm: null,
+          signaturePreview: null,
+          signatureLength: null,
+        }),
+      });
     });
 
     it("moves exhausted deliveries into the dead-letter queue", async () => {
@@ -250,6 +284,17 @@ describe("WebhooksService", () => {
       expect(mockTransactionClient.webhookDelivery.delete).toHaveBeenCalledWith({
         where: { id: "del-max" },
       });
+      expect(mockPrismaService.webhookAttempt.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          deliveryId: "del-max",
+          invoiceId: "inv-max",
+          userId: "user-max",
+          attemptNumber: 5,
+          responseStatusCode: null,
+          errorMessage: "Network Error",
+          status: "failed",
+        }),
+      });
     });
 
     it("marks dead-letter jobs as recovered when a manual retry succeeds", async () => {
@@ -282,6 +327,39 @@ describe("WebhooksService", () => {
   });
 
   describe("dead-letter admin tooling", () => {
+    it("lists webhook attempts for a merchant-owned invoice", async () => {
+      const expected = [{ id: "attempt-1", attemptNumber: 2 }];
+      mockPrismaService.invoice.findFirst.mockResolvedValue({
+        id: "inv-1",
+      } as any);
+      mockPrismaService.webhookAttempt.findMany.mockResolvedValue(
+        expected as any,
+      );
+
+      const result = await service.listInvoiceWebhookAttempts(
+        "inv-1",
+        "merchant-1",
+        { limit: 25 },
+      );
+
+      expect(result).toBe(expected);
+      expect(mockPrismaService.invoice.findFirst).toHaveBeenCalledWith({
+        where: { id: "inv-1", merchantId: "merchant-1" },
+        select: { id: true },
+      });
+      expect(mockPrismaService.webhookAttempt.findMany).toHaveBeenCalledWith({
+        where: { invoiceId: "inv-1" },
+        take: 25,
+        orderBy: [{ createdAt: "desc" }, { attemptNumber: "desc" }],
+        select: expect.objectContaining({
+          id: true,
+          requestPayload: true,
+          responseStatusCode: true,
+          signaturePreview: true,
+        }),
+      });
+    });
+
     it("lists dead-letter jobs with the provided filters", async () => {
       const expected = [{ id: "dlq-1" }];
       mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue(
