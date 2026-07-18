@@ -4,13 +4,17 @@ on:
   push:
     branches: [ "main" ]
     paths:
-      - 'soroban/**'
+      - 'soroban/Cargo.toml'
+      - 'soroban/Cargo.lock'
+      - 'soroban/contracts/**'
       - '.github/workflows/soroban.yml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [ "main" ]
     paths:
-      - 'soroban/**'
+      - 'soroban/Cargo.toml'
+      - 'soroban/Cargo.lock'
+      - 'soroban/contracts/**'
       - '.github/workflows/soroban.yml'
 
 jobs:
