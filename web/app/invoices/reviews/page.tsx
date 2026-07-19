@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { WalletAuthControls } from '@/components/wallet-auth-controls';
-import { format } from 'date-fns';
 
 interface PaymentReview {
   id: string;
@@ -111,7 +110,9 @@ export default function PaymentReviewsPage() {
                     <td className="px-6 py-4 text-sm font-mono text-gray-900">{r.txHash.slice(0, 16)}...</td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-900 capitalize">{r.issueType}</td>
                     <td className="px-6 py-4 text-sm text-gray-900">{r.amount} {r.assetCode}</td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{format(new Date(r.createdAt), 'MMM d, yyyy HH:mm')}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {new Date(r.createdAt).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       <button
                         onClick={() => setSelectedReview(r)}
