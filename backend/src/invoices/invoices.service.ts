@@ -666,15 +666,34 @@ export class InvoicesService implements OnModuleInit {
     const maybeId = this.stellarService.parseMemo(evt.invoice_id);
     const invoiceId = maybeId ?? evt.invoice_id;
 
+    const txHash = `soroban:${evt.eventId}`;
+    const contractId = evt.contractId ?? "unknown";
+
     const existing = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
     });
     if (!existing) {
+      try {
+        await this.prisma.paymentReview.create({
+          data: {
+            txHash,
+            contractId,
+            amount: Number(evt.amount || 0),
+            assetCode: evt.asset_code,
+            assetIssuer: evt.asset_issuer,
+            payer: evt.payer,
+            originalMemo: evt.invoice_id,
+            issueType: "unmatched",
+            status: "pending",
+          },
+        });
+      } catch (err) {
+        if ((err as { code?: string }).code !== "P2002") {
+          throw err;
+        }
+      }
       return null;
     }
-
-    const txHash = `soroban:${evt.eventId}`;
-    const contractId = evt.contractId ?? "unknown";
 
     // Replay guard: this exact (txHash, invoice, contract) combination was
     // already applied — most likely a redelivered/replayed RPC event.
@@ -710,32 +729,57 @@ export class InvoicesService implements OnModuleInit {
       const currentAmount = Number(existing.amount);
       const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
       const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+      const issueType =
+        newAmountDue === 0 && newAmountPaid > currentAmount
+          ? "overpaid"
+          : newAmountDue > 0
+            ? "underpaid"
+            : null;
 
       let updated;
       try {
-        updated = await this.prisma.invoice.update({
-          where: { id: invoiceId },
-          data: {
-            status: newStatus as any,
-            txHash: newStatus === "paid" ? txHash : existing.txHash,
-            amountPaid: newAmountPaid,
-            amountDue: newAmountDue,
-            payments: {
-              create: {
-                amount: paymentAmount,
-                txHash,
-              },
-            },
-            metadata: {
-              ...((existing.metadata as any) ?? {}),
-              soroban: sorobanMeta,
-            },
-            statusHistory: {
-              create: {
-                status: newStatus as any,
-              },
+        const updateData: any = {
+          status: newStatus as any,
+          txHash: newStatus === "paid" ? txHash : existing.txHash,
+          amountPaid: newAmountPaid,
+          amountDue: newAmountDue,
+          payments: {
+            create: {
+              amount: paymentAmount,
+              txHash,
             },
           },
+          metadata: {
+            ...((existing.metadata as any) ?? {}),
+            soroban: sorobanMeta,
+          },
+          statusHistory: {
+            create: {
+              status: newStatus as any,
+            },
+          },
+        };
+
+        if (issueType) {
+          updateData.paymentReviews = {
+            create: {
+              txHash,
+              contractId,
+              amount: paymentAmount,
+              assetCode: evt.asset_code,
+              assetIssuer: evt.asset_issuer,
+              payer: evt.payer,
+              originalMemo: evt.invoice_id,
+              issueType,
+              status: "pending",
+              merchantId: existing.merchantId,
+            },
+          };
+        }
+
+        updated = await this.prisma.invoice.update({
+          where: { id: invoiceId },
+          data: updateData,
           include: {
             statusHistory: {
               orderBy: { createdAt: "asc" },

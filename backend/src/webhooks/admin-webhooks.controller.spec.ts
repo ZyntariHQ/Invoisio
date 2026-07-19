@@ -16,9 +16,7 @@ describe("AdminWebhooksController", () => {
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AdminWebhooksController],
-      providers: [
-        { provide: WebhooksService, useValue: mockWebhooksService },
-      ],
+      providers: [{ provide: WebhooksService, useValue: mockWebhooksService }],
     }).compile();
 
     controller = module.get<AdminWebhooksController>(AdminWebhooksController);

@@ -22,6 +22,10 @@ import { InvoiceStatus } from "@prisma/client";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  PaymentReviewsService,
+  ResolveReviewDto,
+} from "./payment-reviews.service";
 
 /**
  * Invoices controller
@@ -37,6 +41,7 @@ export class InvoicesController {
   constructor(
     private readonly invoicesService: InvoicesService,
     private readonly prisma: PrismaService,
+    private readonly paymentReviewsService: PaymentReviewsService,
   ) {}
 
   /**
@@ -225,6 +230,35 @@ export class InvoicesController {
   ): Promise<Invoice> {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.invoicesService.duplicateInvoice(id, user.merchantId, user.id),
+    );
+  }
+
+  /**
+   * Get all payment reviews for the authenticated merchant
+   */
+  @Auth()
+  @Get("reviews/queue")
+  async getReviews(
+    @CurrentUser() user: User,
+    @Query("status") status?: string,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.paymentReviewsService.findAll(user.merchantId, status),
+    );
+  }
+
+  /**
+   * Resolve a payment review
+   */
+  @Auth()
+  @Post("reviews/:id/resolve")
+  async resolveReview(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body() data: ResolveReviewDto,
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.paymentReviewsService.resolve(id, user.merchantId, data),
     );
   }
 }

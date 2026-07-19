@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
+import { PaymentReviewsService } from "./payment-reviews.service";
 import { StellarModule } from "../stellar/stellar.module";
 import { SorobanModule } from "../soroban/soroban.module";
 import { PrismaModule } from "../prisma/prisma.module";
@@ -24,7 +25,7 @@ import { RealtimeModule } from "../realtime/realtime.module";
     RealtimeModule,
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService],
+  providers: [InvoicesService, PaymentReviewsService],
   exports: [InvoicesService],
 })
 export class InvoicesModule {}
