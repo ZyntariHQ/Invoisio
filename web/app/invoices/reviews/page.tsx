@@ -34,7 +34,7 @@ export default function PaymentReviewsPage() {
   });
 
   const resolveMutation = useMutation({
-    mutationFn: async (payload: { id: string, data: any }) => {
+    mutationFn: async (payload: { id: string, data: { action: 'attach' | 'ignore' | 'manually_handled', invoiceId?: string, resolutionNote?: string } }) => {
       await apiClient.post(`/invoices/reviews/${payload.id}/resolve`, payload.data);
     },
     onSuccess: () => {
@@ -153,7 +153,7 @@ export default function PaymentReviewsPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Action</label>
                     <select
                       value={resolutionAction}
-                      onChange={(e) => setResolutionAction(e.target.value as any)}
+                      onChange={(e) => setResolutionAction(e.target.value as 'attach' | 'ignore' | 'manually_handled')}
                       className="block w-full rounded-lg border border-gray-300 p-2 text-sm focus:border-blue-500 focus:ring-blue-500"
                     >
                       {selectedReview.issueType === 'unmatched' && <option value="attach">Attach to Invoice</option>}
