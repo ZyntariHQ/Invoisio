@@ -6,14 +6,14 @@ export const mockStructuredLogger = {
 };
 
 export const mockRequestContextService = {
-  runWithContext: jest.fn(
-    (_store: unknown, callback: () => unknown) => callback(),
+  runWithContext: jest.fn((_store: unknown, callback: () => unknown) =>
+    callback(),
   ),
-  runWithWorkerContext: jest.fn(
-    (_options: unknown, callback: () => unknown) => callback(),
+  runWithWorkerContext: jest.fn((_options: unknown, callback: () => unknown) =>
+    callback(),
   ),
-  runWithChildContext: jest.fn(
-    (_partial: unknown, callback: () => unknown) => callback(),
+  runWithChildContext: jest.fn((_partial: unknown, callback: () => unknown) =>
+    callback(),
   ),
   getStore: jest.fn(),
   getCorrelationId: jest.fn(),

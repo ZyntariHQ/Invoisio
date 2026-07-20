@@ -41,7 +41,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       error:
         typeof message === "string"
           ? message
-          : (message as { message?: string }).message || "Internal server error",
+          : (message as { message?: string }).message ||
+            "Internal server error",
       correlationId,
       traceId: this.requestContext.getTraceId(),
     });

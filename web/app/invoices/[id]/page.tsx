@@ -325,7 +325,7 @@ function InvoiceDetailContent() {
         <div className="overflow-hidden rounded-lg bg-white shadow">
           <div className="px-6 py-8 sm:px-8">
             {/* Invoice Header */}
-            <div className="mb-8 flex items-start justify-between border-b border-gray-200 pb-6">
+            <div className="mb-8 flex flex-col items-start gap-3 border-b border-gray-200 pb-6 sm:flex-row sm:justify-between">
               <div>
                 <p className="text-sm text-gray-500">Invoice</p>
                 <h1 className="text-3xl font-bold text-gray-900">
@@ -459,7 +459,7 @@ function InvoiceDetailContent() {
             {/* Payment Instructions */}
             {isPending && (
               <div className="mb-8 rounded-md border border-blue-200 bg-blue-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-medium uppercase text-blue-900">Payment Instructions</p>
                   <span className="text-xs text-slate-500">Copy destination and memo to pay</span>
                 </div>
@@ -507,7 +507,7 @@ function InvoiceDetailContent() {
 
             {/* Status Timeline */}
             <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
-              <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
                 <span className="text-xs text-slate-500">
                   {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}

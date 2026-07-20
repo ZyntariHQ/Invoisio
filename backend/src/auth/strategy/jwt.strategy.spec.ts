@@ -111,4 +111,3 @@ describe("JwtStrategy (token revocation)", () => {
     ).rejects.toThrow(UnauthorizedException);
   });
 });
-

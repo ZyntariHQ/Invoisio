@@ -5,10 +5,18 @@ import { traceAsync } from "./tracing.util";
 describe("traceAsync", () => {
   const requestContext = new RequestContextService();
   const logger = new StructuredLogger(requestContext);
-  const infoSpy = jest.spyOn(logger, "info").mockImplementation(() => undefined);
-  const warnSpy = jest.spyOn(logger, "warn").mockImplementation(() => undefined);
-  const debugSpy = jest.spyOn(logger, "debug").mockImplementation(() => undefined);
-  const errorSpy = jest.spyOn(logger, "error").mockImplementation(() => undefined);
+  const infoSpy = jest
+    .spyOn(logger, "info")
+    .mockImplementation(() => undefined);
+  const warnSpy = jest
+    .spyOn(logger, "warn")
+    .mockImplementation(() => undefined);
+  const debugSpy = jest
+    .spyOn(logger, "debug")
+    .mockImplementation(() => undefined);
+  const errorSpy = jest
+    .spyOn(logger, "error")
+    .mockImplementation(() => undefined);
 
   beforeEach(() => {
     jest.clearAllMocks();
