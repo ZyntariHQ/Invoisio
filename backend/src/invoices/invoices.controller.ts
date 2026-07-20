@@ -1,4 +1,5 @@
 import {
+  StreamableFile,
   Controller,
   Get,
   Post,
@@ -9,11 +10,14 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
 import { Throttle } from "@nestjs/throttler";
+import type { Response } from "express";
 import { InvoicesService } from "./invoices.service";
+import { InvoicePdfService } from "./invoice-pdf.service";
 import { CreateInvoiceDto } from "./dto/create-invoice.dto";
 import { SearchInvoicesDto } from "./dto/search-invoices.dto";
 import { ImportSummaryDto } from "./dto/import-result.dto";
@@ -40,6 +44,7 @@ import {
 export class InvoicesController {
   constructor(
     private readonly invoicesService: InvoicesService,
+    private readonly invoicePdfService: InvoicePdfService,
     private readonly prisma: PrismaService,
     private readonly paymentReviewsService: PaymentReviewsService,
   ) {}
@@ -94,6 +99,46 @@ export class InvoicesController {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.invoicesService.findOne(id, user.merchantId),
     );
+  }
+
+  @Auth()
+  @Get(":id/pdf")
+  async downloadInvoicePdf(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const document = await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicePdfService.generateDocument(id, user.merchantId, "invoice"),
+    );
+
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${document.filename}"`,
+    );
+
+    return new StreamableFile(document.buffer);
+  }
+
+  @Auth()
+  @Get(":id/receipt")
+  async downloadReceiptPdf(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    const document = await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicePdfService.generateDocument(id, user.merchantId, "receipt"),
+    );
+
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${document.filename}"`,
+    );
+
+    return new StreamableFile(document.buffer);
   }
 
   /**

@@ -4,8 +4,8 @@ import { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useInfiniteQuery } from '@tanstack/react-query';
-import { Copy } from 'lucide-react';
-import { apiClient } from '@/lib/api-client';
+import { Copy, Download } from 'lucide-react';
+import { apiClient, extractApiErrorMessage } from '@/lib/api-client';
 import { WalletAuthControls } from '@/components/wallet-auth-controls';
 import { RequireAuth } from '@/components/require-auth';
 
@@ -133,6 +133,7 @@ function InvoicesContent() {
   const [customQueries, setCustomQueries] = useState<SavedQuery[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [saveName, setSaveName] = useState('');
+  const [downloadInProgress, setDownloadInProgress] = useState<string | null>(null);
 
   const pageSize = 20;
 
@@ -295,6 +296,57 @@ function InvoicesContent() {
     } catch (error) {
       console.error('Failed to duplicate invoice:', error);
       alert('Failed to duplicate invoice. Please try again.');
+    }
+  };
+
+  const parseDownloadFilename = (contentDisposition: string | undefined, fallback: string) => {
+    if (!contentDisposition) return fallback;
+
+    const match = contentDisposition.match(/filename="?([^";]+)"?/i);
+    return match?.[1] ?? fallback;
+  };
+
+  const handleDownloadDocument = async (
+    invoice: Invoice,
+    variant: 'invoice' | 'receipt',
+    e: React.MouseEvent,
+  ) => {
+    e.stopPropagation();
+
+    const key = `${invoice.id}:${variant}`;
+    const endpoint =
+      variant === 'receipt'
+        ? `/invoices/${invoice.id}/receipt`
+        : `/invoices/${invoice.id}/pdf`;
+    const fallbackName =
+      variant === 'receipt'
+        ? `receipt-${invoice.invoiceNumber ?? invoice.id}.pdf`
+        : `invoice-${invoice.invoiceNumber ?? invoice.id}.pdf`;
+
+    try {
+      setDownloadInProgress(key);
+      const response = await apiClient.get(endpoint, {
+        responseType: 'blob',
+      });
+
+      const filename = parseDownloadFilename(
+        response.headers['content-disposition'],
+        fallbackName,
+      );
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      alert(extractApiErrorMessage(error));
+    } finally {
+      setDownloadInProgress(null);
     }
   };
 
@@ -709,7 +761,7 @@ function InvoicesContent() {
                           </span>
                         </td>
                         <td className="whitespace-nowrap px-6 py-4 text-center">
-                          <div className="flex items-center justify-center gap-2">
+                          <div className="flex flex-wrap items-center justify-center gap-2">
                             <Link
                               href={`/invoices/${invoice.id}`}
                               className="inline-flex rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm hover:shadow transition-all"
@@ -717,12 +769,43 @@ function InvoicesContent() {
                               View
                             </Link>
                             <button
+                              onClick={(e) => handleDownloadDocument(invoice, 'invoice', e)}
+                              disabled={downloadInProgress !== null}
+                              className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 shadow-sm transition-all disabled:cursor-not-allowed disabled:bg-gray-100"
+                              title="Download invoice PDF"
+                              aria-label="Download invoice PDF"
+                            >
+                              <Download className="h-3.5 w-3.5" />
+                              <span className="hidden sm:inline">
+                                {downloadInProgress === `${invoice.id}:invoice`
+                                  ? 'Preparing...'
+                                  : 'Invoice'}
+                              </span>
+                            </button>
+                            {invoice.status === 'paid' && (
+                              <button
+                                onClick={(e) => handleDownloadDocument(invoice, 'receipt', e)}
+                                disabled={downloadInProgress !== null}
+                                className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 shadow-sm transition-all disabled:cursor-not-allowed disabled:bg-gray-100"
+                                title="Download paid receipt PDF"
+                                aria-label="Download paid receipt PDF"
+                              >
+                                <Download className="h-3.5 w-3.5" />
+                                <span className="hidden sm:inline">
+                                  {downloadInProgress === `${invoice.id}:receipt`
+                                    ? 'Preparing...'
+                                    : 'Receipt'}
+                                </span>
+                              </button>
+                            )}
+                            <button
                               onClick={(e) => handleDuplicateInvoice(invoice.id, e)}
                               className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 shadow-sm transition-all"
                               title="Duplicate invoice"
+                              aria-label="Duplicate invoice"
                             >
                               <Copy className="h-3.5 w-3.5" />
-                              Duplicate
+                              <span className="hidden sm:inline">Duplicate</span>
                             </button>
                           </div>
                         </td>

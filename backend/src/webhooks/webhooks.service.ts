@@ -26,9 +26,15 @@ export interface DeadLetterListQuery {
   limit?: number;
 }
 
+export interface InvoiceWebhookAttemptsQuery {
+  limit?: number;
+}
+
 const MAX_DELIVERY_ATTEMPTS = 5;
 const DEFAULT_DEAD_LETTER_LIMIT = 50;
 const MAX_DEAD_LETTER_LIMIT = 100;
+const DEFAULT_ATTEMPT_LIMIT = 50;
+const MAX_ATTEMPT_LIMIT = 100;
 
 @Injectable()
 export class WebhooksService {
@@ -194,18 +200,38 @@ export class WebhooksService {
         .update(payloadStr)
         .digest("hex");
     }
+    const signatureMetadata = this.toSignatureMetadata(signature);
+    const attemptNumber = delivery.attempts + 1;
 
     // Adding idempotency key based on delivery ID and attempts
     const idempotencyKey = `${delivery.id}-${delivery.attempts}`;
 
     try {
-      await axios.post(delivery.url, delivery.payload, {
+      const response = await axios.post(delivery.url, delivery.payload, {
         headers: {
           "Content-Type": "application/json",
           "x-invoisio-signature": signature,
           "x-idempotency-key": idempotencyKey,
         },
         timeout: 5000,
+      });
+
+      await this.prisma.webhookAttempt.create({
+        data: {
+          deliveryId: delivery.id,
+          invoiceId: delivery.invoiceId,
+          userId: delivery.userId,
+          requestUrl: delivery.url,
+          requestPayload: this.toPrismaJsonValue(delivery.payload),
+          attemptNumber,
+          responseStatusCode: response.status,
+          errorMessage: null,
+          status: "success",
+          signaturePresent: signatureMetadata.signaturePresent,
+          signatureAlgorithm: signatureMetadata.signatureAlgorithm,
+          signaturePreview: signatureMetadata.signaturePreview,
+          signatureLength: signatureMetadata.signatureLength,
+        },
       });
 
       // Update on success
@@ -230,8 +256,27 @@ export class WebhooksService {
 
       this.logger.log(`Webhook delivery ${delivery.id} succeeded.`);
     } catch (error: any) {
-      const attempts = delivery.attempts + 1;
+      const attempts = attemptNumber;
       const failure = this.toFailureDetails(error);
+
+      await this.prisma.webhookAttempt.create({
+        data: {
+          deliveryId: delivery.id,
+          invoiceId: delivery.invoiceId,
+          userId: delivery.userId,
+          requestUrl: delivery.url,
+          requestPayload: this.toPrismaJsonValue(delivery.payload),
+          attemptNumber,
+          responseStatusCode: failure.httpStatus,
+          errorMessage: failure.message,
+          status: "failed",
+          signaturePresent: signatureMetadata.signaturePresent,
+          signatureAlgorithm: signatureMetadata.signatureAlgorithm,
+          signaturePreview: signatureMetadata.signaturePreview,
+          signatureLength: signatureMetadata.signatureLength,
+        },
+      });
+
       this.logger.warn(
         `Webhook delivery ${delivery.id} failed (attempt ${attempts}): ${failure.message}`,
       );
@@ -291,6 +336,45 @@ export class WebhooksService {
             publicKey: true,
           },
         },
+      },
+    });
+  }
+
+  async listInvoiceWebhookAttempts(
+    invoiceId: string,
+    merchantId: string,
+    query: InvoiceWebhookAttemptsQuery = {},
+  ) {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, merchantId },
+      select: { id: true },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException("Invoice not found.");
+    }
+
+    const take = this.normalizeAttemptLimit(query.limit);
+
+    return this.prisma.webhookAttempt.findMany({
+      where: { invoiceId },
+      take,
+      orderBy: [{ createdAt: "desc" }, { attemptNumber: "desc" }],
+      select: {
+        id: true,
+        deliveryId: true,
+        requestUrl: true,
+        requestPayload: true,
+        attemptNumber: true,
+        responseStatusCode: true,
+        errorMessage: true,
+        status: true,
+        signaturePresent: true,
+        signatureAlgorithm: true,
+        signaturePreview: true,
+        signatureLength: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
   }
@@ -367,8 +451,9 @@ export class WebhooksService {
 
     const queuedAt = new Date();
     const delivery = await this.prisma.$transaction(
-      async (tx: Prisma.TransactionClient) => {
-        const createdDelivery = await tx.webhookDelivery.create({
+      async (tx) => {
+        const txClient = tx as any;
+        const createdDelivery = await txClient.webhookDelivery.create({
           data: {
             invoiceId: deadLetter.invoiceId,
             userId: deadLetter.userId,
@@ -381,7 +466,7 @@ export class WebhooksService {
           },
         });
 
-        await tx.webhookDeadLetter.update({
+        await txClient.webhookDeadLetter.update({
           where: { id: deadLetterId },
           data: {
             status: "requeued",
@@ -438,6 +523,14 @@ export class WebhooksService {
     return Math.min(Math.max(limit, 1), MAX_DEAD_LETTER_LIMIT);
   }
 
+  private normalizeAttemptLimit(limit?: number): number {
+    if (!limit) {
+      return DEFAULT_ATTEMPT_LIMIT;
+    }
+
+    return Math.min(Math.max(limit, 1), MAX_ATTEMPT_LIMIT);
+  }
+
   private toFailureDetails(error: any): {
     message: string;
     httpStatus: number | null;
@@ -469,6 +562,41 @@ export class WebhooksService {
     };
   }
 
+  private toSignatureMetadata(signature: string): {
+    signaturePresent: boolean;
+    signatureAlgorithm: string | null;
+    signaturePreview: string | null;
+    signatureLength: number | null;
+  } {
+    if (!signature) {
+      return {
+        signaturePresent: false,
+        signatureAlgorithm: null,
+        signaturePreview: null,
+        signatureLength: null,
+      };
+    }
+
+    return {
+      signaturePresent: true,
+      signatureAlgorithm: "hmac-sha256",
+      signaturePreview: this.maskSignature(signature),
+      signatureLength: signature.length,
+    };
+  }
+
+  private maskSignature(signature: string): string {
+    if (signature.length <= 8) {
+      return "*".repeat(signature.length);
+    }
+
+    if (signature.length <= 12) {
+      return `${signature.slice(0, 2)}...${signature.slice(-2)}`;
+    }
+
+    return `${signature.slice(0, 6)}...${signature.slice(-6)}`;
+  }
+
   private async moveToDeadLetter(
     delivery: {
       id: string;
@@ -492,9 +620,10 @@ export class WebhooksService {
 
     const exhaustedAt = new Date();
 
-    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    await this.prisma.$transaction(async (tx) => {
+      const txClient = tx as any;
       if (delivery.deadLetterId) {
-        await tx.webhookDeadLetter.update({
+        await txClient.webhookDeadLetter.update({
           where: { id: delivery.deadLetterId },
           data: {
             url: delivery.url,
@@ -508,7 +637,7 @@ export class WebhooksService {
           },
         });
       } else {
-        await tx.webhookDeadLetter.create({
+        await txClient.webhookDeadLetter.create({
           data: {
             originalDeliveryId: delivery.id,
             invoiceId: delivery.invoiceId,
@@ -525,7 +654,7 @@ export class WebhooksService {
         });
       }
 
-      await tx.webhookDelivery.delete({
+      await txClient.webhookDelivery.delete({
         where: { id: delivery.id },
       });
     });

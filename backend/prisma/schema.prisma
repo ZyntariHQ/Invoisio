@@ -73,6 +73,7 @@ model User {
   invoices            Invoice[]
   webhooks            WebhookDelivery[]
   webhookDeadLetters  WebhookDeadLetter[]
+  webhookAttempts     WebhookAttempt[]
 
   @@index([merchantId])
   @@map("users")
@@ -94,8 +95,35 @@ model WebhookDelivery {
   nextAttemptAt  DateTime?      @map("next_attempt_at")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
+  deliveryAttempts WebhookAttempt[]
 
   @@map("webhook_deliveries")
+}
+
+model WebhookAttempt {
+  id                 String               @id @default(uuid())
+  deliveryId         String?              @map("delivery_id")
+  delivery           WebhookDelivery?     @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  invoiceId          String               @map("invoice_id")
+  invoice            Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId             String               @map("user_id")
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requestUrl         String               @map("request_url")
+  requestPayload     Json                 @map("request_payload")
+  attemptNumber      Int                  @map("attempt_number")
+  responseStatusCode Int?                 @map("response_status_code")
+  errorMessage       String?              @map("error_message")
+  status             WebhookAttemptStatus
+  signaturePresent   Boolean              @default(false) @map("signature_present")
+  signatureAlgorithm String?              @map("signature_algorithm")
+  signaturePreview   String?              @map("signature_preview")
+  signatureLength    Int?                 @map("signature_length")
+  createdAt          DateTime             @default(now()) @map("created_at")
+  updatedAt          DateTime             @updatedAt @map("updated_at")
+
+  @@index([invoiceId, createdAt])
+  @@index([userId, createdAt])
+  @@map("webhook_attempts")
 }
 
 model WebhookDeadLetter {
@@ -137,6 +165,11 @@ enum DeadLetterStatus {
   recovered
 }
 
+enum WebhookAttemptStatus {
+  success
+  failed
+}
+
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
 model Invoice {
   id                 String        @id @default(uuid())
@@ -167,6 +200,7 @@ model Invoice {
 
   webhooks              WebhookDelivery[]
   webhookDeadLetters    WebhookDeadLetter[]
+  webhookAttempts       WebhookAttempt[]
   statusHistory         InvoiceStatusHistory[]
   payments              Payment[]
   paymentReviews        PaymentReview[]
