@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  OnModuleDestroy,
-  OnModuleInit,
-} from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InvoicesService } from "../invoices/invoices.service";
 import https from "node:https";
@@ -97,7 +93,9 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   }
 
   async handleEvent(ev: any): Promise<void> {
-    const eventId = String(ev?.id ?? ev?.eventId ?? ev?.pagingToken ?? Date.now());
+    const eventId = String(
+      ev?.id ?? ev?.eventId ?? ev?.pagingToken ?? Date.now(),
+    );
 
     await this.requestContext.runWithChildContext(
       { correlationId: `soroban:${eventId}` },
@@ -135,7 +133,8 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
           event: "payment_recorded",
           eventId,
           invoiceId: String(payload.invoice_id),
-          ledger: Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
+          ledger:
+            Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
         });
 
         await this.invoices.applySorobanPaymentEvent({
@@ -145,7 +144,9 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
             Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
           invoice_id: String(payload.invoice_id),
           payer: payload.payer ? String(payload.payer) : undefined,
-          asset_code: payload.asset_code ? String(payload.asset_code) : undefined,
+          asset_code: payload.asset_code
+            ? String(payload.asset_code)
+            : undefined,
           asset_issuer: payload.asset_issuer
             ? String(payload.asset_issuer)
             : undefined,
