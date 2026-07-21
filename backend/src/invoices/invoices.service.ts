@@ -730,15 +730,34 @@ export class InvoicesService implements OnModuleInit {
     const maybeId = this.stellarService.parseMemo(evt.invoice_id);
     const invoiceId = maybeId ?? evt.invoice_id;
 
+    const txHash = `soroban:${evt.eventId}`;
+    const contractId = evt.contractId ?? "unknown";
+
     const existing = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
     });
     if (!existing) {
+      try {
+        await this.prisma.paymentReview.create({
+          data: {
+            txHash,
+            contractId,
+            amount: Number(evt.amount || 0),
+            assetCode: evt.asset_code,
+            assetIssuer: evt.asset_issuer,
+            payer: evt.payer,
+            originalMemo: evt.invoice_id,
+            issueType: "unmatched",
+            status: "pending",
+          },
+        });
+      } catch (err) {
+        if ((err as { code?: string }).code !== "P2002") {
+          throw err;
+        }
+      }
       return null;
     }
-
-    const txHash = `soroban:${evt.eventId}`;
-    const contractId = evt.contractId ?? "unknown";
 
     // Replay guard: this exact (txHash, invoice, contract) combination was
     // already applied — most likely a redelivered/replayed RPC event.
@@ -774,32 +793,57 @@ export class InvoicesService implements OnModuleInit {
       const currentAmount = Number(existing.amount);
       const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
       const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+      const issueType =
+        newAmountDue === 0 && newAmountPaid > currentAmount
+          ? "overpaid"
+          : newAmountDue > 0
+            ? "underpaid"
+            : null;
 
       let updated;
       try {
-        updated = await this.prisma.invoice.update({
-          where: { id: invoiceId },
-          data: {
-            status: newStatus as any,
-            txHash: newStatus === "paid" ? txHash : existing.txHash,
-            amountPaid: newAmountPaid,
-            amountDue: newAmountDue,
-            payments: {
-              create: {
-                amount: paymentAmount,
-                txHash,
-              },
-            },
-            metadata: {
-              ...((existing.metadata as any) ?? {}),
-              soroban: sorobanMeta,
-            },
-            statusHistory: {
-              create: {
-                status: newStatus as any,
-              },
+        const updateData: any = {
+          status: newStatus as any,
+          txHash: newStatus === "paid" ? txHash : existing.txHash,
+          amountPaid: newAmountPaid,
+          amountDue: newAmountDue,
+          payments: {
+            create: {
+              amount: paymentAmount,
+              txHash,
             },
           },
+          metadata: {
+            ...((existing.metadata as any) ?? {}),
+            soroban: sorobanMeta,
+          },
+          statusHistory: {
+            create: {
+              status: newStatus as any,
+            },
+          },
+        };
+
+        if (issueType) {
+          updateData.paymentReviews = {
+            create: {
+              txHash,
+              contractId,
+              amount: paymentAmount,
+              assetCode: evt.asset_code,
+              assetIssuer: evt.asset_issuer,
+              payer: evt.payer,
+              originalMemo: evt.invoice_id,
+              issueType,
+              status: "pending",
+              merchantId: existing.merchantId,
+            },
+          };
+        }
+
+        updated = await this.prisma.invoice.update({
+          where: { id: invoiceId },
+          data: updateData,
           include: {
             statusHistory: {
               orderBy: { createdAt: "asc" },
@@ -1223,6 +1267,83 @@ export class InvoicesService implements OnModuleInit {
   /** Escape LIKE wildcards to avoid unintended pattern expansion */
   private escapeLikePattern(term: string): string {
     return term.replace(/[%_\\]/g, (char) => `\\${char}`);
+  }
+
+  /**
+   * Duplicate an existing invoice to create a new invoice with the same details
+   * but with a new invoice number, memo, and pending status
+   * @param id - Invoice UUID to duplicate
+   * @param merchantId - Merchant scope (enforces ownership)
+   * @param userId - User creating the duplicate
+   * @returns The duplicated invoice
+   */
+  async duplicateInvoice(
+    id: string,
+    merchantId: string,
+    userId: string,
+  ): Promise<Invoice> {
+    const existingInvoice = await this.prisma.invoice.findFirst({
+      where: { id, merchantId },
+    });
+
+    if (!existingInvoice) {
+      throw new NotFoundException(`Invoice with ID "${id}" not found`);
+    }
+
+    // Generate a new invoice number based on the original
+    const baseNumber = existingInvoice.invoiceNumber || "INV";
+    const newInvoiceNumber = `${baseNumber}-COPY-${Date.now().toString().slice(-4)}`;
+
+    // Create the duplicate invoice
+    const duplicated = await this.prisma.invoice.create({
+      data: {
+        userId,
+        merchantId,
+        invoiceNumber: newInvoiceNumber,
+        clientName: existingInvoice.clientName,
+        clientEmail: existingInvoice.clientEmail,
+        description: existingInvoice.description,
+        amount: existingInvoice.amount,
+        amountPaid: 0 as any,
+        amountDue: existingInvoice.amount,
+        assetCode: existingInvoice.assetCode,
+        assetIssuer: existingInvoice.assetIssuer,
+        memo: this.generateMemoId(),
+        memoType: "ID",
+        status: "pending" as const,
+        destinationAddress: this.stellarService.getMerchantPublicKey(),
+        txHash: null,
+        sorobanTxHash: null,
+        sorobanContractId: null,
+        metadata: Prisma.JsonNull,
+        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        statusHistory: {
+          create: {
+            status: "pending" as const,
+          },
+        },
+      },
+      include: {
+        statusHistory: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
+
+    this.structuredLogger.info("invoice.duplicated", {
+      domain: "invoices",
+      event: "invoice_duplicated",
+      originalInvoiceId: id,
+      newInvoiceId: duplicated.id,
+      invoiceNumber: duplicated.invoiceNumber,
+      memo: duplicated.memo,
+      merchantId,
+      userId,
+      amount: duplicated.amount,
+      assetCode: duplicated.assetCode,
+    });
+
+    return this.normalizeInvoice(duplicated);
   }
 
   /**

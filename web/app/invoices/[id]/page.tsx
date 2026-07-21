@@ -3,6 +3,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback, useMemo } from 'react';
+import { Copy } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
@@ -162,6 +163,17 @@ function InvoiceDetailContent() {
     }
   }, [invoice, paymentInProgress]);
 
+  const handleDuplicateInvoice = async () => {
+    try {
+      const response = await apiClient.post(`/invoices/${invoiceId}/duplicate`);
+      // Navigate to the new invoice detail page
+      router.push(`/invoices/${response.data.id}`);
+    } catch (error) {
+      console.error('Failed to duplicate invoice:', error);
+      alert('Failed to duplicate invoice. Please try again.');
+    }
+  };
+
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
@@ -259,7 +271,7 @@ function InvoiceDetailContent() {
         <div className="overflow-hidden rounded-lg bg-white shadow">
           <div className="px-6 py-8 sm:px-8">
             {/* Invoice Header */}
-            <div className="mb-8 flex items-start justify-between border-b border-gray-200 pb-6">
+            <div className="mb-8 flex flex-col items-start gap-3 border-b border-gray-200 pb-6 sm:flex-row sm:justify-between">
               <div>
                 <p className="text-sm text-gray-500">Invoice</p>
                 <h1 className="text-3xl font-bold text-gray-900">
@@ -393,7 +405,7 @@ function InvoiceDetailContent() {
             {/* Payment Instructions */}
             {isPending && (
               <div className="mb-8 rounded-md border border-blue-200 bg-blue-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-medium uppercase text-blue-900">Payment Instructions</p>
                   <span className="text-xs text-slate-500">Copy destination and memo to pay</span>
                 </div>
@@ -441,7 +453,7 @@ function InvoiceDetailContent() {
 
             {/* Status Timeline */}
             <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
-              <div className="mb-4 flex items-center justify-between gap-4">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
                 <span className="text-xs text-slate-500">
                   {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}
@@ -476,7 +488,7 @@ function InvoiceDetailContent() {
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               {isPending && walletInfo?.hasWallet && (
                 <button
                   type="button"
@@ -497,6 +509,16 @@ function InvoiceDetailContent() {
                 className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
               >
                 🔄 Refresh Status
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDuplicateInvoice}
+                aria-label="Duplicate this invoice"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Copy className="h-4 w-4" />
+                Duplicate
               </button>
 
               {isPaid && (

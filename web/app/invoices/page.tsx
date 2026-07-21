@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { Copy } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { WalletAuthControls } from '@/components/wallet-auth-controls';
 import { RequireAuth } from '@/components/require-auth';
@@ -283,6 +284,18 @@ function InvoicesContent() {
     const updated = customQueries.filter((q) => q.id !== id);
     setCustomQueries(updated);
     localStorage.setItem('invoisio_saved_queries', JSON.stringify(updated));
+  };
+
+  const handleDuplicateInvoice = async (invoiceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const response = await apiClient.post(`/invoices/${invoiceId}/duplicate`);
+      // Navigate to the new invoice detail page
+      router.push(`/invoices/${response.data.id}`);
+    } catch (error) {
+      console.error('Failed to duplicate invoice:', error);
+      alert('Failed to duplicate invoice. Please try again.');
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -696,12 +709,22 @@ function InvoicesContent() {
                           </span>
                         </td>
                         <td className="whitespace-nowrap px-6 py-4 text-center">
-                          <Link
-                            href={`/invoices/${invoice.id}`}
-                            className="inline-flex rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm hover:shadow transition-all"
-                          >
-                            View
-                          </Link>
+                          <div className="flex items-center justify-center gap-2">
+                            <Link
+                              href={`/invoices/${invoice.id}`}
+                              className="inline-flex rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 shadow-sm hover:shadow transition-all"
+                            >
+                              View
+                            </Link>
+                            <button
+                              onClick={(e) => handleDuplicateInvoice(invoice.id, e)}
+                              className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-200 shadow-sm transition-all"
+                              title="Duplicate invoice"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                              Duplicate
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

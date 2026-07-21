@@ -231,22 +231,24 @@ describe("WebhooksService", () => {
       await service.deliver(delivery);
 
       expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
-      expect(mockTransactionClient.webhookDeadLetter.create).toHaveBeenCalledWith(
+      expect(
+        mockTransactionClient.webhookDeadLetter.create,
+      ).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          originalDeliveryId: "del-max",
+          invoiceId: "inv-max",
+          userId: "user-max",
+          merchantId: "merchant-9",
+          failedAttempts: 5,
+          status: "pending_retry",
+          lastError: "Network Error",
+        }),
+      });
+      expect(mockTransactionClient.webhookDelivery.delete).toHaveBeenCalledWith(
         {
-          data: expect.objectContaining({
-            originalDeliveryId: "del-max",
-            invoiceId: "inv-max",
-            userId: "user-max",
-            merchantId: "merchant-9",
-            failedAttempts: 5,
-            status: "pending_retry",
-            lastError: "Network Error",
-          }),
+          where: { id: "del-max" },
         },
       );
-      expect(mockTransactionClient.webhookDelivery.delete).toHaveBeenCalledWith({
-        where: { id: "del-max" },
-      });
     });
 
     it("marks dead-letter jobs as recovered when a manual retry succeeds", async () => {
@@ -308,7 +310,9 @@ describe("WebhooksService", () => {
         payload: { status: "paid" },
         status: "pending_retry",
       } as any);
-      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(null as any);
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(
+        null as any,
+      );
       mockTransactionClient.webhookDelivery.create.mockResolvedValue({
         id: "del-retry",
       } as any);
@@ -320,25 +324,27 @@ describe("WebhooksService", () => {
         deliveryId: "del-retry",
         status: "requeued",
       });
-      expect(mockTransactionClient.webhookDelivery.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          invoiceId: "inv-2",
-          userId: "user-2",
-          deadLetterId: "dlq-2",
-          status: "pending",
-          attempts: 0,
-        }),
-      });
-      expect(mockTransactionClient.webhookDeadLetter.update).toHaveBeenCalledWith(
+      expect(mockTransactionClient.webhookDelivery.create).toHaveBeenCalledWith(
         {
-          where: { id: "dlq-2" },
           data: expect.objectContaining({
-            status: "requeued",
-            manualRetryCount: { increment: 1 },
-            lastRetriedAt: expect.any(Date),
+            invoiceId: "inv-2",
+            userId: "user-2",
+            deadLetterId: "dlq-2",
+            status: "pending",
+            attempts: 0,
           }),
         },
       );
+      expect(
+        mockTransactionClient.webhookDeadLetter.update,
+      ).toHaveBeenCalledWith({
+        where: { id: "dlq-2" },
+        data: expect.objectContaining({
+          status: "requeued",
+          manualRetryCount: { increment: 1 },
+          lastRetriedAt: expect.any(Date),
+        }),
+      });
     });
 
     it("rejects duplicate manual retries while a retry is already pending", async () => {

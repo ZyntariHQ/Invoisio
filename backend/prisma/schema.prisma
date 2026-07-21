@@ -24,6 +24,7 @@ model Merchant {
   invoices Invoice[]
   activities ActivityEvent[]
   activationChecklist MerchantActivationChecklist?
+  paymentReviews PaymentReview[]
 
   @@map("merchants")
 }
@@ -168,9 +169,14 @@ model Invoice {
 
   webhooks           WebhookDelivery[]
   webhookDeadLetters    WebhookDeadLetter[]
+ feat/activity-feed
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
   activities         ActivityEvent[]
+  statusHistory         InvoiceStatusHistory[]
+  payments              Payment[]
+  paymentReviews        PaymentReview[]
+ main
 
   @@index([merchantId])
   @@map("invoices")
@@ -262,4 +268,29 @@ model ProcessedEvent {
   @@index([invoiceId])
   @@index([status])
   @@map("processed_events")
+}
+
+model PaymentReview {
+  id              String   @id @default(uuid())
+  merchantId      String?  @map("merchant_id")
+  merchant        Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  invoiceId       String?  @map("invoice_id")
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  txHash          String   @unique @map("tx_hash")
+  contractId      String   @map("contract_id")
+  amount          Decimal  @db.Decimal(18, 7)
+  assetCode       String?  @map("asset_code")
+  assetIssuer     String?  @map("asset_issuer")
+  payer           String?
+  originalMemo    String?  @map("original_memo")
+  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid'
+  status          String   @default("pending") // 'pending', 'resolved', 'ignored'
+  resolutionNote  String?  @map("resolution_note")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([merchantId])
+  @@index([status])
+  @@map("payment_reviews")
 }
