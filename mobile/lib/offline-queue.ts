@@ -1,5 +1,4 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
 
 export interface QueuedRequest {
   id: string;
@@ -21,13 +20,13 @@ class OfflineQueueManager {
   private listeners: (() => void)[] = [];
 
   constructor() {
-    this.loadQueue();
+    void this.loadQueue();
   }
 
   /**
    * Load the queue from persistent storage
    */
-  private async loadQueue() {
+  private async loadQueue(): Promise<void> {
     try {
       const stored = await AsyncStorage.getItem(QUEUE_KEY);
       if (stored) {
@@ -45,7 +44,7 @@ class OfflineQueueManager {
   /**
    * Save the queue to persistent storage
    */
-  private async saveQueue() {
+  private async saveQueue(): Promise<void> {
     try {
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(this.queue));
     } catch (error) {
@@ -62,13 +61,13 @@ class OfflineQueueManager {
     data?: any,
     headers?: Record<string, string>
   ): Promise<string> {
-    const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
     const request: QueuedRequest = {
       id,
       url,
       method,
       data,
-      headers,
+      headers: headers ?? {},
       timestamp: Date.now(),
       retryCount: 0,
       maxRetries: MAX_RETRIES,
@@ -110,7 +109,7 @@ class OfflineQueueManager {
   /**
    * Clear the queue
    */
-  async clearQueue() {
+  async clearQueue(): Promise<void> {
     this.queue = [];
     await this.saveQueue();
     this.notifyListeners();
@@ -122,7 +121,7 @@ class OfflineQueueManager {
   async processQueue(
     onSuccess?: (request: QueuedRequest, response: any) => void,
     onFailure?: (request: QueuedRequest, error: any) => void
-  ) {
+  ): Promise<void> {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
 
@@ -130,9 +129,11 @@ class OfflineQueueManager {
     for (const request of toProcess) {
       try {
         // Skip if already processed or too many retries
-        if (request.retryCount >= request.maxRetries) continue;
-        await this.processRequest(request);
-        onSuccess?.(request, null);
+        if (request.retryCount >= request.maxRetries) {
+          continue;
+        }
+        const response = await this.processRequest(request);
+        onSuccess?.(request, response);
         await this.dequeue(request.id);
       } catch (error) {
         request.retryCount += 1;
@@ -152,32 +153,51 @@ class OfflineQueueManager {
 
   private async processRequest(request: QueuedRequest): Promise<any> {
     const { url, method, data, headers } = request;
-    const response = await fetch(url, {
+    
+    // Build fetch options with proper handling of body
+    const fetchOptions: RequestInit = {
       method,
       headers: {
         "Content-Type": "application/json",
         ...headers,
       },
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    };
+
+    // Only add body for methods that support it
+    if (data && method !== "GET" && method !== "DELETE") {
+      fetchOptions.body = JSON.stringify(data);
+    }
+
+    const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
-    return response.json();
+    
+    // Handle empty responses
+    const text = await response.text();
+    if (!text) {
+      return null;
+    }
+    
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text;
+    }
   }
 
   /**
    * Subscribe to queue changes
    */
-  subscribe(listener: () => void) {
+  subscribe(listener: () => void): () => void {
     this.listeners.push(listener);
     return () => {
       this.listeners = this.listeners.filter((l) => l !== listener);
     };
   }
 
-  private notifyListeners() {
+  private notifyListeners(): void {
     this.listeners.forEach((listener) => listener());
   }
 }

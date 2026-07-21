@@ -19,7 +19,7 @@ interface OfflineBannerProps {
 }
 
 export function OfflineBanner({ onRetry, onDismiss }: OfflineBannerProps) {
-  const { isOffline, isDegraded, isInternetReachable } = useConnectivity();
+  const { isOffline, isDegraded } = useConnectivity();
   const [queueSize, setQueueSize] = useState(0);
   const [slideAnim] = useState(new Animated.Value(-100));
   const insets = useSafeAreaInsets();

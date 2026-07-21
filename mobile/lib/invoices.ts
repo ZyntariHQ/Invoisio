@@ -43,7 +43,6 @@ async function fetchInvoicesPage(
   token: string | null,
   search?: string,
   status?: string,
-  retryCount = 0
 ): Promise<InvoicesPage> {
   const headers =
     token != null
@@ -104,8 +103,10 @@ async function fetchInvoicesPage(
     if (axios.isAxiosError(error) && !error.response) {
       // Network error - try to get from cache
       const cached = await getCachedInvoices();
-      if (cached?.pages?.[page - 1]) {
-        return cached.pages[page - 1];
+      // Check if we have cached data for this page
+      if (cached?.pages && cached.pages.length > 0 && cached.pages[page - 1]) {
+        // Type assertion to ensure it matches InvoicesPage
+        return cached.pages[page - 1] as InvoicesPage;
       }
       
       // Queue the request for retry when online

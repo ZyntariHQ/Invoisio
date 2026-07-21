@@ -19,6 +19,12 @@ interface VerifyResponse {
   };
 }
 
+interface PendingAuthData {
+  publicKey: string;
+  signedNonce?: string;
+  timestamp: number;
+}
+
 const AUTH_QUEUE_KEY = "@auth_queue";
 
 /**
@@ -43,6 +49,11 @@ class AuthService {
       if (axios.isAxiosError(error) && !error.response) {
         const url = `${API_URL}/auth/nonce`;
         await offlineQueue.enqueue(url, "POST", { publicKey });
+        // Store pending auth data with publicKey for later retry
+        await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
+          publicKey,
+          timestamp: Date.now(),
+        }));
         throw new Error("You are offline. Nonce request will be retried when connection is restored.");
       }
       console.error("Error requesting nonce:", error);
@@ -69,6 +80,12 @@ class AuthService {
         // Queue the verification for retry
         const url = `${API_URL}/auth/verify`;
         await offlineQueue.enqueue(url, "POST", { publicKey, signedNonce });
+        // Store pending auth data with publicKey and signedNonce for later retry
+        await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
+          publicKey,
+          signedNonce,
+          timestamp: Date.now(),
+        }));
         throw new Error("You are offline. Verification will be retried when connection is restored.");
       }
       console.error("Error verifying signature:", error);
@@ -201,20 +218,57 @@ class AuthService {
 
   /**
    * Retry any pending login operations
+   * Returns the response and the publicKey for auth state update
    */
-  async retryPendingOperation(): Promise<VerifyResponse | null> {
+  async retryPendingOperation(): Promise<{ response: VerifyResponse; publicKey: string } | null> {
     const pending = await AsyncStorage.getItem(AUTH_QUEUE_KEY);
     if (!pending) return null;
 
     try {
-      const { publicKey, signedNonce } = JSON.parse(pending);
-      const response = await this.verifySignature(publicKey, signedNonce);
-      await AsyncStorage.removeItem(AUTH_QUEUE_KEY);
-      return response;
+      const data = JSON.parse(pending) as PendingAuthData;
+      
+      // If we have a signedNonce, try verification
+      if (data.signedNonce) {
+        const response = await this.verifySignature(data.publicKey, data.signedNonce);
+        await AsyncStorage.removeItem(AUTH_QUEUE_KEY);
+        return { response, publicKey: data.publicKey };
+      }
+      
+      // If we only have publicKey (nonce request), just return it
+      // The verification will be attempted separately
+      console.log("Pending nonce request found. Waiting for signature...");
+      return null;
     } catch (error) {
       console.error("Failed to retry pending login:", error);
+      // Don't clear the queue on error - let it retry later
       return null;
     }
+  }
+
+  /**
+   * Store pending auth data for later retry
+   */
+  async storePendingAuth(publicKey: string, signedNonce?: string): Promise<void> {
+    await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
+      publicKey,
+      signedNonce,
+      timestamp: Date.now(),
+    }));
+  }
+
+  /**
+   * Clear pending auth data
+   */
+  async clearPendingAuth(): Promise<void> {
+    await AsyncStorage.removeItem(AUTH_QUEUE_KEY);
+  }
+
+  /**
+   * Check if there is a pending auth operation
+   */
+  async hasPendingAuth(): Promise<boolean> {
+    const pending = await AsyncStorage.getItem(AUTH_QUEUE_KEY);
+    return pending !== null;
   }
 
   isAuthenticatingLogin(): boolean {
@@ -223,4 +277,4 @@ class AuthService {
 }
 
 // Export as singleton (backward compatible - remains an object)
-export const AuthService = new AuthService();
+export const authService = new AuthService();

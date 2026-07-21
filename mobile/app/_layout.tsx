@@ -14,11 +14,10 @@ import { AuthGuard } from "../components/auth-guard";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import { AuthService } from "../lib/auth-service";
+import { authService } from "../lib/auth-service";
 import { OfflineBanner } from "../components/OfflineBanner";
 import { ConnectivityProvider } from "../components/ConnectivityProvider";
 import { offlineQueue } from "../lib/offline-queue";
-import { useConnectivity } from "../hooks/use-connectivity";
 
 // Create a client for React Query outside component to avoid re-creation
 const createQueryClient = () =>
@@ -36,7 +35,7 @@ const createQueryClient = () =>
   });
 
 function LayoutContent() {
-  const { isOnline } = useConnectivity();
+  
   const { loadAuth, isAuthenticated, accessToken } = useAuthStore();
   const { expoPushToken } = usePushNotifications();
 
@@ -51,7 +50,7 @@ function LayoutContent() {
   // Sync push token with backend when authenticated
   useEffect(() => {
     if (isAuthenticated && accessToken && expoPushToken?.data) {
-      void AuthService.registerPushToken(accessToken, expoPushToken.data);
+      void authService.registerPushToken(accessToken, expoPushToken.data);
     }
   }, [isAuthenticated, accessToken, expoPushToken]);
 

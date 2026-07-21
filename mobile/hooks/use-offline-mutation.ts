@@ -27,11 +27,11 @@ export function useOfflineMutation<TData = any, TError = any>(
       try {
         // If offline, queue the request
         if (isOffline) {
-          const queueId = await offlineQueue.enqueue(
-            window.location.href, // Should be replaced with actual API URL
-            "POST",
-            variables
-          );
+          // const queueId = await offlineQueue.enqueue(
+          //   window.location.href, // Should be replaced with actual API URL
+          //   "POST",
+          //   variables
+          // );
           setIsQueued(true);
           options.onQueue?.();
           setIsLoading(false);

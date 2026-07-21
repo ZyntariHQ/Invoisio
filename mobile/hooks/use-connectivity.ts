@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { NetInfo, useNetInfo } from "@react-native-community/netinfo";
-import { Platform } from "react-native";
+import { useNetInfo } from "@react-native-community/netinfo";
 
 export type ConnectivityState = {
   isConnected: boolean;
