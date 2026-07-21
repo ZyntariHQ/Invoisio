@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 
 import {
+  ContractConfig,
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
