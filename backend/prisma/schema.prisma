@@ -20,14 +20,10 @@ model Merchant {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
- feat/activity-feed
   users    User[]
   invoices Invoice[]
   activities ActivityEvent[]
-  users          User[]
-  invoices       Invoice[]
   activationChecklist MerchantActivationChecklist?
- main
 
   @@map("merchants")
 }
@@ -74,14 +70,10 @@ model User {
   pushTokens     String[]  @default([]) @map("push_tokens")
   pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
 
- feat/activity-feed
   invoices       Invoice[]
   webhooks       WebhookDelivery[]
   activities     ActivityEvent[]
-  invoices            Invoice[]
-  webhooks            WebhookDelivery[]
   webhookDeadLetters  WebhookDeadLetter[]
- main
 
   @@index([merchantId])
   @@map("users")
@@ -174,16 +166,11 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
- feat/activity-feed
   webhooks           WebhookDelivery[]
+  webhookDeadLetters    WebhookDeadLetter[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
   activities         ActivityEvent[]
-  webhooks              WebhookDelivery[]
-  webhookDeadLetters    WebhookDeadLetter[]
-  statusHistory         InvoiceStatusHistory[]
-  payments              Payment[]
- main
 
   @@index([merchantId])
   @@map("invoices")
