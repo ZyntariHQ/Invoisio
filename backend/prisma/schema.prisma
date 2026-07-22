@@ -24,6 +24,7 @@ model Merchant {
   invoices       Invoice[]
   activationChecklist MerchantActivationChecklist?
   paymentReviews PaymentReview[]
+  horizonCursor  HorizonCursor?
 
   @@map("merchants")
 }
@@ -249,7 +250,7 @@ model PaymentReview {
   merchantId      String?  @map("merchant_id")
   merchant        Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
   invoiceId       String?  @map("invoice_id")
-  invoice         Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  invoice         Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   txHash          String   @unique @map("tx_hash")
   contractId      String   @map("contract_id")
   amount          Decimal  @db.Decimal(18, 7)
@@ -267,4 +268,15 @@ model PaymentReview {
   @@index([merchantId])
   @@index([status])
   @@map("payment_reviews")
+}
+
+model HorizonCursor {
+  id        String   @id @default(uuid())
+  merchantId String  @unique @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  cursor    String   @default("now")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([merchantId])
+  @@map("horizon_cursors")
 }
