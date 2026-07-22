@@ -59,6 +59,8 @@ export class Invoice {
   // Not persisted in DB — added at runtime for compatibility with existing DTOs
   destination_address?: string;
 
+  customerId?: string | null;
+
   statusHistory?: InvoiceStatusHistory[];
 
   payments?: any[]; // using any[] to avoid circular dependency or add Payment[] if imported

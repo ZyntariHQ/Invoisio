@@ -26,6 +26,7 @@ import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
 import { NotificationsModule } from "./notifications/notifications.module";
 import { MerchantModule } from "./merchant/merchant.module";
 import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
+import { CustomersModule } from "./customers/customers.module";
 
 /**
  * Root application module
@@ -114,6 +115,7 @@ import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
     NotificationsModule,
     MerchantModule,
     ActivityFeedModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}
