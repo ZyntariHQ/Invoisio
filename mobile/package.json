@@ -17,7 +17,7 @@
     "@reown/appkit-react-native": "^2.0.2",
     "@stellar/stellar-sdk": "^14.6.0",
     "@tanstack/react-query": "^5.62.7",
-    "axios": "^1.13.6",
+    "axios": "^1.18.1",
     "expo": "~55.0.4",
     "expo-camera": "~16.1.6",
     "expo-device": "~55.0.17",

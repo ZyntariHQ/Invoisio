@@ -1,17 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "expo-router";
 import {
+  FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { MerchantService } from "../lib/merchant-service";
+import { CustomerService, Customer } from "../lib/customer-service";
 
 const currencies = ["USDC", "EURC", "USD"];
 const paymentTerms = ["Net 7", "Net 14", "Net 30"];
@@ -25,6 +28,15 @@ export default function CreateInvoiceScreen() {
   const [terms, setTerms] = useState("Net 14");
   const [memo, setMemo] = useState("Freight settlement for Q1 routes");
   const [payoutKey, setPayoutKey] = useState<string | null>(null);
+
+  // Customer search state
+  const [customerQuery, setCustomerQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
+    null,
+  );
+  const [showCustomerResults, setShowCustomerResults] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // Load merchant preferred asset and payout key on mount
   useEffect(() => {
@@ -49,6 +61,50 @@ export default function CreateInvoiceScreen() {
       cancelled = true;
     };
   }, [accessToken]);
+
+  // Debounced customer search
+  useEffect(() => {
+    if (!accessToken) return;
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!customerQuery.trim()) {
+      setCustomerResults([]);
+      setShowCustomerResults(false);
+      return;
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      void (async () => {
+        try {
+          const results = await CustomerService.search(
+            accessToken,
+            customerQuery.trim(),
+            8,
+          );
+          setCustomerResults(results);
+          setShowCustomerResults(results.length > 0);
+        } catch {
+          setCustomerResults([]);
+        }
+      })();
+    }, 300);
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [customerQuery, accessToken]);
+
+  const selectCustomer = (customer: Customer) => {
+    setSelectedCustomer(customer);
+    setCompany(customer.name);
+    setCustomerQuery(
+      `${customer.name}${customer.email ? ` (${customer.email})` : ""}`,
+    );
+    setShowCustomerResults(false);
+  };
+
+  const clearSelectedCustomer = () => {
+    setSelectedCustomer(null);
+    setCustomerQuery("");
+    setCompany("");
+  };
 
   const confirmInvoice = () => {
     router.push("/dashboard");
@@ -82,6 +138,86 @@ export default function CreateInvoiceScreen() {
           </Text>
 
           <View className="mt-10 gap-6">
+            {/* Saved Client Search */}
+            <View>
+              <Text
+                className="text-sm text-slate-300"
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+              >
+                Saved client
+              </Text>
+              <TextInput
+                value={customerQuery}
+                onChangeText={(text: string) => {
+                  setCustomerQuery(text);
+                  if (selectedCustomer) {
+                    setSelectedCustomer(null);
+                  }
+                }}
+                placeholder="Search saved clients..."
+                placeholderTextColor="#475569"
+                className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-white"
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                autoComplete="off"
+              />
+              {selectedCustomer && (
+                <View className="mt-2 flex-row items-center justify-between rounded-xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-4 py-2">
+                  <View>
+                    <Text
+                      className="text-sm text-[#00D6B9]"
+                      style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                    >
+                      {selectedCustomer.name}
+                    </Text>
+                    {selectedCustomer.email && (
+                      <Text
+                        className="text-xs text-slate-400"
+                        style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                      >
+                        {selectedCustomer.email}
+                      </Text>
+                    )}
+                  </View>
+                  <TouchableOpacity onPress={clearSelectedCustomer}>
+                    <Text className="text-sm text-slate-400">✕</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              {showCustomerResults && customerResults.length > 0 && (
+                <View className="mt-2 rounded-2xl border border-white/10 bg-[#0d1525]">
+                  <FlatList
+                    data={customerResults}
+                    keyExtractor={(item: Customer) => item.id}
+                    nestedScrollEnabled
+                    style={{ maxHeight: 200 }}
+                    renderItem={({ item }: { item: Customer }) => (
+                      <Pressable
+                        className="border-b border-white/5 px-4 py-3"
+                        onPress={() => {
+                          selectCustomer(item);
+                        }}
+                      >
+                        <Text
+                          className="text-sm text-white"
+                          style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                        >
+                          {item.name}
+                        </Text>
+                        {item.email && (
+                          <Text
+                            className="text-xs text-slate-400"
+                            style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                          >
+                            {item.email}
+                          </Text>
+                        )}
+                      </Pressable>
+                    )}
+                  />
+                </View>
+              )}
+            </View>
+
             <View>
               <Text
                 className="text-sm text-slate-300"
