@@ -168,15 +168,11 @@ model Invoice {
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
   webhooks           WebhookDelivery[]
-  webhookDeadLetters    WebhookDeadLetter[]
- feat/activity-feed
+  webhookDeadLetters WebhookDeadLetter[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
   activities         ActivityEvent[]
-  statusHistory         InvoiceStatusHistory[]
-  payments              Payment[]
-  paymentReviews        PaymentReview[]
- main
+  paymentReviews     PaymentReview[]
 
   @@index([merchantId])
   @@map("invoices")
