@@ -13,7 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "../hooks/use-auth-store";
-import { AuthService } from "../lib/auth-service";
+import { authService } from "../lib/auth-service";
 import {
   MerchantService,
   isValidStellarPublicKey,
@@ -144,7 +144,7 @@ export default function SettingsScreen() {
     if (!accessToken) return;
     setPushLoading(true);
     try {
-      await AuthService.updatePushPreferences(accessToken, value);
+      await authService.updatePushPreferences(accessToken, value);
       setPushEnabled(value);
     } catch {
       Alert.alert("Error", "Failed to update push preferences.");
