@@ -299,6 +299,7 @@ export class InvoicesService implements OnModuleInit {
       sorobanContractId: null,
       metadata: Prisma.JsonNull,
       dueDate: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      customerId: dto.customer_id ?? null,
       statusHistory: {
         create: {
           status: "pending" as const,
@@ -651,6 +652,59 @@ export class InvoicesService implements OnModuleInit {
     // Cancelled invoices must never be matched by the reconciliation watcher
     if (invoice.status === "cancelled") return null;
     return this.normalizeInvoice(invoice);
+  }
+
+  /**
+   * Find invoice by ID for public payer view (no auth required)
+   * Returns only payer-safe fields with merchant branding
+   * @param id - Invoice UUID
+   * @returns Public invoice data or null if not found
+   */
+  async findPublicInvoice(id: string): Promise<{
+    id: string;
+    invoiceNumber?: string;
+    merchantName: string;
+    description?: string;
+    amount: number;
+    asset_code: string;
+    asset_issuer?: string;
+    memo: string;
+    destination_address: string;
+    status: string;
+    dueDate?: string;
+    createdAt: string;
+  } | null> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id },
+      include: {
+        merchant: {
+          select: { name: true },
+        },
+      },
+    });
+
+    if (!invoice) return null;
+
+    const normalized = this.normalizeInvoice(invoice);
+
+    return {
+      id: normalized.id,
+      invoiceNumber: normalized.invoiceNumber ?? undefined,
+      merchantName: invoice.merchant?.name || "Merchant",
+      description: normalized.description ?? undefined,
+      amount: normalized.amount as number,
+      asset_code: normalized.asset_code ?? "",
+      asset_issuer: normalized.asset_issuer ?? undefined,
+      memo: normalized.memo ?? "",
+      destination_address: normalized.destination_address || "",
+      status: normalized.status,
+      dueDate: invoice.dueDate
+        ? new Date(invoice.dueDate).toISOString()
+        : undefined,
+      createdAt: invoice.createdAt
+        ? new Date(invoice.createdAt).toISOString()
+        : new Date().toISOString(),
+    };
   }
 
   async applySorobanPaymentEvent(evt: {
