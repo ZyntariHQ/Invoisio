@@ -10,6 +10,24 @@ datasource db {
   provider = "postgresql"
 }
 
+model Customer {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name       String
+  email      String?
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  invoices Invoice[]
+
+  @@unique([merchantId, email])
+  @@index([merchantId])
+  @@index([name])
+  @@map("customers")
+}
+
 model Merchant {
   id               String    @id @default(uuid())
   name             String
@@ -22,6 +40,7 @@ model Merchant {
 
   users          User[]
   invoices       Invoice[]
+  customers      Customer[]
   activationChecklist MerchantActivationChecklist?
   paymentReviews PaymentReview[]
 
@@ -165,6 +184,8 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
+  customerId         String?       @map("customer_id")
+  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
   webhooks              WebhookDelivery[]
   webhookDeadLetters    WebhookDeadLetter[]
   statusHistory         InvoiceStatusHistory[]
