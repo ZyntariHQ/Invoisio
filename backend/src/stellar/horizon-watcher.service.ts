@@ -8,6 +8,7 @@ import { SorobanService } from "./soroban.service";
 import { RequestContextService } from "../observability/request-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 import { traceAsync } from "../observability/tracing.util";
+import { PrismaService } from "../prisma/prisma.service";
 
 @Injectable()
 export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
@@ -24,9 +25,10 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     private readonly sorobanService: SorobanService,
     private readonly requestContext: RequestContextService,
     private readonly logger: StructuredLogger,
+    private readonly prisma: PrismaService,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     const merchantKey = this.stellarService.getMerchantPublicKey();
     if (!merchantKey) {
       this.logger.warn("horizon.watcher.disabled", {
@@ -36,11 +38,14 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    await this.loadCursor(merchantKey);
+
     const intervalMs = this.getPollIntervalMs();
     this.logger.info("horizon.watcher.started", {
       domain: "horizon",
       intervalMs,
       account: merchantKey,
+      cursor: this.cursor,
     });
 
     void this.pollPayments();
@@ -105,12 +110,12 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
             }
 
             if ((record as any).to !== merchantKey) {
-              this.cursor = (record as any).paging_token;
+              await this.saveCursor(merchantKey, (record as any).paging_token);
               continue;
             }
 
             await this.processPayment(record, memoPrefix);
-            this.cursor = (record as any).paging_token;
+            await this.saveCursor(merchantKey, (record as any).paging_token);
           }
         } catch (error) {
           this.logger.warn("horizon.poll.error", {
@@ -262,5 +267,69 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
       this.configService.get<number>("observability.slowNetworkThresholdMs") ??
       500
     );
+  }
+
+  private async loadCursor(merchantKey: string): Promise<void> {
+    try {
+      const merchant = await this.prisma.merchant.findUnique({
+        where: { stellarPublicKey: merchantKey },
+        include: { horizonCursor: true },
+      });
+
+      if (merchant?.horizonCursor) {
+        this.cursor = merchant.horizonCursor.cursor;
+        this.logger.info("horizon.cursor.loaded", {
+          domain: "horizon",
+          cursor: this.cursor,
+        });
+      } else {
+        this.cursor = "now";
+        this.logger.info("horizon.cursor.default", {
+          domain: "horizon",
+          cursor: this.cursor,
+        });
+      }
+    } catch (error) {
+      this.logger.warn("horizon.cursor.load_failed", {
+        domain: "horizon",
+        error: (error as Error).message,
+      });
+      this.cursor = "now";
+    }
+  }
+
+  private async saveCursor(merchantKey: string, newCursor: string): Promise<void> {
+    if (this.cursor === newCursor) return;
+
+    try {
+      const merchant = await this.prisma.merchant.findUnique({
+        where: { stellarPublicKey: merchantKey },
+      });
+
+      if (!merchant) return;
+
+      await this.prisma.horizonCursor.upsert({
+        where: { merchantId: merchant.id },
+        create: {
+          merchantId: merchant.id,
+          cursor: newCursor,
+        },
+        update: {
+          cursor: newCursor,
+        },
+      });
+
+      this.cursor = newCursor;
+      this.logger.debug("horizon.cursor.saved", {
+        domain: "horizon",
+        cursor: newCursor,
+      });
+    } catch (error) {
+      this.logger.error("horizon.cursor.save_failed", {
+        domain: "horizon",
+        cursor: newCursor,
+        error: (error as Error).message,
+      });
+    }
   }
 }
