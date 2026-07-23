@@ -22,6 +22,7 @@ import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { InvoiceEventsService } from "../realtime/invoice-events.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
+import { ActivityFeedService } from "../activity-feed/activity-feed.service";
 
 const REQUIRED_CSV_HEADERS = [
   "invoiceNumber",
@@ -48,6 +49,8 @@ export class InvoicesService implements OnModuleInit {
     private readonly structuredLogger: StructuredLogger,
     @Optional()
     private readonly invoiceEvents?: InvoiceEventsService,
+    @Optional()
+    private readonly activityFeed?: ActivityFeedService,
   ) {}
 
   /**
@@ -340,6 +343,25 @@ export class InvoicesService implements OnModuleInit {
       status: created.status,
     });
 
+    this.activityFeed?.recordEvent({
+      merchantId,
+      userId,
+      invoiceId: created.id,
+      type: "invoice_created",
+      description: ActivityFeedService.formatDescription("invoice_created", {
+        invoiceNumber: created.invoiceNumber,
+        clientName: created.clientName,
+        amount: Number(created.amount).toFixed(2),
+        assetCode: created.assetCode,
+      }),
+      metadata: {
+        invoiceNumber: created.invoiceNumber,
+        clientName: created.clientName,
+        amount: Number(created.amount),
+        assetCode: created.assetCode,
+      },
+    });
+
     return this.normalizeInvoice(created);
   }
 
@@ -570,6 +592,31 @@ export class InvoicesService implements OnModuleInit {
 
     this.emitStatusChange(updatedWithHistory || updated, merchantId);
 
+    const statusTypeMap: Record<string, string> = {
+      paid: "invoice_paid",
+      overdue: "invoice_overdue",
+      cancelled: "invoice_cancelled",
+      partially_paid: "invoice_partially_paid",
+    };
+    const activityType = statusTypeMap[status] || "invoice_updated";
+    this.activityFeed?.recordEvent({
+      merchantId: merchantId ?? updated.merchantId,
+      userId: updated.userId,
+      invoiceId: updated.id,
+      type: activityType,
+      description: ActivityFeedService.formatDescription(activityType, {
+        invoiceNumber: updated.invoiceNumber,
+        amount: Number(updated.amount).toFixed(2),
+        assetCode: updated.assetCode,
+      }),
+      metadata: {
+        invoiceNumber: updated.invoiceNumber,
+        amount: Number(updated.amount),
+        assetCode: updated.assetCode,
+        previousStatus: status === "overdue" ? "pending" : undefined,
+      },
+    });
+
     return this.normalizeInvoice(updatedWithHistory || updated);
   }
 
@@ -603,6 +650,23 @@ export class InvoicesService implements OnModuleInit {
     await this.notificationsService.notifyInvoicePaid(updated);
 
     this.emitStatusChange(updated);
+
+    this.activityFeed?.recordEvent({
+      merchantId: updated.merchantId,
+      userId: updated.userId,
+      invoiceId: updated.id,
+      type: "invoice_paid",
+      description: ActivityFeedService.formatDescription("invoice_paid", {
+        invoiceNumber: updated.invoiceNumber,
+        amount: Number(updated.amount).toFixed(2),
+        assetCode: updated.assetCode,
+      }),
+      metadata: {
+        invoiceNumber: updated.invoiceNumber,
+        amount: Number(updated.amount),
+        assetCode: updated.assetCode,
+      },
+    });
 
     return this.normalizeInvoice(updated);
   }
@@ -1133,6 +1197,21 @@ export class InvoicesService implements OnModuleInit {
     );
 
     this.emitStatusChange({ id, status: "cancelled", merchantId }, merchantId);
+
+    this.activityFeed?.recordEvent({
+      merchantId,
+      userId: invoice.userId,
+      invoiceId: id,
+      type: "invoice_cancelled",
+      description: ActivityFeedService.formatDescription("invoice_cancelled", {
+        invoiceNumber: invoice.invoiceNumber,
+        reason,
+      }),
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        reason,
+      },
+    });
 
     return { id, status: "cancelled", reason, cancelledAt };
   }
