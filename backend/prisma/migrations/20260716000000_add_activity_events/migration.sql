@@ -1,9 +1,9 @@
 -- Create ActivityEvent model for in-app activity feed
 CREATE TABLE "activity_events" (
-    "id" UUID NOT NULL DEFAULT gen_random_uuid(),
-    "merchant_id" UUID NOT NULL,
-    "user_id" UUID,
-    "invoice_id" UUID,
+    "id" TEXT NOT NULL,
+    "merchant_id" TEXT NOT NULL,
+    "user_id" TEXT,
+    "invoice_id" TEXT,
     "type" VARCHAR(64) NOT NULL,
     "description" TEXT NOT NULL,
     "metadata" JSONB,
