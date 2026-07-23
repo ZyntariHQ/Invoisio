@@ -53,66 +53,45 @@ describe("AdminAnalyticsService", () => {
       },
     ];
 
+    const filterInvoices = (where: any) => {
+      return invoices.filter((inv) => {
+        let matches = true;
+        if (where?.merchantId && inv.merchantId !== where.merchantId) matches = false;
+        if (where?.status && inv.status !== where.status) matches = false;
+        if (where?.assetCode && inv.assetCode !== where.assetCode)
+          matches = false;
+        if (
+          where?.createdAt?.gte &&
+          inv.createdAt.getTime() < new Date(where.createdAt.gte).getTime()
+        )
+          matches = false;
+        if (
+          where?.createdAt?.lte &&
+          inv.createdAt.getTime() > new Date(where.createdAt.lte).getTime()
+        )
+          matches = false;
+        if (
+          where?.updatedAt?.gte &&
+          inv.updatedAt.getTime() < new Date(where.updatedAt.gte).getTime()
+        )
+          matches = false;
+        if (
+          where?.updatedAt?.lte &&
+          inv.updatedAt.getTime() > new Date(where.updatedAt.lte).getTime()
+        )
+          matches = false;
+        return matches;
+      });
+    };
+
     return {
       invoice: {
         count: jest.fn().mockImplementation(({ where }: any) => {
-          const filtered = invoices.filter((inv) => {
-            let matches = true;
-            if (where?.status && inv.status !== where.status) matches = false;
-            if (where?.assetCode && inv.assetCode !== where.assetCode)
-              matches = false;
-            if (
-              where?.createdAt?.gte &&
-              inv.createdAt.getTime() < new Date(where.createdAt.gte).getTime()
-            )
-              matches = false;
-            if (
-              where?.createdAt?.lte &&
-              inv.createdAt.getTime() > new Date(where.createdAt.lte).getTime()
-            )
-              matches = false;
-            if (
-              where?.updatedAt?.gte &&
-              inv.updatedAt.getTime() < new Date(where.updatedAt.gte).getTime()
-            )
-              matches = false;
-            if (
-              where?.updatedAt?.lte &&
-              inv.updatedAt.getTime() > new Date(where.updatedAt.lte).getTime()
-            )
-              matches = false;
-            return matches;
-          });
+          const filtered = filterInvoices(where);
           return Promise.resolve(filtered.length);
         }),
         aggregate: jest.fn().mockImplementation(({ where, _sum }: any) => {
-          const filtered = invoices.filter((inv) => {
-            let matches = true;
-            if (where?.status && inv.status !== where.status) matches = false;
-            if (where?.assetCode && inv.assetCode !== where.assetCode)
-              matches = false;
-            if (
-              where?.createdAt?.gte &&
-              inv.createdAt.getTime() < new Date(where.createdAt.gte).getTime()
-            )
-              matches = false;
-            if (
-              where?.createdAt?.lte &&
-              inv.createdAt.getTime() > new Date(where.createdAt.lte).getTime()
-            )
-              matches = false;
-            if (
-              where?.updatedAt?.gte &&
-              inv.updatedAt.getTime() < new Date(where.updatedAt.gte).getTime()
-            )
-              matches = false;
-            if (
-              where?.updatedAt?.lte &&
-              inv.updatedAt.getTime() > new Date(where.updatedAt.lte).getTime()
-            )
-              matches = false;
-            return matches;
-          });
+          const filtered = filterInvoices(where);
           const sum = filtered.reduce((acc, inv) => acc + inv.amount, 0);
           return Promise.resolve({
             _sum: { amount: { toNumber: () => sum } },
@@ -121,37 +100,7 @@ describe("AdminAnalyticsService", () => {
         groupBy: jest
           .fn()
           .mockImplementation(({ where, by, _count, _sum }: any) => {
-            const filtered = invoices.filter((inv) => {
-              let matches = true;
-              if (where?.status && inv.status !== where.status) matches = false;
-              if (where?.assetCode && inv.assetCode !== where.assetCode)
-                matches = false;
-              if (
-                where?.createdAt?.gte &&
-                inv.createdAt.getTime() <
-                  new Date(where.createdAt.gte).getTime()
-              )
-                matches = false;
-              if (
-                where?.createdAt?.lte &&
-                inv.createdAt.getTime() >
-                  new Date(where.createdAt.lte).getTime()
-              )
-                matches = false;
-              if (
-                where?.updatedAt?.gte &&
-                inv.updatedAt.getTime() <
-                  new Date(where.updatedAt.gte).getTime()
-              )
-                matches = false;
-              if (
-                where?.updatedAt?.lte &&
-                inv.updatedAt.getTime() >
-                  new Date(where.updatedAt.lte).getTime()
-              )
-                matches = false;
-              return matches;
-            });
+            const filtered = filterInvoices(where);
 
             const groups: any[] = [];
             const groupMap = new Map();
@@ -239,6 +188,28 @@ describe("AdminAnalyticsService", () => {
       const result = await service.getPaymentAnalytics("USDC");
       expect(result.count).toBe(1);
       expect(result.totalVolume).toBe(150);
+    });
+  });
+
+  describe("getMerchantAnalytics", () => {
+    it("returns merchant-scoped payment count and volume", async () => {
+      const result = await service.getMerchantAnalytics("merchant-1");
+      expect(result.count).toBe(2);
+      expect(result.totalVolume).toBe(250);
+    });
+
+    it("filters by asset", async () => {
+      const result = await service.getMerchantAnalytics("merchant-1", "USDC");
+      expect(result.count).toBe(1);
+      expect(result.totalVolume).toBe(150);
+    });
+
+    it("returns correct asset breakdown", async () => {
+      const result = await service.getMerchantAnalytics("merchant-1");
+      expect(result.assetBreakdown).toEqual(expect.arrayContaining([
+        expect.objectContaining({ assetCode: "XLM", count: 1, volume: 100 }),
+        expect.objectContaining({ assetCode: "USDC", count: 1, volume: 150 }),
+      ]));
     });
   });
 });
