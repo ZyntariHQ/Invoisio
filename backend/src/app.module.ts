@@ -19,6 +19,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
+import { MerchantsModule } from "./merchants/merchants.module";
 
 /**
  * Root application module
@@ -82,6 +83,7 @@ import { CustomThrottlerModule } from "./throttler/throttler.module";
     SorobanEventsModule,
     AuthModule,
     UsersModule,
+    MerchantsModule,
     WebhooksModule,
   ],
 })
