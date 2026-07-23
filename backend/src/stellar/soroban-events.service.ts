@@ -1,19 +1,16 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InvoicesService } from "../invoices/invoices.service";
 import https from "node:https";
 import { URL } from "node:url";
+import { RequestContextService } from "../observability/request-context.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { traceAsync } from "../observability/tracing.util";
 
 type Json = Record<string, any>;
 
 @Injectable()
 export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(SorobanEventsService.name);
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cursor: string | undefined = undefined;
@@ -22,21 +19,26 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly invoices: InvoicesService,
+    private readonly requestContext: RequestContextService,
+    private readonly logger: StructuredLogger,
   ) {}
 
   onModuleInit(): void {
     const rpcUrl = this.getRpcUrl();
     const contractId = this.getContractId();
     if (!rpcUrl || !contractId) {
-      this.logger.warn(
-        "Soroban events disabled (missing SOROBAN_RPC_URL or SOROBAN_CONTRACT_ID)",
-      );
+      this.logger.warn("soroban.events.disabled", {
+        domain: "soroban",
+        reason: "missing_rpc_or_contract",
+      });
       return;
     }
     this.running = true;
-    this.logger.log(
-      `Soroban event subscriber started (rpc: ${rpcUrl}, contract: ${contractId})`,
-    );
+    this.logger.info("soroban.events.started", {
+      domain: "soroban",
+      rpcUrl,
+      contractId,
+    });
     this.scheduleNext(0);
   }
 
@@ -56,68 +58,105 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
 
   private async tick(): Promise<void> {
     if (!this.running) return;
-    try {
-      const resp = await this.fetchEvents();
-      const events: any[] = resp?.result?.events ?? [];
-      for (const ev of events) {
-        await this.handleEvent(ev);
-        this.cursor = ev?.pagingToken ?? ev?.paging_token ?? this.cursor;
-      }
-      this.backoffMs = 1000;
-      this.scheduleNext(events.length > 0 ? 50 : 500);
-    } catch (err) {
-      const msg = (err as Error).message;
-      this.logger.warn(`Soroban getEvents error: ${msg}`);
-      this.backoffMs = Math.min(this.backoffMs * 2, 30000);
-      this.scheduleNext(this.backoffMs);
-    }
+
+    await this.requestContext.runWithWorkerContext(
+      { workerName: "soroban-events" },
+      async () => {
+        try {
+          const resp = await this.fetchEvents();
+          const events: any[] = resp?.result?.events ?? [];
+
+          this.logger.debug("soroban.events.poll.complete", {
+            domain: "soroban",
+            eventCount: events.length,
+            cursor: this.cursor,
+          });
+
+          for (const ev of events) {
+            await this.handleEvent(ev);
+            this.cursor = ev?.pagingToken ?? ev?.paging_token ?? this.cursor;
+          }
+          this.backoffMs = 1000;
+          this.scheduleNext(events.length > 0 ? 50 : 500);
+        } catch (err) {
+          const msg = (err as Error).message;
+          this.logger.warn("soroban.events.poll.error", {
+            domain: "soroban",
+            error: msg,
+            backoffMs: this.backoffMs,
+          });
+          this.backoffMs = Math.min(this.backoffMs * 2, 30000);
+          this.scheduleNext(this.backoffMs);
+        }
+      },
+    );
   }
 
   async handleEvent(ev: any): Promise<void> {
-    const topic = ev?.topic ?? ev?.topics ?? ev?.event?.topics ?? null;
-    const expect = this.getTopic();
-    if (Array.isArray(topic) && expect && topic.length > 0) {
-      const flat = topic.map((t: any) =>
-        typeof t === "string" ? t : String(t?.symbol ?? t),
-      );
-      const hasTopic =
-        flat.includes(expect) ||
-        flat.includes(expect.toLowerCase()) ||
-        flat.includes(expect.toUpperCase());
-      if (!hasTopic) {
-        return;
-      }
-    }
+    const eventId = String(
+      ev?.id ?? ev?.eventId ?? ev?.pagingToken ?? Date.now(),
+    );
 
-    const val =
-      ev?.value ??
-      ev?.event?.value ??
-      ev?.data ??
-      ev?.event?.data ??
-      ev?.body ??
-      {};
+    await this.requestContext.runWithChildContext(
+      { correlationId: `soroban:${eventId}` },
+      async () => {
+        const topic = ev?.topic ?? ev?.topics ?? ev?.event?.topics ?? null;
+        const expect = this.getTopic();
+        if (Array.isArray(topic) && expect && topic.length > 0) {
+          const flat = topic.map((t: any) =>
+            typeof t === "string" ? t : String(t?.symbol ?? t),
+          );
+          const hasTopic =
+            flat.includes(expect) ||
+            flat.includes(expect.toLowerCase()) ||
+            flat.includes(expect.toUpperCase());
+          if (!hasTopic) {
+            return;
+          }
+        }
 
-    const payload = this.coercePaymentRecorded(val);
-    if (!payload || !payload.invoice_id) {
-      return;
-    }
+        const val =
+          ev?.value ??
+          ev?.event?.value ??
+          ev?.data ??
+          ev?.event?.data ??
+          ev?.body ??
+          {};
 
-    await this.invoices.applySorobanPaymentEvent({
-      eventId: String(ev?.id ?? ev?.eventId ?? ev?.pagingToken ?? Date.now()),
-      contractId: this.getContractId(),
-      ledger:
-        Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
-      invoice_id: String(payload.invoice_id),
-      payer: payload.payer ? String(payload.payer) : undefined,
-      asset_code: payload.asset_code ? String(payload.asset_code) : undefined,
-      asset_issuer: payload.asset_issuer
-        ? String(payload.asset_issuer)
-        : undefined,
-      amount:
-        payload.amount !== undefined
-          ? (payload.amount as any).toString()
-          : undefined,
-    });
+        const payload = this.coercePaymentRecorded(val);
+        if (!payload || !payload.invoice_id) {
+          return;
+        }
+
+        this.logger.info("soroban.event.received", {
+          domain: "soroban",
+          event: "payment_recorded",
+          eventId,
+          invoiceId: String(payload.invoice_id),
+          ledger:
+            Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
+        });
+
+        await this.invoices.applySorobanPaymentEvent({
+          eventId,
+          contractId: this.getContractId(),
+          ledger:
+            Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
+          invoice_id: String(payload.invoice_id),
+          payer: payload.payer ? String(payload.payer) : undefined,
+          asset_code: payload.asset_code
+            ? String(payload.asset_code)
+            : undefined,
+          asset_issuer: payload.asset_issuer
+            ? String(payload.asset_issuer)
+            : undefined,
+          amount:
+            payload.amount !== undefined
+              ? (payload.amount as any).toString()
+              : undefined,
+        });
+      },
+    );
   }
 
   private coercePaymentRecorded(obj: any): {
@@ -177,7 +216,16 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
       params,
     };
 
-    return await this.postJson(rpc, body);
+    return traceAsync(
+      this.logger,
+      {
+        operation: "soroban.rpc.getEvents",
+        category: "network",
+        slowThresholdMs: this.getSlowNetworkThresholdMs(),
+        attributes: { contractId, cursor: this.cursor },
+      },
+      () => this.postJson(rpc, body),
+    );
   }
 
   private postJson(rpcUrl: string, body: Json): Promise<Json> {
@@ -231,5 +279,11 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   private getTopic(): string {
     const conf = this.config.get("stellar");
     return conf?.sorobanEventTopic || "InvoicePaymentRecorded";
+  }
+
+  private getSlowNetworkThresholdMs(): number {
+    return (
+      this.config.get<number>("observability.slowNetworkThresholdMs") ?? 500
+    );
   }
 }

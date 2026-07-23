@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# generate-schema.sh — emit schema.json from the contract's Rust type definitions.
+# Run from the contract directory (soroban/contracts/invoice-payment/).
+# Output: schema.json (committed to VCS so schema diffs appear in PRs).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+STORAGE="$SCRIPT_DIR/src/storage.rs"
+OUT="$SCRIPT_DIR/schema.json"
+
+# Extract version constants from storage.rs
+extract() {
+  grep -m1 "^pub const $1" "$STORAGE" | sed 's/.*= \([0-9]*\);/\1/'
+}
+
+MAJOR=$(extract CONTRACT_VERSION_MAJOR)
+MINOR=$(extract CONTRACT_VERSION_MINOR)
+PATCH=$(extract CONTRACT_VERSION_PATCH)
+SCHEMA_VER=$(extract STORAGE_SCHEMA_VERSION)
+CONTRACT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+cat > "$OUT" <<JSON
+{
+  "\$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Invoisio Invoice Payment Contract Schema",
+  "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
+  "contract_version": "${CONTRACT_VERSION}",
+  "storage_schema_version": ${SCHEMA_VER},
+  "types": {
+    "Asset": {
+      "description": "Asset type: native XLM or a Stellar-issued token.",
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "Native",
+          "description": "Native XLM. No issuer.",
+          "properties": {
+            "tag": { "const": "Native" }
+          },
+          "required": ["tag"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "title": "Token",
+          "description": "Stellar-issued token identified by code and issuer.",
+          "properties": {
+            "tag":    { "const": "Token" },
+            "code":   { "type": "string", "description": "Asset code (e.g. USDC)." },
+            "issuer": { "type": "string", "description": "Issuer Stellar account address (G...)." }
+          },
+          "required": ["tag", "code", "issuer"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "PaymentRecord": {
+      "description": "On-chain snapshot of a single recorded invoice payment.",
+      "type": "object",
+      "properties": {
+        "invoice_id": {
+          "type": "string",
+          "description": "Unique invoice identifier (e.g. invoisio-abc123). Matches the native Stellar Payment memo."
+        },
+        "payer": {
+          "type": "string",
+          "description": "Stellar account address (G...) that sent the payment."
+        },
+        "asset": {
+          "\$ref": "#/types/Asset",
+          "description": "Asset used for payment."
+        },
+        "amount": {
+          "type": "integer",
+          "description": "Payment amount in the asset's smallest unit (stroops for XLM; 7-decimal units for USDC). Must be > 0.",
+          "minimum": 1
+        },
+        "timestamp": {
+          "type": "integer",
+          "description": "Unix timestamp (seconds) sourced from the ledger at recording time.",
+          "minimum": 0
+        },
+        "settlement_ref": {
+          "type": "string",
+          "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation (e.g. SHA-256 hex). Max 128 chars.",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["invoice_id", "payer", "asset", "amount", "timestamp", "settlement_ref"],
+      "additionalProperties": false
+    },
+    "ContractMeta": {
+      "description": "Version metadata stored on-chain alongside state.",
+      "type": "object",
+      "properties": {
+        "contract_version": {
+          "type": "integer",
+          "description": "Packed semver: MAJOR*1_000_000 + MINOR*1_000 + PATCH."
+        },
+        "storage_schema_version": {
+          "type": "integer",
+          "description": "Storage layout version. Increment when persistent storage keys or shapes change."
+        }
+      },
+      "required": ["contract_version", "storage_schema_version"],
+      "additionalProperties": false
+    },
+    "AllowlistMode": {
+      "description": "Asset allowlist policy for this contract instance.",
+      "type": "object",
+      "properties": {
+        "native_allowed": {
+          "type": "boolean",
+          "description": "Whether native XLM payments are accepted."
+        },
+        "requires_token_allowlist": {
+          "type": "boolean",
+          "description": "Whether issued assets must be explicitly allowlisted. Currently always true."
+        }
+      },
+      "required": ["native_allowed", "requires_token_allowlist"],
+      "additionalProperties": false
+    },
+    "ContractConfig": {
+      "description": "High-level configuration snapshot returned by config(). Single permissionless call for ops/clients.",
+      "type": "object",
+      "properties": {
+        "admin": {
+          "oneOf": [
+            { "type": "string", "description": "Admin Stellar account address once initialised." },
+            { "type": "null",   "description": "Null before initialize() is called." }
+          ]
+        },
+        "initialized": {
+          "type": "boolean",
+          "description": "True once initialize(admin) has completed."
+        },
+        "version":        { "\$ref": "#/types/ContractMeta" },
+        "allowlist_mode": { "\$ref": "#/types/AllowlistMode" }
+      },
+      "required": ["admin", "initialized", "version", "allowlist_mode"],
+      "additionalProperties": false
+    },
+    "PaymentHistoryPage": {
+      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() and payments_by_payer().",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "\$ref": "#/types/PaymentRecord" },
+          "description": "Records returned for this page."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        }
+      },
+      "required": ["records", "next_cursor", "has_more"],
+      "additionalProperties": false
+    }
+  },
+  "events": {
+    "InvoicePaymentRecorded": {
+      "description": "Emitted by record_payment(). Primary indexer event — carries the full payment details.",
+      "topic": "invoice_payment_recorded",
+      "fields": {
+        "invoice_id":   { "type": "string",  "description": "Unique invoice identifier." },
+        "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
+        "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
+        "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
+        "amount":       { "type": "integer", "description": "Payment amount in smallest denomination. Must be > 0.", "minimum": 1 },
+        "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
+      },
+      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "settlement_ref"]
+    },
+    "AssetAllowlisted": {
+      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
+      "topic": "asset_allowlisted",
+      "fields": {
+        "code":   { "type": "string", "description": "Asset code." },
+        "issuer": { "type": "string", "description": "Issuer address." }
+      },
+      "required": ["code", "issuer"]
+    },
+    "AssetRevoked": {
+      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist.",
+      "topic": "asset_revoked",
+      "fields": {
+        "code":   { "type": "string", "description": "Asset code." },
+        "issuer": { "type": "string", "description": "Issuer address." }
+      },
+      "required": ["code", "issuer"]
+    },
+    "NativeAllowChanged": {
+      "description": "Emitted by set_allow_native(). Signals the XLM allowance flag changed.",
+      "topic": "native_allow_changed",
+      "fields": {
+        "allowed": { "type": "boolean", "description": "New value of the native XLM allow flag." }
+      },
+      "required": ["allowed"]
+    }
+  },
+  "errors": {
+    "AlreadyInitialized":   { "code": 1, "description": "initialize() called on an already-initialised contract." },
+    "NotInitialized":       { "code": 2, "description": "Admin-gated method called before initialize()." },
+    "PaymentAlreadyRecorded": { "code": 3, "description": "record_payment() called with an invoice_id that was already recorded." },
+    "PaymentNotFound":      { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
+    "InvalidAmount":        { "code": 5, "description": "amount was zero or negative." },
+    "InvalidInvoiceId":     { "code": 6, "description": "invoice_id was an empty string." },
+    "InvalidAsset":         { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
+    "AssetNotAllowed":      { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
+    "Unauthorized":         { "code": 9, "description": "Caller is not authorized." },
+    "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
+    "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
+    "InvalidSettlementRef": { "code": 12, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
+  },
+  "methods": {
+    "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
+    "record_payment":    { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
+    "get_payment":       { "auth": "none",  "description": "Return PaymentRecord for invoice_id." },
+    "has_payment":       { "auth": "none",  "description": "Return true if a payment exists for invoice_id." },
+    "payment_count":     { "auth": "none",  "description": "Return total recorded payment count." },
+    "payment_history":   { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
+    "payments_by_payer": { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
+    "config":            { "auth": "none",  "description": "Return ContractConfig snapshot." },
+    "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
+    "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },
+    "admin":             { "auth": "none",  "description": "Return current admin address." },
+    "set_admin":         { "auth": "admin+new_admin", "description": "Transfer admin rights." },
+    "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
+    "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
+    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." }
+  }
+}
+JSON
+
+echo "schema.json written (contract_version=${CONTRACT_VERSION}, storage_schema_version=${SCHEMA_VER})"

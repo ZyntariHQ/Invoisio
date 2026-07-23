@@ -12,6 +12,8 @@ exports.CONTRACT_ERROR_CODES = {
     5: 'InvalidAmount',
     6: 'InvalidInvoiceId',
     7: 'InvalidAsset',
+    8: 'AssetNotAllowed',
+    9: 'Unauthorized',
 };
 class SorobanContractError extends Error {
     code;

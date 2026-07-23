@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import * as StellarSdk from "@stellar/stellar-sdk";
-import { AuthService } from "../lib/auth-service";
+import { authService } from "../lib/auth-service";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { useAppKit, useAccount, useProvider } from "@reown/appkit-react-native";
 
@@ -60,10 +60,10 @@ export function useWalletAuth(): UseWalletAuthReturn {
       }
 
       // Step 2: Request nonce from backend
-      const { nonce } = await AuthService.requestNonce(userPublicKey);
+      const { nonce } = await authService.requestNonce(userPublicKey);
 
       // Step 3: Create SIWE-style message
-      const message = AuthService.createSiweMessage(nonce);
+      const message = authService.createSiweMessage(nonce);
 
       // Step 4: Sign the message with the wallet using AppKit provider
       if (!provider) {
@@ -77,7 +77,7 @@ export function useWalletAuth(): UseWalletAuthReturn {
       }
 
       // Step 5: Verify signature with backend and get JWT
-      const { accessToken } = await AuthService.verifySignature(
+      const { accessToken } = await authService.verifySignature(
         userPublicKey,
         signature,
       );

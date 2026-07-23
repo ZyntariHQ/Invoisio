@@ -2,10 +2,12 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { Copy } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
+import { RequireAuth } from '@/components/require-auth';
 
 interface Invoice {
   id: string;
@@ -31,7 +33,15 @@ interface WalletInfo {
   message: string;
 }
 
-export default function InvoiceDetailPage() {
+interface TimelineStep {
+  label: string;
+  description: string;
+  datetime: string;
+  status: 'completed' | 'failed' | 'pending';
+  txHash?: string;
+}
+
+function InvoiceDetailContent() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const invoiceId = params?.id as string;
@@ -39,6 +49,30 @@ export default function InvoiceDetailPage() {
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const handleCopyToClipboard = useCallback(async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      window.setTimeout(() => setCopiedField(null), 2000);
+    } catch (err) {
+      console.error('Copy failed', err);
+    }
+  }, []);
+
+  const formatDateTime = useCallback((value: string | Date | null) => {
+    if (!value) return 'Unavailable';
+    const date = typeof value === 'string' ? new Date(value) : value;
+    if (Number.isNaN(date.getTime())) return 'Unavailable';
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
+  }, []);
 
   // Fetch invoice function for polling
   const fetchInvoice = useCallback(async (id: string) => {
@@ -51,6 +85,54 @@ export default function InvoiceDetailPage() {
     invoiceId,
     fetchInvoice,
   );
+
+  const statusTimeline = useMemo<TimelineStep[]>(() => {
+    if (!invoice) return [] as TimelineStep[];
+
+    const timeline: TimelineStep[] = [
+      {
+        label: 'Invoice Created',
+        description: 'Invoice was issued and is waiting for payment.',
+        datetime: invoice.createdAt,
+        status: 'completed',
+      },
+    ];
+
+    if (invoice.dueDate) {
+      timeline.push({
+        label: 'Due Date',
+        description: 'Payment is expected by this date.',
+        datetime: invoice.dueDate,
+        status: invoice.status === 'overdue' || invoice.status === 'cancelled' ? 'failed' : 'pending',
+      });
+    }
+
+    if (invoice.status === 'paid') {
+      timeline.push({
+        label: 'Payment Received',
+        description: 'The payment was confirmed on the network.',
+        datetime: lastUpdated ? lastUpdated.toISOString() : invoice.createdAt,
+        status: 'completed',
+        txHash: invoice.tx_hash,
+      });
+    } else if (invoice.status === 'overdue' || invoice.status === 'cancelled') {
+      timeline.push({
+        label: 'Invoice Expired',
+        description: 'This invoice is no longer payable.',
+        datetime: invoice.dueDate ?? (lastUpdated ? lastUpdated.toISOString() : invoice.createdAt),
+        status: 'failed',
+      });
+    } else {
+      timeline.push({
+        label: 'Awaiting Payment',
+        description: 'The invoice is open and ready to be paid.',
+        datetime: lastUpdated ? lastUpdated.toISOString() : invoice.createdAt,
+        status: 'pending',
+      });
+    }
+
+    return timeline;
+  }, [invoice, lastUpdated]);
 
   const handlePayClick = useCallback(async () => {
     if (!invoice || paymentInProgress) return;
@@ -80,6 +162,17 @@ export default function InvoiceDetailPage() {
       setPaymentInProgress(false);
     }
   }, [invoice, paymentInProgress]);
+
+  const handleDuplicateInvoice = async () => {
+    try {
+      const response = await apiClient.post(`/invoices/${invoiceId}/duplicate`);
+      // Navigate to the new invoice detail page
+      router.push(`/invoices/${response.data.id}`);
+    } catch (error) {
+      console.error('Failed to duplicate invoice:', error);
+      alert('Failed to duplicate invoice. Please try again.');
+    }
+  };
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -146,7 +239,9 @@ export default function InvoiceDetailPage() {
             {pollError || 'The invoice you are looking for does not exist.'}
           </p>
           <button
+            type="button"
             onClick={() => router.back()}
+            aria-label="Go back to previous page"
             className="mt-6 inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             Go Back
@@ -164,7 +259,9 @@ export default function InvoiceDetailPage() {
       <div className="mx-auto max-w-2xl">
         {/* Header */}
         <button
+          type="button"
           onClick={() => router.back()}
+          aria-label="Go back to invoices list"
           className="mb-8 text-sm font-medium text-blue-600 hover:text-blue-700"
         >
           ← Back to Invoices
@@ -174,7 +271,7 @@ export default function InvoiceDetailPage() {
         <div className="overflow-hidden rounded-lg bg-white shadow">
           <div className="px-6 py-8 sm:px-8">
             {/* Invoice Header */}
-            <div className="mb-8 flex items-start justify-between border-b border-gray-200 pb-6">
+            <div className="mb-8 flex flex-col items-start gap-3 border-b border-gray-200 pb-6 sm:flex-row sm:justify-between">
               <div>
                 <p className="text-sm text-gray-500">Invoice</p>
                 <h1 className="text-3xl font-bold text-gray-900">
@@ -189,7 +286,11 @@ export default function InvoiceDetailPage() {
 
             {/* Payment Status Message */}
             {paymentInProgress && (
-              <div className="mb-6 rounded-md bg-blue-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-blue-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-blue-900">
                   ⏳ Waiting for payment... Check your wallet for confirmation.
                 </p>
@@ -197,7 +298,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {isPaid && (
-              <div className="mb-6 rounded-md bg-green-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-green-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-green-900">
                   ✓ Payment received successfully!
                 </p>
@@ -210,7 +315,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {paymentError && (
-              <div className="mb-6 rounded-md bg-red-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-red-50 p-4"
+                role="alert"
+                aria-live="assertive"
+              >
                 <p className="text-sm font-medium text-red-900">
                   Error: {paymentError}
                 </p>
@@ -218,7 +327,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {pollError && !invoice && (
-              <div className="mb-6 rounded-md bg-red-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-red-50 p-4"
+                role="alert"
+                aria-live="assertive"
+              >
                 <p className="text-sm font-medium text-red-900">
                   Error loading invoice: {pollError}
                 </p>
@@ -226,7 +339,11 @@ export default function InvoiceDetailPage() {
             )}
 
             {!walletInfo?.hasWallet && isPending && (
-              <div className="mb-6 rounded-md bg-amber-50 p-4">
+              <div 
+                className="mb-6 rounded-md bg-amber-50 p-4"
+                role="status"
+                aria-live="polite"
+              >
                 <p className="text-sm font-medium text-amber-900">
                   ⚠️ {walletInfo?.message || 'No wallet detected'}
                 </p>
@@ -288,27 +405,80 @@ export default function InvoiceDetailPage() {
             {/* Payment Instructions */}
             {isPending && (
               <div className="mb-8 rounded-md border border-blue-200 bg-blue-50 p-4">
-                <p className="text-xs font-medium uppercase text-blue-900 mb-2">Payment Instructions</p>
-                <div className="space-y-2 text-sm text-gray-700">
-                  <p>
-                    <strong>Destination:</strong>{' '}
-                    <code className="font-mono break-all">{invoice.destination_address}</code>
-                  </p>
-                  <p>
-                    <strong>Memo:</strong> <code className="font-mono">{invoice.memo}</code>
-                  </p>
-                  <p>
-                    <strong>Asset:</strong> {invoice.asset}
-                    {invoice.asset_issuer && (
-                      <>
-                        {' '}
-                        (Issuer: <code className="font-mono break-all">{invoice.asset_issuer}</code>)
-                      </>
-                    )}
-                  </p>
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium uppercase text-blue-900">Payment Instructions</p>
+                  <span className="text-xs text-slate-500">Copy destination and memo to pay</span>
+                </div>
+                <div className="space-y-3 text-sm text-gray-700">
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-blue-100 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-blue-700">Destination</p>
+                      <code className="font-mono break-all text-sm text-slate-700">{invoice.destination_address}</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyToClipboard(invoice.destination_address, 'destination')}
+                      className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {copiedField === 'destination' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-3 rounded-md border border-blue-100 bg-white p-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase text-blue-700">Memo</p>
+                      <code className="font-mono break-all text-sm text-slate-700">{invoice.memo}</code>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyToClipboard(invoice.memo, 'memo')}
+                      className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      {copiedField === 'memo' ? 'Copied' : 'Copy'}
+                    </button>
+                  </div>
+
+                  <div className="rounded-md border border-blue-100 bg-white p-3">
+                    <p className="text-xs font-semibold uppercase text-blue-700">Asset</p>
+                    <p className="mt-1 text-sm text-slate-900">
+                      {invoice.asset}
+                      {invoice.asset_issuer && (
+                        <> (Issuer: <code className="font-mono break-all">{invoice.asset_issuer}</code>)</>
+                      )}
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
+
+            {/* Status Timeline */}
+            <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
+                <span className="text-xs text-slate-500">
+                  {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}
+                </span>
+              </div>
+              <div className="space-y-4">
+                {statusTimeline.map((step) => (
+                  <div key={step.label} className="grid gap-3 sm:grid-cols-[auto_1fr]">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full border text-xs font-semibold text-white" style={{ backgroundColor: step.status === 'completed' ? '#10b981' : step.status === 'failed' ? '#ef4444' : '#f59e0b' }}>
+                      {step.status === 'completed' ? '✓' : step.status === 'failed' ? '✕' : '…'}
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-900">{step.label}</p>
+                        <p className="text-xs text-slate-500">{formatDateTime(step.datetime)}</p>
+                      </div>
+                      <p className="mt-2 text-sm text-slate-600">{step.description}</p>
+                      {step.txHash && (
+                        <p className="mt-2 truncate text-xs font-mono text-slate-800">Transaction: {step.txHash}</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
             {/* Status Info */}
             {lastUpdated && (
@@ -318,11 +488,13 @@ export default function InvoiceDetailPage() {
             )}
 
             {/* Action Buttons */}
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
               {isPending && walletInfo?.hasWallet && (
                 <button
+                  type="button"
                   onClick={handlePayClick}
                   disabled={paymentInProgress || isLoading}
+                  aria-label={paymentInProgress ? 'Waiting for payment confirmation' : 'Pay invoice via Stellar wallet'}
                   className="flex-1 rounded-md bg-green-600 px-4 py-3 text-center font-medium text-white hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                 >
                   {paymentInProgress ? '⏳ Waiting for Payment...' : '💳 Pay Invoice'}
@@ -330,16 +502,30 @@ export default function InvoiceDetailPage() {
               )}
 
               <button
+                type="button"
                 onClick={refreshStatus}
                 disabled={isLoading}
+                aria-label="Refresh invoice payment status"
                 className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50 disabled:bg-gray-100"
               >
                 🔄 Refresh Status
               </button>
 
+              <button
+                type="button"
+                onClick={handleDuplicateInvoice}
+                aria-label="Duplicate this invoice"
+                className="inline-flex items-center justify-center gap-2 rounded-md border border-gray-300 px-4 py-3 font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <Copy className="h-4 w-4" />
+                Duplicate
+              </button>
+
               {isPaid && (
                 <button
+                  type="button"
                   onClick={() => window.print()}
+                  aria-label="Print invoice"
                   className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
                 >
                   🖨️ Print
@@ -361,5 +547,13 @@ export default function InvoiceDetailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function InvoiceDetailPage() {
+  return (
+    <RequireAuth>
+      <InvoiceDetailContent />
+    </RequireAuth>
   );
 }

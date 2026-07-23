@@ -2,6 +2,12 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { SorobanEventsService } from "./soroban-events.service";
 import { ConfigService } from "@nestjs/config";
 import { InvoicesService } from "../invoices/invoices.service";
+import { RequestContextService } from "../observability/request-context.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import {
+  mockRequestContextService,
+  mockStructuredLogger,
+} from "../observability/testing/observability.mock";
 
 describe("SorobanEventsService", () => {
   let service: SorobanEventsService;
@@ -32,6 +38,14 @@ describe("SorobanEventsService", () => {
         SorobanEventsService,
         { provide: ConfigService, useValue: mockConfigService },
         { provide: InvoicesService, useValue: mockInvoicesService },
+        {
+          provide: RequestContextService,
+          useValue: mockRequestContextService,
+        },
+        {
+          provide: StructuredLogger,
+          useValue: mockStructuredLogger,
+        },
       ],
     }).compile();
 

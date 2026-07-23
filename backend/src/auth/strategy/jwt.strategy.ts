@@ -9,6 +9,7 @@ export interface JwtPayload {
   sub: string;
   publicKey: string;
   merchantId?: string;
+  tokenVersion?: number;
 }
 
 @Injectable()
@@ -31,6 +32,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user) {
       throw new UnauthorizedException("User no longer exists.");
     }
+
+    // Session revocation:
+    // - tokens include `tokenVersion` in their payload
+    // - logout increments user's `tokenVersion`
+    // - any token with a stale version is rejected
+    const payloadVersion = payload.tokenVersion ?? 0;
+    const userVersion = (user as any).tokenVersion ?? 0;
+    if (payloadVersion !== userVersion) {
+      throw new UnauthorizedException("Token has been revoked.");
+    }
+
     return {
       id: user.id,
       merchantId: user.merchantId,
@@ -38,6 +50,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       email: user.email,
+      isAdmin: user.isAdmin,
+      tokenVersion: (user as any).tokenVersion ?? 0,
     } as any;
   }
 }

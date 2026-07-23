@@ -1,6 +1,7 @@
-use soroban_sdk::{contracttype, Address, Env, String};
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 use crate::errors::ContractError;
+use crate::events;
 
 // TTL budget
 // At ~5-second ledger close times:
@@ -31,6 +32,9 @@ pub const CONTRACT_VERSION: u32 = pack_version(
     CONTRACT_VERSION_MINOR,
     CONTRACT_VERSION_PATCH,
 );
+
+/// Maximum number of payment records returned in one history page.
+pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -77,6 +81,8 @@ pub struct ContractConfig {
     pub version: ContractMeta,
     /// High-level asset policy snapshot for native XLM and issued tokens.
     pub allowlist_mode: AllowlistMode,
+    /// Whether the contract is currently paused (writes disabled).
+    pub paused: bool,
 }
 
 // Storage keys
@@ -92,17 +98,23 @@ pub enum DataKey {
     Admin,
     /// Running count of recorded payments in **instance** storage.
     PaymentCount,
+    /// Running count of history-indexed payment records in **instance** storage.
+    PaymentHistoryCount,
     /// Contract-level version metadata in **instance** storage.
     ContractMeta,
     /// Legacy pre-versioning key: kept for backward-compatible reads.
     Payment(String),
     /// Schema v1 key: active write path for payment records.
     PaymentV1(String),
+    /// Append-only history index used for deterministic paging.
+    PaymentHistory(u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
     /// Flag for allowing native XLM in **instance** storage.
     AllowNative,
+    /// Flag indicating whether the contract is paused (instance storage).
+    Paused,
 }
 
 // Data structures
@@ -151,6 +163,26 @@ pub struct PaymentRecord {
 
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
+
+    /// Normalised settlement reference for backend deduplication and auditing.
+    ///
+    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or
+    /// a well-known reconciliation identifier) that the backend uses for
+    /// idempotent settlement reconciliation. Stored on-chain so any observer
+    /// can verify the settlement reference associated with a payment.
+    pub settlement_ref: String,
+}
+
+/// A bounded, cursor-friendly slice of payment history.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct PaymentHistoryPage {
+    /// Records returned for this page.
+    pub records: Vec<PaymentRecord>,
+    /// Cursor to pass to the next call.
+    pub next_cursor: u32,
+    /// True when more entries are available after `next_cursor`.
+    pub has_more: bool,
 }
 
 // Version helpers (instance storage)
@@ -199,6 +231,7 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
             native_allowed: is_native_allowed(env),
             requires_token_allowlist: true,
         },
+        paused: is_paused(env),
     }
 }
 
@@ -233,6 +266,10 @@ fn payment_key_legacy(invoice_id: &String) -> DataKey {
 
 fn payment_key_v1(invoice_id: &String) -> DataKey {
     DataKey::PaymentV1(invoice_id.clone())
+}
+
+fn payment_history_key(index: u32) -> DataKey {
+    DataKey::PaymentHistory(index)
 }
 
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
@@ -288,6 +325,16 @@ pub fn set_payment(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
+/// Append a record to the deterministic history index.
+pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
+    let index = get_history_count(env);
+    let key = payment_history_key(index);
+    env.storage().persistent().set(&key, record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
 // Payment counter helpers (instance storage)
 
 /// Return the current payment count (0 if not yet set).
@@ -305,6 +352,60 @@ pub fn bump_count(env: &Env) {
         .instance()
         .set(&DataKey::PaymentCount, &(count + 1u32));
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// Payment history helpers (instance storage)
+
+/// Return the number of indexed payment history entries.
+pub fn get_history_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PaymentHistoryCount)
+        .unwrap_or(0u32)
+}
+
+/// Increment the history index counter and extend instance TTL.
+pub fn bump_history_count(env: &Env) {
+    let count = get_history_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
+    let key = payment_history_key(index);
+    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    if record.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    record
+}
+
+/// Read a bounded page of history starting at `cursor`.
+pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
+    let total = get_history_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+    let end = start.saturating_add(capped_limit).min(total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    while index < end {
+        match get_history_record(env, index) {
+            Some(record) => records.push_back(record),
+            None => break,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+    }
 }
 
 // Allowlist helpers
@@ -345,4 +446,97 @@ pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
 pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     env.storage().persistent().remove(&key);
+}
+
+// ─── Storage Schema Migration ───────────────────────────────────────────────
+
+/// Error returned when migration is not supported.
+#[derive(Debug)]
+pub struct MigrationError;
+
+/// Upgrade storage schema from current version to target version.
+///
+/// This is the main entry point for schema migrations. It handles all
+/// version upgrades from V0 (legacy) to the current schema version.
+///
+/// # Idempotency
+/// Safe to call multiple times - checks current version first.
+///
+/// # Events
+/// Emits `StorageSchemaUpgraded` event on successful migration.
+pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), ContractError> {
+    let current = get_storage_schema_version(env);
+
+    if current == target_version {
+        return Ok(());
+    }
+
+    if current > target_version {
+        return Err(ContractError::StorageSchemaTooNew);
+    }
+
+    // Migrate step by step from current to target
+    let mut version = current;
+    while version < target_version {
+        match version {
+            0 => migrate_schema_v0_to_v1(env)?,
+            // Future migrations:
+            // 1 => migrate_schema_v1_to_v2(env)?,
+            // 2 => migrate_schema_v2_to_v3(env)?,
+            _ => return Err(ContractError::StorageSchemaTooOld),
+        }
+        version += 1;
+    }
+
+    // Update metadata to reflect new schema version
+    let old_version = current;
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = target_version;
+    set_contract_meta(env, &meta);
+
+    // Emit upgrade event
+    events::emit_storage_schema_upgraded(env, old_version, target_version);
+
+    Ok(())
+}
+
+/// Migration from schema version 0 (legacy) to version 1.
+///
+/// Schema V0: No ContractMeta, Payment keys only.
+/// Schema V1: ContractMeta + PaymentV1 keys (with lazy migration on read).
+fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
+    // The lazy migration path in get_payment() already handles data migration.
+    // We just need to ensure ContractMeta exists and is correct.
+    ensure_current_contract_meta(env);
+    Ok(())
+}
+
+/// Check if the current storage schema is compatible with this contract version.
+///
+/// Returns true if the schema version is <= the version expected by the contract.
+/// This prevents code from reading a newer schema it doesn't understand.
+pub fn is_schema_compatible(env: &Env) -> bool {
+    let current = get_storage_schema_version(env);
+    current <= STORAGE_SCHEMA_VERSION
+}
+
+/// Get the current storage schema version or 0 if not set.
+pub fn get_schema_version(env: &Env) -> u32 {
+    get_storage_schema_version(env)
+}
+
+// ─── Pause helpers ──────────────────────────────────────────────────────────
+
+/// Return `true` if the contract is paused.
+pub fn is_paused(env: &Env) -> bool {
+    env.storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false)
+}
+
+/// Set the paused state. Admin-only.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }

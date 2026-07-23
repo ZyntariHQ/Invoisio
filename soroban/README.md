@@ -17,6 +17,7 @@ soroban/
 ├── invoke-get-payment.sh           # Query payment record
 ├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
+├── invoke-payment-history.sh       # Page through payment history
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -248,6 +249,45 @@ Deploys the contract to Stellar testnet and initializes it.
 4. Initializes the contract with the admin address
 5. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
 
+### Deploy Manifests
+
+Network configuration is stored in `manifests/` as TOML files. `deploy.sh`
+reads the correct manifest automatically based on `STELLAR_NETWORK`.
+
+| File | Purpose |
+|------|---------|
+| `manifests/testnet.toml` | Testnet (default) — Friendbot-funded, SDF RPC |
+| `manifests/mainnet.toml` | Mainnet — pre-funded admin required |
+
+Each manifest covers:
+
+- **`[network]`** — passphrase, RPC URL, Horizon URL
+- **`[identity]`** — local keys identity name and the env var that holds the secret key
+- **`[contract]`** — WASM path and where to write the deployed contract ID
+- **`[assets]`** — allowlist of accepted payment assets (`CODE:ISSUER` or `"native"`)
+
+Secrets are never stored in the manifest — they are referenced by env var name only.
+
+**Testnet (default):**
+```bash
+./build.sh
+./deploy.sh
+# or explicitly:
+STELLAR_NETWORK=testnet ./deploy.sh
+```
+
+**Mainnet:**
+```bash
+./build.sh
+STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+```
+
+**Adding a new environment** (e.g. futurenet): copy `manifests/testnet.toml`,
+rename it `manifests/futurenet.toml`, update the `[network]` block, and run:
+```bash
+STELLAR_NETWORK=futurenet ./deploy.sh
+```
+
 ### `./invoke-record-payment.sh`
 
 Records an invoice payment on-chain.
@@ -310,6 +350,17 @@ Checks if a payment exists for an invoice (non-panicking).
 ```
 
 **Returns:** `true` if payment exists, `false` otherwise
+
+### `./invoke-payment-history.sh`
+
+Retrieves a bounded page of payment history.
+
+**Usage:**
+```bash
+./invoke-payment-history.sh <cursor> [limit]
+```
+
+**Returns:** a page of payment records with `next_cursor` and `has_more`
 
 ---
 
@@ -393,10 +444,13 @@ Contract v1 (C1) live
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
+| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `set_admin(new_admin)` | admin | Transfer admin rights. |
+
+`payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
 ### Contract error codes
 
@@ -439,10 +493,12 @@ Every `record_payment` call publishes a flattened event payload so off-chain ind
 
 ```
 Topics : (Symbol "invoice_payment_recorded")
-Data   : InvoicePaymentRecorded { invoice_id, payer, asset_code, asset_issuer, amount }
+Data   : InvoicePaymentRecorded { schema_version, invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref }
 ```
 
 Note: The `tx_hash` is not directly inside the payload, but is automatically included by Horizon in the event envelope when fetching via RPC.
+
+The leading `schema_version` field (currently `1`, see `EVENT_SCHEMA_VERSION` in `events.rs`) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
 
 Subscribe and decode via CLI:
 ```sh

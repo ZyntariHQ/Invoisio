@@ -1,0 +1,45 @@
+# Invoisio — Mainnet deployment manifest
+#
+# All secret values (keys, seeds) must be supplied via environment variables.
+# Never commit real private keys or secret seeds to this file.
+#
+# Usage:
+#   STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+#
+# Required environment variables (set before running deploy.sh):
+#   INVOISIO_ADMIN_SECRET   — secret key for the admin identity (required on mainnet;
+#                             no Friendbot funding is available)
+
+[network]
+name        = "mainnet"
+passphrase  = "Public Global Stellar Network ; September 2015"
+rpc_url     = "https://mainnet.sorobanrpc.com"
+horizon_url = "https://horizon.stellar.org"
+# No friendbot on mainnet — admin account must be pre-funded.
+
+[identity]
+# Name of the local stellar keys identity to use.
+# Create with: stellar keys generate --global invoisio-admin-mainnet
+name = "invoisio-admin-mainnet"
+# Secret key injected from env at deploy time.
+secret_key_env = "INVOISIO_ADMIN_SECRET"
+
+[contract]
+wasm_path        = "target/wasm32v1-none/release/invoice_payment.wasm"
+contract_id_file = "contracts/invoice-payment/.contract-id-mainnet"
+
+[assets]
+# Allowlist of accepted payment assets on mainnet.
+# Format: CODE:ISSUER  (use "native" for XLM)
+# USDC on mainnet issued by Centre.
+allowlist = [
+  "native",
+  "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+]
+
+# Mainnet deployment checklist:
+#   1. Build the WASM:         ./build.sh
+#   2. Verify the WASM hash before deploying (check with the team).
+#   3. Ensure the admin account has enough XLM for fees + rent.
+#   4. Run:  STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+#   5. Commit the resulting .contract-id-mainnet file to git.

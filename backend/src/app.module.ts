@@ -6,6 +6,8 @@ import { ConfigModule, ConfigService } from "@nestjs/config";
 import appConfig from "./config/app.config";
 import stellarConfig from "./config/stellar.config";
 import throttlerConfig from "./config/throttler.config";
+import observabilityConfig from "./config/observability.config";
+import { ObservabilityModule } from "./observability/observability.module";
 
 // Modules
 import { HealthModule } from "./health/health.module";
@@ -35,7 +37,7 @@ import { MerchantsModule } from "./merchants/merchants.module";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env", ".env.example"],
-      load: [appConfig, stellarConfig, throttlerConfig],
+      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
         CORS_ORIGIN: Joi.string().default("http://localhost:3000"),
@@ -57,8 +59,20 @@ import { MerchantsModule } from "./merchants/merchants.module";
           .default("https://soroban-testnet.stellar.org"),
         SOROBAN_CONTRACT_ID: Joi.string().optional().allow(""),
         SOROBAN_EVENT_TOPIC: Joi.string().default("InvoicePaymentRecorded"),
-        DATABASE_URL: Joi.string().optional(),
-        JWT_SECRET: Joi.string().optional(),
+        DATABASE_URL: Joi.string().required().messages({
+          "any.required":
+            "DATABASE_URL is required – set it to your database connection string (e.g. postgresql://user:pass@host:5432/db)",
+          "string.empty":
+            "DATABASE_URL must not be empty – set it to your database connection string",
+        }),
+        JWT_SECRET: Joi.string().min(32).required().messages({
+          "any.required":
+            "JWT_SECRET is required – generate one with: openssl rand -base64 32",
+          "string.min":
+            "JWT_SECRET must be at least 32 characters long – generate one with: openssl rand -base64 32",
+          "string.empty":
+            "JWT_SECRET must not be empty – generate one with: openssl rand -base64 32",
+        }),
         // Rate limiting configuration
         THROTTLE_TTL: Joi.number().integer().min(1).default(60),
         THROTTLE_LIMIT: Joi.number().integer().min(1).default(100),
@@ -71,8 +85,15 @@ import { MerchantsModule } from "./merchants/merchants.module";
         REDIS_PASSWORD: Joi.string().optional().allow(""),
         REDIS_DB: Joi.number().integer().min(0).default(0),
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
+        SLOW_DB_THRESHOLD_MS: Joi.number().integer().min(1).default(200),
+        SLOW_NETWORK_THRESHOLD_MS: Joi.number().integer().min(1).default(500),
       }),
+      validationOptions: {
+        abortEarly: false,
+        allowUnknown: true,
+      },
     }),
+    ObservabilityModule,
     CustomThrottlerModule,
     PrismaModule,
     ScheduleModule.forRoot(),
@@ -85,6 +106,12 @@ import { MerchantsModule } from "./merchants/merchants.module";
     UsersModule,
     MerchantsModule,
     WebhooksModule,
+    BackfillModule,
+    AdminAnalyticsModule,
+    NotificationsModule,
+    MerchantModule,
+    ActivityFeedModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}

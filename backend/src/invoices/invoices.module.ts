@@ -1,11 +1,15 @@
 import { Module } from "@nestjs/common";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
+import { PaymentReviewsService } from "./payment-reviews.service";
 import { StellarModule } from "../stellar/stellar.module";
 import { SorobanModule } from "../soroban/soroban.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { WebhooksModule } from "../webhooks/webhooks.module";
 import { AuthModule } from "../auth/auth.module";
+import { NotificationsModule } from "../notifications/notifications.module";
+import { RealtimeModule } from "../realtime/realtime.module";
+import { ActivityFeedModule } from "../activity-feed/activity-feed.module";
 
 /**
  * Invoices module
@@ -18,9 +22,12 @@ import { AuthModule } from "../auth/auth.module";
     PrismaModule,
     WebhooksModule,
     AuthModule,
+    NotificationsModule,
+    RealtimeModule,
+    ActivityFeedModule,
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService],
+  providers: [InvoicesService, PaymentReviewsService],
   exports: [InvoicesService],
 })
 export class InvoicesModule {}

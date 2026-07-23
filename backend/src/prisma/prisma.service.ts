@@ -4,10 +4,12 @@ import {
   OnModuleDestroy,
   Logger,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { MerchantContextService } from "./merchant-context.service";
 import { applyMerchantScope } from "./merchant-scope.util";
+import { StructuredLogger } from "../observability/structured-logger.service";
 
 @Injectable()
 export class PrismaService
@@ -16,7 +18,11 @@ export class PrismaService
 {
   private readonly logger = new Logger(PrismaService.name);
 
-  constructor(private readonly merchantContext: MerchantContextService) {
+  constructor(
+    private readonly merchantContext: MerchantContextService,
+    private readonly structuredLogger: StructuredLogger,
+    private readonly configService: ConfigService,
+  ) {
     const adapter = new PrismaPg({
       connectionString: process.env.DATABASE_URL,
     });
@@ -35,7 +41,25 @@ export class PrismaService
         this.merchantContext.getMerchantId(),
         this.logger,
       );
-      return next(params);
+
+      const startedAt = Date.now();
+      const result = await next(params);
+      const durationMs = Date.now() - startedAt;
+      const slowThresholdMs = this.getSlowDbThresholdMs();
+      const operation = params.model
+        ? `${params.model}.${params.action}`
+        : params.action;
+
+      if (durationMs >= slowThresholdMs) {
+        this.structuredLogger.warn("db.query.slow", {
+          category: "database",
+          operation,
+          durationMs,
+          slow: true,
+        });
+      }
+
+      return result;
     });
   }
 
@@ -53,5 +77,11 @@ export class PrismaService
     callback: () => Promise<T> | T,
   ): Promise<T> {
     return this.merchantContext.runWithMerchantScope(merchantId, callback);
+  }
+
+  private getSlowDbThresholdMs(): number {
+    return (
+      this.configService.get<number>("observability.slowDbThresholdMs") ?? 200
+    );
   }
 }

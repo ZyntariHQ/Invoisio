@@ -13,6 +13,7 @@ import {
   getInvoiceDestination,
   getInvoiceMemoType,
 } from "../../lib/payment-link";
+import { generateDeepLink, generateWebUrl } from "../../lib/share-links";
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
@@ -48,24 +49,34 @@ export default function InvoiceDetailScreen() {
     invoice && destination
       ? generatePaymentUri({
           amount: String(invoice.amount),
-          assetCode,
-          assetIssuer: invoice.asset_issuer,
           destination,
-          memo: invoice.memo,
+          ...(assetCode !== undefined && { assetCode }),
+          ...(invoice.asset_issuer !== undefined && {
+            assetIssuer: invoice.asset_issuer,
+          }),
+          ...(invoice.memo !== undefined && { memo: invoice.memo }),
           memoType: getInvoiceMemoType(invoice),
         })
       : undefined;
 
+  // Updated share handler with deep links
   const handleShare = async () => {
     if (!invoice) {
       return;
     }
 
     try {
-      await Share.share({
+      // Generate deep links for the invoice
+      const deepLink = generateDeepLink("invoice", invoice.id);
+      const webUrl = generateWebUrl("invoice", invoice.id);
+      
+      const shareMessage = buildInvoiceShareMessage(invoice);
+      const shareContent = {
         title: invoice.invoiceNumber ?? invoice.id,
-        message: buildInvoiceShareMessage(invoice),
-      });
+        message: `${shareMessage}\n\n📱 Open in app: ${deepLink}\n🌐 Web: ${webUrl}`,
+      };
+      
+      await Share.share(shareContent);
     } catch (error) {
       console.error("Invoice share failed", error);
       Alert.alert(

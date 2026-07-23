@@ -4,6 +4,9 @@ import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { WebhooksService } from "../webhooks/webhooks.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { StructuredLogger } from "../observability/structured-logger.service";
+import { mockStructuredLogger } from "../observability/testing/observability.mock";
 
 describe("InvoicesService Cron", () => {
   let service: InvoicesService;
@@ -15,6 +18,9 @@ describe("InvoicesService Cron", () => {
       findFirst: jest.fn(),
       update: jest.fn(),
       count: jest.fn(),
+    },
+    invoiceStatusHistory: {
+      create: jest.fn().mockResolvedValue({}),
     },
   };
 
@@ -33,6 +39,17 @@ describe("InvoicesService Cron", () => {
         { provide: WebhooksService, useValue: mockWebhooksService },
         { provide: StellarService, useValue: mockStellarService },
         { provide: SorobanService, useValue: mockSorobanService },
+        {
+          provide: NotificationsService,
+          useValue: {
+            notifyInvoicePaid: jest.fn(),
+            notifyInvoiceOverdue: jest.fn(),
+          },
+        },
+        {
+          provide: StructuredLogger,
+          useValue: mockStructuredLogger,
+        },
       ],
     }).compile();
 

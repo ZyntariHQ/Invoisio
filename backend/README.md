@@ -139,6 +139,42 @@ Content-Type: application/json
 }
 ```
 
+### Webhooks
+
+#### Read masked webhook secret metadata
+
+```bash
+GET /webhooks/secret
+```
+
+#### Rotate webhook secret
+
+```bash
+POST /webhooks/secret/rotate
+```
+
+The rotate endpoint generates a fresh signing secret, persists it immediately, and returns the raw value once so the merchant can update their webhook receiver. Subsequent reads only return masked metadata.
+
+#### Dead-letter recovery
+
+Failed webhook deliveries now move into a dead-letter table after 5 exhausted attempts instead of remaining in the active queue. Admins can inspect preserved payloads, failure metadata, and retry history with:
+
+```bash
+GET /admin/webhooks/dead-letter
+GET /admin/webhooks/dead-letter/:id
+```
+
+Manual recovery re-queues the stored payload for delivery and keeps the dead-letter record for debugging:
+
+```bash
+POST /admin/webhooks/dead-letter/:id/retry
+```
+
+Recommended manual retry flow:
+1. Inspect the dead-letter entry and fix the downstream webhook endpoint or credentials first.
+2. Re-queue the delivery with `POST /admin/webhooks/dead-letter/:id/retry`.
+3. Confirm the retried delivery transitions to `success` and the dead-letter record becomes `recovered`.
+
 ## Testing
 
 ### Unit Tests

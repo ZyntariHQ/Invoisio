@@ -1,11 +1,13 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
+import { authService } from "../lib/auth-service";
 
 const AUTH_STORAGE_KEY = "@invoisio:auth";
 
 interface AuthState {
   accessToken: string | null;
   publicKey: string | null;
+  expiresAt: number | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 
@@ -18,12 +20,14 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
   publicKey: null,
+  expiresAt: null,
   isAuthenticated: false,
   isLoading: true,
 
   setAuth: async (accessToken: string, publicKey: string) => {
     try {
-      const authData = { accessToken, publicKey };
+      const expiresAt = authService.decodeTokenExpiry(accessToken);
+      const authData = { accessToken, publicKey, expiresAt };
       await SecureStore.setItemAsync(
         AUTH_STORAGE_KEY,
         JSON.stringify(authData),
@@ -31,6 +35,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({
         accessToken,
         publicKey,
+        expiresAt,
         isAuthenticated: true,
         isLoading: false,
       });
@@ -46,6 +51,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       set({
         accessToken: null,
         publicKey: null,
+        expiresAt: null,
         isAuthenticated: false,
         isLoading: false,
       });
@@ -67,12 +73,35 @@ export const useAuthStore = create<AuthState>((set) => ({
       const authData = JSON.parse(authDataString) as {
         accessToken?: string;
         publicKey?: string;
+        expiresAt?: number | null;
       };
 
       if (authData.accessToken && authData.publicKey) {
+        const expiresAt =
+          typeof authData.expiresAt === "number" ? authData.expiresAt : null;
+
+        // Local expiry check first — works offline and avoids a wasted request.
+        if (expiresAt != null && Date.now() >= expiresAt) {
+          await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+          set({ isLoading: false });
+          return false;
+        }
+
+        // Confirm with the backend. A network failure ("unknown") keeps the
+        // restored session so transient connectivity issues do not log the
+        // merchant out; only an explicit rejection clears credentials.
+        const status = await authService.verifyToken(authData.accessToken);
+
+        if (status === "invalid") {
+          await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+          set({ isLoading: false });
+          return false;
+        }
+
         set({
           accessToken: authData.accessToken,
           publicKey: authData.publicKey,
+          expiresAt,
           isAuthenticated: true,
           isLoading: false,
         });

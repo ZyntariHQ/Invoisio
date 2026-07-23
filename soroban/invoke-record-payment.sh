@@ -2,14 +2,15 @@
 #
 # Record an invoice payment on the Invoisio Soroban contract
 #
-# Usage: ./invoke-record-payment.sh <invoice_id> <payer> <asset_code> <asset_issuer> <amount>
+# Usage: ./invoke-record-payment.sh <invoice_id> <payer> <asset_code> <asset_issuer> <amount> <settlement_ref>
 #
 # Arguments:
-#   invoice_id    - Unique invoice identifier (e.g., 'invoisio-abc123')
-#   payer         - Stellar account address that made the payment (G...)
-#   asset_code    - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)
-#   asset_issuer  - Issuer address for tokens (use empty string "" for XLM)
-#   amount        - Amount in smallest unit (stroops for XLM, token base units otherwise)
+#   invoice_id      - Unique invoice identifier (e.g., 'invoisio-abc123')
+#   payer           - Stellar account address that made the payment (G...)
+#   asset_code      - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)
+#   asset_issuer    - Issuer address for tokens (use empty string "" for XLM)
+#   amount          - Amount in smallest unit (stroops for XLM, token base units otherwise)
+#   settlement_ref  - Normalised settlement reference for backend deduplication (max 128 chars)
 #
 # Environment variables:
 #   STELLAR_NETWORK   - Network to use (default: testnet)
@@ -18,10 +19,10 @@
 #
 # Examples:
 #   XLM payment (1 XLM = 10,000,000 stroops):
-#     ./invoke-record-payment.sh invoisio-001 GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO XLM "" 10000000
+#     ./invoke-record-payment.sh invoisio-001 GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO XLM "" 10000000 settle-abc123
 #
 #   USDC payment (5 USDC with 7 decimals = 50,000,000):
-#     ./invoke-record-payment.sh invoisio-002 GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO USDC GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 50000000
+#     ./invoke-record-payment.sh invoisio-002 GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO USDC GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 50000000 settle-usdc456
 
 set -e
 set -o pipefail
@@ -47,24 +48,26 @@ PAYER="$2"
 ASSET_CODE="$3"
 ASSET_ISSUER="$4"
 AMOUNT="$5"
+SETTLEMENT_REF="$6"
 
 # Show usage if arguments are missing
-if [ $# -lt 5 ]; then
-    echo "Usage: $0 <invoice_id> <payer> <asset_code> <asset_issuer> <amount>"
+if [ $# -lt 6 ]; then
+    echo "Usage: $0 <invoice_id> <payer> <asset_code> <asset_issuer> <amount> <settlement_ref>"
     echo ""
     echo "Arguments:"
-    echo "  invoice_id    - Unique invoice identifier (e.g., 'invoisio-abc123')"
-    echo "  payer         - Stellar account that made the payment (G...)"
-    echo "  asset_code    - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)"
-    echo "  asset_issuer  - Issuer address for tokens (use \"\" for XLM)"
-    echo "  amount        - Amount in smallest unit (stroops for XLM)"
+    echo "  invoice_id      - Unique invoice identifier (e.g., 'invoisio-abc123')"
+    echo "  payer           - Stellar account that made the payment (G...)"
+    echo "  asset_code      - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)"
+    echo "  asset_issuer    - Issuer address for tokens (use \"\" for XLM)"
+    echo "  amount          - Amount in smallest unit (stroops for XLM)"
+    echo "  settlement_ref  - Normalised settlement reference (max 128 chars)"
     echo ""
     echo "Examples:"
     echo "  XLM payment (1 XLM = 10,000,000 stroops):"
-    echo "    $0 invoisio-001 GB... XLM \"\" 10000000"
+    echo "    $0 invoisio-001 GB... XLM \"\" 10000000 settle-abc123"
     echo ""
     echo "  USDC payment (5 USDC with 7 decimals = 50,000,000):"
-    echo "    $0 invoisio-002 GB... USDC GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 50000000"
+    echo "    $0 invoisio-002 GB... USDC GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5 50000000 settle-usdc456"
     exit 1
 fi
 
@@ -92,6 +95,16 @@ fi
 
 if ! [[ "$AMOUNT" =~ ^[0-9]+$ ]] || [ "$AMOUNT" -le 0 ]; then
     echo "❌ Error: amount must be a positive integer"
+    exit 1
+fi
+
+if [ -z "$SETTLEMENT_REF" ]; then
+    echo "❌ Error: settlement_ref cannot be empty"
+    exit 1
+fi
+
+if [ ${#SETTLEMENT_REF} -gt 128 ]; then
+    echo "❌ Error: settlement_ref exceeds 128 characters"
     exit 1
 fi
 
@@ -123,6 +136,7 @@ else
     echo "Asset Issuer:   $ASSET_ISSUER"
 fi
 echo "Amount:         $AMOUNT"
+echo "Settlement Ref: $SETTLEMENT_REF"
 echo "Network:        $NETWORK"
 echo "Identity:       $IDENTITY"
 echo ""
@@ -148,7 +162,8 @@ stellar contract invoke \
     --payer "$PAYER" \
     --asset_code "$ASSET_CODE" \
     --asset_issuer "$ISSUER_ARG" \
-    --amount "$AMOUNT"
+    --amount "$AMOUNT" \
+    --settlement_ref "$SETTLEMENT_REF"
 
 echo ""
 echo "✅ Payment recorded successfully!"

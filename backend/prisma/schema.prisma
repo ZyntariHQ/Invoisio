@@ -10,6 +10,24 @@ datasource db {
   provider = "postgresql"
 }
 
+model Customer {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name       String
+  email      String?
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  invoices Invoice[]
+
+  @@unique([merchantId, email])
+  @@index([merchantId])
+  @@index([name])
+  @@map("customers")
+}
+
 model Merchant {
   id               String    @id @default(uuid())
   name             String
@@ -21,10 +39,35 @@ model Merchant {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  users    User[]
-  invoices Invoice[]
+  users          User[]
+  invoices       Invoice[]
+  activities     ActivityEvent[]
+  customers      Customer[]
+  activationChecklist MerchantActivationChecklist?
+  paymentReviews PaymentReview[]
 
   @@map("merchants")
+}
+
+model MerchantActivationChecklist {
+  id                String   @id @default(uuid())
+  merchantId        String   @unique @map("merchant_id")
+  merchant          Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  
+  // Checklist steps
+  profileCompleted      Boolean @default(false) @map("profile_completed")
+  payoutKeyCompleted    Boolean @default(false) @map("payout_key_completed")
+  assetPreferenceCompleted Boolean @default(false) @map("asset_preference_completed")
+  firstInvoiceCompleted Boolean @default(false) @map("first_invoice_completed")
+  
+  // Overall completion
+  isCompleted       Boolean @default(false) @map("is_completed")
+  completedAt       DateTime? @map("completed_at")
+  
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("merchant_activation_checklists")
 }
 
 // User model matching backend/src/users/user.entity.ts
@@ -35,15 +78,23 @@ model User {
   publicKey      String    @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?
+  nonceExpiresAt BigInt?   @map("nonce_expires_at")
+  nonceUsedAt    DateTime? @map("nonce_used_at")
+  tokenVersion   Int       @default(0) @map("token_version")
+  isAdmin        Boolean   @default(false) @map("is_admin")
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
 
-  invoices Invoice[]
-  webhooks WebhookDelivery[]
+  pushTokens     String[]  @default([]) @map("push_tokens")
+  pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
+
+  invoices       Invoice[]
+  webhooks       WebhookDelivery[]
+  activities     ActivityEvent[]
+  webhookDeadLetters  WebhookDeadLetter[]
 
   @@index([merchantId])
   @@map("users")
@@ -55,6 +106,8 @@ model WebhookDelivery {
   invoice        Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   userId         String         @map("user_id")
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deadLetterId   String?        @map("dead_letter_id")
+  deadLetter     WebhookDeadLetter? @relation(fields: [deadLetterId], references: [id], onDelete: SetNull)
   url            String
   payload        Json
   status         DeliveryStatus @default(pending)
@@ -67,10 +120,43 @@ model WebhookDelivery {
   @@map("webhook_deliveries")
 }
 
+model WebhookDeadLetter {
+  id               String           @id @default(uuid())
+  originalDeliveryId String         @unique @map("original_delivery_id")
+  invoiceId        String           @map("invoice_id")
+  invoice          Invoice          @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  userId           String           @map("user_id")
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId       String           @map("merchant_id")
+  url              String
+  payload          Json
+  lastError        String?          @map("last_error")
+  lastHttpStatus   Int?             @map("last_http_status")
+  failedAttempts   Int              @map("failed_attempts")
+  exhaustedAt      DateTime         @default(now()) @map("exhausted_at")
+  manualRetryCount Int              @default(0) @map("manual_retry_count")
+  lastRetriedAt    DateTime?        @map("last_retried_at")
+  recoveredAt      DateTime?        @map("recovered_at")
+  status           DeadLetterStatus @default(pending_retry)
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+  redriveDeliveries WebhookDelivery[]
+
+  @@index([merchantId])
+  @@index([status, exhaustedAt])
+  @@map("webhook_dead_letters")
+}
+
 enum DeliveryStatus {
   pending
   success
   failed
+}
+
+enum DeadLetterStatus {
+  pending_retry
+  requeued
+  recovered
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
@@ -85,6 +171,8 @@ model Invoice {
   clientEmail        String        @map("client_email")
   description        String?
   amount             Decimal       @db.Decimal(18, 7)
+  amountPaid         Decimal       @default(0) @db.Decimal(18, 7) @map("amount_paid")
+  amountDue          Decimal       @db.Decimal(18, 7) @map("amount_due")
   assetCode          String        @map("asset_code")
   assetIssuer        String?       @map("asset_issuer")
   memo               String        @unique
@@ -99,15 +187,128 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
+  customerId         String?       @map("customer_id")
+  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
   webhooks           WebhookDelivery[]
+  webhookDeadLetters WebhookDeadLetter[]
+  statusHistory      InvoiceStatusHistory[]
+  payments           Payment[]
+  activities         ActivityEvent[]
+  paymentReviews     PaymentReview[]
 
   @@index([merchantId])
   @@map("invoices")
 }
 
+model InvoiceStatusHistory {
+  id        String   @id @default(uuid())
+  invoiceId String   @map("invoice_id")
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  status    String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([invoiceId])
+  @@map("invoice_status_history")
+}
+
+
 enum InvoiceStatus {
   pending
+  partially_paid
   paid
   overdue
   cancelled
+}
+
+
+
+model Payment {
+  id          String   @id @default(uuid())
+  invoiceId   String   @map("invoice_id")
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount      Decimal  @db.Decimal(18, 7)
+  txHash      String?  @unique @map("tx_hash")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([invoiceId])
+  @@map("payments")
+}
+
+// Backfill tracking tables
+model ActivityEvent {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invoiceId  String?  @map("invoice_id")
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  type       String   // e.g. "invoice_created", "payment_received", "reminder_sent", "webhook_delivered"
+  description String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([merchantId])
+  @@index([merchantId, type])
+  @@index([createdAt])
+  @@map("activity_events")
+}
+
+model BackfillRun {
+  id              Int      @id @default(autoincrement())
+  startedAt       DateTime @default(now()) @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  startLedger     BigInt?  @map("start_ledger")
+  endLedger       BigInt?  @map("end_ledger")
+  eventsProcessed Int      @default(0) @map("events_processed")
+  eventsMatched   Int      @default(0) @map("events_matched")
+  eventsSkipped   Int      @default(0) @map("events_skipped")
+  eventsFailed    Int      @default(0) @map("events_failed")
+  status          String   @default("running")
+  errorMessage    String?  @map("error_message")
+  createdAt       DateTime @default(now()) @map("created_at")
+  
+  @@map("backfill_runs")
+}
+
+model ProcessedEvent {
+  id            Int      @id @default(autoincrement())
+  txHash        String   @map("tx_hash")
+  ledger        BigInt
+  invoiceId     String   @map("invoice_id")
+  contractId    String   @map("contract_id")
+  status        String   @default("success") // success | skipped | failed
+  errorMessage  String?  @map("error_message")
+  processedAt   DateTime @default(now()) @map("processed_at")
+  
+  @@unique([txHash, invoiceId, contractId])
+  @@index([ledger])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("processed_events")
+}
+
+model PaymentReview {
+  id              String   @id @default(uuid())
+  merchantId      String?  @map("merchant_id")
+  merchant        Merchant? @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  invoiceId       String?  @map("invoice_id")
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  txHash          String   @unique @map("tx_hash")
+  contractId      String   @map("contract_id")
+  amount          Decimal  @db.Decimal(18, 7)
+  assetCode       String?  @map("asset_code")
+  assetIssuer     String?  @map("asset_issuer")
+  payer           String?
+  originalMemo    String?  @map("original_memo")
+  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid'
+  status          String   @default("pending") // 'pending', 'resolved', 'ignored'
+  resolutionNote  String?  @map("resolution_note")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([merchantId])
+  @@index([status])
+  @@map("payment_reviews")
 }
