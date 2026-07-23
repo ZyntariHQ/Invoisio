@@ -1,4 +1,3 @@
-// mobile/lib/deep-links.ts
 import { Linking } from "react-native";
 import * as Notifications from "expo-notifications";
 
