@@ -3,6 +3,9 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
+import { useRouter } from "expo-router";
+import { parseDeepLink, navigateToDeepLink } from "../lib/deep-links";
+import { useAuthStore } from "./use-auth-store";
 
 export interface PushNotificationState {
   expoPushToken?: Notifications.ExpoPushToken | undefined;
@@ -10,6 +13,9 @@ export interface PushNotificationState {
 }
 
 export const usePushNotifications = (): PushNotificationState => {
+  const router = useRouter();
+  const { isAuthenticated } = useAuthStore();
+
   Notifications.setNotificationHandler({
     handleNotification: () =>
       Promise.resolve({
@@ -90,6 +96,33 @@ export const usePushNotifications = (): PushNotificationState => {
     return token;
   }
 
+  // Handle notification response and navigate
+  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data;
+    
+    // Check if notification contains a deep link
+    const deepLinkUrl = data?.deepLink || data?.url || data?.link;
+    
+    if (deepLinkUrl && typeof deepLinkUrl === "string") {
+      console.log("Notification deep link:", deepLinkUrl);
+      const parsedData = parseDeepLink(deepLinkUrl);
+      if (parsedData) {
+        // If not authenticated, the deep link handler will queue it
+        navigateToDeepLink(parsedData, router);
+        return;
+      }
+    }
+    
+    // Fallback: check for invoice ID in notification data
+    const invoiceId = data?.invoiceId || data?.invoice_id;
+    if (invoiceId && typeof invoiceId === "string") {
+      router.push(`/invoices/${invoiceId}`);
+      return;
+    }
+    
+    console.log("Notification response:", response);
+  };
+
   useEffect(() => {
     void registerForPushNotificationsAsync().then((token) => {
       setExpoPushToken(token);
@@ -100,9 +133,10 @@ export const usePushNotifications = (): PushNotificationState => {
         setNotification(n);
       });
 
+    // Updated: Navigate on notification response
     responseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        console.log(response);
+        handleNotificationResponse(response);
       });
 
     return () => {
