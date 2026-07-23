@@ -5,7 +5,6 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { parseDeepLink, navigateToDeepLink } from "../lib/deep-links";
-import { useAuthStore } from "./use-auth-store";
 
 export interface PushNotificationState {
   expoPushToken?: Notifications.ExpoPushToken | undefined;
@@ -14,7 +13,6 @@ export interface PushNotificationState {
 
 export const usePushNotifications = (): PushNotificationState => {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
 
   Notifications.setNotificationHandler({
     handleNotification: () =>
@@ -98,10 +96,10 @@ export const usePushNotifications = (): PushNotificationState => {
 
   // Handle notification response and navigate
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
-    const data = response.notification.request.content.data;
+    const data = response.notification.request.content.data as Record<string, unknown>;
     
-    // Check if notification contains a deep link
-    const deepLinkUrl = data?.deepLink || data?.url || data?.link;
+    // Check if notification contains a deep link - using bracket notation for index signature
+    const deepLinkUrl = (data?.["deepLink"] || data?.["url"] || data?.["link"]) as string | undefined;
     
     if (deepLinkUrl && typeof deepLinkUrl === "string") {
       console.log("Notification deep link:", deepLinkUrl);
@@ -113,8 +111,8 @@ export const usePushNotifications = (): PushNotificationState => {
       }
     }
     
-    // Fallback: check for invoice ID in notification data
-    const invoiceId = data?.invoiceId || data?.invoice_id;
+    // Fallback: check for invoice ID in notification data - using bracket notation for index signature
+    const invoiceId = (data?.["invoiceId"] || data?.["invoice_id"]) as string | undefined;
     if (invoiceId && typeof invoiceId === "string") {
       router.push(`/invoices/${invoiceId}`);
       return;

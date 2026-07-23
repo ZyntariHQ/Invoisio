@@ -19,8 +19,8 @@ import { OfflineBanner } from "../components/OfflineBanner";
 import { ConnectivityProvider } from "../components/ConnectivityProvider";
 import { offlineQueue } from "../lib/offline-queue";
 import { DeepLinkHandler } from "../components/DeepLinkHandler";
-import { useDeepLinks } from "../hooks/useDeepLinks";
-import { Linking } from "react-native";
+// import { useDeepLinks } from "../hooks/useDeepLinks";
+// import { Linking } from "react-native";
 
 // Create a client for React Query outside component to avoid re-creation
 const createQueryClient = () =>
@@ -40,7 +40,7 @@ const createQueryClient = () =>
 function LayoutContent() {
   const { loadAuth, isAuthenticated, accessToken } = useAuthStore();
   const { expoPushToken } = usePushNotifications();
-  const { pendingDeepLink } = useDeepLinks();
+  // const { pendingDeepLink } = useDeepLinks();
 
   // Load authentication state on app start
   useEffect(() => {

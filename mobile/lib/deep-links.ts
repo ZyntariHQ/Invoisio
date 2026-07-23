@@ -1,5 +1,4 @@
 import { Linking } from "react-native";
-import * as Notifications from "expo-notifications";
 
 export type DeepLinkType = "invoice" | "payment" | "receipt" | "dashboard" | "create-invoice";
 
@@ -42,7 +41,7 @@ export function parseDeepLink(url: string): DeepLinkData | null {
       
       return {
         type,
-        id,
+        ...(id !== undefined && { id }),
         params: {},
       };
     } else {
@@ -66,8 +65,8 @@ export function parseDeepLink(url: string): DeepLinkData | null {
       
       return {
         type,
-        id,
-        params,
+        ...(id !== undefined && { id }),
+        ...(Object.keys(params).length > 0 && { params }),
       };
     }
   } catch (error) {
@@ -81,10 +80,9 @@ export function parseDeepLink(url: string): DeepLinkData | null {
  */
 export function navigateToDeepLink(
   data: DeepLinkData,
-  router: any,
-  onRequireAuth?: () => void
+  router: any
 ): boolean {
-  const { type, id, params } = data;
+  const { type, id } = data;
   
   switch (type) {
     case "invoice":
