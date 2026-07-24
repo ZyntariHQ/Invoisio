@@ -21,6 +21,7 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
+import { MerchantsModule } from "./merchants/merchants.module";
 import { BackfillModule } from "./backfill/backfill.module";
 import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
 import { NotificationsModule } from "./notifications/notifications.module";
@@ -109,6 +110,7 @@ import { CustomersModule } from "./customers/customers.module";
     SorobanEventsModule,
     AuthModule,
     UsersModule,
+    MerchantsModule,
     WebhooksModule,
     BackfillModule,
     AdminAnalyticsModule,
