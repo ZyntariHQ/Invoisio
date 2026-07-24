@@ -22,6 +22,12 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { MerchantsModule } from "./merchants/merchants.module";
+import { BackfillModule } from "./backfill/backfill.module";
+import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
+import { NotificationsModule } from "./notifications/notifications.module";
+import { MerchantModule } from "./merchant/merchant.module";
+import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
+import { CustomersModule } from "./customers/customers.module";
 
 /**
  * Root application module
