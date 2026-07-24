@@ -3,6 +3,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { InvoicePdfService } from "./invoice-pdf.service";
+import { PaymentReviewsService } from "./payment-reviews.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 describe("InvoicesController", () => {
@@ -13,6 +14,8 @@ describe("InvoicesController", () => {
   const mockInvoicePdfService = {
     generateDocument: jest.fn(),
   };
+
+  const mockPaymentReviewsService = {};
 
   const mockPrisma = {
     runWithMerchantScope: jest.fn(),
@@ -30,6 +33,7 @@ describe("InvoicesController", () => {
       providers: [
         { provide: InvoicesService, useValue: mockInvoicesService },
         { provide: InvoicePdfService, useValue: mockInvoicePdfService },
+        { provide: PaymentReviewsService, useValue: mockPaymentReviewsService },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
