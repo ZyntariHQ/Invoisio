@@ -192,7 +192,7 @@ export class AuthService {
       sub: user.id,
       publicKey: user.publicKey,
       merchantId: user.merchantId,
-      tokenVersion: (user as any).tokenVersion ?? 0,
+      tokenVersion: user.tokenVersion ?? 0,
     };
     const accessToken = this.jwtService.sign(payload);
 

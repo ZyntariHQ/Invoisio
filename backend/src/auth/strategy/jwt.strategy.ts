@@ -33,12 +33,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException("User no longer exists.");
     }
 
-    // Session revocation:
-    // - tokens include `tokenVersion` in their payload
-    // - logout increments user's `tokenVersion`
-    // - any token with a stale version is rejected
     const payloadVersion = payload.tokenVersion ?? 0;
-    const userVersion = (user as any).tokenVersion ?? 0;
+    const userVersion = user.tokenVersion ?? 0;
     if (payloadVersion !== userVersion) {
       throw new UnauthorizedException("Token has been revoked.");
     }
@@ -47,11 +43,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       merchantId: user.merchantId,
       publicKey: user.publicKey,
+      nonce: user.nonce ?? null,
+      nonceExpiresAt: user.nonceExpiresAt ?? null,
+      nonceUsedAt: user.nonceUsedAt ?? null,
+      tokenVersion: user.tokenVersion ?? 0,
+      isAdmin: user.isAdmin ?? false,
+      webhookUrl: user.webhookUrl ?? null,
+      webhookSecret: user.webhookSecret ?? null,
+      pushTokens: user.pushTokens ?? [],
+      pushNotificationsEnabled: user.pushNotificationsEnabled ?? true,
+      email: user.email ?? undefined,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      tokenVersion: (user as any).tokenVersion ?? 0,
-    } as any;
+    };
   }
 }

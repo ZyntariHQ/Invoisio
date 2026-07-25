@@ -11,6 +11,8 @@ export class User {
 
   nonceExpiresAt?: number | bigint | null;
 
+  nonceUsedAt?: Date | null;
+
   /**
    * JWT session version used for revocation.
    * Incrementing this value invalidates previously issued tokens.
@@ -18,6 +20,14 @@ export class User {
   tokenVersion: number;
 
   isAdmin: boolean;
+
+  webhookUrl?: string | null;
+
+  webhookSecret?: string | null;
+
+  pushTokens: string[];
+
+  pushNotificationsEnabled: boolean;
 
   createdAt?: Date;
 
