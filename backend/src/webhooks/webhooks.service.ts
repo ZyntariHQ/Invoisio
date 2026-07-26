@@ -450,35 +450,33 @@ export class WebhooksService {
     }
 
     const queuedAt = new Date();
-    const delivery = await this.prisma.$transaction(
-      async (tx) => {
-        const txClient = tx as any;
-        const createdDelivery = await txClient.webhookDelivery.create({
-          data: {
-            invoiceId: deadLetter.invoiceId,
-            userId: deadLetter.userId,
-            deadLetterId: deadLetter.id,
-            url: deadLetter.url,
-            payload: this.toPrismaJsonValue(deadLetter.payload),
-            status: "pending",
-            attempts: 0,
-            nextAttemptAt: queuedAt,
-          },
-        });
+    const delivery = await this.prisma.$transaction(async (tx) => {
+      const txClient = tx as any;
+      const createdDelivery = await txClient.webhookDelivery.create({
+        data: {
+          invoiceId: deadLetter.invoiceId,
+          userId: deadLetter.userId,
+          deadLetterId: deadLetter.id,
+          url: deadLetter.url,
+          payload: this.toPrismaJsonValue(deadLetter.payload),
+          status: "pending",
+          attempts: 0,
+          nextAttemptAt: queuedAt,
+        },
+      });
 
-        await txClient.webhookDeadLetter.update({
-          where: { id: deadLetterId },
-          data: {
-            status: "requeued",
-            manualRetryCount: { increment: 1 },
-            lastRetriedAt: queuedAt,
-            recoveredAt: null,
-          },
-        });
+      await txClient.webhookDeadLetter.update({
+        where: { id: deadLetterId },
+        data: {
+          status: "requeued",
+          manualRetryCount: { increment: 1 },
+          lastRetriedAt: queuedAt,
+          recoveredAt: null,
+        },
+      });
 
-        return createdDelivery;
-      },
-    );
+      return createdDelivery;
+    });
 
     return {
       deadLetterId: deadLetter.id,

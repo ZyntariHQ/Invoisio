@@ -108,8 +108,10 @@ export class InvoicesController {
     @Param("id") id: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const document = await this.prisma.runWithMerchantScope(user.merchantId, () =>
-      this.invoicePdfService.generateDocument(id, user.merchantId, "invoice"),
+    const document = await this.prisma.runWithMerchantScope(
+      user.merchantId,
+      () =>
+        this.invoicePdfService.generateDocument(id, user.merchantId, "invoice"),
     );
 
     response.setHeader("Content-Type", "application/pdf");
@@ -128,8 +130,10 @@ export class InvoicesController {
     @Param("id") id: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
-    const document = await this.prisma.runWithMerchantScope(user.merchantId, () =>
-      this.invoicePdfService.generateDocument(id, user.merchantId, "receipt"),
+    const document = await this.prisma.runWithMerchantScope(
+      user.merchantId,
+      () =>
+        this.invoicePdfService.generateDocument(id, user.merchantId, "receipt"),
     );
 
     response.setHeader("Content-Type", "application/pdf");

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InvoicesService } from "./invoices.service";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -33,7 +37,12 @@ export class InvoicePdfService {
       this.invoicesService.findOne(invoiceId, merchantId),
       this.prisma.merchant.findUnique({
         where: { id: merchantId },
-        select: { id: true, name: true, preferredAsset: true, stellarPublicKey: true },
+        select: {
+          id: true,
+          name: true,
+          preferredAsset: true,
+          stellarPublicKey: true,
+        },
       }),
     ]);
 
@@ -76,7 +85,13 @@ export class InvoicePdfService {
     documentSubtitle: string;
     invoice: Awaited<ReturnType<InvoicesService["findOne"]>>;
   }): Buffer {
-    const { merchantName, merchantPreferredAsset, documentTitle, documentSubtitle, invoice } = input;
+    const {
+      merchantName,
+      merchantPreferredAsset,
+      documentTitle,
+      documentSubtitle,
+      invoice,
+    } = input;
     const issuedOn = this.formatDate(invoice.createdAt);
     const dueOn = this.formatDate(invoice.dueDate ?? undefined);
     const amount = this.formatAmount(invoice.amount);
@@ -286,8 +301,7 @@ export class InvoicePdfService {
     for (let index = 1; index < offsets.length; index++) {
       pdf += `${offsets[index].toString().padStart(10, "0")} 00000 n \n`;
     }
-    pdf +=
-      `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
 
     return Buffer.from(pdf, "utf8");
   }
