@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsAlphanumeric,
   IsNotEmpty,
+  IsUUID,
   ValidateIf,
   Matches,
   Min,
@@ -53,4 +54,9 @@ export class CreateInvoiceDto {
     message: "asset_issuer must be a valid Stellar public key",
   })
   asset_issuer?: string;
+
+  /** Optional customer ID to link this invoice to a saved client profile */
+  @IsUUID()
+  @IsOptional()
+  customer_id?: string;
 }

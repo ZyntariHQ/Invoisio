@@ -86,7 +86,7 @@ export class InvoicesController {
   }
 
   /**
-   * Get a single invoice by ID
+   * Get a single invoice by ID (authenticated merchant only)
    * @param id - Invoice UUID
    * @returns The invoice object
    */
@@ -143,6 +143,22 @@ export class InvoicesController {
     );
 
     return new StreamableFile(document.buffer);
+  }
+
+  /**
+   * Get public invoice view for payers (no authentication required)
+   * Returns only payer-safe fields with merchant branding
+   * @param id - Invoice UUID
+   * @returns Public invoice data
+   */
+  @Get("public/:id")
+  @Throttle({ default: { limit: 60, ttl: 60000 } }) // 60 requests per minute
+  async findPublicInvoice(@Param("id") id: string) {
+    const invoice = await this.invoicesService.findPublicInvoice(id);
+    if (!invoice) {
+      throw new BadRequestException("Invoice not found");
+    }
+    return invoice;
   }
 
   /**

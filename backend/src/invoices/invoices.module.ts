@@ -9,6 +9,7 @@ import { WebhooksModule } from "../webhooks/webhooks.module";
 import { AuthModule } from "../auth/auth.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { RealtimeModule } from "../realtime/realtime.module";
+import { ActivityFeedModule } from "../activity-feed/activity-feed.module";
 
 /**
  * Invoices module
@@ -23,6 +24,7 @@ import { RealtimeModule } from "../realtime/realtime.module";
     AuthModule,
     NotificationsModule,
     RealtimeModule,
+    ActivityFeedModule,
   ],
   controllers: [InvoicesController],
   providers: [InvoicesService, PaymentReviewsService],

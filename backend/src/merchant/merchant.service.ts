@@ -26,7 +26,7 @@ export class MerchantService {
         id: true,
         name: true,
         stellarPublicKey: true,
-        payoutPublicKey: true,
+        payoutWallet: true,
         preferredAsset: true,
         webhookUrl: true,
         createdAt: true,
@@ -38,7 +38,7 @@ export class MerchantService {
       throw new NotFoundException("Merchant not found");
     }
 
-    return merchant;
+    return this.toSettingsResponse(merchant);
   }
 
   /**
@@ -72,7 +72,7 @@ export class MerchantService {
       data: {
         ...(dto.name !== undefined && { name: dto.name }),
         ...(dto.payoutPublicKey !== undefined && {
-          payoutPublicKey: dto.payoutPublicKey,
+          payoutWallet: dto.payoutPublicKey,
         }),
         ...(dto.preferredAsset !== undefined && {
           preferredAsset: dto.preferredAsset,
@@ -83,7 +83,7 @@ export class MerchantService {
         id: true,
         name: true,
         stellarPublicKey: true,
-        payoutPublicKey: true,
+        payoutWallet: true,
         preferredAsset: true,
         webhookUrl: true,
         createdAt: true,
@@ -91,7 +91,7 @@ export class MerchantService {
       },
     });
 
-    return updated;
+    return this.toSettingsResponse(updated);
   }
 
   /**
@@ -185,7 +185,7 @@ export class MerchantService {
     }
 
     // Payout key is complete if set
-    if (merchant.payoutPublicKey) {
+    if (merchant.payoutWallet) {
       updates.payoutKeyCompleted = true;
     }
 
@@ -205,5 +205,15 @@ export class MerchantService {
     }
 
     return checklist;
+  }
+
+  private toSettingsResponse<T extends { payoutWallet: string | null }>(
+    merchant: T,
+  ): Omit<T, "payoutWallet"> & { payoutPublicKey: string | null } {
+    const { payoutWallet, ...rest } = merchant;
+    return {
+      ...rest,
+      payoutPublicKey: payoutWallet,
+    };
   }
 }

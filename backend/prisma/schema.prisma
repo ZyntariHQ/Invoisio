@@ -10,18 +10,39 @@ datasource db {
   provider = "postgresql"
 }
 
+model Customer {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  name       String
+  email      String?
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  invoices Invoice[]
+
+  @@unique([merchantId, email])
+  @@index([merchantId])
+  @@index([name])
+  @@map("customers")
+}
+
 model Merchant {
   id               String    @id @default(uuid())
   name             String
   stellarPublicKey String    @unique @map("stellar_public_key")
-  payoutPublicKey  String?   @map("payout_public_key")
-  preferredAsset   String    @default("USDC") @map("preferred_asset")
+  businessEmail    String?   @map("business_email")
+  preferredAsset   String    @default("XLM") @map("preferred_asset")
+  payoutWallet     String?   @map("payout_wallet")
   webhookUrl       String?   @map("webhook_url")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   users          User[]
   invoices       Invoice[]
+  activities     ActivityEvent[]
+  customers      Customer[]
   activationChecklist MerchantActivationChecklist?
   paymentReviews PaymentReview[]
 
@@ -70,8 +91,9 @@ model User {
   pushTokens     String[]  @default([]) @map("push_tokens")
   pushNotificationsEnabled Boolean @default(true) @map("push_notifications_enabled")
 
-  invoices            Invoice[]
-  webhooks            WebhookDelivery[]
+  invoices       Invoice[]
+  webhooks       WebhookDelivery[]
+  activities     ActivityEvent[]
   webhookDeadLetters  WebhookDeadLetter[]
   webhookAttempts     WebhookAttempt[]
 
@@ -198,12 +220,14 @@ model Invoice {
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
 
-  webhooks              WebhookDelivery[]
-  webhookDeadLetters    WebhookDeadLetter[]
-  webhookAttempts       WebhookAttempt[]
-  statusHistory         InvoiceStatusHistory[]
-  payments              Payment[]
-  paymentReviews        PaymentReview[]
+  customerId         String?       @map("customer_id")
+  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  webhooks           WebhookDelivery[]
+  webhookDeadLetters WebhookDeadLetter[]
+  statusHistory      InvoiceStatusHistory[]
+  payments           Payment[]
+  activities         ActivityEvent[]
+  paymentReviews     PaymentReview[]
 
   @@index([merchantId])
   @@map("invoices")
@@ -244,6 +268,25 @@ model Payment {
 }
 
 // Backfill tracking tables
+model ActivityEvent {
+  id         String   @id @default(uuid())
+  merchantId String   @map("merchant_id")
+  merchant   Merchant @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  userId     String?  @map("user_id")
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  invoiceId  String?  @map("invoice_id")
+  invoice    Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  type       String   // e.g. "invoice_created", "payment_received", "reminder_sent", "webhook_delivered"
+  description String
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([merchantId])
+  @@index([merchantId, type])
+  @@index([createdAt])
+  @@map("activity_events")
+}
+
 model BackfillRun {
   id              Int      @id @default(autoincrement())
   startedAt       DateTime @default(now()) @map("started_at")
