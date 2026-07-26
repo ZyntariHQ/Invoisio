@@ -343,4 +343,34 @@ export class StellarService {
     );
     return usdcBalance?.balance || null;
   }
+
+  /**
+   * Lightweight Horizon reachability probe.
+   * Fetches the root endpoint with a 5 s timeout to verify the server is
+   * reachable without issuing a full account/transaction query.
+   * @returns `{ reachable: true }` or `{ reachable: false, error }` on failure.
+   */
+  async pingHorizon(): Promise<{
+    reachable: boolean;
+    latencyMs: number;
+    error?: string;
+  }> {
+    const start = Date.now();
+    try {
+      const server = this.getServer();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5_000);
+
+      await server.root();
+      clearTimeout(timeout);
+
+      return { reachable: true, latencyMs: Date.now() - start };
+    } catch (err) {
+      return {
+        reachable: false,
+        latencyMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
 }

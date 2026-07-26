@@ -184,4 +184,34 @@ export class SorobanService {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+
+  /**
+   * Lightweight Soroban RPC reachability probe.
+   * Calls `getHealth()` on the RPC server with a 5 s timeout.
+   */
+  async pingRpc(): Promise<{
+    reachable: boolean;
+    latencyMs: number;
+    error?: string;
+  }> {
+    if (!this.server) {
+      return {
+        reachable: false,
+        latencyMs: 0,
+        error: "Soroban RPC not configured",
+      };
+    }
+
+    const start = Date.now();
+    try {
+      await this.server.getHealth();
+      return { reachable: true, latencyMs: Date.now() - start };
+    } catch (err) {
+      return {
+        reachable: false,
+        latencyMs: Date.now() - start,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
 }

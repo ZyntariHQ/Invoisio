@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import * as SecureStore from "expo-secure-store";
-import { AuthService } from "../lib/auth-service";
+import { authService } from "../lib/auth-service";
 
 const AUTH_STORAGE_KEY = "@invoisio:auth";
 
@@ -26,7 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
 
   setAuth: async (accessToken: string, publicKey: string) => {
     try {
-      const expiresAt = AuthService.decodeTokenExpiry(accessToken);
+      const expiresAt = authService.decodeTokenExpiry(accessToken);
       const authData = { accessToken, publicKey, expiresAt };
       await SecureStore.setItemAsync(
         AUTH_STORAGE_KEY,
@@ -90,7 +90,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         // Confirm with the backend. A network failure ("unknown") keeps the
         // restored session so transient connectivity issues do not log the
         // merchant out; only an explicit rejection clears credentials.
-        const status = await AuthService.verifyToken(authData.accessToken);
+        const status = await authService.verifyToken(authData.accessToken);
 
         if (status === "invalid") {
           await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
