@@ -5,7 +5,8 @@ members = [
 ]
 
 [workspace.dependencies]
-soroban-sdk = "25"
+soroban-sdk = "27.0.2"
+ethnum = "1.5.3"
 
 [profile.release]
 opt-level = "z"
@@ -20,4 +21,11 @@ lto = true
 # For more information about this profile see https://soroban.stellar.org/docs/basic-tutorials/logging#cargotoml-profile
 [profile.release-with-logs]
 inherits = "release"
-debug-assertions = true
+debug-assertions = true                   {
+  provide: WebhooksService,
+  useValue: {
+    handleInvoicePaid: jest.fn(),
+    handleInvoiceCreated: jest.fn(),
+    // any other methods called by InvoicesService
+  },
+},
