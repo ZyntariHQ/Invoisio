@@ -1,0 +1,16 @@
+{
+  "name": "invoisio-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "web",
+    "backend",
+    "soroban/client"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=web",
+    "build": "npm run build --workspace=web",
+    "start": "npm run start --workspace=web",
+    "lint": "npm run lint --workspace=web"
+  }
+}

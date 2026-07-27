@@ -1,0 +1,6 @@
+{
+  "name": "Invoisio",
+  "description": "Smart Invoice Generator for Freelancers and Businesses",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -102,30 +102,23 @@ function normalizeAuthError(error: unknown): string {
 }
 
 export function WalletAuthProvider({ children }: { children: ReactNode }) {
-  const [status, setStatus] = useState<WalletStatus>('disconnected');
-  const [publicKey, setPublicKey] = useState<string | null>(null);
-  const [isFreighterReady, setIsFreighterReady] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [status, setStatus] = useState<WalletStatus>(() => {
+    const stored = readStoredAuth();
+    if (stored.accessToken) return 'signed-in';
+    if (stored.publicKey) return 'connected';
+    return 'disconnected';
+  });
+  const [publicKey, setPublicKey] = useState<string | null>(() => readStoredAuth().publicKey);
+  const [isFreighterReady, setIsFreighterReady] = useState(() => isFreighterInstalled());
+  const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const freighterReady = isFreighterInstalled();
-    setIsFreighterReady(freighterReady);
-
     const stored = readStoredAuth();
     if (stored.accessToken) {
       setApiAccessToken(stored.accessToken);
-      setPublicKey(stored.publicKey);
-      setStatus('signed-in');
-    } else if (stored.publicKey) {
-      setPublicKey(stored.publicKey);
-      setStatus('connected');
-    } else {
-      setStatus('disconnected');
     }
-
-    setIsLoading(false);
   }, []);
 
   useEffect(() => {
