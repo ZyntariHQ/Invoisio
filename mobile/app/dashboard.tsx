@@ -347,6 +347,17 @@ export default function DashboardScreen() {
                       </Text>
                     </Pressable>
                   </Link>
+                  {/* Drafts button */}
+                  <Link href="/drafts" asChild>
+                    <Pressable className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-4 py-2">
+                      <Text
+                        className="text-[#00D6B9]"
+                        style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                      >
+                        📄 Drafts
+                      </Text>
+                    </Pressable>
+                  </Link>
                 </View>
               </View>
               {lastSynced ? (
@@ -505,16 +516,28 @@ export default function DashboardScreen() {
               >
                 Create your first invoice to start tracking payments on-chain.
               </Text>
-              <Link href="/create-invoice" asChild>
-                <Pressable className="mt-4 rounded-2xl bg-[#2663FF] px-5 py-2">
-                  <Text
-                    className="text-white"
-                    style={{ fontFamily: "SpaceGrotesk_500Medium" }}
-                  >
-                    Create invoice
-                  </Text>
-                </Pressable>
-              </Link>
+              <View className="mt-4 flex-row gap-3">
+                <Link href="/create-invoice" asChild>
+                  <Pressable className="rounded-2xl bg-[#2663FF] px-5 py-2">
+                    <Text
+                      className="text-white"
+                      style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                    >
+                      Create invoice
+                    </Text>
+                  </Pressable>
+                </Link>
+                <Link href="/drafts" asChild>
+                  <Pressable className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-5 py-2">
+                    <Text
+                      className="text-[#00D6B9]"
+                      style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                    >
+                      View drafts
+                    </Text>
+                  </Pressable>
+                </Link>
+              </View>
             </View>
           )
         }
