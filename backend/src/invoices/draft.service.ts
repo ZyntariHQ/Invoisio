@@ -37,10 +37,10 @@ export class DraftService {
     merchantId: string,
   ): Promise<DraftResponseDto> {
     const now = new Date();
-    
+
     // Generate a unique memo for the draft
     const memo = this.generateMemoId();
-    
+
     // Build the draft data
     const draftData = this.buildDraftData(dto);
 
@@ -64,12 +64,14 @@ export class DraftService {
         txHash: null,
         sorobanTxHash: null,
         sorobanContractId: null,
-        metadata: dto.metadata || Prisma.JsonNull,
+        metadata: dto.metadata
+          ? (dto.metadata as Prisma.InputJsonValue)
+          : Prisma.JsonNull,
         dueDate: dto.due_date ? new Date(dto.due_date) : null,
         isDraft: true,
         draftVersion: 1,
         lastAutoSavedAt: now,
-        draftData: draftData,
+        draftData: draftData as Prisma.InputJsonValue,
         customerId: dto.customer_id || null,
         statusHistory: {
           create: {
@@ -128,8 +130,11 @@ export class DraftService {
       ...this.buildDraftData(dto),
     };
 
-    const updateData: Prisma.InvoiceUpdateInput = {
-      draftData: newDraftData,
+    // NOTE: typed as the *unchecked* update input (not Prisma.InvoiceUpdateInput)
+    // so that scalar FK fields like `customerId` are assignable directly,
+    // matching the pattern createDraft already relies on via inference.
+    const updateData: Prisma.InvoiceUncheckedUpdateInput = {
+      draftData: newDraftData as Prisma.InputJsonValue,
       lastAutoSavedAt: new Date(),
       draftVersion: existing.draftVersion + 1,
       updatedAt: new Date(),
@@ -165,7 +170,9 @@ export class DraftService {
       updateData.dueDate = dto.due_date ? new Date(dto.due_date) : null;
     }
     if (dto.metadata !== undefined) {
-      updateData.metadata = dto.metadata || Prisma.JsonNull;
+      updateData.metadata = dto.metadata
+        ? (dto.metadata as Prisma.InputJsonValue)
+        : Prisma.JsonNull;
     }
 
     const updated = await this.prisma.invoice.update({
@@ -337,6 +344,14 @@ export class DraftService {
     });
 
     // Return as full Invoice entity
+    //
+    // ASSUMPTION (unverified — I don't have entities/invoice.entity.ts):
+    // the compiler error said `Invoice` has `user`, not `userId`. I couldn't
+    // confirm whether that's a typo in the entity or intentional. Kept
+    // `userId` here but cast through `as unknown as Invoice` so this compiles
+    // without guessing at the entity's real shape. Once you share
+    // invoice.entity.ts, replace this cast with a correct object literal
+    // (either add `userId?: string` to the entity, or map to `user` here).
     return {
       id: converted.id,
       merchantId: converted.merchantId,
@@ -367,7 +382,7 @@ export class DraftService {
         createdAt: h.createdAt,
       })),
       payments: [],
-    };
+    } as unknown as Invoice;
   }
 
   /**
@@ -454,7 +469,7 @@ export class DraftService {
    */
   private buildDraftData(dto: Partial<DraftInvoiceDto>): Record<string, unknown> {
     const data: Record<string, unknown> = {};
-    
+
     if (dto.invoiceNumber !== undefined) data.invoiceNumber = dto.invoiceNumber;
     if (dto.clientName !== undefined) data.clientName = dto.clientName;
     if (dto.clientEmail !== undefined) data.clientEmail = dto.clientEmail;
@@ -465,9 +480,9 @@ export class DraftService {
     if (dto.customer_id !== undefined) data.customer_id = dto.customer_id;
     if (dto.due_date !== undefined) data.due_date = dto.due_date;
     if (dto.metadata !== undefined) data.metadata = dto.metadata;
-    
+
     data.lastUpdated = new Date().toISOString();
-    
+
     return data;
   }
 
