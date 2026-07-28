@@ -9,7 +9,12 @@ import { StructuredLogger } from "../observability/structured-logger.service";
 import { ActivityFeedService } from "../activity-feed/activity-feed.service";
 import { StellarService } from "../stellar/stellar.service";
 import { Prisma, InvoiceStatus } from "@prisma/client";
-import { DraftInvoiceDto, DraftResponseDto, CreateDraftDto, UpdateDraftDto } from "./dto/draft-invoice.dto";
+import {
+  DraftInvoiceDto,
+  DraftResponseDto,
+  CreateDraftDto,
+  UpdateDraftDto,
+} from "./dto/draft-invoice.dto";
 import { Invoice } from "./entities/invoice.entity";
 
 /**
@@ -48,7 +53,8 @@ export class DraftService {
       data: {
         userId,
         merchantId,
-        invoiceNumber: dto.invoiceNumber || `DRAFT-${Date.now().toString().slice(-6)}`,
+        invoiceNumber:
+          dto.invoiceNumber || `DRAFT-${Date.now().toString().slice(-6)}`,
         clientName: dto.clientName || "Untitled Client",
         clientEmail: dto.clientEmail || "",
         description: dto.description || null,
@@ -124,7 +130,8 @@ export class DraftService {
     }
 
     // Merge existing draft data with new data
-    const currentDraftData = (existing.draftData as Record<string, unknown>) || {};
+    const currentDraftData =
+      (existing.draftData as Record<string, unknown>) || {};
     const newDraftData = {
       ...currentDraftData,
       ...this.buildDraftData(dto),
@@ -200,10 +207,7 @@ export class DraftService {
   /**
    * Get a draft by ID
    */
-  async getDraft(
-    id: string,
-    merchantId: string,
-  ): Promise<DraftResponseDto> {
+  async getDraft(id: string, merchantId: string): Promise<DraftResponseDto> {
     const draft = await this.prisma.invoice.findFirst({
       where: { id, merchantId, isDraft: true },
       include: {
@@ -305,7 +309,8 @@ export class DraftService {
         clientEmail: draft.clientEmail || "client@example.com",
         amountDue: draft.amount,
         // If draft had due date, keep it, otherwise set default 30 days
-        dueDate: draft.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        dueDate:
+          draft.dueDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
         memo: this.generateMemoId(), // Generate new memo for payment tracking
         statusHistory: {
           create: {
@@ -467,7 +472,9 @@ export class DraftService {
   /**
    * Build draft data object from DTO
    */
-  private buildDraftData(dto: Partial<DraftInvoiceDto>): Record<string, unknown> {
+  private buildDraftData(
+    dto: Partial<DraftInvoiceDto>,
+  ): Record<string, unknown> {
     const data: Record<string, unknown> = {};
 
     if (dto.invoiceNumber !== undefined) data.invoiceNumber = dto.invoiceNumber;
@@ -524,27 +531,39 @@ export class DraftService {
    * Convert Prisma invoice to DraftResponseDto
    */
   private toDraftResponse(invoice: any): DraftResponseDto {
-    const draftData = invoice.draftData as Record<string, unknown> || {};
-    const requiredFields = ["clientName", "clientEmail", "amount", "asset_code"];
-    const hasRequiredFields = requiredFields.every(
-      (field) => {
-        // Check in the main invoice fields and in draftData
-        const mainValue = invoice[field] ?? invoice[this.snakeToCamel(field)];
-        const draftValue = draftData[field];
-        const value = mainValue || draftValue;
-        return value !== undefined && value !== null && value !== "";
-      },
-    );
+    const draftData = (invoice.draftData as Record<string, unknown>) || {};
+    const requiredFields = [
+      "clientName",
+      "clientEmail",
+      "amount",
+      "asset_code",
+    ];
+    const hasRequiredFields = requiredFields.every((field) => {
+      // Check in the main invoice fields and in draftData
+      const mainValue = invoice[field] ?? invoice[this.snakeToCamel(field)];
+      const draftValue = draftData[field];
+      const value = mainValue || draftValue;
+      return value !== undefined && value !== null && value !== "";
+    });
 
     // Calculate completion percentage
-    const allFields = ["invoiceNumber", "clientName", "clientEmail", "description", "amount", "asset_code"];
+    const allFields = [
+      "invoiceNumber",
+      "clientName",
+      "clientEmail",
+      "description",
+      "amount",
+      "asset_code",
+    ];
     const filledFields = allFields.filter((field) => {
       const mainValue = invoice[field] ?? invoice[this.snakeToCamel(field)];
       const draftValue = draftData[field];
       const value = mainValue || draftValue;
       return value !== undefined && value !== null && value !== "";
     });
-    const completionPercentage = Math.round((filledFields.length / allFields.length) * 100);
+    const completionPercentage = Math.round(
+      (filledFields.length / allFields.length) * 100,
+    );
 
     return {
       id: invoice.id,
@@ -554,7 +573,9 @@ export class DraftService {
       clientName: invoice.clientName,
       clientEmail: invoice.clientEmail,
       description: invoice.description,
-      amount: invoice.amount?.toNumber ? invoice.amount.toNumber() : Number(invoice.amount),
+      amount: invoice.amount?.toNumber
+        ? invoice.amount.toNumber()
+        : Number(invoice.amount),
       assetCode: invoice.assetCode,
       assetIssuer: invoice.assetIssuer,
       customerId: invoice.customerId,
@@ -564,7 +585,7 @@ export class DraftService {
       lastAutoSavedAt: invoice.lastAutoSavedAt,
       createdAt: invoice.createdAt,
       updatedAt: invoice.updatedAt,
-      metadata: invoice.metadata as Record<string, unknown> || undefined,
+      metadata: (invoice.metadata as Record<string, unknown>) || undefined,
       hasRequiredFields,
       completionPercentage,
     };

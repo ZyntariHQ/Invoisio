@@ -11,9 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 @Controller("admin/analytics")
 @UseGuards(AdminGuard)
 export class AdminAnalyticsController {
-  constructor(
-    private readonly adminAnalyticsService: AdminAnalyticsService,
-  ) {}
+  constructor(private readonly adminAnalyticsService: AdminAnalyticsService) {}
 
   @Get("invoices")
   async getInvoiceAnalytics(@Query() query: InvoiceAnalyticsQueryDto) {

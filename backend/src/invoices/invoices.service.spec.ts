@@ -53,6 +53,10 @@ describe("InvoicesService", () => {
         memo: "1001",
         memoType: "ID",
         status: "pending",
+        // Real rows always have a concrete isDraft value (schema default
+        // is `false`) — set it explicitly here so the mock matches
+        // production data instead of leaving it `undefined`.
+        isDraft: false,
         destinationAddress: mockStellarService.getMerchantPublicKey(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -71,6 +75,7 @@ describe("InvoicesService", () => {
         memo: "2001",
         memoType: "ID",
         status: "pending",
+        isDraft: false,
         destinationAddress: mockStellarService.getMerchantPublicKey(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -103,10 +108,16 @@ describe("InvoicesService", () => {
       };
     };
 
+    // Mirrors real Prisma's `where` semantics: a key explicitly set to
+    // `undefined` (e.g. `{ isDraft: includeDrafts ? undefined : false }`)
+    // means "don't filter on this field", not "match rows where this
+    // field is undefined". Without this, the mock diverges from actual
+    // Prisma behavior and produces false negatives in tests.
     const filterByWhere = (where: any) =>
       invoices.filter((invoice) => {
         if (!where) return true;
         return Object.entries(where).every(([key, value]) => {
+          if (value === undefined) return true;
           return (invoice as any)[key] === value;
         });
       });

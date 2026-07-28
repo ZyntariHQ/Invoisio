@@ -16,7 +16,7 @@ import { ActivityFeedModule } from "../activity-feed/activity-feed.module";
 /**
  * Invoices module
  * Provides invoice management functionality with in-memory storage
- * 
+ *
  * @module InvoicesModule
  * @description Manages invoice lifecycle including creation, status updates,
  *              payment reconciliation, and draft management

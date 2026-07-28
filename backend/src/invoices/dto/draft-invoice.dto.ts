@@ -53,7 +53,10 @@ export class DraftInvoiceDto {
    * Required for all non-native assets (i.e. when asset_code !== 'XLM').
    * Must be a valid Stellar public key (G... 56 chars).
    */
-  @ValidateIf((o: DraftInvoiceDto) => o.asset_code?.toUpperCase() !== "XLM" && o.asset_code !== undefined)
+  @ValidateIf(
+    (o: DraftInvoiceDto) =>
+      o.asset_code?.toUpperCase() !== "XLM" && o.asset_code !== undefined,
+  )
   @IsNotEmpty({ message: "asset_issuer is required for non-XLM assets" })
   @Matches(/^G[A-Z2-7]{55}$/, {
     message: "asset_issuer must be a valid Stellar public key",
