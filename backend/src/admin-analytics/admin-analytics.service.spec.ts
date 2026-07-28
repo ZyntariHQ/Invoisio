@@ -56,7 +56,8 @@ describe("AdminAnalyticsService", () => {
     const filterInvoices = (where: any) => {
       return invoices.filter((inv) => {
         let matches = true;
-        if (where?.merchantId && inv.merchantId !== where.merchantId) matches = false;
+        if (where?.merchantId && inv.merchantId !== where.merchantId)
+          matches = false;
         if (where?.status && inv.status !== where.status) matches = false;
         if (where?.assetCode && inv.assetCode !== where.assetCode)
           matches = false;
@@ -206,10 +207,12 @@ describe("AdminAnalyticsService", () => {
 
     it("returns correct asset breakdown", async () => {
       const result = await service.getMerchantAnalytics("merchant-1");
-      expect(result.assetBreakdown).toEqual(expect.arrayContaining([
-        expect.objectContaining({ assetCode: "XLM", count: 1, volume: 100 }),
-        expect.objectContaining({ assetCode: "USDC", count: 1, volume: 150 }),
-      ]));
+      expect(result.assetBreakdown).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ assetCode: "XLM", count: 1, volume: 100 }),
+          expect.objectContaining({ assetCode: "USDC", count: 1, volume: 150 }),
+        ]),
+      );
     });
   });
 });

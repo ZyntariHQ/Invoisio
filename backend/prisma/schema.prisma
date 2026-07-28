@@ -177,7 +177,7 @@ model Invoice {
   assetIssuer        String?       @map("asset_issuer")
   memo               String        @unique
   memoType           String        @default("ID") @map("memo_type")
-  status             InvoiceStatus @default(pending)
+  status             InvoiceStatus @default(draft)
   destinationAddress String        @map("destination_address")
   txHash             String?       @map("tx_hash")
   sorobanTxHash      String?       @map("soroban_tx_hash")
@@ -186,6 +186,12 @@ model Invoice {
   dueDate            DateTime?     @map("due_date")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
+  
+  // Draft-specific fields
+  isDraft           Boolean       @default(true) @map("is_draft")
+  lastAutoSavedAt   DateTime?     @map("last_auto_saved_at")
+  draftVersion      Int           @default(1) @map("draft_version")
+  draftData         Json?         @map("draft_data")
 
   customerId         String?       @map("customer_id")
   customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -197,8 +203,11 @@ model Invoice {
   paymentReviews     PaymentReview[]
 
   @@index([merchantId])
+  @@index([isDraft, merchantId])
+  @@index([lastAutoSavedAt])
   @@map("invoices")
 }
+
 
 model InvoiceStatusHistory {
   id        String   @id @default(uuid())
@@ -213,6 +222,7 @@ model InvoiceStatusHistory {
 
 
 enum InvoiceStatus {
+  draft
   pending
   partially_paid
   paid

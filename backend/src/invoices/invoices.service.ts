@@ -82,9 +82,10 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
-   * Get paginated invoices
+   * Get paginated invoices (excludes drafts by default)
    * @param page - Page number (1-indexed)
    * @param limit - Items per page
+   * @param includeDrafts - Whether to include draft invoices
    * @returns Paginated result
    */
   async findAll(
@@ -93,6 +94,7 @@ export class InvoicesService implements OnModuleInit {
     limit = 20,
     search?: string,
     status?: string,
+    includeDrafts = false,
   ): Promise<{
     items: Invoice[];
     total: number;
@@ -103,7 +105,10 @@ export class InvoicesService implements OnModuleInit {
     const skip = (page - 1) * limit;
 
     // Build where clause from filters
-    const where: Record<string, unknown> = { merchantId };
+    const where: Record<string, unknown> = {
+      merchantId,
+      isDraft: includeDrafts ? undefined : false,
+    };
 
     if (search && search.trim().length > 0) {
       const term = search.trim();
