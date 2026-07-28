@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Delete,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
@@ -26,6 +27,8 @@ import {
   PaymentReviewsService,
   ResolveReviewDto,
 } from "./payment-reviews.service";
+import { DraftService } from "./draft.service";
+import { CreateDraftDto, UpdateDraftDto, DraftResponseDto } from "./dto/draft-invoice.dto";
 
 /**
  * Invoices controller
@@ -42,6 +45,7 @@ export class InvoicesController {
     private readonly invoicesService: InvoicesService,
     private readonly prisma: PrismaService,
     private readonly paymentReviewsService: PaymentReviewsService,
+    private readonly draftService: DraftService,
   ) {}
 
   /**
@@ -275,6 +279,120 @@ export class InvoicesController {
   ) {
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.paymentReviewsService.resolve(id, user.merchantId, data),
+    );
+  }
+
+  // ==================== DRAFT ENDPOINTS ====================
+
+  /**
+   * Create a new draft invoice
+   * All fields are optional, can be saved as partial data
+   */
+  @Post("draft")
+  @Auth()
+  async createDraft(
+    @CurrentUser() user: User,
+    @Body() dto: CreateDraftDto,
+  ): Promise<DraftResponseDto> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.createDraft(dto, user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Get all drafts for the authenticated merchant
+   */
+  @Auth()
+  @Get("draft")
+  async getDrafts(
+    @CurrentUser() user: User,
+    @Query("page") page?: string,
+    @Query("limit") limit?: string,
+  ): Promise<{
+    items: DraftResponseDto[];
+    total: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+  }> {
+    const p = page ? parseInt(page, 10) : 1;
+    const l = limit ? parseInt(limit, 10) : 20;
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.getDrafts(user.merchantId, p, l),
+    );
+  }
+
+  /**
+   * Get a specific draft by ID
+   */
+  @Auth()
+  @Get("draft/:id")
+  async getDraft(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ): Promise<DraftResponseDto> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.getDraft(id, user.merchantId),
+    );
+  }
+
+  /**
+   * Auto-save a draft (for regular autosave polling)
+   * This endpoint is optimized for frequent calls
+   */
+  @Auth()
+  @Patch("draft/:id/autosave")
+  async autoSaveDraft(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body() updates: UpdateDraftDto,
+  ): Promise<DraftResponseDto> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.autoSaveDraft(id, updates, user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Update a draft (full update, for manual saves)
+   */
+  @Auth()
+  @Patch("draft/:id")
+  async updateDraft(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body() dto: UpdateDraftDto,
+  ): Promise<DraftResponseDto> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.updateDraft(id, dto, user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Convert a draft to a real invoice
+   * Requires all required fields to be filled
+   */
+  @Auth()
+  @Post("draft/:id/convert")
+  async convertDraftToInvoice(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ): Promise<Invoice> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.convertDraftToInvoice(id, user.merchantId, user.id),
+    );
+  }
+
+  /**
+   * Discard/delete a draft
+   */
+  @Auth()
+  @Delete("draft/:id")
+  async discardDraft(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ): Promise<{ id: string; discarded: boolean }> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.draftService.discardDraft(id, user.merchantId),
     );
   }
 }
