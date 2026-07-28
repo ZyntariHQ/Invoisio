@@ -142,8 +142,12 @@ export function useDraftAutosave(
     };
   }, [draftId, onError]);
 
+  const performAutosaveRef = useRef<(updates: UpdateDraftDto) => Promise<DraftInvoice | void>>(
+    async () => {},
+  );
+
   // Debounced autosave
-  const performAutosave = useCallback(async (updates: UpdateDraftDto) => {
+  const performAutosave = useCallback(async (updates: UpdateDraftDto): Promise<DraftInvoice | void> => {
     if (!isMountedRef.current || !enabled) return;
     if (!draft && !isDraftCreatedRef.current) {
       // Draft not yet created, create it first
@@ -155,7 +159,7 @@ export function useDraftAutosave(
           setLastSavedAt(new Date());
           onSave?.(newDraft);
         }
-        return;
+        return newDraft;
       } catch (err) {
         if (isMountedRef.current) {
           const errorMsg = err instanceof Error ? err.message : String(err);
@@ -174,7 +178,7 @@ export function useDraftAutosave(
         clearTimeout(autosaveTimeoutRef.current);
       }
       autosaveTimeoutRef.current = setTimeout(() => {
-        performAutosave(updates);
+        performAutosaveRef.current(updates);
       }, minAutosaveInterval - (now - lastAutosaveTimeRef.current));
       return;
     }
@@ -192,18 +196,26 @@ export function useDraftAutosave(
         onSave?.(updatedDraft);
         lastAutosaveTimeRef.current = now;
       }
+      return updatedDraft;
     } catch (err) {
       if (isMountedRef.current) {
         const errorMsg = err instanceof Error ? err.message : String(err);
         setError(`Autosave failed: ${errorMsg}`);
         onError?.(err instanceof Error ? err : new Error(errorMsg));
       }
+      return;
     } finally {
       if (isMountedRef.current) {
         setIsSaving(false);
       }
     }
   }, [draft, draftId, enabled, minAutosaveInterval, onSave, onError]);
+
+  // Keep the ref pointed at the latest performAutosave after every render
+  // in which it changes.
+  useEffect(() => {
+    performAutosaveRef.current = performAutosave;
+  }, [performAutosave]);
 
   // Debounce update function
   const updateDraft = useCallback((updates: UpdateDraftDto) => {
@@ -223,9 +235,9 @@ export function useDraftAutosave(
     // Schedule autosave
     autosaveTimeoutRef.current = setTimeout(() => {
       const updatesToSave = { ...pendingUpdates, ...updates };
-      performAutosave(updatesToSave);
+      performAutosaveRef.current(updatesToSave);
     }, autosaveDelay);
-  }, [pendingUpdates, performAutosave, autosaveDelay]);
+  }, [pendingUpdates, autosaveDelay]);
 
   // Manual save (bypasses debounce)
   const saveDraft = useCallback(async (): Promise<DraftInvoice> => {
@@ -274,8 +286,11 @@ export function useDraftAutosave(
       clearTimeout(autosaveTimeoutRef.current);
       autosaveTimeoutRef.current = null;
     }
-    return performAutosave(pendingUpdates);
-  }, [pendingUpdates, performAutosave]);
+    const result = await performAutosave(pendingUpdates);
+    if (result) return result;
+    if (draft) return draft;
+    throw new Error("Autosave did not complete");
+  }, [pendingUpdates, performAutosave, draft]);
 
   // Convert draft to invoice
   const convertToInvoice = useCallback(async () => {

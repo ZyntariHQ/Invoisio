@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
+import { extractApiErrorMessage } from "@/lib/api-client";
 import { RequireAuth } from "@/components/require-auth";
 import { CustomerService, Customer } from "@/lib/customer-service";
 import { useDraftAutosave } from "@/hooks/use-draft-autosave";
@@ -15,6 +15,11 @@ const USDC_ISSUER =
 
 type Asset = "XLM" | "USDC";
 
+/** Minimal shape we rely on from the invoice returned by convertToInvoice() */
+interface ConvertedInvoiceResult {
+  id: string;
+}
+
 function CustomerAutocomplete({
   onCustomerSelect,
   value,
@@ -22,7 +27,9 @@ function CustomerAutocomplete({
   onCustomerSelect: (customer: Customer | null) => void;
   value?: Customer | null;
 }) {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() =>
+    value ? `${value.name}${value.email ? ` (${value.email})` : ""}` : "",
+  );
   const [results, setResults] = useState<Customer[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
@@ -38,13 +45,12 @@ function CustomerAutocomplete({
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Initialize query from value
-  useEffect(() => {
-    if (value) {
-      setQuery(`${value.name}${value.email ? ` (${value.email})` : ""}`);
-      setSelectedCustomer(value);
-    }
-  }, [value]);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value && value !== prevValue) {
+    setPrevValue(value);
+    setQuery(`${value.name}${value.email ? ` (${value.email})` : ""}`);
+    setSelectedCustomer(value);
+  }
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -361,9 +367,7 @@ function NewInvoiceContent() {
     saveDraft,
     convertToInvoice,
     discardDraft,
-    isComplete,
     completionPercentage,
-    refreshDraft,
   } = useDraftAutosave(draftIdFromUrl, {
     autosaveDelay: 3000,
     minAutosaveInterval: 5000,
@@ -376,22 +380,23 @@ function NewInvoiceContent() {
     },
   });
 
-  // Load draft data into form when loaded
-  useEffect(() => {
-    if (draft) {
-      setClientName(draft.clientName || "");
-      setClientEmail(draft.clientEmail || "");
-      setDescription(draft.description || "");
-      setAmount(draft.amount ? String(draft.amount) : "");
-      setAsset((draft.assetCode as Asset) || "XLM");
-      setDueDate(draft.dueDate ? new Date(draft.dueDate).toISOString().split("T")[0] : "");
-      
-      // If draft has customer ID, load customer
-      if (draft.customerId) {
-        // CustomerService.getCustomer(draft.customerId).then(setSelectedCustomer);
-      }
+  const [prevDraft, setPrevDraft] = useState<DraftInvoice | null>(null);
+  if (draft && draft !== prevDraft) {
+    setPrevDraft(draft);
+    setClientName(draft.clientName || "");
+    setClientEmail(draft.clientEmail || "");
+    setDescription(draft.description || "");
+    setAmount(draft.amount ? String(draft.amount) : "");
+    setAsset((draft.assetCode as Asset) || "XLM");
+    setDueDate(
+      draft.dueDate ? new Date(draft.dueDate).toISOString().split("T")[0] : "",
+    );
+
+    // If draft has customer ID, load customer
+    if (draft.customerId) {
+      // CustomerService.getCustomer(draft.customerId).then(setSelectedCustomer);
     }
-  }, [draft]);
+  }
 
   // Handle form field changes with autosave
   const handleFieldChange = useCallback(
@@ -441,10 +446,15 @@ function NewInvoiceContent() {
     [updateDraft],
   );
 
-  // Handle asset change
+  // Handle asset change. USDC needs its issuer sent alongside the asset
+  // code so the draft (and eventual invoice) records a resolvable asset —
+  // XLM has no issuer.
   const handleAssetChange = (newAsset: Asset) => {
     setAsset(newAsset);
-    updateDraft({ asset_code: newAsset });
+    updateDraft({
+      asset_code: newAsset,
+      asset_issuer: newAsset === "USDC" ? USDC_ISSUER : undefined,
+    });
   };
 
   // Handle customer selection
@@ -479,9 +489,9 @@ function NewInvoiceContent() {
 
       // Convert draft to invoice
       const invoice = await convertToInvoice();
-      
+
       // Navigate to the invoice detail page
-      router.push(`/invoices/${(invoice as any).id}`);
+      router.push(`/invoices/${(invoice as ConvertedInvoiceResult).id}`);
     } catch (err) {
       setSubmissionError(extractApiErrorMessage(err));
     } finally {
@@ -525,7 +535,7 @@ function NewInvoiceContent() {
               </button>
             )}
           </div>
-          
+
           {/* Draft status indicator */}
           <div className="flex items-center gap-3">
             {isSaving && (
@@ -604,7 +614,7 @@ function NewInvoiceContent() {
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-6" noValidate>
               {/* Customer Autocomplete */}
-              <CustomerAutocomplete 
+              <CustomerAutocomplete
                 onCustomerSelect={handleCustomerSelect}
                 value={selectedCustomer}
               />
@@ -781,3 +791,4 @@ export default function NewInvoicePage() {
     </RequireAuth>
   );
 }
+

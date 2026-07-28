@@ -12,6 +12,11 @@ interface DraftListProps {
   onDraftDiscarded?: (draftId: string) => void;
 }
 
+/** Minimal shape we rely on from the invoice returned by convertDraftToInvoice() */
+interface ConvertedInvoiceResult {
+  id: string;
+}
+
 /**
  * DraftList component displays all saved drafts for a merchant
  * Allows resuming, discarding, and converting drafts
@@ -46,8 +51,33 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
   }, []);
 
   useEffect(() => {
-    loadDrafts();
-  }, [loadDrafts]);
+    let ignore = false;
+
+    async function fetchInitialDrafts() {
+      try {
+        const response = await DraftService.getDrafts(1, 20);
+        if (ignore) return;
+        setDrafts(response.items);
+        setHasMore(response.hasMore);
+        setTotal(response.total);
+        setError(null);
+      } catch (err) {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : "Failed to load drafts");
+        }
+      } finally {
+        if (!ignore) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    fetchInitialDrafts();
+
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   const handleDiscard = async (draftId: string) => {
     if (!confirm("Are you sure you want to discard this draft?")) return;
@@ -77,7 +107,7 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
       const invoice = await DraftService.convertDraftToInvoice(draftId);
       // Remove from list and navigate to invoice
       setDrafts((prev) => prev.filter((d) => d.id !== draftId));
-      router.push(`/invoices/${(invoice as any).id}`);
+      router.push(`/invoices/${(invoice as ConvertedInvoiceResult).id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to convert draft to invoice");
     }
@@ -207,7 +237,7 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
                   <div className="mt-1 flex-shrink-0">
                     {getStatusIcon(draft)}
                   </div>
-                  
+
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 flex-wrap">
                       <h3 className="text-sm font-semibold text-gray-900 truncate">
@@ -219,7 +249,7 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
                         </span>
                       )}
                     </div>
-                    
+
                     <div className="mt-1 flex items-center gap-3 flex-wrap">
                       <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${getStatusColor(draft)}`}>
                         {getStatusText(draft)}
@@ -259,7 +289,7 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
                   >
                     Resume
                   </button>
-                  
+
                   {isComplete && (
                     <button
                       onClick={() => handleConvert(draft.id)}
@@ -268,7 +298,7 @@ export function DraftList({ onDraftSelected, onDraftDiscarded }: DraftListProps)
                       Send
                     </button>
                   )}
-                  
+
                   <button
                     onClick={() => handleDiscard(draft.id)}
                     disabled={discardingId === draft.id}
