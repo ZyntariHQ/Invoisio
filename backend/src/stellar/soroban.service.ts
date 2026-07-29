@@ -8,6 +8,7 @@ import {
   Keypair,
   xdr,
 } from "@stellar/stellar-sdk";
+import { StellarValidator } from "./utils/stellar.validator";
 
 export interface RecordPaymentParams {
   invoiceId: string;
@@ -63,9 +64,9 @@ export class SorobanService {
       }
     }
 
-    if (!this.contractId) {
+    if (!this.contractId || !StellarValidator.isValidContractAddress(this.contractId)) {
       this.logger.warn(
-        "SOROBAN_CONTRACT_ID not set; Soroban anchoring disabled",
+        "SOROBAN_CONTRACT_ID not set or invalid; Soroban anchoring disabled",
       );
     } else if (!this.sourceKeypair) {
       this.logger.warn(
@@ -79,8 +80,8 @@ export class SorobanService {
   async recordPayment(
     params: RecordPaymentParams,
   ): Promise<SorobanMetadata | null> {
-    if (!this.server || !this.sourceKeypair) {
-      this.logger.debug("Soroban not configured, skipping anchor");
+    if (!this.server || !this.sourceKeypair || !this.contractId || !StellarValidator.isValidContractAddress(this.contractId)) {
+      this.logger.debug("Soroban not configured or invalid contract ID, skipping anchor");
       return null;
     }
 

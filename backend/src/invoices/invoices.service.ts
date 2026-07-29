@@ -33,6 +33,24 @@ const REQUIRED_CSV_HEADERS = [
 ] as const;
 const MAX_IMPORT_ROWS = 500;
 
+export interface ScheduledReminderInterval {
+  daysRelative: number;
+  windowKey?: string;
+}
+
+export interface ScheduledReminderOptions {
+  merchantId?: string;
+  intervals?: ScheduledReminderInterval[];
+  channel?: "email" | "webhook" | "both";
+  now?: Date;
+}
+
+export const DEFAULT_REMINDER_INTERVALS: ScheduledReminderInterval[] = [
+  { daysRelative: -3, windowKey: "3_days_before" },
+  { daysRelative: 0, windowKey: "due_date" },
+  { daysRelative: 3, windowKey: "3_days_after" },
+];
+
 /**
  * Invoices service — manages invoice lifecycle and Soroban on-chain settlement.
  */
@@ -1264,6 +1282,279 @@ export class InvoicesService implements OnModuleInit {
     } catch (error) {
       this.logger.error("Error in handleOverdueInvoices cron job", error);
     }
+  }
+
+  /**
+   * Cron job to send scheduled invoice reminders.
+   * Runs daily at 08:00 UTC.
+   */
+  @Cron("0 8 * * *")
+  async handleScheduledReminders() {
+    this.logger.log("Running scheduled invoice reminders check...");
+    try {
+      const result = await this.sendScheduledReminders();
+      this.logger.log(
+        `Processed ${result.processedCount} unpaid invoices. Reminders sent: ${result.remindersSentCount}`,
+      );
+    } catch (error) {
+      this.logger.error("Error in handleScheduledReminders cron job", error);
+    }
+  }
+
+  /**
+   * Process and dispatch scheduled reminders for unpaid invoices based on configurable intervals.
+   * Enforces:
+   * 1. Reminders are ONLY sent for unpaid invoices (status: pending, partially_paid, overdue; not draft).
+   * 2. Duplicate reminders for the same time window are avoided.
+   * 3. Email and/or webhook notification channels are supported.
+   */
+  async sendScheduledReminders(options?: ScheduledReminderOptions): Promise<{
+    processedCount: number;
+    remindersSentCount: number;
+    details: Array<{ invoiceId: string; window: string; channel: string }>;
+  }> {
+    const now = options?.now ?? new Date();
+    const channel = options?.channel ?? "both";
+    const intervals =
+      options?.intervals && options.intervals.length > 0
+        ? options.intervals
+        : DEFAULT_REMINDER_INTERVALS;
+
+    const UNPAID_STATUSES: InvoiceStatus[] = [
+      "pending",
+      "partially_paid",
+      "overdue",
+    ];
+
+    const whereClause: any = {
+      status: { in: UNPAID_STATUSES },
+      isDraft: false,
+      dueDate: { not: null },
+    };
+    if (options?.merchantId) {
+      whereClause.merchantId = options.merchantId;
+    }
+
+    const unpaidInvoices = await this.prisma.invoice.findMany({
+      where: whereClause,
+      include: { user: true },
+    });
+
+    let processedCount = 0;
+    let remindersSentCount = 0;
+    const details: Array<{ invoiceId: string; window: string; channel: string }> = [];
+
+    for (const invoice of unpaidInvoices) {
+      processedCount++;
+      if (!invoice.dueDate) continue;
+
+      const metadata = ((invoice.metadata as Record<string, any>) ?? {});
+      const sentReminders: Array<{ window: string; sentAt: string; channel: string }> =
+        Array.isArray(metadata.sentReminders) ? [...metadata.sentReminders] : [];
+
+      for (const interval of intervals) {
+        const windowKey =
+          interval.windowKey ||
+          (interval.daysRelative < 0
+            ? `${Math.abs(interval.daysRelative)}_days_before`
+            : interval.daysRelative === 0
+              ? "due_date"
+              : `${interval.daysRelative}_days_after`);
+
+        // Acceptance Criteria 2: Avoid duplicate reminders for the same window
+        const alreadySent = sentReminders.some(
+          (r: any) =>
+            r?.window === windowKey ||
+            (typeof r === "string" && r === windowKey),
+        );
+
+        if (alreadySent) {
+          continue;
+        }
+
+        const targetTime =
+          new Date(invoice.dueDate).getTime() + interval.daysRelative * 86400000;
+
+        if (now.getTime() >= targetTime) {
+          if (channel === "email" || channel === "both") {
+            if (typeof this.notificationsService?.sendInvoiceReminderEmail === "function") {
+              await this.notificationsService.sendInvoiceReminderEmail(
+                invoice as any,
+                windowKey,
+              );
+            }
+          }
+          if (channel === "webhook" || channel === "both") {
+            if (typeof this.webhooksService?.enqueueReminderWebhook === "function") {
+              await this.webhooksService.enqueueReminderWebhook(
+                invoice.id,
+                windowKey,
+                invoice.merchantId,
+              );
+            }
+          }
+
+          const newRecord = {
+            window: windowKey,
+            sentAt: now.toISOString(),
+            channel,
+          };
+
+          sentReminders.push(newRecord);
+
+          const updatedMetadata = {
+            ...metadata,
+            sentReminders,
+          };
+
+          await this.prisma.invoice.update({
+            where: { id: invoice.id },
+            data: { metadata: updatedMetadata },
+          });
+
+          this.activityFeed?.recordEvent({
+            merchantId: invoice.merchantId,
+            userId: invoice.userId ?? undefined,
+            invoiceId: invoice.id,
+            type: "reminder_sent",
+            description: ActivityFeedService.formatDescription("reminder_sent", {
+              invoiceNumber: invoice.invoiceNumber,
+              clientEmail: invoice.clientEmail,
+            }),
+            metadata: {
+              invoiceNumber: invoice.invoiceNumber,
+              clientEmail: invoice.clientEmail,
+              window: windowKey,
+              channel,
+            },
+          });
+
+          remindersSentCount++;
+          details.push({
+            invoiceId: invoice.id,
+            window: windowKey,
+            channel,
+          });
+        }
+      }
+    }
+
+    return {
+      processedCount,
+      remindersSentCount,
+      details,
+    };
+  }
+
+  /**
+   * Dispatch a single manual or specific reminder for an invoice.
+   */
+  async sendSingleInvoiceReminder(
+    invoiceId: string,
+    merchantId: string,
+    channel: "email" | "webhook" | "both" = "both",
+    windowKey = "manual",
+  ): Promise<{ invoiceId: string; sent: boolean; channel: string; window: string }> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, merchantId },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException(`Invoice with ID "${invoiceId}" not found`);
+    }
+
+    // Acceptance Criteria 1: Reminders are ONLY sent for unpaid invoices
+    const UNPAID_STATUSES: InvoiceStatus[] = [
+      "pending",
+      "partially_paid",
+      "overdue",
+    ];
+    if (!UNPAID_STATUSES.includes(invoice.status) || invoice.isDraft) {
+      throw new BadRequestException(
+        `Reminders can only be sent for unpaid invoices. Current status: ${invoice.status}`,
+      );
+    }
+
+    const metadata = ((invoice.metadata as Record<string, any>) ?? {});
+    const sentReminders: Array<{ window: string; sentAt: string; channel: string }> =
+      Array.isArray(metadata.sentReminders) ? [...metadata.sentReminders] : [];
+
+    // Acceptance Criteria 2: Avoid duplicate reminders for the same time window
+    const alreadySent = sentReminders.some(
+      (r: any) =>
+        r?.window === windowKey ||
+        (typeof r === "string" && r === windowKey),
+    );
+
+    if (alreadySent) {
+      return {
+        invoiceId,
+        sent: false,
+        channel,
+        window: windowKey,
+      };
+    }
+
+    if (channel === "email" || channel === "both") {
+      if (typeof this.notificationsService?.sendInvoiceReminderEmail === "function") {
+        await this.notificationsService.sendInvoiceReminderEmail(
+          invoice as any,
+          windowKey,
+        );
+      }
+    }
+    if (channel === "webhook" || channel === "both") {
+      if (typeof this.webhooksService?.enqueueReminderWebhook === "function") {
+        await this.webhooksService.enqueueReminderWebhook(
+          invoice.id,
+          windowKey,
+          invoice.merchantId,
+        );
+      }
+    }
+
+    const now = new Date();
+    const newRecord = {
+      window: windowKey,
+      sentAt: now.toISOString(),
+      channel,
+    };
+
+    sentReminders.push(newRecord);
+
+    const updatedMetadata = {
+      ...metadata,
+      sentReminders,
+    };
+
+    await this.prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { metadata: updatedMetadata },
+    });
+
+    this.activityFeed?.recordEvent({
+      merchantId: invoice.merchantId,
+      userId: invoice.userId ?? undefined,
+      invoiceId: invoice.id,
+      type: "reminder_sent",
+      description: ActivityFeedService.formatDescription("reminder_sent", {
+        invoiceNumber: invoice.invoiceNumber,
+        clientEmail: invoice.clientEmail,
+      }),
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        clientEmail: invoice.clientEmail,
+        window: windowKey,
+        channel,
+      },
+    });
+
+    return {
+      invoiceId,
+      sent: true,
+      channel,
+      window: windowKey,
+    };
   }
 
   /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */

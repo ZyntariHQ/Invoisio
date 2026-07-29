@@ -258,6 +258,52 @@ export class InvoicesController {
   }
 
   /**
+   * Process scheduled reminders for the merchant's unpaid invoices
+   */
+  @Auth()
+  @Post("reminders/send")
+  async triggerScheduledReminders(
+    @CurrentUser() user: User,
+    @Body()
+    body?: {
+      intervals?: Array<{ daysRelative: number; windowKey?: string }>;
+      channel?: "email" | "webhook" | "both";
+    },
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.sendScheduledReminders({
+        merchantId: user.merchantId,
+        intervals: body?.intervals,
+        channel: body?.channel,
+      }),
+    );
+  }
+
+  /**
+   * Send a single reminder for a specific invoice
+   */
+  @Auth()
+  @Post(":id/remind")
+  async sendSingleReminder(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+    @Body()
+    body?: {
+      channel?: "email" | "webhook" | "both";
+      windowKey?: string;
+    },
+  ) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.sendSingleInvoiceReminder(
+        id,
+        user.merchantId,
+        body?.channel ?? "both",
+        body?.windowKey ?? "manual",
+      ),
+    );
+  }
+
+  /**
    * Get all payment reviews for the authenticated merchant
    */
   @Auth()

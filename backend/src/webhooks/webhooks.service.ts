@@ -137,6 +137,60 @@ export class WebhooksService {
   }
 
   /**
+   * Enqueues a webhook delivery for an invoice reminder event.
+   */
+  async enqueueReminderWebhook(
+    invoiceId: string,
+    reminderWindow: string,
+    merchantId?: string,
+  ): Promise<void> {
+    const where = merchantId
+      ? { id: invoiceId, merchantId }
+      : { id: invoiceId };
+    const invoice = await this.prisma.invoice.findFirst({
+      where,
+      include: { user: true },
+    });
+
+    if (!invoice || !invoice.user || !invoice.user.webhookUrl) {
+      if (!invoice?.user?.webhookUrl) {
+        this.logger.debug(
+          `Skipping reminder webhook for invoice ${invoiceId}: No webhook URL configured for user.`,
+        );
+      }
+      return;
+    }
+
+    const payload = {
+      event: "invoice.reminder",
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      status: invoice.status,
+      reminderWindow,
+      clientEmail: invoice.clientEmail,
+      amount: Number(invoice.amount),
+      dueDate: invoice.dueDate,
+      timestamp: new Date().toISOString(),
+    };
+
+    await this.prisma.webhookDelivery.create({
+      data: {
+        invoiceId: invoice.id,
+        userId: invoice.userId!,
+        url: invoice.user.webhookUrl,
+        payload: payload,
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: new Date(),
+      },
+    });
+
+    this.logger.log(
+      `Reminder webhook enqueued for invoice ${invoiceId} and window ${reminderWindow}.`,
+    );
+  }
+
+  /**
    * Process the webhook queue periodically.
    * Runs every minute.
    */

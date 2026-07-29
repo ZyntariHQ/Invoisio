@@ -35,41 +35,55 @@ export class PrismaService
           : ["warn", "error"],
     });
 
-    (this as any).$use(async (params: any, next: any) => {
-      applyMerchantScope(
-        params,
-        this.merchantContext.getMerchantId(),
-        this.logger,
-      );
+    if (typeof (this as any).$use === "function") {
+      (this as any).$use(async (params: any, next: any) => {
+        applyMerchantScope(
+          params,
+          this.merchantContext.getMerchantId(),
+          this.logger,
+        );
 
-      const startedAt = Date.now();
-      const result = await next(params);
-      const durationMs = Date.now() - startedAt;
-      const slowThresholdMs = this.getSlowDbThresholdMs();
-      const operation = params.model
-        ? `${params.model}.${params.action}`
-        : params.action;
+        const startedAt = Date.now();
+        const result = await next(params);
+        const durationMs = Date.now() - startedAt;
+        const slowThresholdMs = this.getSlowDbThresholdMs();
+        const operation = params.model
+          ? `${params.model}.${params.action}`
+          : params.action;
 
-      if (durationMs >= slowThresholdMs) {
-        this.structuredLogger.warn("db.query.slow", {
-          category: "database",
-          operation,
-          durationMs,
-          slow: true,
-        });
-      }
+        if (durationMs >= slowThresholdMs) {
+          this.structuredLogger.warn("db.query.slow", {
+            category: "database",
+            operation,
+            durationMs,
+            slow: true,
+          });
+        }
 
-      return result;
-    });
+        return result;
+      });
+    }
   }
 
   async onModuleInit() {
-    await this.$connect();
-    this.logger.log("Prisma connected to database");
+    try {
+      await this.$connect();
+      this.logger.log("Prisma connected to database");
+    } catch (err) {
+      this.logger.error(
+        `Failed to connect to database during initialization: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async onModuleDestroy() {
-    await this.$disconnect();
+    try {
+      await this.$disconnect();
+    } catch (err) {
+      this.logger.warn(
+        `Error disconnecting Prisma: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   runWithMerchantScope<T>(

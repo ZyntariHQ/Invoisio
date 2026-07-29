@@ -1,0 +1,15 @@
+{
+  "name": "invoisio",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"PORT=3001 npm --prefix backend run start\" \"npm --prefix web run dev -- -p 3000\"",
+    "build": "npm --prefix backend run build && npm --prefix web run build",
+    "start": "concurrently \"PORT=3001 npm --prefix backend run start\" \"npm --prefix web run start -- -p 3000\"",
+    "test": "npm --prefix backend test",
+    "lint": "npm --prefix backend run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4"
+  }
+}

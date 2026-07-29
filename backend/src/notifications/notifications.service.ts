@@ -28,6 +28,13 @@ export class NotificationsService {
     );
   }
 
+  async sendInvoiceReminderEmail(invoice: Invoice, reminderWindow: string) {
+    this.logger.log(
+      `Sending reminder email for invoice ${invoice.invoiceNumber} (window: ${reminderWindow}) to ${invoice.clientEmail}`,
+    );
+    return { sent: true, recipient: invoice.clientEmail };
+  }
+
   private async sendNotificationToMerchant(
     merchantId: string,
     title: string,

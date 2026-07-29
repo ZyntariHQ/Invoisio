@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { StrKey } from "@stellar/stellar-sdk";
 import {
   PaymentRecord,
   SorobanContractError,
@@ -22,7 +23,7 @@ import { RecordPaymentDto } from "./dto/soroban-payment.dto";
 @Injectable()
 export class SorobanService implements OnModuleInit {
   private readonly logger = new Logger(SorobanService.name);
-  private client!: SorobanInvoiceClient;
+  private client: SorobanInvoiceClient | null = null;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -35,19 +36,32 @@ export class SorobanService implements OnModuleInit {
       merchantPublicKey: string;
     };
 
-    this.client = new SorobanInvoiceClient({
-      rpcUrl: cfg.sorobanRpcUrl,
-      networkPassphrase: cfg.networkPassphrase,
-      contractId: cfg.contractId,
-      // signerSecretKey enables write operations; undefined when not configured.
-      signerSecretKey: cfg.adminSecretKey || undefined,
-      // merchantPublicKey serves as the source account for read-only simulation.
-      sourcePublicKey: cfg.merchantPublicKey || undefined,
-    });
+    if (!cfg || !cfg.contractId || !StrKey.isValidContract(cfg.contractId)) {
+      this.logger.warn(
+        `SorobanService disabled — invalid or unconfigured contractId: ${cfg?.contractId || "(not configured)"}`,
+      );
+      return;
+    }
 
-    this.logger.log(
-      `SorobanService ready — contract: ${cfg.contractId || "(not configured)"}`,
-    );
+    try {
+      this.client = new SorobanInvoiceClient({
+        rpcUrl: cfg.sorobanRpcUrl,
+        networkPassphrase: cfg.networkPassphrase,
+        contractId: cfg.contractId,
+        // signerSecretKey enables write operations; undefined when not configured.
+        signerSecretKey: cfg.adminSecretKey || undefined,
+        // merchantPublicKey serves as the source account for read-only simulation.
+        sourcePublicKey: cfg.merchantPublicKey || undefined,
+      });
+
+      this.logger.log(
+        `SorobanService ready — contract: ${cfg.contractId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to initialize SorobanInvoiceClient: ${(err as Error).message}`,
+      );
+    }
   }
 
   /**
@@ -59,6 +73,9 @@ export class SorobanService implements OnModuleInit {
   async recordInvoicePayment(
     dto: RecordPaymentDto,
   ): Promise<{ hash: string; ledger: number }> {
+    if (!this.client) {
+      throw new Error("SorobanService is disabled: unconfigured or invalid contract ID");
+    }
     this.logger.log(`Recording on-chain payment for invoice: ${dto.invoiceId}`);
 
     const result = await this.client.recordPayment({
@@ -81,6 +98,9 @@ export class SorobanService implements OnModuleInit {
    * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded
    */
   async getInvoicePayment(invoiceId: string): Promise<PaymentRecord> {
+    if (!this.client) {
+      throw new Error("SorobanService is disabled: unconfigured or invalid contract ID");
+    }
     return this.client.getPayment(invoiceId);
   }
 
@@ -91,6 +111,9 @@ export class SorobanService implements OnModuleInit {
    * to make reconciliation safe to retry after partial failures.
    */
   async hasInvoicePayment(invoiceId: string): Promise<boolean> {
+    if (!this.client) {
+      return false;
+    }
     return this.client.hasPayment(invoiceId);
   }
 

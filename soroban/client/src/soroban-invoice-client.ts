@@ -8,6 +8,7 @@ import {
   TransactionBuilder,
   xdr,
   scValToNative,
+  StrKey,
 } from '@stellar/stellar-sdk';
 
 import {
@@ -61,7 +62,7 @@ const TX_TIMEOUT_SECONDS = 30;
  */
 export class SorobanInvoiceClient {
   private readonly server: rpc.Server;
-  private readonly contract: Contract;
+  private readonly contract: Contract | null;
   private readonly config: SorobanInvoiceClientConfig;
   /** Cached keypair — derived once at construction, not re-derived per call. */
   private readonly keypair: Keypair | undefined;
@@ -76,11 +77,24 @@ export class SorobanInvoiceClient {
     this.config = config;
     // Created once; underlying HTTP connection is reused across all calls.
     this.server = new rpc.Server(config.rpcUrl, { allowHttp: false });
-    this.contract = new Contract(config.contractId);
+    if (config.contractId && StrKey.isValidContract(config.contractId)) {
+      this.contract = new Contract(config.contractId);
+    } else {
+      this.contract = null;
+    }
     // Parse the keypair once — elliptic curve derivation is not free.
     this.keypair = config.signerSecretKey
       ? Keypair.fromSecret(config.signerSecretKey)
       : undefined;
+  }
+
+  private getContract(): Contract {
+    if (!this.contract) {
+      throw new Error(
+        `Invalid or unconfigured contract ID: ${this.config.contractId || '(none)'}`,
+      );
+    }
+    return this.contract;
   }
 
   // ─── Write operations ───────────────────────────────────────────────────────
@@ -108,7 +122,7 @@ export class SorobanInvoiceClient {
       networkPassphrase: this.config.networkPassphrase,
     })
       .addOperation(
-        this.contract.call(
+        this.getContract().call(
           'record_payment',
           encodeString(params.invoiceId),
           encodeAddress(params.payer),
@@ -215,7 +229,7 @@ export class SorobanInvoiceClient {
       fee: BASE_FEE,
       networkPassphrase: this.config.networkPassphrase,
     })
-      .addOperation(this.contract.call(method, ...args))
+      .addOperation(this.getContract().call(method, ...args))
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
 
