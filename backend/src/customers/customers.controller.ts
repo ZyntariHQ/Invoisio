@@ -7,11 +7,14 @@ import {
   Body,
   Param,
   Query,
+  HttpCode,
+  HttpStatus,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { CustomersService } from "./customers.service";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
+import { MergeCustomersDto } from "./dto/merge-customers.dto";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
@@ -27,7 +30,12 @@ export class CustomersController {
     private readonly prisma: PrismaService,
   ) {}
 
+  // =========================================================================
+  // Standard CRUD
+  // =========================================================================
+
   /**
+   * GET /customers
    * Get all customers (with optional search filter)
    */
   @Auth()
@@ -44,6 +52,7 @@ export class CustomersController {
   }
 
   /**
+   * GET /customers/search
    * Search/autocomplete customers for typeahead UI
    */
   @Auth()
@@ -60,6 +69,7 @@ export class CustomersController {
   }
 
   /**
+   * GET /customers/:id
    * Get a single customer by ID
    */
   @Auth()
@@ -71,6 +81,7 @@ export class CustomersController {
   }
 
   /**
+   * POST /customers
    * Create a new customer profile
    */
   @Post()
@@ -83,6 +94,7 @@ export class CustomersController {
   }
 
   /**
+   * PATCH /customers/:id
    * Update an existing customer profile
    */
   @Patch(":id")
@@ -98,6 +110,7 @@ export class CustomersController {
   }
 
   /**
+   * DELETE /customers/:id
    * Delete a customer profile
    */
   @Delete(":id")
@@ -105,6 +118,69 @@ export class CustomersController {
   async remove(@CurrentUser() user: User, @Param("id") id: string) {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.customersService.remove(user.merchantId, id),
+    );
+  }
+
+  // =========================================================================
+  // Duplicate detection
+  // =========================================================================
+
+  /**
+   * GET /customers/:id/duplicates
+   *
+   * Returns a scored list of likely duplicate customers for the specified
+   * customer record. Signals include:
+   *   - Identical normalised email address
+   *   - High token-set similarity on name
+   *   - Shared email found in invoice history
+   */
+  @Auth()
+  @Get(":id/duplicates")
+  async findDuplicates(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ) {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.customersService.findDuplicates(user.merchantId, id),
+    );
+  }
+
+  // =========================================================================
+  // Merge
+  // =========================================================================
+
+  /**
+   * POST /customers/:winnerId/merge/:loserId
+   *
+   * Merges the loser customer into the winner:
+   *   - All invoices linked to the loser are re-pointed to the winner.
+   *   - Notes are combined (appended) if distinct.
+   *   - An audit log entry (CustomerMergeLog) is written.
+   *   - The loser record is permanently deleted.
+   *
+   * Both customers must belong to the authenticated merchant; cross-merchant
+   * merge attempts are rejected with 403.
+   *
+   * Returns the updated winner record and the merge audit log entry.
+   */
+  @Post(":winnerId/merge/:loserId")
+  @Auth()
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 3600 } })
+  async mergeCustomers(
+    @CurrentUser() user: User,
+    @Param("winnerId") winnerId: string,
+    @Param("loserId") loserId: string,
+    @Body() dto: MergeCustomersDto,
+  ) {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.customersService.merge(
+        user.merchantId,
+        winnerId,
+        loserId,
+        dto,
+        (user as any).publicKey,
+      ),
     );
   }
 }

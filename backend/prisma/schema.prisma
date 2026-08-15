@@ -20,12 +20,44 @@ model Customer {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  invoices Invoice[]
+  invoices        Invoice[]
+  mergeLogsWinner CustomerMergeLog[] @relation("WinnerCustomer")
+  mergeLogsLoser  CustomerMergeLog[] @relation("LoserCustomer")
 
   @@unique([merchantId, email])
   @@index([merchantId])
   @@index([name])
   @@map("customers")
+}
+
+/// Audit log written whenever two customer records are merged.
+/// The "winner" (primary) keeps its id; the "loser" (duplicate) is soft-deleted
+/// by detaching invoices (they are re-pointed to the winner) and then removed.
+model CustomerMergeLog {
+  id              String   @id @default(uuid())
+  merchantId      String   @map("merchant_id")
+  winnerId        String   @map("winner_id")
+  loserId         String   @map("loser_id")
+
+  /// Snapshot of the loser record at merge time for audit/debugging.
+  loserSnapshot   Json     @map("loser_snapshot")
+
+  /// Number of invoices re-pointed from loser → winner.
+  invoicesRelinked Int     @default(0) @map("invoices_relinked")
+
+  /// Free-text reason supplied by the merchant, if any.
+  mergedBy        String?  @map("merged_by")
+  mergeNote       String?  @map("merge_note")
+
+  mergedAt        DateTime @default(now()) @map("merged_at")
+
+  winner          Customer @relation("WinnerCustomer", fields: [winnerId], references: [id], onDelete: Cascade)
+  loser           Customer @relation("LoserCustomer", fields: [loserId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId])
+  @@index([winnerId])
+  @@index([loserId])
+  @@map("customer_merge_logs")
 }
 
 model Merchant {
