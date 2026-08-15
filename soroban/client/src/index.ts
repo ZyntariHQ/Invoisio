@@ -25,6 +25,8 @@ export type {
   AssetToken,
   ContractConfig,
   ContractErrorCode,
+  ContractErrorManifestEntry,
+  ContractErrorName,
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
@@ -32,5 +34,11 @@ export type {
   TransactionResult,
 } from './types';
 
-export { CONTRACT_ERROR_CODES, SorobanContractError } from './types';
+export {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_ERROR_MANIFEST,
+  getContractError,
+  getContractErrorCode,
+  SorobanContractError,
+} from './types';
 

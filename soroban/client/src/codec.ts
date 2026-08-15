@@ -3,8 +3,8 @@ import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk
 import {
   ContractConfig,
   Asset,
-  CONTRACT_ERROR_CODES,
   ContractErrorCode,
+  getContractErrorCode,
   PaymentHistoryPage,
   PaymentRecord,
   SorobanContractError,
@@ -151,16 +151,14 @@ const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)|contractError\((\d+)\)/;
 
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
- * Returns code `Unknown` (-1) when the numeric code is not in the known set.
+ * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code
+ * `Unknown` (-1) when the numeric code is not in the known set.
  */
 export function parseContractError(errorString: string): SorobanContractError {
   const match = CONTRACT_ERROR_RE.exec(errorString);
   // Group 1 = new SDK v14 format `Error(Contract, #N)`, group 2 = legacy `contractError(N)`
   const numericCode = match ? parseInt(match[1] ?? match[2], 10) : -1;
-  const code: ContractErrorCode =
-    numericCode in CONTRACT_ERROR_CODES
-      ? (CONTRACT_ERROR_CODES as Record<number, ContractErrorCode>)[numericCode]
-      : 'Unknown';
+  const code: ContractErrorCode = getContractErrorCode(numericCode);
 
   return new SorobanContractError(
     code,
