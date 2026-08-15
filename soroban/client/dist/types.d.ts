@@ -63,19 +63,8 @@ export interface PaymentHistoryPage {
     readonly nextCursor: number;
     readonly hasMore: boolean;
 }
-/** Numeric codes matching the Rust `ContractError` enum. */
-export declare const CONTRACT_ERROR_CODES: {
-    readonly 1: "AlreadyInitialized";
-    readonly 2: "NotInitialized";
-    readonly 3: "PaymentAlreadyRecorded";
-    readonly 4: "PaymentNotFound";
-    readonly 5: "InvalidAmount";
-    readonly 6: "InvalidInvoiceId";
-    readonly 7: "InvalidAsset";
-    readonly 8: "AssetNotAllowed";
-    readonly 9: "Unauthorized";
-};
-export type ContractErrorCode = (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTRACT_ERROR_CODES] | 'Unknown';
+import { CONTRACT_ERROR_CODES, CONTRACT_ERROR_MANIFEST, ContractErrorCode, ContractErrorManifestEntry, ContractErrorName, getContractError, getContractErrorCode } from './error-manifest';
+export { CONTRACT_ERROR_CODES, CONTRACT_ERROR_MANIFEST, ContractErrorCode, ContractErrorManifestEntry, ContractErrorName, getContractError, getContractErrorCode, };
 export declare class SorobanContractError extends Error {
     readonly code: ContractErrorCode;
     readonly numericCode: number;

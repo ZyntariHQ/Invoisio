@@ -7,7 +7,7 @@
   "files": ["dist", "src"],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
     "example:query": "ts-node -r dotenv/config examples/query-payment.ts",
