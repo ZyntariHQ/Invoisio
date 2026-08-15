@@ -7,11 +7,22 @@ import {
   Linking,
   Modal,
   Pressable,
+  Share,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { parseQrCode, type ParsedPayment } from "../lib/parse-qr";
+import {
+  parseQrCode,
+  type ParseQrErrorCode,
+  type ParsedPayment,
+} from "../lib/parse-qr";
+
+const QR_ERROR_TITLES: Record<ParseQrErrorCode, string> = {
+  "unsupported-format": "Unsupported QR code",
+  "missing-destination": "Incomplete QR code",
+  "invalid-destination": "Invalid destination",
+};
 
 export default function ScanScreen() {
   const router = useRouter();
@@ -32,6 +43,8 @@ export default function ScanScreen() {
   }
 
   if (!permission.granted) {
+    const blocked = !permission.canAskAgain;
+
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-[#050914] px-8">
         <Text
@@ -44,19 +57,35 @@ export default function ScanScreen() {
           className="mt-3 text-center text-base text-slate-400"
           style={{ fontFamily: "SpaceGrotesk_400Regular" }}
         >
-          Allow camera access to scan Stellar payment QR codes.
+          {blocked
+            ? "Camera access is blocked. Open your device settings to allow Invoisio to use the camera for scanning Stellar payment QR codes."
+            : "Allow camera access to scan Stellar payment QR codes."}
         </Text>
-        <Pressable
-          className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
-          onPress={() => void requestPermission()}
-        >
-          <Text
-            className="text-white"
-            style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+        {blocked ? (
+          <Pressable
+            className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            onPress={() => void Linking.openSettings()}
           >
-            Grant permission
-          </Text>
-        </Pressable>
+            <Text
+              className="text-white"
+              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+            >
+              Open Settings
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            onPress={() => void requestPermission()}
+          >
+            <Text
+              className="text-white"
+              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+            >
+              Grant permission
+            </Text>
+          </Pressable>
+        )}
         <Pressable
           className="mt-4 px-4 py-3"
           onPress={() => {
@@ -82,16 +111,30 @@ export default function ScanScreen() {
 
     const result = parseQrCode(data);
 
-    if (typeof result === "string") {
-      // error message
-      Alert.alert("Invalid QR code", result, [
-        {
-          text: "Try again",
-          onPress: () => {
-            processingRef.current = false;
+    if ("code" in result) {
+      // cancelable:false guarantees the user picks an action, so the scanner
+      // can never be left silently disabled by an outside-tap dismissal.
+      Alert.alert(
+        QR_ERROR_TITLES[result.code],
+        result.message,
+        [
+          {
+            text: "Try again",
+            onPress: () => {
+              processingRef.current = false;
+            },
           },
-        },
-      ]);
+          {
+            text: "Stop scanning",
+            style: "cancel",
+            onPress: () => {
+              processingRef.current = false;
+              router.back();
+            },
+          },
+        ],
+        { cancelable: false },
+      );
       return;
     }
 
@@ -99,23 +142,66 @@ export default function ScanScreen() {
     setScanned(true);
   };
 
+  const sharePaymentLink = async (payment: ParsedPayment) => {
+    try {
+      await Share.share({
+        message: payment.sep0007Uri,
+        title: "Stellar payment",
+      });
+    } catch {
+      Alert.alert(
+        "Unable to share",
+        "The payment link could not be shared. Please try again.",
+        [{ text: "OK" }],
+      );
+    }
+  };
+
+  const openWallet = async (payment: ParsedPayment) => {
+    const canOpen = await Linking.canOpenURL(payment.sep0007Uri);
+    if (!canOpen) {
+      Alert.alert(
+        "No wallet found",
+        "No Stellar wallet app (e.g. LOBSTR) is installed that can handle this payment link. Share the link to open it in a wallet or browser, or install a Stellar wallet and try again.",
+        [
+          {
+            text: "Share link",
+            onPress: () => void sharePaymentLink(payment),
+          },
+          {
+            text: "Try again",
+            onPress: () => void openWallet(payment),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
+      return;
+    }
+    await Linking.openURL(payment.sep0007Uri);
+  };
+
   const handleConfirmPayment = async () => {
     if (!payment) return;
     setLaunching(true);
 
     try {
-      const canOpen = await Linking.canOpenURL(payment.sep0007Uri);
-      if (canOpen) {
-        await Linking.openURL(payment.sep0007Uri);
-      } else {
-        Alert.alert(
-          "No wallet found",
-          "No Stellar wallet app (e.g. LOBSTR) is installed that can handle this payment link.",
-          [{ text: "OK" }],
-        );
-      }
+      await openWallet(payment);
     } catch {
-      Alert.alert("Error", "Failed to open wallet app. Please try again.");
+      Alert.alert(
+        "Couldn't open wallet",
+        "The wallet app could not be opened. Try again, or share the payment link to open it elsewhere.",
+        [
+          {
+            text: "Try again",
+            onPress: () => void handleConfirmPayment(),
+          },
+          {
+            text: "Share link",
+            onPress: () => void sharePaymentLink(payment),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
     } finally {
       setLaunching(false);
     }
