@@ -12,6 +12,24 @@ export type {
   RecordPaymentParams,
   SorobanInvoiceClientConfig,
   TransactionResult,
+  InvoicePaymentRecordedEvent,
+  AssetAllowlistedEvent,
+  AssetRevokedEvent,
+  NativeAllowChangedEvent,
+  StorageSchemaUpgradedEvent,
+  ContractPausedEvent,
+  InvoisioContractEvent,
 } from './types';
 
 export { CONTRACT_ERROR_CODES, SorobanContractError } from './types';
+
+export {
+  decodeContractEvent,
+  decodeInvoicePaymentRecordedEvent,
+  decodeAssetAllowlistedEvent,
+  decodeAssetRevokedEvent,
+  decodeNativeAllowChangedEvent,
+  decodeStorageSchemaUpgradedEvent,
+  decodeContractPausedEvent,
+} from './codec';
+

@@ -6,7 +6,15 @@ exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
+exports.decodeContractConfig = decodeContractConfig;
 exports.parseContractError = parseContractError;
+exports.decodeInvoicePaymentRecordedEvent = decodeInvoicePaymentRecordedEvent;
+exports.decodeAssetAllowlistedEvent = decodeAssetAllowlistedEvent;
+exports.decodeAssetRevokedEvent = decodeAssetRevokedEvent;
+exports.decodeNativeAllowChangedEvent = decodeNativeAllowChangedEvent;
+exports.decodeStorageSchemaUpgradedEvent = decodeStorageSchemaUpgradedEvent;
+exports.decodeContractPausedEvent = decodeContractPausedEvent;
+exports.decodeContractEvent = decodeContractEvent;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
 // ─── Encoders (TypeScript → XDR ScVal) ───────────────────────────────────────
@@ -142,5 +150,100 @@ function parseContractError(errorString) {
         ? types_1.CONTRACT_ERROR_CODES[numericCode]
         : 'Unknown';
     return new types_1.SorobanContractError(code, numericCode, `Soroban contract error: ${code} (code=${numericCode})`);
+}
+// ─── Event Decoding ───────────────────────────────────────────────────────────
+function normalizeEventPayload(rawOrScVal) {
+    if (rawOrScVal !== null && typeof rawOrScVal === 'object' && 'switch' in rawOrScVal) {
+        return (0, stellar_sdk_1.scValToNative)(rawOrScVal);
+    }
+    if (rawOrScVal !== null && typeof rawOrScVal === 'object') {
+        return rawOrScVal;
+    }
+    throw new Error(`Invalid event payload format: ${JSON.stringify(rawOrScVal)}`);
+}
+function decodeInvoicePaymentRecordedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'invoice_payment_recorded',
+        schemaVersion: Number(raw['schema_version'] ?? 1),
+        invoiceId: String(raw['invoice_id'] ?? ''),
+        payer: String(raw['payer'] ?? ''),
+        assetCode: String(raw['asset_code'] ?? ''),
+        assetIssuer: String(raw['asset_issuer'] ?? ''),
+        amount: BigInt(raw['amount'] ?? 0),
+        settlementRef: String(raw['settlement_ref'] ?? ''),
+    };
+}
+function decodeAssetAllowlistedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'asset_allowlisted',
+        code: String(raw['code'] ?? ''),
+        issuer: String(raw['issuer'] ?? ''),
+    };
+}
+function decodeAssetRevokedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'asset_revoked',
+        code: String(raw['code'] ?? ''),
+        issuer: String(raw['issuer'] ?? ''),
+    };
+}
+function decodeNativeAllowChangedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'native_allow_changed',
+        allowed: Boolean(raw['allowed']),
+    };
+}
+function decodeStorageSchemaUpgradedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'storage_schema_upgraded',
+        fromVersion: Number(raw['from_version'] ?? 0),
+        toVersion: Number(raw['to_version'] ?? 0),
+        upgradedAt: BigInt(raw['upgraded_at'] ?? 0),
+    };
+}
+function decodeContractPausedEvent(rawOrScVal) {
+    const raw = normalizeEventPayload(rawOrScVal);
+    return {
+        type: 'contract_paused',
+        paused: Boolean(raw['paused']),
+        triggeredBy: String(raw['triggered_by'] ?? ''),
+        timestamp: BigInt(raw['timestamp'] ?? 0),
+    };
+}
+/**
+ * Decode a generic Soroban event into a typed InvoisioContractEvent based on its topic.
+ */
+function decodeContractEvent(event) {
+    const firstTopic = event.topic[0];
+    const topicName = typeof firstTopic === 'string'
+        ? firstTopic
+        : String((0, stellar_sdk_1.scValToNative)(firstTopic));
+    switch (topicName) {
+        case 'InvoicePaymentRecorded':
+        case 'invoice_payment_recorded':
+            return decodeInvoicePaymentRecordedEvent(event.data);
+        case 'AssetAllowlisted':
+        case 'asset_allowlisted':
+            return decodeAssetAllowlistedEvent(event.data);
+        case 'AssetRevoked':
+        case 'asset_revoked':
+            return decodeAssetRevokedEvent(event.data);
+        case 'NativeAllowChanged':
+        case 'native_allow_changed':
+            return decodeNativeAllowChangedEvent(event.data);
+        case 'StorageSchemaUpgraded':
+        case 'storage_schema_upgraded':
+            return decodeStorageSchemaUpgradedEvent(event.data);
+        case 'ContractPaused':
+        case 'contract_paused':
+            return decodeContractPausedEvent(event.data);
+        default:
+            throw new Error(`Unknown contract event topic: ${topicName}`);
+    }
 }
 //# sourceMappingURL=codec.js.map

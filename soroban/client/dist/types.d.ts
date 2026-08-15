@@ -118,4 +118,41 @@ export interface TransactionResult {
     readonly hash: string;
     readonly ledger: number;
 }
+export interface InvoicePaymentRecordedEvent {
+    readonly type: 'invoice_payment_recorded';
+    readonly schemaVersion: number;
+    readonly invoiceId: string;
+    readonly payer: string;
+    readonly assetCode: string;
+    readonly assetIssuer: string;
+    readonly amount: bigint;
+    readonly settlementRef: string;
+}
+export interface AssetAllowlistedEvent {
+    readonly type: 'asset_allowlisted';
+    readonly code: string;
+    readonly issuer: string;
+}
+export interface AssetRevokedEvent {
+    readonly type: 'asset_revoked';
+    readonly code: string;
+    readonly issuer: string;
+}
+export interface NativeAllowChangedEvent {
+    readonly type: 'native_allow_changed';
+    readonly allowed: boolean;
+}
+export interface StorageSchemaUpgradedEvent {
+    readonly type: 'storage_schema_upgraded';
+    readonly fromVersion: number;
+    readonly toVersion: number;
+    readonly upgradedAt: bigint;
+}
+export interface ContractPausedEvent {
+    readonly type: 'contract_paused';
+    readonly paused: boolean;
+    readonly triggeredBy: string;
+    readonly timestamp: bigint;
+}
+export type InvoisioContractEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent;
 //# sourceMappingURL=types.d.ts.map

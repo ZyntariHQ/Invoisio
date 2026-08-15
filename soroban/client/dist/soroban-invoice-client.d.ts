@@ -1,4 +1,5 @@
-import { PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
+import { xdr } from '@stellar/stellar-sdk';
+import { ContractConfig, InvoisioContractEvent, PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
 /**
  * Minimal client helper for the Invoisio `invoice-payment` Soroban contract.
  *
@@ -86,5 +87,12 @@ export declare class SorobanInvoiceClient {
     private awaitTransaction;
     private resolveSourcePublicKey;
     private requireSigner;
+    /**
+     * Decode a contract event into a strongly-typed InvoisioContractEvent object.
+     */
+    decodeEvent(event: {
+        topic: (xdr.ScVal | string)[];
+        data: xdr.ScVal | unknown;
+    }): InvoisioContractEvent;
 }
 //# sourceMappingURL=soroban-invoice-client.d.ts.map

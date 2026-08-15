@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
+import { ContractConfig, PaymentHistoryPage, PaymentRecord, SorobanContractError, InvoicePaymentRecordedEvent, AssetAllowlistedEvent, AssetRevokedEvent, NativeAllowChangedEvent, StorageSchemaUpgradedEvent, ContractPausedEvent, InvoisioContractEvent } from './types';
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**
@@ -22,8 +22,33 @@ export declare function decodePaymentRecord(scVal: xdr.ScVal): PaymentRecord;
  */
 export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage;
 /**
+ * Decode the stable `config()` response returned by the contract.
+ *
+ * Rust fields are snake_case:
+ * - admin
+ * - initialized
+ * - version.contract_version
+ * - version.storage_schema_version
+ * - allowlist_mode.native_allowed
+ * - allowlist_mode.requires_token_allowlist
+ */
+export declare function decodeContractConfig(scVal: xdr.ScVal): ContractConfig;
+/**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
  * Returns code `Unknown` (-1) when the numeric code is not in the known set.
  */
 export declare function parseContractError(errorString: string): SorobanContractError;
+export declare function decodeInvoicePaymentRecordedEvent(rawOrScVal: xdr.ScVal | unknown): InvoicePaymentRecordedEvent;
+export declare function decodeAssetAllowlistedEvent(rawOrScVal: xdr.ScVal | unknown): AssetAllowlistedEvent;
+export declare function decodeAssetRevokedEvent(rawOrScVal: xdr.ScVal | unknown): AssetRevokedEvent;
+export declare function decodeNativeAllowChangedEvent(rawOrScVal: xdr.ScVal | unknown): NativeAllowChangedEvent;
+export declare function decodeStorageSchemaUpgradedEvent(rawOrScVal: xdr.ScVal | unknown): StorageSchemaUpgradedEvent;
+export declare function decodeContractPausedEvent(rawOrScVal: xdr.ScVal | unknown): ContractPausedEvent;
+/**
+ * Decode a generic Soroban event into a typed InvoisioContractEvent based on its topic.
+ */
+export declare function decodeContractEvent(event: {
+    topic: (xdr.ScVal | string)[];
+    data: xdr.ScVal | unknown;
+}): InvoisioContractEvent;
 //# sourceMappingURL=codec.d.ts.map

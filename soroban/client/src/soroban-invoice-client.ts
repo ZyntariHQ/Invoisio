@@ -11,6 +11,8 @@ import {
 } from '@stellar/stellar-sdk';
 
 import {
+  ContractConfig,
+  InvoisioContractEvent,
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
@@ -19,6 +21,7 @@ import {
 } from './types';
 import {
   decodeContractConfig,
+  decodeContractEvent,
   decodePaymentRecord,
   decodePaymentHistoryPage,
   encodeAddress,
@@ -268,6 +271,16 @@ export class SorobanInvoiceClient {
     if (!this.keypair) {
       throw new Error('signerSecretKey is required for write operations');
     }
+  }
+
+  /**
+   * Decode a contract event into a strongly-typed InvoisioContractEvent object.
+   */
+  decodeEvent(event: {
+    topic: (xdr.ScVal | string)[];
+    data: xdr.ScVal | unknown;
+  }): InvoisioContractEvent {
+    return decodeContractEvent(event);
   }
 }
 

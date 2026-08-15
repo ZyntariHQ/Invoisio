@@ -195,6 +195,12 @@ class SorobanInvoiceClient {
             throw new Error('signerSecretKey is required for write operations');
         }
     }
+    /**
+     * Decode a contract event into a strongly-typed InvoisioContractEvent object.
+     */
+    decodeEvent(event) {
+        return (0, codec_1.decodeContractEvent)(event);
+    }
 }
 exports.SorobanInvoiceClient = SorobanInvoiceClient;
 function sleep(ms) {
