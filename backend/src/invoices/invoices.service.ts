@@ -779,6 +779,106 @@ export class InvoicesService implements OnModuleInit {
     };
   }
 
+  /**
+   * Track public invoice engagement and payer conversion actions (views, wallet launches, copies).
+   */
+  async trackPublicInvoiceEvent(
+    invoiceId: string,
+    dto: { action: string; metadata?: Record<string, unknown> },
+  ): Promise<{ success: boolean; eventId?: string }> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { id: true, merchantId: true, invoiceNumber: true },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException("Invoice not found");
+    }
+
+    const actionDescriptions: Record<string, string> = {
+      view: "Payer viewed public invoice",
+      wallet_launch: "Payer launched wallet payment flow",
+      copy_address: "Payer copied destination address",
+      copy_memo: "Payer copied transaction memo",
+      copy_amount: "Payer copied payment amount",
+      qr_expand: "Payer expanded QR code",
+      download_pdf: "Payer downloaded invoice PDF",
+    };
+
+    const description =
+      actionDescriptions[dto.action] ?? `Payer triggered ${dto.action}`;
+
+    const metadata: Record<string, unknown> = {
+      action: dto.action,
+      invoiceNumber: invoice.invoiceNumber,
+      timestamp: new Date().toISOString(),
+      ...(dto.metadata ?? {}),
+    };
+
+    const event = await this.prisma.activityEvent.create({
+      data: {
+        merchantId: invoice.merchantId,
+        invoiceId: invoice.id,
+        type: `public_invoice_${dto.action}`,
+        description,
+        metadata: metadata as any,
+      },
+    });
+
+    return { success: true, eventId: event.id };
+  }
+
+  /**
+   * Aggregate public conversion metrics for an invoice.
+   */
+  async getInvoiceConversionMetrics(
+    merchantId: string,
+    invoiceId: string,
+  ): Promise<{
+    views: number;
+    walletLaunches: number;
+    copies: number;
+    totalActions: number;
+    lastActionAt: Date | null;
+  }> {
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, merchantId },
+      select: { id: true },
+    });
+
+    if (!invoice) {
+      throw new NotFoundException("Invoice not found");
+    }
+
+    const events = await this.prisma.activityEvent.findMany({
+      where: {
+        merchantId,
+        invoiceId,
+        type: { startsWith: "public_invoice_" },
+      },
+      select: { type: true, createdAt: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    let views = 0;
+    let walletLaunches = 0;
+    let copies = 0;
+
+    for (const ev of events) {
+      if (ev.type === "public_invoice_view") views++;
+      else if (ev.type === "public_invoice_wallet_launch") walletLaunches++;
+      else if (ev.type.startsWith("public_invoice_copy_")) copies++;
+    }
+
+    return {
+      views,
+      walletLaunches,
+      copies,
+      totalActions: events.length,
+      lastActionAt: events.length > 0 ? events[0].createdAt : null,
+    };
+  }
+
   async applySorobanPaymentEvent(evt: {
     eventId: string;
     contractId?: string;

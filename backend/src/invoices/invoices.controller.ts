@@ -33,6 +33,7 @@ import {
   UpdateDraftDto,
   DraftResponseDto,
 } from "./dto/draft-invoice.dto";
+import { TrackPublicEventDto } from "./dto/track-public-event.dto";
 
 /**
  * Invoices controller
@@ -118,6 +119,37 @@ export class InvoicesController {
       throw new BadRequestException("Invoice not found");
     }
     return invoice;
+  }
+
+  /**
+   * Track public invoice engagement action (views, wallet launches, details copied)
+   * @param id - Invoice UUID
+   * @param dto - Track event data
+   * @returns Success status
+   */
+  @Post("public/:id/events")
+  @Throttle({ default: { limit: 120, ttl: 60000 } }) // 120 requests per minute
+  async trackPublicEvent(
+    @Param("id") id: string,
+    @Body() dto: TrackPublicEventDto,
+  ) {
+    return await this.invoicesService.trackPublicInvoiceEvent(id, dto);
+  }
+
+  /**
+   * Get public funnel conversion metrics for an invoice (authenticated merchant)
+   * @param id - Invoice UUID
+   * @returns Conversion metrics (views, wallet launches, copies, total actions)
+   */
+  @Auth()
+  @Get(":id/conversion-metrics")
+  async getConversionMetrics(
+    @CurrentUser() user: User,
+    @Param("id") id: string,
+  ) {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.invoicesService.getInvoiceConversionMetrics(user.merchantId, id),
+    );
   }
 
   /**
