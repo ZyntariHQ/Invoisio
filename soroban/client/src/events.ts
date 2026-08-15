@@ -147,10 +147,13 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
   let payload: unknown[] | Record<string, unknown>;
 
   try {
+    if (!event.topics || event.topics.length === 0) {
+      return { type: 'unknown', reason: 'missing event topic' };
+    }
     const topic = parseScVal(event.topics[0]);
     name = String(scValToNative(topic));
     const raw = scValToNative(parseScVal(event.data));
-    if (!Array.isArray(raw) || (raw !== null && typeof raw !== 'object')) {
+    if (!(Array.isArray(raw) || (raw !== null && typeof raw === 'object'))) {
       return { type: 'unknown', name, reason: 'event data is neither a struct nor a vec' };
     }
     payload = raw as unknown[] | Record<string, unknown>;
