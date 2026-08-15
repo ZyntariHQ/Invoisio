@@ -48,6 +48,7 @@ export class AuthController {
       id: user.id,
       publicKey: user.publicKey,
       createdAt: user.createdAt,
+      pushNotificationsEnabled: user.pushNotificationsEnabled,
     };
   }
 
