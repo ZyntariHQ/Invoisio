@@ -39,3 +39,28 @@ jobs:
 
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
+
+      - name: Check Rust Schema Drift
+        run: |
+          cd contracts/invoice-payment
+          make schema
+          git diff --exit-code schema.json
+
+      - name: Install Stellar CLI
+        uses: stellar/actions/setup-cli@main
+
+      - name: Install Client Dependencies
+        run: |
+          cd client
+          npm ci
+
+      - name: Check TS Bindings Drift
+        run: |
+          cd client
+          npm run generate
+          git diff --exit-code src/generated
+
+      - name: Typecheck TypeScript Client
+        run: |
+          cd client
+          npm run typecheck

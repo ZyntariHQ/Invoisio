@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "generate": "stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/invoice_payment.wasm --network testnet --output-dir src/generated",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
     "example:query": "ts-node -r dotenv/config examples/query-payment.ts",
     "example:config": "ts-node -r dotenv/config examples/query-config.ts"
