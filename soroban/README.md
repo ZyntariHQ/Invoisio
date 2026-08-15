@@ -18,6 +18,9 @@ soroban/
 ├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
 ├── invoke-payment-history.sh       # Page through payment history
+├── invoke-is-paused.sh             # Inspect emergency pause state
+├── invoke-version-info.sh          # Inspect contract version & schema
+├── invoke-inspect-status.sh        # Full operational status inspection
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
