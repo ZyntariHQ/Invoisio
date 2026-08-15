@@ -17,10 +17,32 @@
               "function_name": "allow_asset",
               "args": [
                 {
-                  "string": "ABCDEFGHIJKL"
+                  "string": "USDC"
                 },
                 {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  "string": "GBIssuer1"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "allow_asset",
+              "args": [
+                {
+                  "string": "USDC"
+                },
+                {
+                  "string": "GBIssuer1"
                 }
               ]
             }
@@ -39,22 +61,22 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-12-char-code"
+                  "string": "inv-double-allow"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "ABCDEFGHIJKL"
+                  "string": "USDC"
                 },
                 {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  "string": "GBIssuer1"
                 },
                 {
-                  "i128": "50000000"
+                  "i128": "100"
                 },
                 {
-                  "string": "settle-12-char"
+                  "string": "settle-double-allow"
                 }
               ]
             }
@@ -104,6 +126,26 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
                 }
               },
@@ -128,10 +170,10 @@
                     "symbol": "AllowList"
                   },
                   {
-                    "string": "ABCDEFGHIJKL"
+                    "string": "USDC"
                   },
                   {
-                    "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                    "string": "GBIssuer1"
                   }
                 ]
               },
@@ -168,7 +210,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "100"
                     }
                   },
                   {
@@ -181,10 +223,10 @@
                           "symbol": "Token"
                         },
                         {
-                          "string": "ABCDEFGHIJKL"
+                          "string": "USDC"
                         },
                         {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "string": "GBIssuer1"
                         }
                       ]
                     }
@@ -194,7 +236,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-12-char-code"
+                      "string": "inv-double-allow"
                     }
                   },
                   {
@@ -210,7 +252,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-12-char"
+                      "string": "settle-double-allow"
                     }
                   },
                   {
@@ -242,7 +284,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-12-char-code"
+                    "string": "inv-double-allow"
                   }
                 ]
               },
@@ -254,7 +296,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "100"
                     }
                   },
                   {
@@ -267,10 +309,10 @@
                           "symbol": "Token"
                         },
                         {
-                          "string": "ABCDEFGHIJKL"
+                          "string": "USDC"
                         },
                         {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "string": "GBIssuer1"
                         }
                       ]
                     }
@@ -280,7 +322,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-12-char-code"
+                      "string": "inv-double-allow"
                     }
                   },
                   {
@@ -296,7 +338,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-12-char"
+                      "string": "settle-double-allow"
                     }
                   },
                   {
