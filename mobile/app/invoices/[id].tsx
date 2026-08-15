@@ -119,6 +119,22 @@ export default function InvoiceDetailScreen() {
               </Text>
             </Pressable>
           </View>
+          {invoice &&
+          (invoice.status === "paid" || invoice.status === "partially_paid") ? (
+            <Pressable
+              className="mb-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3"
+              onPress={() => {
+                router.push(`/receipts/${invoice.id}`);
+              }}
+            >
+              <Text
+                className="text-center text-emerald-300"
+                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+              >
+                🧾 View payment receipt
+              </Text>
+            </Pressable>
+          ) : null}
           {isLoading ? (
             <View className="h-32 animate-pulse rounded-2xl bg-white/10" />
           ) : invoice ? (
@@ -167,7 +183,9 @@ export default function InvoiceDetailScreen() {
                           ? "text-yellow-300"
                           : invoice.status === "paid"
                             ? "text-emerald-300"
-                            : "text-red-300"
+                            : invoice.status === "partially_paid"
+                              ? "text-sky-300"
+                              : "text-red-300"
                       }`}
                       style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
                     >

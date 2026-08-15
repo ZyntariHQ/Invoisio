@@ -17,6 +17,10 @@ export class NotificationsService {
       invoice.merchantId,
       `Invoice Paid: ${invoice.invoiceNumber}`,
       `Invoice ${invoice.invoiceNumber} for ${invoice.amount.toString()} ${invoice.assetCode} has been paid.`,
+      {
+        invoiceId: invoice.id,
+        deepLink: `invoisio://receipt/${invoice.id}`,
+      },
     );
   }
 
@@ -32,6 +36,7 @@ export class NotificationsService {
     merchantId: string,
     title: string,
     body: string,
+    data?: Record<string, unknown>,
   ) {
     const users = await this.prisma.user.findMany({
       where: {
@@ -55,7 +60,7 @@ export class NotificationsService {
           sound: "default",
           title,
           body,
-          data: { withSome: "data" },
+          data: data ?? { withSome: "data" },
         });
       }
     }
