@@ -14,13 +14,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "allow_asset",
+              "function_name": "set_allow_native",
               "args": [
                 {
-                  "string": "ABCDEFGHIJKL"
-                },
-                {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  "bool": true
                 }
               ]
             }
@@ -36,25 +33,45 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "set_allow_native",
+              "args": [
+                {
+                  "bool": true
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-12-char-code"
+                  "string": "inv-native-idempotent-true"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "ABCDEFGHIJKL"
+                  "string": "XLM"
                 },
                 {
-                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  "string": ""
                 },
                 {
-                  "i128": "50000000"
+                  "i128": "100"
                 },
                 {
-                  "string": "settle-12-char"
+                  "string": "settle-native-idempotent-true"
                 }
               ]
             }
@@ -104,7 +121,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "5541220902715666415"
+                  "nonce": "1033654523790656264"
                 }
               },
               "durability": "temporary",
@@ -121,27 +138,19 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "ABCDEFGHIJKL"
-                  },
-                  {
-                    "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
-                  }
-                ]
+                "ledger_key_nonce": {
+                  "nonce": "5541220902715666415"
+                }
               },
-              "durability": "persistent",
+              "durability": "temporary",
               "val": "void"
             }
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -168,7 +177,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "100"
                     }
                   },
                   {
@@ -178,13 +187,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "ABCDEFGHIJKL"
-                        },
-                        {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -194,7 +197,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-12-char-code"
+                      "string": "inv-native-idempotent-true"
                     }
                   },
                   {
@@ -210,7 +213,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-12-char"
+                      "string": "settle-native-idempotent-true"
                     }
                   },
                   {
@@ -242,7 +245,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-12-char-code"
+                    "string": "inv-native-idempotent-true"
                   }
                 ]
               },
@@ -254,7 +257,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "50000000"
+                      "i128": "100"
                     }
                   },
                   {
@@ -264,13 +267,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "ABCDEFGHIJKL"
-                        },
-                        {
-                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -280,7 +277,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-12-char-code"
+                      "string": "inv-native-idempotent-true"
                     }
                   },
                   {
@@ -296,7 +293,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-12-char"
+                      "string": "settle-native-idempotent-true"
                     }
                   },
                   {
@@ -340,6 +337,18 @@
                       },
                       "val": {
                         "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "AllowNative"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "bool": true
                       }
                     },
                     {

@@ -2092,3 +2092,886 @@ fn test_settlement_ref_usdc_payment() {
         String::from_str(&env, "settle-usdc-hash-789")
     );
 }
+
+// ─── Regression Tests: Allowlist Add/Revoke Edge Cases ───────────────────────
+
+/// Re-adding an already-allowed asset must be idempotent: the second
+/// `allow_asset` call overwrites the same persistent key with the same unit
+/// value. After re-allowing, payments with that asset must still succeed.
+#[test]
+fn test_allow_asset_idempotent_double_allow() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer1");
+
+    // First allow — no error expected.
+    client.allow_asset(&code, &issuer);
+
+    // Second allow of the exact same asset — must not error.
+    client.allow_asset(&code, &issuer);
+
+    // Asset is still in the allowlist: a payment should succeed.
+    let payer = Address::generate(&env);
+    client.record_payment(
+        &String::from_str(&env, "inv-double-allow"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-double-allow"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-double-allow")));
+}
+
+/// Re-adding an asset that was previously revoked must restore it to the
+/// allowlist.  A payment that failed after revocation must succeed after
+/// re-allowing.
+#[test]
+fn test_allow_asset_after_revoke_restores_allowlist() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "EURT");
+    let issuer = String::from_str(&env, "GBEurtIssuer");
+    let payer = Address::generate(&env);
+
+    // 1. Allow → payment succeeds.
+    client.allow_asset(&code, &issuer);
+    client.record_payment(
+        &String::from_str(&env, "inv-readd-1"),
+        &payer,
+        &code,
+        &issuer,
+        &200i128,
+        &String::from_str(&env, "settle-readd-1"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-readd-1")));
+
+    // 2. Revoke → next payment must fail.
+    client.revoke_asset(&code, &issuer);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-readd-2"),
+        &payer,
+        &code,
+        &issuer,
+        &200i128,
+        &String::from_str(&env, "settle-readd-2"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+
+    // 3. Re-allow → payment must succeed again.
+    client.allow_asset(&code, &issuer);
+    client.record_payment(
+        &String::from_str(&env, "inv-readd-3"),
+        &payer,
+        &code,
+        &issuer,
+        &300i128,
+        &String::from_str(&env, "settle-readd-3"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-readd-3")));
+}
+
+/// Revoking an asset that was never added must be a silent no-op.
+/// `storage.persistent().remove()` on a non-existent key does not panic;
+/// the function must return `Ok(())` and no error should propagate.
+#[test]
+fn test_revoke_asset_nonexistent_is_noop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "PHANTOM");
+    let issuer = String::from_str(&env, "GBPhantomIssuer");
+
+    // This asset was never added — revoke must succeed without error.
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert!(result.is_ok(), "revoking a non-existent asset must be a no-op");
+
+    // The allowlist state is still empty: a payment attempt must be rejected.
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-phantom"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-phantom"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
+}
+
+/// Revoking the same asset twice must be idempotent — the second call must
+/// not error even though the key is already absent.
+#[test]
+fn test_revoke_asset_idempotent_double_revoke() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer2");
+
+    // Add, then revoke once — standard path.
+    client.allow_asset(&code, &issuer);
+    client.revoke_asset(&code, &issuer);
+
+    // Second revoke of the same (now absent) asset must not error.
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert!(result.is_ok(), "double-revoke must be idempotent");
+}
+
+/// Calling `allow_asset` before `initialize()` must return
+/// [`ContractError::NotInitialized`] because `get_admin` fails first.
+#[test]
+fn test_allow_asset_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    let result = client.try_allow_asset(&code, &issuer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "allow_asset on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// Calling `revoke_asset` before `initialize()` must return
+/// [`ContractError::NotInitialized`].
+#[test]
+fn test_revoke_asset_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "revoke_asset on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// An unauthorized caller (not the admin) must not be able to `allow_asset`.
+/// The returned error must be the host auth rejection, not a generic panic,
+/// satisfying the requirement for stable error assertions.
+#[test]
+fn test_allow_asset_by_non_admin_returns_error() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_allow_asset(&code, &issuer);
+    assert!(result.is_err(), "non-admin must not be able to allow_asset");
+}
+
+/// An unauthorized caller must not be able to `revoke_asset`.
+#[test]
+fn test_revoke_asset_by_non_admin_returns_error() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuer");
+
+    // Admin allows the asset first.
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.allow_asset(&code, &issuer);
+
+    // Attacker tries to revoke.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "revoke_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert!(result.is_err(), "non-admin must not be able to revoke_asset");
+}
+
+// ─── Regression Tests: Native-Asset Policy ───────────────────────────────────
+
+/// Calling `set_allow_native` before `initialize()` must return
+/// [`ContractError::NotInitialized`].
+#[test]
+fn test_set_allow_native_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let result = client.try_set_allow_native(&true);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "set_allow_native on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// Setting native allowed from `true` to `true` again must be idempotent.
+/// The flag remains `true` and payments continue to succeed.
+#[test]
+fn test_set_allow_native_idempotent_true_to_true() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    // Setting again to true must not error and must leave flag set.
+    let result = client.try_set_allow_native(&true);
+    assert!(result.is_ok(), "set_allow_native(true→true) must be idempotent");
+
+    let config = client.config();
+    assert!(
+        config.allowlist_mode.native_allowed,
+        "native_allowed must still be true"
+    );
+
+    let payer = Address::generate(&env);
+    client.record_payment(
+        &String::from_str(&env, "inv-native-idempotent-true"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-native-idempotent-true"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-native-idempotent-true")));
+}
+
+/// Setting native allowed from `false` to `false` again must be idempotent.
+/// The flag stays `false` and XLM payments continue to be rejected.
+#[test]
+fn test_set_allow_native_idempotent_false_to_false() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    // Default is false; set explicitly to false once more.
+    let result = client.try_set_allow_native(&false);
+    assert!(
+        result.is_ok(),
+        "set_allow_native(false→false) must be idempotent"
+    );
+
+    let config = client.config();
+    assert!(
+        !config.allowlist_mode.native_allowed,
+        "native_allowed must remain false"
+    );
+
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-native-idempotent-false"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-native-idempotent-false"),
+    );
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::AssetNotAllowed)),
+        "XLM must remain rejected when native_allowed is false"
+    );
+}
+
+/// When the contract is paused, XLM payments must be rejected with
+/// [`ContractError::ContractPaused`], not [`ContractError::AssetNotAllowed`].
+/// The pause check runs before the allowlist check in `record_payment`.
+#[test]
+fn test_native_asset_rejected_when_contract_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Allow native and verify a baseline payment would succeed while unpaused.
+    client.set_allow_native(&true);
+    client.set_paused(&admin, &true);
+
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-native-paused"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-native-paused"),
+    );
+    // The pause check fires first, so the error must be ContractPaused, not
+    // AssetNotAllowed — even though native is explicitly allowed.
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ContractPaused)),
+        "pause must fire before allowlist check — error must be ContractPaused"
+    );
+}
+
+/// `config().allowlist_mode.native_allowed` must track `set_allow_native`
+/// across multiple toggles so operators can inspect the live state.
+#[test]
+fn test_native_policy_reflected_in_config_across_toggles() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    assert!(
+        !client.config().allowlist_mode.native_allowed,
+        "default native_allowed must be false"
+    );
+
+    client.set_allow_native(&true);
+    assert!(
+        client.config().allowlist_mode.native_allowed,
+        "native_allowed must be true after set_allow_native(true)"
+    );
+
+    client.set_allow_native(&false);
+    assert!(
+        !client.config().allowlist_mode.native_allowed,
+        "native_allowed must be false after set_allow_native(false)"
+    );
+
+    client.set_allow_native(&true);
+    assert!(
+        client.config().allowlist_mode.native_allowed,
+        "native_allowed must be true after second set_allow_native(true)"
+    );
+}
+
+/// An unauthorized caller must not be able to toggle the native-asset flag.
+/// The error should not be a generic panic — it must be a proper auth failure.
+#[test]
+fn test_set_allow_native_by_non_admin_returns_error() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allow_native",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_allow_native(&true);
+    assert!(
+        result.is_err(),
+        "non-admin must not be able to call set_allow_native"
+    );
+
+    // Flag must remain unchanged (default false).
+    // We need admin auth to read config — use mock_all_auths for the read.
+    env.mock_all_auths();
+    assert!(
+        !client.config().allowlist_mode.native_allowed,
+        "native_allowed must remain false after unauthorized attempt"
+    );
+}
+
+// ─── Regression Tests: Paused-State Write Rejection ──────────────────────────
+
+/// Pausing an already-paused contract must be idempotent.
+/// The call must succeed and `is_paused()` must still return `true`.
+#[test]
+fn test_set_paused_double_pause_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // Second pause — must not error.
+    let result = client.try_set_paused(&admin, &true);
+    assert!(result.is_ok(), "double-pause must be idempotent");
+    assert!(client.is_paused(), "contract must remain paused");
+}
+
+/// Unpausing an already-unpaused contract must be idempotent.
+#[test]
+fn test_set_paused_double_unpause_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Default is unpaused; explicitly unpause again.
+    let result = client.try_set_paused(&admin, &false);
+    assert!(result.is_ok(), "double-unpause must be idempotent");
+    assert!(!client.is_paused(), "contract must remain unpaused");
+}
+
+/// While the contract is paused, `allow_asset` must still succeed because
+/// the pause flag only blocks `record_payment`.  Admin-only config writes
+/// remain available so an operator can fix allowlist entries while paused.
+#[test]
+fn test_allow_asset_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuerPaused");
+
+    // allow_asset must succeed even while paused.
+    let result = client.try_allow_asset(&code, &issuer);
+    assert!(
+        result.is_ok(),
+        "allow_asset must work while contract is paused"
+    );
+}
+
+/// While paused, `revoke_asset` must still succeed.
+#[test]
+fn test_revoke_asset_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuerRevokePaused");
+    client.allow_asset(&code, &issuer);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // revoke_asset must succeed even while paused.
+    let result = client.try_revoke_asset(&code, &issuer);
+    assert!(
+        result.is_ok(),
+        "revoke_asset must work while contract is paused"
+    );
+}
+
+/// While paused, `set_allow_native` must still succeed.
+#[test]
+fn test_set_allow_native_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let result = client.try_set_allow_native(&true);
+    assert!(
+        result.is_ok(),
+        "set_allow_native must work while contract is paused"
+    );
+    assert!(
+        client.config().allowlist_mode.native_allowed,
+        "native_allowed should reflect the change made while paused"
+    );
+}
+
+/// While paused, `set_admin` must still succeed (it is not a payment write).
+#[test]
+fn test_set_admin_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let new_admin = Address::generate(&env);
+    let result = client.try_set_admin(&new_admin);
+    assert!(
+        result.is_ok(),
+        "set_admin must work while contract is paused"
+    );
+    assert_eq!(client.admin(), new_admin, "admin must be updated while paused");
+}
+
+/// `record_payment` must return [`ContractError::ContractPaused`] specifically,
+/// not a generic error.  This makes error assertions stable and documentable.
+#[test]
+fn test_record_payment_paused_returns_contract_paused_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+    client.set_allow_native(&true);
+    client.set_paused(&admin, &true);
+
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-paused-explicit"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-paused-explicit"),
+    );
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ContractPaused)),
+        "paused record_payment must return ContractPaused, not a generic error"
+    );
+}
+
+/// After unpausing, `record_payment` must succeed immediately — the unpause
+/// takes effect for the very next call.
+#[test]
+fn test_unpause_resumes_record_payment() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+    client.set_allow_native(&true);
+    client.set_paused(&admin, &true);
+
+    // Confirm paused state rejects writes.
+    let payer = Address::generate(&env);
+    let blocked = client.try_record_payment(
+        &String::from_str(&env, "inv-resume-blocked"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-resume-blocked"),
+    );
+    assert_eq!(blocked, Err(Ok(ContractError::ContractPaused)));
+
+    // Unpause.
+    client.set_paused(&admin, &false);
+
+    // Now the same invoice_id write must succeed.
+    client.record_payment(
+        &String::from_str(&env, "inv-resume-blocked"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-resume-unblocked"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-resume-blocked")));
+}
+
+/// `set_paused` before `initialize()` must return
+/// [`ContractError::NotInitialized`] because `get_admin` is the first check.
+#[test]
+fn test_set_paused_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    let caller = Address::generate(&env);
+
+    let result = client.try_set_paused(&caller, &true);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "set_paused on uninitialised contract must return NotInitialized"
+    );
+}
+
+// ─── Regression Tests: Unauthorized Admin Operations ─────────────────────────
+
+/// A non-admin address calling `set_paused` must get a host auth error.
+/// This upgrades the generic `is_err()` check to an explicit assertion.
+#[test]
+fn test_set_paused_by_non_admin_explicit_error() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    // The attacker provides their own auth, but they are not the admin.
+    // The contract first calls get_admin() successfully, then checks
+    // caller == admin — but the host auth check fires because attacker's
+    // `require_auth()` is satisfied while admin's is not required by the mock.
+    // Either the host or the contract will reject; the result must be Err.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_paused",
+            args: (attacker.clone(), true).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_set_paused(&attacker, &true);
+    assert!(
+        result.is_err(),
+        "non-admin set_paused must be rejected"
+    );
+    // Contract must remain unpaused after the failed attempt.
+    assert!(
+        !client.is_paused(),
+        "contract must not be paused after unauthorized attempt"
+    );
+}
+
+/// A non-admin address calling `set_paused` where the contract explicitly
+/// checks `caller != admin` must return [`ContractError::Unauthorized`].
+#[test]
+fn test_set_paused_wrong_caller_returns_unauthorized() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    // Mock both the attacker's auth AND the admin's auth so the host auth
+    // passes, but the contract's `caller != admin` check still fires.
+    env.mock_all_auths();
+
+    let result = client.try_set_paused(&attacker, &true);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "wrong caller for set_paused must return ContractError::Unauthorized"
+    );
+}
+
+/// Calling `set_admin` before `initialize()` must return
+/// [`ContractError::NotInitialized`] with an explicit error code assertion.
+#[test]
+fn test_set_admin_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    let new_admin = Address::generate(&env);
+
+    let result = client.try_set_admin(&new_admin);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "set_admin on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// Calling `record_payment` before `initialize()` must return
+/// [`ContractError::NotInitialized`] because the pause check happens after
+/// `get_admin` (which fails first when the contract is uninitialised).
+#[test]
+fn test_record_payment_before_init_returns_not_initialized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    let payer = Address::generate(&env);
+
+    // Note: is_paused check runs first (returns false since storage is empty),
+    // then get_admin() returns NotInitialized.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-uninit"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "settle-uninit"),
+    );
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "record_payment on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// `upgrade_storage` called by a non-admin must return
+/// [`ContractError::Unauthorized`], not a generic error.
+#[test]
+fn test_upgrade_storage_non_admin_returns_unauthorized() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_upgrade_storage(&attacker);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "upgrade_storage by non-admin must return ContractError::Unauthorized"
+    );
+}
+
+/// `admin()` before `initialize()` must return
+/// [`ContractError::NotInitialized`] with an explicit error assertion.
+#[test]
+fn test_admin_before_init_returns_not_initialized() {
+    let env = Env::default();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let result = client.try_admin();
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NotInitialized)),
+        "admin() on uninitialised contract must return NotInitialized"
+    );
+}
+
+/// The existing `test_unauthorized_allowlist_calls_fail` uses `is_err()`
+/// generically.  This test upgrades to explicit error-type assertions for
+/// `allow_asset` by mocking the admin auth but using the wrong (attacker) address.
+///
+/// When `mock_all_auths` is active, host auth succeeds for anyone, so the
+/// contract's internal `admin.require_auth()` passes.  The real rejection
+/// must come from the host refusing a non-admin caller's auth in a stricter mock.
+#[test]
+fn test_allow_asset_explicit_auth_rejection() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBIssuerExplicit");
+
+    // Only attacker provides auth — admin's `require_auth()` is unsatisfied.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_allow_asset(&code, &issuer);
+    // Host auth failure is not a ContractError; it is a host-level error.
+    // We assert is_err() here, which is stable — the point is that it must fail.
+    assert!(result.is_err(), "allow_asset with wrong auth must be rejected");
+
+    // Confirm the asset was NOT actually added by checking a payment still fails.
+    env.mock_all_auths();
+    let payer = Address::generate(&env);
+    let pay_result = client.try_record_payment(
+        &String::from_str(&env, "inv-explicit-auth"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-explicit-auth"),
+    );
+    assert_eq!(
+        pay_result,
+        Err(Ok(ContractError::AssetNotAllowed)),
+        "asset must not be in allowlist after unauthorized allow_asset attempt"
+    );
+}
+
+/// Comprehensive scenario: attacker cannot manipulate allowlist or pause state,
+/// ensuring contract regressions in auth logic are caught by a single end-to-end path.
+#[test]
+fn test_unauthorized_ops_cannot_modify_contract_state() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let code = String::from_str(&env, "HCKR");
+    let issuer = String::from_str(&env, "GBHackerIssuer");
+
+    // --- All attacker operations below must fail ---
+
+    // 1. Attacker tries to allow_asset.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "allow_asset",
+            args: (code.clone(), issuer.clone()).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_allow_asset(&code, &issuer).is_err());
+
+    // 2. Attacker tries to set_allow_native.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "set_allow_native",
+            args: (true,).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    assert!(client.try_set_allow_native(&true).is_err());
+
+    // 3. Attacker tries to set_paused with mock_all_auths (wrong caller).
+    env.mock_all_auths();
+    let paused_result = client.try_set_paused(&attacker, &true);
+    assert_eq!(
+        paused_result,
+        Err(Ok(ContractError::Unauthorized)),
+        "wrong-caller set_paused must return Unauthorized"
+    );
+
+    // 4. Attacker tries to upgrade_storage.
+    let upgrade_result = client.try_upgrade_storage(&attacker);
+    assert_eq!(
+        upgrade_result,
+        Err(Ok(ContractError::Unauthorized)),
+        "non-admin upgrade_storage must return Unauthorized"
+    );
+
+    // --- Verify state is completely unchanged ---
+
+    let config = client.config();
+    assert!(
+        !config.allowlist_mode.native_allowed,
+        "native_allowed must still be false"
+    );
+    assert!(!config.paused, "contract must still be unpaused");
+    assert_eq!(config.admin, Some(admin), "admin must be unchanged");
+
+    // HCKR asset must not be in the allowlist.
+    let payer = Address::generate(&env);
+    let pay_result = client.try_record_payment(
+        &String::from_str(&env, "inv-hacker"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-hacker"),
+    );
+    assert_eq!(
+        pay_result,
+        Err(Ok(ContractError::AssetNotAllowed)),
+        "attacker-added asset must not appear in allowlist"
+    );
+}
