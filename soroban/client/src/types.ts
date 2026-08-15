@@ -77,22 +77,27 @@ export interface PaymentHistoryPage {
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 
-/** Numeric codes matching the Rust `ContractError` enum. */
-export const CONTRACT_ERROR_CODES = {
-  1: 'AlreadyInitialized',
-  2: 'NotInitialized',
-  3: 'PaymentAlreadyRecorded',
-  4: 'PaymentNotFound',
-  5: 'InvalidAmount',
-  6: 'InvalidInvoiceId',
-  7: 'InvalidAsset',
-  8: 'AssetNotAllowed',
-  9: 'Unauthorized',
-} as const;
+// The typed contract error manifest (codes + meanings) lives in
+// `./error-manifest` and is re-exported here so existing imports keep working.
+import {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_ERROR_MANIFEST,
+  ContractErrorCode,
+  ContractErrorManifestEntry,
+  ContractErrorName,
+  getContractError,
+  getContractErrorCode,
+} from './error-manifest';
 
-export type ContractErrorCode =
-  | (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTRACT_ERROR_CODES]
-  | 'Unknown';
+export {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_ERROR_MANIFEST,
+  ContractErrorCode,
+  ContractErrorManifestEntry,
+  ContractErrorName,
+  getContractError,
+  getContractErrorCode,
+};
 
 export class SorobanContractError extends Error {
   override readonly name = 'SorobanContractError';

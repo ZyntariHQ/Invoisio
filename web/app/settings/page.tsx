@@ -285,12 +285,18 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // TODO(backend): prefetch the stored pushNotificationsEnabled value once an
-  // endpoint exposes it (see UserService.getNotificationPreferences stub).
   useEffect(() => {
-    UserService.getNotificationPreferences().then((prefs) => {
-      if (prefs) setPushEnabled(prefs.pushNotificationsEnabled);
-    });
+    UserService.getNotificationPreferences()
+      .then((prefs) => {
+        setPushEnabled(prefs.pushNotificationsEnabled);
+      })
+      .catch((err) => {
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Failed to load notification settings.',
+        );
+      });
   }, []);
 
   const trimmedWebhook = webhookUrl.trim();

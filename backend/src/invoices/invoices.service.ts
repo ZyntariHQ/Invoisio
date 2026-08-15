@@ -268,6 +268,9 @@ export class InvoicesService implements OnModuleInit {
         statusHistory: {
           orderBy: { createdAt: "asc" },
         },
+        payments: {
+          orderBy: { createdAt: "desc" },
+        },
       },
     });
     if (!invoice)
@@ -1287,6 +1290,8 @@ export class InvoicesService implements OnModuleInit {
     return {
       ...inv,
       amount: numericAmount,
+      amountPaid: this.toNumber(inv.amountPaid),
+      amountDue: this.toNumber(inv.amountDue),
       asset_code: inv.assetCode,
       asset: inv.assetCode,
       asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
@@ -1294,7 +1299,28 @@ export class InvoicesService implements OnModuleInit {
       tx_hash: inv.txHash,
       destination_address:
         inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
+      payments: Array.isArray(inv.payments)
+        ? inv.payments.map((payment: any) => ({
+            id: payment.id,
+            amount: this.toNumber(payment.amount),
+            txHash: payment.txHash,
+            createdAt: payment.createdAt,
+          }))
+        : undefined,
     };
+  }
+
+  /** Coerce a Prisma Decimal (or plain value) into a number for JSON output */
+  private toNumber(value: unknown): number | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (
+      typeof value === "object" &&
+      typeof (value as { toNumber?: unknown }).toNumber === "function"
+    ) {
+      return (value as { toNumber: () => number }).toNumber();
+    }
+    const parsed = Number(value);
+    return Number.isNaN(parsed) ? undefined : parsed;
   }
 
   /**
