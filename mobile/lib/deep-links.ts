@@ -1,6 +1,11 @@
 import { Linking } from "react-native";
 
-export type DeepLinkType = "invoice" | "payment" | "receipt" | "dashboard" | "create-invoice";
+export type DeepLinkType =
+  | "invoice"
+  | "payment"
+  | "receipt"
+  | "dashboard"
+  | "create-invoice";
 
 export interface DeepLinkData {
   type: DeepLinkType;
@@ -8,119 +13,93 @@ export interface DeepLinkData {
   params?: Record<string, string>;
 }
 
-/**
- * Parse a deep link URL into structured data
- * 
- * Supported formats:
- * - invoisio://invoice/{id}
- * - invoisio://payment/{id}
- * - invoisio://receipt/{id}
- * - invoisio://dashboard
- * - invoisio://create-invoice
- * 
- * Web URLs:
- * - https://invoisio.com/invoice/{id}
- * - https://invoisio.com/payment/{id}
- * - https://invoisio.com/receipt/{id}
- * - https://invoisio.com/dashboard
- * - https://invoisio.com/create-invoice
- */
+export interface DeepLinkRouter {
+  push(href: string): void;
+}
+
+const WEB_HOSTS = new Set(["invoisio.com"]);
+const ID_LINK_TYPES = new Set<DeepLinkType>(["invoice", "payment", "receipt"]);
+const LINK_TYPES = new Set<DeepLinkType>([
+  ...ID_LINK_TYPES,
+  "dashboard",
+  "create-invoice",
+]);
+
+function normaliseType(value: string): DeepLinkType | null {
+  const type = value === "pay" ? "payment" : value;
+  return LINK_TYPES.has(type as DeepLinkType) ? (type as DeepLinkType) : null;
+}
+
+/** Parse only links owned by Invoisio into a validated navigation target. */
 export function parseDeepLink(url: string): DeepLinkData | null {
   try {
-    // Handle both app and web URLs
-    let parsedUrl: URL;
-    
-    if (url.startsWith("invoisio://")) {
-      // App scheme: invoisio://invoice/123
-      const path = url.replace("invoisio://", "");
-      const parts = path.split("/");
-      const type = parts[0] as DeepLinkType;
-      const id = parts[1];
-      
-      if (!type) return null;
-      
-      return {
-        type,
-        ...(id !== undefined && { id }),
-        params: {},
-      };
-    } else {
-      // Web URL: https://invoisio.com/invoice/123
-      parsedUrl = new URL(url);
-      const pathSegments = parsedUrl.pathname.split("/").filter(Boolean);
-      
-      if (pathSegments.length === 0) {
-        // Root path - navigate to dashboard
-        return { type: "dashboard" };
-      }
-      
-      const type = pathSegments[0] as DeepLinkType;
-      const id = pathSegments[1];
-      
-      // Extract query params
-      const params: Record<string, string> = {};
-      parsedUrl.searchParams.forEach((value, key) => {
-        params[key] = value;
-      });
-      
-      return {
-        type,
-        ...(id !== undefined && { id }),
-        ...(Object.keys(params).length > 0 && { params }),
-      };
-    }
-  } catch (error) {
-    console.error("Failed to parse deep link:", error);
+    const parsedUrl = new URL(url);
+    const isAppLink = parsedUrl.protocol === "invoisio:";
+    const isWebLink =
+      parsedUrl.protocol === "https:" &&
+      WEB_HOSTS.has(parsedUrl.hostname.toLowerCase());
+
+    if (!isAppLink && !isWebLink) return null;
+
+    // URL treats the first component after `invoisio://` as the hostname.
+    const segments = isAppLink
+      ? [parsedUrl.hostname, ...parsedUrl.pathname.split("/")].filter(Boolean)
+      : parsedUrl.pathname.split("/").filter(Boolean);
+    const type = normaliseType(segments[0] ?? (isWebLink ? "dashboard" : ""));
+    if (!type || segments.length > 2) return null;
+
+    const rawId = segments[1];
+    const id = rawId ? decodeURIComponent(rawId) : undefined;
+    if (ID_LINK_TYPES.has(type) && !id) return null;
+    if (!ID_LINK_TYPES.has(type) && id) return null;
+
+    const params: Record<string, string> = {};
+    parsedUrl.searchParams.forEach((value, key) => {
+      params[key] = value;
+    });
+
+    return {
+      type,
+      ...(id !== undefined && { id }),
+      ...(Object.keys(params).length > 0 && { params }),
+    };
+  } catch {
     return null;
   }
 }
 
-/**
- * Navigate to the appropriate screen based on deep link data
- */
+/** Navigate a validated deep link to its app screen. */
 export function navigateToDeepLink(
   data: DeepLinkData,
-  router: any
+  router: DeepLinkRouter,
 ): boolean {
   const { type, id } = data;
-  
+
   switch (type) {
     case "invoice":
-      if (id) {
-        router.push(`/invoices/${id}`);
-        return true;
-      }
-      return false;
-      
+      if (!id) return false;
+      router.push(`/invoices/${encodeURIComponent(id)}`);
+      return true;
     case "payment":
+      if (!id) return false;
+      router.push(`/payments/${encodeURIComponent(id)}`);
+      return true;
     case "receipt":
-      if (id) {
-        router.push(`/receipts/${id}`);
-        return true;
-      }
-      return false;
-      
+      if (!id) return false;
+      router.push(`/receipts/${encodeURIComponent(id)}`);
+      return true;
     case "dashboard":
       router.push("/dashboard");
       return true;
-      
     case "create-invoice":
       router.push("/create-invoice");
       return true;
-      
-    default:
-      console.warn("Unknown deep link type:", type);
-      return false;
   }
 }
 
-/**
- * Get the initial URL when the app starts
- */
 export async function getInitialUrl(): Promise<string | null> {
   try {
-    const url = await Linking.getInitialURL();
-    return url;
+    return await Linking.getInitialURL();
   } catch (error) {
     console.error("Failed to get initial URL:", error);
     return null;

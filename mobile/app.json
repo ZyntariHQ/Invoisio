@@ -36,7 +36,23 @@
           "data": [
             {
               "scheme": "https",
-              "host": "invoisio.com"
+              "host": "invoisio.com",
+              "pathPrefix": "/invoice"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
+              "pathPrefix": "/payment"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
+              "pathPrefix": "/pay"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
+              "pathPrefix": "/receipt"
             }
           ],
           "category": ["BROWSABLE", "DEFAULT"]
