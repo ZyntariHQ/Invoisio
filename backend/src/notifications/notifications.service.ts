@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { NotificationPayload } from "./types/notification-payload.type";
+import { NotificationPreferencesDto } from "./dto/notification-preferences.dto";
 
 const PERMANENT_FAILURE_REASONS = new Set<PushNotificationFailureReason>([
   "DeviceNotRegistered",
@@ -457,5 +458,39 @@ export class NotificationsService {
       return Prisma.JsonNull;
     }
     return value as Prisma.InputJsonValue;
+  }
+
+  async getNotificationPreferences(
+    userId: string,
+    merchantId: string,
+  ): Promise<NotificationPreferencesDto> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId, merchantId },
+      select: {
+        pushNotificationsEnabled: true,
+        pushTokens: true,
+      },
+    });
+
+    if (!user) {
+      return {
+        pushNotificationsEnabled: true,
+        registeredPushTokensCount: 0,
+        preferenceExplicit: false,
+        contractVersion: "1.0.0",
+      };
+    }
+
+    const pushEnabled = user.pushNotificationsEnabled;
+    const tokenCount = Array.isArray(user.pushTokens)
+      ? user.pushTokens.length
+      : 0;
+
+    return {
+      pushNotificationsEnabled: typeof pushEnabled === "boolean" ? pushEnabled : true,
+      registeredPushTokensCount: tokenCount,
+      preferenceExplicit: true,
+      contractVersion: "1.0.0",
+    };
   }
 }
