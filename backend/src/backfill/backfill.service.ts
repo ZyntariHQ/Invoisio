@@ -470,7 +470,7 @@ export class BackfillService {
 
     const run = await this.prisma.backfillRun.findUnique({
       where: { id: runId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, completedAt: true },
     });
 
     if (!run) {
@@ -487,6 +487,11 @@ export class BackfillService {
       return { id: run.id, status: run.status };
     }
 
+    const completedAt =
+      run.status === BackfillRunStatus.running
+        ? (run.completedAt ?? new Date())
+        : undefined;
+
     const updated = await this.prisma.backfillRun.update({
       where: { id: runId },
       data: {
@@ -494,11 +499,9 @@ export class BackfillService {
         cancelledAt: new Date(),
         cancelledBy: operator,
         cancellationNote: note,
-        completedAt: run.status === BackfillRunStatus.running
-          ? run.completedAt ?? new Date()
-          : undefined,
+        ...(completedAt !== undefined ? { completedAt } : {}),
       },
-      select: { id: true, status: true, lastCheckpointLedger: true, lastCheckpointAt: true },
+      select: { id: true, status: true },
     });
 
     this.logger.log(

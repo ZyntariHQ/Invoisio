@@ -629,10 +629,9 @@ describe("BackfillService", () => {
       expect(prismaService.$transaction).toHaveBeenCalled();
       expect(prismaService.backfillCheckpoint.create).toHaveBeenCalled();
 
+      const updateMock = prismaService.backfillRun.update as unknown as jest.Mock;
       const finalUpdate =
-        prismaService.backfillRun.update.mock.calls[
-          prismaService.backfillRun.update.mock.calls.length - 1
-        ][0];
+        updateMock.mock.calls[updateMock.mock.calls.length - 1][0];
       expect(finalUpdate.where.id).toBe(1);
       expect(finalUpdate.data.status).toBe(BackfillRunStatus.completed);
       expect(finalUpdate.data.completedAt).toBeDefined();
@@ -671,13 +670,12 @@ describe("BackfillService", () => {
       });
 
       expect(result.runId).toBe(1);
-      const finalUpdate =
-        prismaService.backfillRun.update.mock.calls[
-          prismaService.backfillRun.update.mock.calls.length - 1
-        ][0];
-      expect(finalUpdate.data.status).toBe(BackfillRunStatus.cancelled);
-      expect(finalUpdate.data.cancelledBy).toBe("alice");
-      expect(finalUpdate.data.cancelledAt).toBeDefined();
+      const updateMock2 = prismaService.backfillRun.update as unknown as jest.Mock;
+      const finalUpdate2 =
+        updateMock2.mock.calls[updateMock2.mock.calls.length - 1][0];
+      expect(finalUpdate2.data.status).toBe(BackfillRunStatus.cancelled);
+      expect(finalUpdate2.data.cancelledBy).toBe("alice");
+      expect(finalUpdate2.data.cancelledAt).toBeDefined();
     });
 
     it("should handle errors during reconciliation", async () => {
@@ -704,7 +702,8 @@ describe("BackfillService", () => {
         }),
       ).rejects.toThrow("RPC connection failed");
 
-      const updateCall = prismaService.backfillRun.update.mock.calls.find(
+      const updateMock3 = prismaService.backfillRun.update as unknown as jest.Mock;
+      const updateCall = updateMock3.mock.calls.find(
         (c: any) => c[0].data.status === BackfillRunStatus.failed,
       );
       expect(updateCall).toBeDefined();
