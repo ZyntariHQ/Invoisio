@@ -11,7 +11,10 @@ import {
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { BackfillService } from "./backfill.service";
-import type { BackfillOptions } from "./backfill.service";
+import type {
+  BackfillOptions,
+  CancelRunOptions,
+} from "./backfill.service";
 import { Auth } from "../auth/guard/auth.guard";
 
 @ApiTags("backfill")
@@ -25,10 +28,15 @@ export class BackfillController {
   @ApiOperation({ summary: "Start a backfill reconciliation" })
   @ApiResponse({ status: 202, description: "Backfill started" })
   @ApiResponse({ status: 400, description: "Invalid parameters" })
+  @ApiResponse({ status: 409, description: "Overlapping run already active" })
   async startBackfill(@Body() options: BackfillOptions) {
-    if (!options.startLedger && !options.fromLast) {
+    if (
+      !options.startLedger &&
+      !options.fromLast &&
+      options.resumeFromRunId == null
+    ) {
       throw new BadRequestException(
-        "Either startLedger or fromLast must be provided",
+        "One of startLedger, fromLast, or resumeFromRunId must be provided",
       );
     }
 
@@ -37,8 +45,31 @@ export class BackfillController {
       success: true,
       runId: result.runId,
       stats: result.stats,
-      message: "Backfill started successfully",
+      message: "Backfill completed",
     };
+  }
+
+  @Post("cancel/:runId")
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Cancel/stop a running or pending backfill run" })
+  @ApiResponse({ status: 200, description: "Run marked as cancelled" })
+  @ApiResponse({ status: 400, description: "Invalid run or already completed" })
+  async cancelRun(
+    @Param("runId") runId: string,
+    @Body() body: CancelRunOptions | undefined,
+  ) {
+    const result = await this.backfillService.cancelRun({
+      runId: parseInt(runId, 10),
+      operator: body?.operator,
+      note: body?.note,
+    });
+    return { success: true, ...result };
+  }
+
+  @Get("checkpoint/:runId")
+  @ApiOperation({ summary: "Get latest checkpoint info for a run" })
+  async getLatestCheckpoint(@Param("runId") runId: string) {
+    return this.backfillService.getLatestCheckpoint(parseInt(runId, 10));
   }
 
   @Get("history")

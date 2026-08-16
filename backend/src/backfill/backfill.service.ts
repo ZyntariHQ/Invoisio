@@ -1,9 +1,14 @@
-import { Injectable, Logger, BadRequestException } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  ConflictException,
+} from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { SorobanService } from "../soroban/soroban.service";
-import { Prisma } from "@prisma/client";
+import { BackfillRunStatus, Prisma } from "@prisma/client";
 
 export interface BackfillStats {
   totalEvents: number;
@@ -24,6 +29,28 @@ export interface BackfillOptions {
   fromLast?: boolean;
   batchSize?: number;
   contractId?: string;
+  resumeFromRunId?: number;
+  allowOverlap?: boolean;
+  operator?: string;
+}
+
+export interface CancelRunOptions {
+  runId: number;
+  operator?: string;
+  note?: string;
+}
+
+export interface BackfillCheckpointInfo {
+  checkpointLedger: number;
+  startLedgerRange: number;
+  endLedgerRange: number;
+  lastEventCursor?: string;
+  lastEventId?: string;
+  eventsInBatch: number;
+  eventsProcessedBefore: number;
+  eventsMatchedBefore: number;
+  eventsSkippedBefore: number;
+  eventsFailedBefore: number;
 }
 
 export interface SorobanEvent {
@@ -37,6 +64,12 @@ export interface SorobanEvent {
   };
   body?: any;
 }
+
+const RUNNING_STATUSES: BackfillRunStatus[] = [
+  BackfillRunStatus.pending,
+  BackfillRunStatus.running,
+  BackfillRunStatus.paused,
+];
 
 @Injectable()
 export class BackfillService {
@@ -53,9 +86,6 @@ export class BackfillService {
     this.contractId = stellarConfig?.sorobanContractId || "";
   }
 
-  /**
-   * Main backfill/reconciliation function
-   */
   async reconcile(options: BackfillOptions): Promise<{
     runId: number;
     stats: BackfillStats;
@@ -67,15 +97,33 @@ export class BackfillService {
       fromLast = false,
       batchSize = 100,
       contractId = this.contractId,
+      resumeFromRunId,
+      allowOverlap = false,
+      operator,
     } = options;
 
     if (!contractId) {
       throw new BadRequestException("Contract ID is required");
     }
 
-    // Determine start ledger
+    let resumeState: {
+      parentRunId: number | undefined;
+      resumeStartLedger: number;
+      resumeCursor: string | undefined;
+    } | null = null;
+
+    if (resumeFromRunId != null) {
+      resumeState = await this.prepareResume(contractId, resumeFromRunId);
+    }
+
     let actualStartLedger = startLedger;
-    if (fromLast) {
+
+    if (resumeState) {
+      actualStartLedger = resumeState.resumeStartLedger;
+      this.logger.log(
+        `Resuming from run ${resumeFromRunId} at ledger ${actualStartLedger}`,
+      );
+    } else if (fromLast) {
       const lastLedger = await this.getLastProcessedLedger(contractId);
       actualStartLedger = lastLedger ? lastLedger + 1 : 1;
       this.logger.log(
@@ -85,11 +133,10 @@ export class BackfillService {
 
     if (!actualStartLedger) {
       throw new BadRequestException(
-        "startLedger is required unless using --from-last",
+        "startLedger is required unless using --from-last or --resume-from-run",
       );
     }
 
-    // Get end ledger (latest if not specified)
     let actualEndLedger = endLedger;
     if (!actualEndLedger) {
       try {
@@ -101,12 +148,21 @@ export class BackfillService {
       }
     }
 
-    // Create backfill run record
+    if (!allowOverlap) {
+      await this.preventOverlappingRun(
+        contractId,
+        actualStartLedger,
+        actualEndLedger,
+      );
+    }
+
     const run = await this.prisma.backfillRun.create({
       data: {
+        contractId,
         startLedger: BigInt(actualStartLedger),
         endLedger: BigInt(actualEndLedger),
-        status: "running",
+        status: BackfillRunStatus.running,
+        parentRunId: resumeState?.parentRunId,
       },
     });
 
@@ -122,20 +178,31 @@ export class BackfillService {
       failedEvents: [],
     };
 
-    try {
-      // Fetch events in batches
-      let currentLedger = actualStartLedger;
-      const hasMore = true;
-      let cursor: string | undefined;
+    let cursor = resumeState?.resumeCursor;
+    let cancelled = false;
+    let finalStatus: BackfillRunStatus = BackfillRunStatus.completed;
 
-      while (hasMore && currentLedger <= actualEndLedger) {
-        const batchEnd = Math.min(currentLedger + batchSize, actualEndLedger);
+    try {
+      let currentLedger = actualStartLedger;
+
+      while (currentLedger <= actualEndLedger) {
+        cancelled = await this.isCancelled(run.id);
+        if (cancelled) {
+          finalStatus = BackfillRunStatus.cancelled;
+          this.logger.log(
+            `Backfill run ${run.id} cancelled by operator at ledger ${currentLedger}`,
+          );
+          break;
+        }
+
+        const batchEnd = Math.min(
+          currentLedger + batchSize - 1, actualEndLedger,
+        );
 
         this.logger.debug(
           `Fetching events for range: ${currentLedger} → ${batchEnd}`,
         );
 
-        // Fetch events using the same logic as SorobanEventsService
         const result = await this.fetchEvents(
           currentLedger,
           batchEnd,
@@ -149,6 +216,22 @@ export class BackfillService {
           this.logger.debug(
             `No events found in range ${currentLedger} → ${batchEnd}`,
           );
+          await this.saveCheckpoint({
+            runId: run.id,
+            contractId,
+            checkpointLedger: batchEnd,
+            startLedgerRange: currentLedger,
+            endLedgerRange: batchEnd,
+            lastEventCursor: cursor,
+            lastEventId: undefined,
+            eventsInBatch: 0,
+            eventsProcessedBefore: stats.totalEvents,
+            eventsMatchedBefore: stats.matched,
+            eventsSkippedBefore: stats.skipped,
+            eventsFailedBefore: stats.failed,
+          });
+
+          cursor = undefined;
           currentLedger = batchEnd + 1;
           continue;
         }
@@ -158,17 +241,35 @@ export class BackfillService {
           `Found ${events.length} events in range ${currentLedger} → ${batchEnd}`,
         );
 
-        // Process each event
         for (const event of events) {
+          cancelled = await this.isCancelled(run.id);
+          if (cancelled) {
+            break;
+          }
           await this.processEvent(event, contractId, dryRun, stats);
         }
 
-        // Update cursor if available
         if (result?.cursor) {
           cursor = result.cursor;
         }
 
-        // Update run progress
+        const lastEvent = events[events.length - 1];
+
+        await this.saveCheckpoint({
+          runId: run.id,
+          contractId,
+          checkpointLedger: batchEnd,
+          startLedgerRange: currentLedger,
+          endLedgerRange: batchEnd,
+          lastEventCursor: cursor,
+          lastEventId: lastEvent?.id || lastEvent?.pagingToken,
+          eventsInBatch: events.length,
+          eventsProcessedBefore: stats.totalEvents,
+          eventsMatchedBefore: stats.matched,
+          eventsSkippedBefore: stats.skipped,
+          eventsFailedBefore: stats.failed,
+        });
+
         await this.prisma.backfillRun.update({
           where: { id: run.id },
           data: {
@@ -179,34 +280,52 @@ export class BackfillService {
           },
         });
 
+        if (cancelled) {
+          finalStatus = BackfillRunStatus.cancelled;
+          this.logger.log(
+            `Backfill run ${run.id} cancelled by operator at ledger ${batchEnd}`,
+          );
+          break;
+        }
+
+        cursor = undefined;
         currentLedger = batchEnd + 1;
       }
 
-      // Complete the run
+      if (!cancelled && stats.failed > 0) {
+        finalStatus = BackfillRunStatus.failed;
+      }
+
+      const updateData: Prisma.BackfillRunUpdateInput = {
+        completedAt: new Date(),
+        status: finalStatus,
+        eventsProcessed: stats.totalEvents,
+        eventsMatched: stats.matched,
+        eventsSkipped: stats.skipped,
+        eventsFailed: stats.failed,
+      };
+
+      if (finalStatus === BackfillRunStatus.cancelled && operator) {
+        updateData.cancelledAt = new Date();
+        updateData.cancelledBy = operator;
+      }
+
       await this.prisma.backfillRun.update({
         where: { id: run.id },
-        data: {
-          completedAt: new Date(),
-          status: stats.failed > 0 ? "failed" : "completed",
-          eventsProcessed: stats.totalEvents,
-          eventsMatched: stats.matched,
-          eventsSkipped: stats.skipped,
-          eventsFailed: stats.failed,
-        },
+        data: updateData,
       });
 
       this.logger.log(
-        `Backfill run ${run.id} complete. Matched: ${stats.matched}, Skipped: ${stats.skipped}, Failed: ${stats.failed}`,
+        `Backfill run ${run.id} ${finalStatus}. Matched: ${stats.matched}, Skipped: ${stats.skipped}, Failed: ${stats.failed}`,
       );
 
       return { runId: run.id, stats };
     } catch (error) {
-      // Mark run as failed
       await this.prisma.backfillRun.update({
         where: { id: run.id },
         data: {
           completedAt: new Date(),
-          status: "failed",
+          status: BackfillRunStatus.failed,
           errorMessage: error instanceof Error ? error.message : String(error),
         },
       });
@@ -216,16 +335,235 @@ export class BackfillService {
     }
   }
 
-  /**
-   * Fetch events from Soroban RPC
-   */
+  private async prepareResume(
+    contractId: string,
+    runId: number,
+  ): Promise<{
+      parentRunId: number;
+      resumeStartLedger: number;
+      resumeCursor: string | undefined;
+    }> {
+    const parentRun = await this.prisma.backfillRun.findUnique({
+      where: { id: runId },
+      include: {
+        checkpoints: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!parentRun) {
+      throw new BadRequestException(`Run ${runId} not found`);
+    }
+
+    if (parentRun.contractId !== contractId) {
+      throw new BadRequestException(
+        `Run ${runId} belongs to a different contract`,
+      );
+    }
+
+    if (RUNNING_STATUSES.includes(parentRun.status)) {
+      throw new ConflictException(
+        `Run ${runId} is still in status ${parentRun.status}. Cancel it first or use --allow-overlap.`,
+      );
+    }
+
+    if (parentRun.status === BackfillRunStatus.completed) {
+      throw new BadRequestException(
+        `Run ${runId} is already completed; nothing to resume.`,
+      );
+    }
+
+    const checkpoint = parentRun.checkpoints[0];
+    const resumeStartLedger = checkpoint
+      ? Number(checkpoint.checkpointLedger) + 1
+      : Number(parentRun.startLedger);
+    const resumeCursor = checkpoint?.lastEventCursor ?? undefined;
+
+    this.logger.log(
+      `Resuming run ${runId} from ledger ${resumeStartLedger} ${
+        resumeCursor ? `(cursor: ${resumeCursor.slice(0, 12)}...)` : ""
+      }`,
+    );
+
+    return {
+      parentRunId: parentRun.id,
+      resumeStartLedger,
+      resumeCursor,
+    };
+  }
+
+  private async preventOverlappingRun(
+    contractId: string,
+    startLedger: number,
+    endLedger: number,
+  ): Promise<void> {
+    const overlapping = await this.prisma.backfillRun.findFirst({
+      where: {
+        contractId,
+        status: { in: RUNNING_STATUSES },
+        AND: [
+          { startLedger: { lte: BigInt(endLedger) } },
+          { endLedger: { gte: BigInt(startLedger) } },
+        ],
+      },
+      select: {
+        id: true,
+        startLedger: true,
+        endLedger: true,
+        status: true,
+      },
+    });
+
+    if (overlapping) {
+      throw new ConflictException(
+        `Overlapping run detected: run ${overlapping.id} covers ${Number(overlapping.startLedger)} → ${Number(overlapping.endLedger)} (status: ${overlapping.status}). Cancel it first or pass allowOverlap=true.`,
+      );
+    }
+  }
+
+  private async isCancelled(runId: number): Promise<boolean> {
+    const row = await this.prisma.backfillRun.findUnique({
+      where: { id: runId },
+      select: { status: true },
+    });
+    return row?.status === BackfillRunStatus.cancelled;
+  }
+
+  private async saveCheckpoint(
+    info: BackfillCheckpointInfo & { runId: number; contractId: string },
+  ): Promise<void> {
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.backfillCheckpoint.create({
+        data: {
+          runId: info.runId,
+          contractId: info.contractId,
+          checkpointLedger: BigInt(info.checkpointLedger),
+          startLedgerRange: BigInt(info.startLedgerRange),
+          endLedgerRange: BigInt(info.endLedgerRange),
+          lastEventCursor: info.lastEventCursor,
+          lastEventId: info.lastEventId,
+          eventsInBatch: info.eventsInBatch,
+          eventsProcessedBefore: info.eventsProcessedBefore,
+          eventsMatchedBefore: info.eventsMatchedBefore,
+          eventsSkippedBefore: info.eventsSkippedBefore,
+          eventsFailedBefore: info.eventsFailedBefore,
+        },
+      }),
+      this.prisma.backfillRun.update({
+        where: { id: info.runId },
+        data: {
+          lastCheckpointLedger: BigInt(info.checkpointLedger),
+          lastCheckpointCursor: info.lastEventCursor,
+          lastCheckpointAt: now,
+        },
+      }),
+    ]);
+  }
+
+  async cancelRun(
+    options: CancelRunOptions,
+  ): Promise<{ id: number; status: BackfillRunStatus }> {
+    const { runId, operator, note } = options;
+
+    const run = await this.prisma.backfillRun.findUnique({
+      where: { id: runId },
+      select: { id: true, status: true, completedAt: true },
+    });
+
+    if (!run) {
+      throw new BadRequestException(`Run ${runId} not found`);
+    }
+
+    if (run.status === BackfillRunStatus.completed) {
+      throw new BadRequestException(
+        `Run ${runId} is already completed and cannot be cancelled`,
+      );
+    }
+
+    if (run.status === BackfillRunStatus.cancelled) {
+      return { id: run.id, status: run.status };
+    }
+
+    const completedAt =
+      run.status === BackfillRunStatus.running
+        ? (run.completedAt ?? new Date())
+        : undefined;
+
+    const updated = await this.prisma.backfillRun.update({
+      where: { id: runId },
+      data: {
+        status: BackfillRunStatus.cancelled,
+        cancelledAt: new Date(),
+        cancelledBy: operator,
+        cancellationNote: note,
+        ...(completedAt !== undefined ? { completedAt } : {}),
+      },
+      select: { id: true, status: true },
+    });
+
+    this.logger.log(
+      `Backfill run ${runId} cancelled by ${operator || "unknown"} ${note ? `(${note})` : ""}`,
+    );
+
+    return { id: updated.id, status: updated.status };
+  }
+
+  async getLatestCheckpoint(runId: number): Promise<any> {
+    const run = await this.prisma.backfillRun.findUnique({
+      where: { id: runId },
+      select: {
+        id: true,
+        status: true,
+        lastCheckpointLedger: true,
+        lastCheckpointCursor: true,
+        lastCheckpointAt: true,
+        checkpoints: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
+      },
+    });
+
+    if (!run) {
+      throw new BadRequestException(`Run ${runId} not found`);
+    }
+
+    return {
+      runId: run.id,
+      status: run.status,
+      lastCheckpointLedger: run.lastCheckpointLedger
+        ? Number(run.lastCheckpointLedger)
+        : null,
+      lastCheckpointCursor: run.lastCheckpointCursor,
+      lastCheckpointAt: run.lastCheckpointAt,
+      checkpoint: run.checkpoints[0]
+        ? {
+            id: run.checkpoints[0].id,
+            checkpointLedger: Number(run.checkpoints[0].checkpointLedger),
+            startLedgerRange: Number(run.checkpoints[0].startLedgerRange),
+            endLedgerRange: Number(run.checkpoints[0].endLedgerRange),
+            lastEventCursor: run.checkpoints[0].lastEventCursor,
+            lastEventId: run.checkpoints[0].lastEventId,
+            eventsInBatch: run.checkpoints[0].eventsInBatch,
+            eventsProcessedBefore: run.checkpoints[0].eventsProcessedBefore,
+            eventsMatchedBefore: run.checkpoints[0].eventsMatchedBefore,
+            eventsSkippedBefore: run.checkpoints[0].eventsSkippedBefore,
+            eventsFailedBefore: run.checkpoints[0].eventsFailedBefore,
+            createdAt: run.checkpoints[0].createdAt,
+          }
+        : null,
+    };
+  }
+
   private async fetchEvents(
     startLedger: number,
     endLedger: number,
     contractId: string,
     cursor?: string,
   ): Promise<any> {
-    // Use the same HTTP request pattern as SorobanEventsService
     const rpcUrl = this.configService.get("stellar")?.sorobanRpcUrl;
     if (!rpcUrl) {
       throw new Error("Soroban RPC URL not configured");
@@ -257,9 +595,6 @@ export class BackfillService {
     return response?.result || null;
   }
 
-  /**
-   * Process a single event using the same logic as SorobanEventsService
-   */
   private async processEvent(
     event: any,
     contractId: string,
@@ -270,7 +605,6 @@ export class BackfillService {
     const ledger = event?.ledger || event?.inLedger || 0;
     const txHash = event?.txHash || event?.transactionHash || eventId;
 
-    // Declare payload outside try block so it's accessible in catch
     let payload: {
       invoice_id?: string;
       payer?: string;
@@ -280,7 +614,6 @@ export class BackfillService {
     } | null = null;
 
     try {
-      // Extract invoice_id from the event
       payload = this.coercePaymentRecorded(event);
       const invoiceId = payload?.invoice_id;
 
@@ -289,7 +622,6 @@ export class BackfillService {
         return;
       }
 
-      // Check if already processed
       const exists = await this.prisma.processedEvent.findUnique({
         where: {
           txHash_invoiceId_contractId: {
@@ -306,7 +638,6 @@ export class BackfillService {
         return;
       }
 
-      // Apply the event using the existing invoices service
       if (!dryRun) {
         const result = await this.invoicesService.applySorobanPaymentEvent({
           eventId: String(eventId),
@@ -328,7 +659,6 @@ export class BackfillService {
           stats.matched++;
           this.logger.log(`✓ Matched: Invoice ${invoiceId} updated to paid`);
 
-          // Record as processed
           await this.prisma.processedEvent.create({
             data: {
               txHash: String(txHash),
@@ -339,7 +669,6 @@ export class BackfillService {
             },
           });
         } else {
-          // Invoice not found
           stats.failed++;
           stats.failedEvents.push({
             invoiceId: String(invoiceId),
@@ -359,7 +688,6 @@ export class BackfillService {
           });
         }
       } else {
-        // Dry run
         stats.matched++;
         this.logger.debug(
           `[DRY RUN] Would process event ${eventId} for invoice ${invoiceId}`,
@@ -391,9 +719,6 @@ export class BackfillService {
     }
   }
 
-  /**
-   * Extract payment data from event - copied from SorobanEventsService
-   */
   private coercePaymentRecorded(obj: any): {
     invoice_id?: string;
     payer?: string;
@@ -403,12 +728,10 @@ export class BackfillService {
   } | null {
     if (!obj || typeof obj !== "object") return null;
 
-    // Check if it's already in the right format
     if ("invoice_id" in obj) {
       return obj;
     }
 
-    // Check nested event structure
     const eventData = obj?.event?.value || obj?.value || obj?.data || obj?.body;
 
     if (eventData && typeof eventData === "object") {
@@ -416,7 +739,6 @@ export class BackfillService {
         return eventData;
       }
 
-      // Handle array format from contract events
       if (Array.isArray(eventData)) {
         const result: Record<string, any> = {};
         for (const item of eventData) {
@@ -437,20 +759,14 @@ export class BackfillService {
       }
     }
 
-    // Try to extract from topics
     const topics = obj?.topics || obj?.topic || obj?.event?.topics || [];
     if (Array.isArray(topics) && topics.length >= 2) {
-      // If topics contain the event data, try to parse it
-      // This is a simplified approach - actual parsing depends on event format
       return null;
     }
 
     return null;
   }
 
-  /**
-   * Get the last processed ledger for a contract
-   */
   private async getLastProcessedLedger(
     contractId: string,
   ): Promise<number | null> {
@@ -463,9 +779,6 @@ export class BackfillService {
     return lastEvent ? Number(lastEvent.ledger) : null;
   }
 
-  /**
-   * Get the latest ledger from Soroban RPC
-   */
   private async getLatestLedger(): Promise<number> {
     const rpcUrl = this.configService.get("stellar")?.sorobanRpcUrl;
     if (!rpcUrl) {
@@ -483,9 +796,6 @@ export class BackfillService {
     return response?.result?.latestLedger || 0;
   }
 
-  /**
-   * HTTP POST helper - copied from SorobanEventsService
-   */
   private async postJson(rpcUrl: string, body: any): Promise<any> {
     const { default: fetch } = await import("node-fetch");
     const response = await fetch(rpcUrl, {
@@ -503,18 +813,18 @@ export class BackfillService {
     return response.json();
   }
 
-  /**
-   * Get backfill run report
-   */
   async getReport(runId: number): Promise<any> {
     return this.prisma.backfillRun.findUnique({
       where: { id: runId },
+      include: {
+        checkpoints: {
+          orderBy: { createdAt: "desc" },
+          take: 5,
+        },
+      },
     });
   }
 
-  /**
-   * Get backfill history
-   */
   async getHistory(limit: number = 10): Promise<any[]> {
     return this.prisma.backfillRun.findMany({
       orderBy: { startedAt: "desc" },
@@ -522,9 +832,6 @@ export class BackfillService {
     });
   }
 
-  /**
-   * Get statistics about processed events
-   */
   async getStats(contractId?: string): Promise<any> {
     const where = contractId ? { contractId } : {};
 
