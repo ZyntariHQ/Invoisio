@@ -18,6 +18,8 @@ soroban/
 ├── invoke-config.sh                # Query high-level contract config
 ├── invoke-has-payment.sh           # Check payment existence
 ├── invoke-payment-history.sh       # Page through payment history
+├── invoke-propose-admin.sh         # Step 1 of admin handoff: propose next admin
+├── invoke-accept-admin.sh          # Step 2 of admin handoff: accept and become admin
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -210,6 +212,7 @@ version metadata, and current allowlist policy:
 ```json
 {
   "admin": "GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL",
+  "pending_admin": null,
   "initialized": true,
   "version": {
     "contract_version": 1000000,
@@ -334,6 +337,7 @@ Retrieves a payment record from the contract.
 Returns a stable JSON snapshot with:
 
 - `admin` — current admin address, or `null` before initialization
+- `pending_admin` — address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight
 - `initialized` — whether `initialize(admin)` has been called
 - `version.contract_version` — packed semver for the state-writing contract build
 - `version.storage_schema_version` — storage layout version
@@ -382,9 +386,30 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | Decision | Rationale |
 |----------|-----------|
 | **Admin-gated writes** | Only the backend service account (`admin`) may call `record_payment` |
+| **Two-step admin handoff** | `propose_admin` (current admin) + `accept_admin` (proposed admin) — no single transaction can change the admin, so a lost/compromised key can never hand off alone |
 | **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
 | **Persistent storage** | Records survive ledger archival windows |
 | **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
+
+#### Admin transfer flow
+
+Admin rights are transferred in two explicit steps, replacing the old
+single-step `set_admin`:
+
+1. **Propose** — the current admin calls `propose_admin(new_admin)` (current
+   admin authorises). The proposal is staged in instance storage; the admin
+   does **not** change yet. Emits `admin_transfer_proposed`.
+2. **Accept** — the proposed address calls `accept_admin(caller)` (the
+   proposed address authorises). The role transfers and the proposal is
+   cleared. Emits `admin_transfer_accepted`.
+
+Each step can happen in a separate transaction, in any order from a signing
+perspective, and the pending state is observable via the permissionless
+`pending_admin()` view (also surfaced as `ContractConfig.pending_admin`).
+
+The CLI scripts `invoke-propose-admin.sh` and `invoke-accept-admin.sh` drive
+the flow; the TS client exposes `proposeAdmin()` / `acceptAdmin()` /
+`getPendingAdmin()`.
 
 ### Upgrade and versioning strategy
 
@@ -448,7 +473,9 @@ Contract v1 (C1) live
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
-| `set_admin(new_admin)` | admin | Transfer admin rights. |
+| `pending_admin() → Address | null` | — | Address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight. |
+| `propose_admin(new_admin)` | admin | Step 1 of two-step admin handoff: propose the next admin (current admin signs). |
+| `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
 
 `payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
@@ -471,6 +498,9 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 11 | StorageSchemaTooOld | `upgrade_storage()` called but the schema is already at or beyond the version this WASM implements. |
 | 12 | ContractPaused | The contract is paused and cannot perform the requested operation. |
 | 13 | InvalidSettlementRef | `settlement_ref` was empty or exceeded the maximum allowed length. |
+| 14 | NoPendingAdmin | `accept_admin()` was called but no admin transfer proposal is pending. |
+| 15 | PendingAdminExists | `propose_admin()` was called while an admin transfer proposal is already pending. |
+| 16 | InvalidProposedAdmin | `propose_admin()` was called with the current admin (or another invalid address). |
 
 #### Typed error manifest (off-chain reference)
 
@@ -762,6 +792,18 @@ const result = await client.recordPayment({
   amount: 1_500_000_000n,
 });
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
+
+// ── Admin handoff (two-step) ─────────────────────────────────────────────────
+// Step 1: current admin proposes a successor (signed by ADMIN_SECRET_KEY).
+await client.proposeAdmin('GCEZ...NEWADMIN');
+const pending = await client.getPendingAdmin(); // "GCEZ...NEWADMIN"
+console.log('Awaiting acceptance from', pending);
+
+// Step 2: the proposed admin accepts. Construct the client with the NEW
+// admin's secret key so acceptAdmin() signs with the proposed address.
+const newAdminClient = new SorobanInvoiceClient({ /* ... signerSecretKey: NEW_ADMIN_SECRET_KEY */ });
+await newAdminClient.acceptAdmin();
+console.log('New admin:', (await newAdminClient.getConfig()).admin);
 
 // ── Read (permissionless) ────────────────────────────────────────────────────
 const config = await client.getConfig();

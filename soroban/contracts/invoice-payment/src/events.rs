@@ -123,3 +123,41 @@ pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
     };
     payload.publish(env);
 }
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferProposed {
+    /// Admin that initiated the handoff.
+    pub current_admin: Address,
+    /// Address proposed to become the next admin.
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_proposed(env: &Env, current_admin: Address, new_admin: Address) {
+    let payload = AdminTransferProposed {
+        current_admin,
+        new_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferAccepted {
+    /// Admin that relinquished the role.
+    pub previous_admin: Address,
+    /// Address that accepted and is now the contract admin.
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admin: Address) {
+    let payload = AdminTransferAccepted {
+        previous_admin,
+        new_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}

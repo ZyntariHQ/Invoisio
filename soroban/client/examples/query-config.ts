@@ -23,6 +23,7 @@ async function main() {
 
   console.log('ContractConfig', {
     admin: config.admin,
+    pendingAdmin: config.pendingAdmin,
     initialized: config.initialized,
     contractVersion: config.version.contractVersion,
     storageSchemaVersion: config.version.storageSchemaVersion,

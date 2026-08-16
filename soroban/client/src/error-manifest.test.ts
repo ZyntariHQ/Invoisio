@@ -29,6 +29,9 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 11, name: 'StorageSchemaTooOld' },
   { code: 12, name: 'ContractPaused' },
   { code: 13, name: 'InvalidSettlementRef' },
+  { code: 14, name: 'NoPendingAdmin' },
+  { code: 15, name: 'PendingAdminExists' },
+  { code: 16, name: 'InvalidProposedAdmin' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {

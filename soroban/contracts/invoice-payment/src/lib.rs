@@ -15,14 +15,16 @@ pub use storage::{
 };
 
 use events::{
-    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+    emit_admin_transfer_accepted, emit_admin_transfer_proposed, emit_asset_allowlisted,
+    emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
-    ensure_current_contract_meta, get_admin, get_contract_config, get_count, get_payment,
-    get_payment_history_page, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
-    set_native_allowed, set_payment,
+    allow_asset, append_payment_history, bump_count, bump_history_count, clear_pending_admin,
+    current_contract_meta, ensure_current_contract_meta, get_admin, get_contract_config, get_count,
+    get_payment, get_payment_history_page, get_pending_admin, get_pending_admin_opt,
+    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
+    has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
+    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
 };
 
 // Contract
@@ -63,11 +65,15 @@ use storage::{
 /// - **Write methods**:
 ///   - [`record_payment`] requires the current admin to authorise the call
 ///     using `require_auth()`.
-///   - [`set_admin`] requires **both** the current admin and the new admin to
-///     authorise, ensuring the new admin explicitly consents to taking over.
+///   - [`propose_admin`] (current admin) + [`accept_admin`] (proposed admin)
+///     implement an explicit two-step handoff flow: the current admin proposes
+///     a successor and the proposed address must later accept before the role
+///     actually transfers. This replaces the old single-step `set_admin`,
+///     ensuring no admin change can happen without both parties acting.
 /// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `payment_history`, `contract_version`, `version_info`, `admin`) are
-///   permissionless, so any account can inspect on-chain payment state.
+///   `payment_history`, `contract_version`, `version_info`, `admin`,
+///   `pending_admin`) are permissionless, so any account can inspect on-chain
+///   payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
@@ -85,7 +91,8 @@ impl InvoicePaymentContract {
     /// Initialise the contract and register the `admin`.
     ///
     /// Must be called **once** right after deployment. The `admin` is the only
-    /// account permitted to call [`record_payment`] and [`set_admin`].
+    /// account permitted to call [`record_payment`], [`propose_admin`] and the
+    /// other admin-gated write methods.
     ///
     /// Returns [`ContractError::AlreadyInitialized`] if called a second time.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
@@ -322,23 +329,74 @@ impl InvoicePaymentContract {
         get_admin(&env)
     }
 
-    /// Transfer admin rights to `new_admin`.
+    /// Return the address currently proposed as the next admin, if any.
     ///
-    /// The **current admin** must authorise this call.
+    /// Permissionless read. Returns `None` when no [`propose_admin`] transfer
+    /// is in flight (either none was ever made or it was accepted/cleared).
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        get_pending_admin_opt(&env)
+    }
+
+    /// Propose `new_admin` as the next contract admin (step 1 of the two-step
+    /// handoff).
     ///
-    /// Returns [`ContractError::NotInitialized`] if the contract has not been
-    /// initialised yet.
-    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+    /// Only the **current admin** may authorise this call. The proposal is
+    /// staged in instance storage but does **not** take effect until the
+    /// proposed address calls [`accept_admin`].
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::PendingAdminExists`] — a transfer is already pending
+    /// - [`ContractError::InvalidProposedAdmin`] — `new_admin` equals the
+    ///   current admin
+    ///
+    /// ## Events
+    /// Emits `AdminTransferProposed` on success.
+    pub fn propose_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let current = get_admin(&env)?;
-        // Both the current admin (authorising the transfer out) AND the new
-        // admin (consenting to receive the role) must sign this transaction.
-        // This prevents accidentally transferring to an address that can never
-        // produce a valid signature.
         current.require_auth();
-        new_admin.require_auth();
+        if has_pending_admin(&env) {
+            return Err(ContractError::PendingAdminExists);
+        }
+        if new_admin == current {
+            return Err(ContractError::InvalidProposedAdmin);
+        }
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
-        set_admin(&env, &new_admin);
+        set_pending_admin(&env, &new_admin);
+        emit_admin_transfer_proposed(&env, current, new_admin);
+        Ok(())
+    }
+
+    /// Accept a pending admin transfer and become the contract admin (step 2
+    /// of the two-step handoff).
+    ///
+    /// `caller` must be the address that was proposed by [`propose_admin`] and
+    /// must authorise the call. On success the role is transferred and the
+    /// pending proposal is cleared.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
+    /// - [`ContractError::Unauthorized`] — `caller` is not the proposed admin
+    ///
+    /// ## Events
+    /// Emits `AdminTransferAccepted` on success.
+    pub fn accept_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        // Ensure the contract is initialised first (mirrors the other admin
+        // methods) so misuse before setup returns NotInitialized, not a
+        // misleading NoPendingAdmin.
+        let previous = get_admin(&env)?;
+        let pending = get_pending_admin(&env)?;
+        caller.require_auth();
+        if caller != pending {
+            return Err(ContractError::Unauthorized);
+        }
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
+        set_admin(&env, &pending);
+        clear_pending_admin(&env);
+        emit_admin_transfer_accepted(&env, previous, pending);
         Ok(())
     }
 

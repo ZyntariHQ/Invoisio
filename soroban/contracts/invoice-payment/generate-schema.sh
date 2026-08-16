@@ -132,14 +132,24 @@ cat > "$OUT" <<JSON
             { "type": "null",   "description": "Null before initialize() is called." }
           ]
         },
+        "pending_admin": {
+          "oneOf": [
+            { "type": "string", "description": "Address awaiting acceptance via accept_admin() after propose_admin()." },
+            { "type": "null",   "description": "Null when no admin transfer is in flight." }
+          ]
+        },
         "initialized": {
           "type": "boolean",
           "description": "True once initialize(admin) has completed."
         },
         "version":        { "\$ref": "#/types/ContractMeta" },
-        "allowlist_mode": { "\$ref": "#/types/AllowlistMode" }
+        "allowlist_mode": { "\$ref": "#/types/AllowlistMode" },
+        "paused": {
+          "type": "boolean",
+          "description": "Whether the contract is currently paused (writes disabled)."
+        }
       },
-      "required": ["admin", "initialized", "version", "allowlist_mode"],
+      "required": ["admin", "pending_admin", "initialized", "version", "allowlist_mode", "paused"],
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
@@ -204,6 +214,46 @@ cat > "$OUT" <<JSON
         "allowed": { "type": "boolean", "description": "New value of the native XLM allow flag." }
       },
       "required": ["allowed"]
+    },
+    "StorageSchemaUpgraded": {
+      "description": "Emitted by upgrade_storage(). Signals a storage schema version upgrade.",
+      "topic": "storage_schema_upgraded",
+      "fields": {
+        "from_version": { "type": "integer", "description": "Previous schema version." },
+        "to_version":   { "type": "integer", "description": "New schema version." },
+        "upgraded_at":  { "type": "integer", "description": "Ledger timestamp when upgrade occurred." }
+      },
+      "required": ["from_version", "to_version", "upgraded_at"]
+    },
+    "ContractPaused": {
+      "description": "Emitted by set_paused(). Signals a pause or unpause state change.",
+      "topic": "contract_paused",
+      "fields": {
+        "paused": { "type": "boolean", "description": "New paused state." },
+        "triggered_by": { "type": "string", "description": "Admin address that triggered the change." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when change occurred." }
+      },
+      "required": ["paused", "triggered_by", "timestamp"]
+    },
+    "AdminTransferProposed": {
+      "description": "Emitted by propose_admin(). Signals step 1 of the two-step admin handoff.",
+      "topic": "admin_transfer_proposed",
+      "fields": {
+        "current_admin": { "type": "string", "description": "Admin that initiated the handoff." },
+        "new_admin": { "type": "string", "description": "Address proposed to become the next admin." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when the proposal was made." }
+      },
+      "required": ["current_admin", "new_admin", "timestamp"]
+    },
+    "AdminTransferAccepted": {
+      "description": "Emitted by accept_admin(). Signals step 2 of the two-step admin handoff — the role has transferred.",
+      "topic": "admin_transfer_accepted",
+      "fields": {
+        "previous_admin": { "type": "string", "description": "Admin that relinquished the role." },
+        "new_admin": { "type": "string", "description": "Address that accepted and is now the contract admin." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when the transfer completed." }
+      },
+      "required": ["previous_admin", "new_admin", "timestamp"]
     }
   },
   "errors": {
@@ -218,7 +268,11 @@ cat > "$OUT" <<JSON
     "Unauthorized":         { "code": 9, "description": "Caller is not authorized." },
     "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
     "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
-    "InvalidSettlementRef": { "code": 12, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
+    "ContractPaused":       { "code": 12, "description": "The contract is paused and write operations are disabled." },
+    "InvalidSettlementRef": { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." },
+    "NoPendingAdmin":       { "code": 14, "description": "accept_admin() called but no admin transfer proposal is pending." },
+    "PendingAdminExists":   { "code": 15, "description": "propose_admin() called while an admin transfer proposal is already pending." },
+    "InvalidProposedAdmin": { "code": 16, "description": "propose_admin() called with the current admin (or other invalid address)." }
   },
   "methods": {
     "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
@@ -232,10 +286,15 @@ cat > "$OUT" <<JSON
     "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
     "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },
     "admin":             { "auth": "none",  "description": "Return current admin address." },
-    "set_admin":         { "auth": "admin+new_admin", "description": "Transfer admin rights." },
+    "pending_admin":     { "auth": "none",  "description": "Return the address proposed as next admin, if any." },
+    "propose_admin":     { "auth": "admin", "description": "Step 1 of two-step handoff: propose the next admin." },
+    "accept_admin":      { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
     "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
     "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
-    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." }
+    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." },
+    "upgrade_storage":   { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
+    "set_paused":        { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
+    "is_paused":         { "auth": "none",  "description": "Return true if the contract is currently paused." }
   }
 }
 JSON

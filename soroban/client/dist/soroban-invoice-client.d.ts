@@ -38,6 +38,30 @@ export declare class SorobanInvoiceClient {
      */
     recordPayment(params: RecordPaymentParams): Promise<TransactionResult>;
     /**
+     * Step 1 of the two-step admin handoff: propose `newAdmin` as the next
+     * contract admin.
+     *
+     * The **current admin** keypair must be provided via `signerSecretKey` in
+     * the config. The role does NOT change until the proposed address calls
+     * `acceptAdmin`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
+     */
+    proposeAdmin(newAdmin: string): Promise<TransactionResult>;
+    /**
+     * Step 2 of the two-step admin handoff: accept a pending proposal and become
+     * the contract admin.
+     *
+     * The **proposed admin** keypair must be provided via `signerSecretKey` in
+     * the config — the caller is derived from that keypair and must match the
+     * address proposed by `proposeAdmin`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+     */
+    acceptAdmin(): Promise<TransactionResult>;
+    /**
      * Return the stable high-level contract configuration snapshot.
      *
      * This is the preferred single-call read for deployment checks, backend
@@ -45,6 +69,11 @@ export declare class SorobanInvoiceClient {
      * initialization status, version metadata, and allowlist policy together.
      */
     getConfig(): Promise<ContractConfig>;
+    /**
+     * Return the address currently proposed as the next admin, or `null` when no
+     * admin transfer is in flight. Permissionless read.
+     */
+    getPendingAdmin(): Promise<string | null>;
     /**
      * Fetch the full `PaymentRecord` for an invoice.
      *
@@ -67,6 +96,13 @@ export declare class SorobanInvoiceClient {
      * contract so responses remain bounded and predictable.
      */
     getPaymentHistory(cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
+    /**
+     * Simulate, sign, submit, and await a write transaction with the configured
+     * signer keypair. Shared by all admin-gated write operations.
+     *
+     * Time: O(k), k ≤ MAX_POLL_ATTEMPTS.
+     */
+    private submitWrite;
     /**
      * Build and simulate a read-only contract call without submitting a transaction.
      *
