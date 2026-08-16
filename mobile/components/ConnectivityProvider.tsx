@@ -10,12 +10,15 @@ import { useConnectivity } from "../hooks/use-connectivity";
 import { offlineQueue } from "../lib/offline-queue";
 import { authService } from "../lib/auth-service";
 import { useAuthStore } from "../hooks/use-auth-store";
+import { syncCoordinator } from "../lib/sync-coordinator";
 
 interface ConnectivityContextValue {
   isOnline: boolean;
   isDegraded: boolean;
   queueSize: number;
   processQueue: () => Promise<void>;
+  syncStatus: import("../lib/sync-coordinator").SyncStatus;
+  triggerSync: () => Promise<void>;
 }
 
 const ConnectivityContext = createContext<ConnectivityContextValue>({
@@ -23,6 +26,8 @@ const ConnectivityContext = createContext<ConnectivityContextValue>({
   isDegraded: false,
   queueSize: 0,
   processQueue: async () => {},
+  syncStatus: syncCoordinator.getStatus(),
+  triggerSync: async () => {},
 });
 
 export function ConnectivityProvider({
@@ -32,6 +37,7 @@ export function ConnectivityProvider({
 }) {
   const { isOffline, isDegraded } = useConnectivity();
   const [queueSize, setQueueSize] = React.useState(0);
+  const [syncStatus, setSyncStatus] = React.useState(syncCoordinator.getStatus());
   const appState = useRef(AppState.currentState);
 
   const processQueue = useCallback(async () => {
@@ -66,6 +72,11 @@ export function ConnectivityProvider({
     }
   }, [isOffline]);
 
+  const triggerSync = useCallback(async () => {
+    if (isOffline) return;
+    await syncCoordinator.triggerSync();
+  }, [isOffline]);
+
   // Subscribe to queue changes
   useEffect(() => {
     const unsubscribe = offlineQueue.subscribe(() => {
@@ -75,14 +86,23 @@ export function ConnectivityProvider({
     return unsubscribe;
   }, []);
 
-  // Process queue when coming online
+  // Subscribe to sync coordinator status changes
+  useEffect(() => {
+    const unsubscribe = syncCoordinator.subscribe((status) => {
+      setSyncStatus(status);
+    });
+    setSyncStatus(syncCoordinator.getStatus());
+    return unsubscribe;
+  }, []);
+
+  // Process queue when coming online - use sync coordinator
   useEffect(() => {
     if (!isOffline) {
-      void processQueue();
+      void triggerSync();
     }
-  }, [isOffline, processQueue]);
+  }, [isOffline, triggerSync]);
 
-  // Handle app state changes (background/foreground)
+  // Handle app state changes (background/foreground) - use sync coordinator
   useEffect(() => {
     const subscription = AppState.addEventListener(
       "change",
@@ -92,8 +112,8 @@ export function ConnectivityProvider({
           nextAppState === "active" &&
           !isOffline
         ) {
-          // App came to foreground and we're online - process queue
-          void processQueue();
+          // App came to foreground and we're online - trigger full sync
+          void triggerSync();
         }
         appState.current = nextAppState;
       },
@@ -102,13 +122,15 @@ export function ConnectivityProvider({
     return () => {
       subscription.remove();
     };
-  }, [isOffline, processQueue]);
+  }, [isOffline, triggerSync]);
 
   const value: ConnectivityContextValue = {
     isOnline: !isOffline,
     isDegraded,
     queueSize,
     processQueue,
+    syncStatus,
+    triggerSync,
   };
 
   return (

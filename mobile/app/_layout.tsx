@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectivityProvider } from "../components/ConnectivityProvider";
 import { OfflineBanner } from "../components/OfflineBanner";
+import { SyncStatusBanner } from "../components/SyncStatusBanner";
 import { AuthGuard } from "../components/auth-guard";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { DeepLinkHandler } from "../components/DeepLinkHandler";
@@ -24,21 +25,28 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <StatusBar style="light" />
           <OfflineBanner />
-          <DeepLinkHandler>
-            <AuthGuard>
-              <Stack
-                screenOptions={{
-                  headerStyle: {
-                    backgroundColor: "#050914",
-                  },
-                  headerTintColor: "#fff",
-                  headerTitleStyle: {
-                    fontFamily: "SpaceGrotesk_600SemiBold",
-                  },
-                  headerBackTitle: "Back",
-                  contentStyle: {
-                    backgroundColor: "#050914",
-                  },
+          <SyncStatusBanner />
+          <AuthGuard>
+            <Stack
+              screenOptions={{
+                headerStyle: {
+                  backgroundColor: "#050914",
+                },
+                headerTintColor: "#fff",
+                headerTitleStyle: {
+                  fontFamily: "SpaceGrotesk_600SemiBold",
+                },
+                headerBackTitle: "Back",
+                contentStyle: {
+                  backgroundColor: "#050914",
+                },
+              }}
+            >
+              <Stack.Screen
+                name="index"
+                options={{
+                  title: "Invoisio",
+                  headerShown: false,
                 }}
               >
                 <Stack.Screen
