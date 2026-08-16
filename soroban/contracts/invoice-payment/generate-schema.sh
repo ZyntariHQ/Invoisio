@@ -137,9 +137,13 @@ cat > "$OUT" <<JSON
           "description": "True once initialize(admin) has completed."
         },
         "version":        { "\$ref": "#/types/ContractMeta" },
-        "allowlist_mode": { "\$ref": "#/types/AllowlistMode" }
+        "allowlist_mode": { "\$ref": "#/types/AllowlistMode" },
+        "paused": {
+          "type": "boolean",
+          "description": "Whether the contract is currently paused (writes disabled)."
+        }
       },
-      "required": ["admin", "initialized", "version", "allowlist_mode"],
+      "required": ["admin", "initialized", "version", "allowlist_mode", "paused"],
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
@@ -204,6 +208,26 @@ cat > "$OUT" <<JSON
         "allowed": { "type": "boolean", "description": "New value of the native XLM allow flag." }
       },
       "required": ["allowed"]
+    },
+    "StorageSchemaUpgraded": {
+      "description": "Emitted by upgrade_storage(). Signals a storage schema version upgrade.",
+      "topic": "storage_schema_upgraded",
+      "fields": {
+        "from_version": { "type": "integer", "description": "Previous schema version." },
+        "to_version":   { "type": "integer", "description": "New schema version." },
+        "upgraded_at":  { "type": "integer", "description": "Ledger timestamp when upgrade occurred." }
+      },
+      "required": ["from_version", "to_version", "upgraded_at"]
+    },
+    "ContractPaused": {
+      "description": "Emitted by set_paused(). Signals a pause or unpause state change.",
+      "topic": "contract_paused",
+      "fields": {
+        "paused": { "type": "boolean", "description": "New paused state." },
+        "triggered_by": { "type": "string", "description": "Admin address that triggered the change." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when change occurred." }
+      },
+      "required": ["paused", "triggered_by", "timestamp"]
     }
   },
   "errors": {
@@ -218,7 +242,8 @@ cat > "$OUT" <<JSON
     "Unauthorized":         { "code": 9, "description": "Caller is not authorized." },
     "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
     "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
-    "InvalidSettlementRef": { "code": 12, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
+    "ContractPaused":       { "code": 12, "description": "The contract is paused and write operations are disabled." },
+    "InvalidSettlementRef": { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
   },
   "methods": {
     "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
@@ -235,7 +260,10 @@ cat > "$OUT" <<JSON
     "set_admin":         { "auth": "admin+new_admin", "description": "Transfer admin rights." },
     "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
     "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
-    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." }
+    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." },
+    "upgrade_storage":   { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
+    "set_paused":        { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
+    "is_paused":         { "auth": "none",  "description": "Return true if the contract is currently paused." }
   }
 }
 JSON
