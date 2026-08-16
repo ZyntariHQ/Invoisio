@@ -128,6 +128,8 @@ function makePrismaMock() {
     usersInDb,
     user: {
       findMany: jest.fn().mockResolvedValue([cloneUser(user1)]),
+      findUnique: mockTx.user.findUnique,
+      update: mockTx.user.update,
     },
     pushNotification: mockTx.pushNotification,
   };
