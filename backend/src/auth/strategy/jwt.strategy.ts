@@ -46,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     return {
       id: user.id,
       merchantId: user.merchantId,
+      role: (user as any).role ?? "owner",
       publicKey: user.publicKey,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,

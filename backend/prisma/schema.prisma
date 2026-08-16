@@ -72,18 +72,19 @@ model MerchantActivationChecklist {
 
 // User model matching backend/src/users/user.entity.ts
 model User {
-  id             String    @id @default(uuid())
-  merchantId     String    @map("merchant_id")
-  merchant       Merchant  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  publicKey      String    @unique
+  id             String       @id @default(uuid())
+  merchantId     String       @map("merchant_id")
+  merchant       Merchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  publicKey      String       @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?   @map("nonce_expires_at")
-  nonceUsedAt    DateTime? @map("nonce_used_at")
-  tokenVersion   Int       @default(0) @map("token_version")
-  isAdmin        Boolean   @default(false) @map("is_admin")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  nonceExpiresAt BigInt?      @map("nonce_expires_at")
+  nonceUsedAt    DateTime?    @map("nonce_used_at")
+  tokenVersion   Int          @default(0) @map("token_version")
+  isAdmin        Boolean      @default(false) @map("is_admin")
+  role           MerchantRole @default(owner)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
@@ -157,6 +158,13 @@ enum DeadLetterStatus {
   pending_retry
   requeued
   recovered
+}
+
+enum MerchantRole {
+  owner
+  admin
+  operator
+  viewer
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts

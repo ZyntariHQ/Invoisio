@@ -12,8 +12,10 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { BackfillService } from "./backfill.service";
 import type { BackfillOptions } from "./backfill.service";
+import { Auth } from "../auth/guard/auth.guard";
 
 @ApiTags("backfill")
+@Auth()
 @Controller("backfill")
 export class BackfillController {
   constructor(private readonly backfillService: BackfillService) {}
