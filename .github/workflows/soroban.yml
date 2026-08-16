@@ -47,7 +47,7 @@ jobs:
           git diff --exit-code schema.json
 
       - name: Install Stellar CLI
-        uses: stellar/actions/setup-cli@main
+        uses: stellar/stellar-cli@v27.1.0
 
       - name: Install Client Dependencies
         run: |
