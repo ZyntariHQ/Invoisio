@@ -4,11 +4,9 @@ import request from "supertest";
 import { BadRequestException } from "@nestjs/common";
 import { BackfillController } from "./backfill.controller";
 import { BackfillService, BackfillStats } from "./backfill.service";
+import { BackfillRunStatus } from "@prisma/client";
 import {
-  jwtAuthImports,
-  jwtAuthProviders,
-  signUserToken,
-} from "../auth/guard/auth-testing.util";
+  jwtAuthImports, jwtAuthProviders, signUserToken } from "../auth/guard/auth-testing.util";
 
 describe("BackfillController", () => {
   let controller: BackfillController;
@@ -25,6 +23,8 @@ describe("BackfillController", () => {
             getHistory: jest.fn(),
             getReport: jest.fn(),
             getStats: jest.fn(),
+            cancelRun: jest.fn(),
+            getLatestCheckpoint: jest.fn(),
           },
         },
       ],
@@ -63,12 +63,12 @@ describe("BackfillController", () => {
         success: true,
         runId: 1,
         stats: mockStats,
-        message: "Backfill started successfully",
+        message: "Backfill completed",
       });
       expect(service.reconcile).toHaveBeenCalledWith(options);
     });
 
-    it("should throw error when startLedger and fromLast are both missing", async () => {
+    it("should throw error when startLedger, fromLast, and resumeFromRunId are all missing", async () => {
       const options = {
         startLedger: undefined,
         fromLast: false,
@@ -94,13 +94,60 @@ describe("BackfillController", () => {
       await controller.startBackfill(options);
       expect(service.reconcile).toHaveBeenCalledWith(options);
     });
+
+    it("should allow resumeFromRunId without startLedger", async () => {
+      const options = { resumeFromRunId: 5 };
+
+      service.reconcile.mockResolvedValue({
+        runId: 6,
+        stats: mockStats,
+      });
+
+      await controller.startBackfill(options);
+      expect(service.reconcile).toHaveBeenCalledWith(options);
+    });
+  });
+
+  describe("cancelRun", () => {
+    it("should cancel a run", async () => {
+      service.cancelRun.mockResolvedValue({
+        id: 3,
+        status: BackfillRunStatus.cancelled,
+      });
+
+      const result = await controller.cancelRun("3", {
+        runId: 3,
+        operator: "alice",
+        note: "manual stop",
+      });
+      expect(result).toEqual({
+        success: true,
+        id: 3,
+        status: BackfillRunStatus.cancelled,
+      });
+      expect(service.cancelRun).toHaveBeenCalledWith({
+        runId: 3,
+        operator: "alice",
+        note: "manual stop",
+      });
+    });
+  });
+
+  describe("getLatestCheckpoint", () => {
+    it("should delegate to service", async () => {
+      const payload = {
+        runId: 1, status: BackfillRunStatus.failed, checkpoint: null };
+      service.getLatestCheckpoint.mockResolvedValue(payload);
+      expect(await controller.getLatestCheckpoint("1")).toBe(payload);
+      expect(service.getLatestCheckpoint).toHaveBeenCalledWith(1);
+    });
   });
 
   describe("getHistory", () => {
     it("should return history with default limit", async () => {
       const mockHistory = [
-        { id: 1, status: "completed" },
-        { id: 2, status: "failed" },
+        { id: 1, status: BackfillRunStatus.completed },
+        { id: 2, status: BackfillRunStatus.failed },
       ];
 
       service.getHistory.mockResolvedValue(mockHistory);
@@ -111,7 +158,7 @@ describe("BackfillController", () => {
     });
 
     it("should return history with custom limit", async () => {
-      const mockHistory = [{ id: 1, status: "completed" }];
+      const mockHistory = [{ id: 1, status: BackfillRunStatus.completed }];
 
       service.getHistory.mockResolvedValue(mockHistory);
 
@@ -125,7 +172,7 @@ describe("BackfillController", () => {
     it("should return a specific backfill report", async () => {
       const mockReport = {
         id: 1,
-        status: "completed",
+        status: BackfillRunStatus.completed,
         eventsProcessed: 100,
         eventsMatched: 80,
         eventsSkipped: 15,

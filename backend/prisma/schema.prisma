@@ -299,21 +299,66 @@ model ActivityEvent {
   @@map("activity_events")
 }
 
+enum BackfillRunStatus {
+  pending
+  running
+  paused
+  cancelled
+  completed
+  failed
+}
+
 model BackfillRun {
-  id              Int      @id @default(autoincrement())
-  startedAt       DateTime @default(now()) @map("started_at")
-  completedAt     DateTime? @map("completed_at")
-  startLedger     BigInt?  @map("start_ledger")
-  endLedger       BigInt?  @map("end_ledger")
-  eventsProcessed Int      @default(0) @map("events_processed")
-  eventsMatched   Int      @default(0) @map("events_matched")
-  eventsSkipped   Int      @default(0) @map("events_skipped")
-  eventsFailed    Int      @default(0) @map("events_failed")
-  status          String   @default("running")
-  errorMessage    String?  @map("error_message")
-  createdAt       DateTime @default(now()) @map("created_at")
-  
+  id              Int               @id @default(autoincrement())
+  contractId      String            @map("contract_id")
+  startedAt       DateTime          @default(now()) @map("started_at")
+  completedAt     DateTime?         @map("completed_at")
+  startLedger     BigInt            @map("start_ledger")
+  endLedger       BigInt            @map("end_ledger")
+  lastCheckpointLedger BigInt?      @map("last_checkpoint_ledger")
+  lastCheckpointCursor String?      @map("last_checkpoint_cursor")
+  lastCheckpointAt DateTime?        @map("last_checkpoint_at")
+  eventsProcessed Int               @default(0) @map("events_processed")
+  eventsMatched   Int               @default(0) @map("events_matched")
+  eventsSkipped   Int               @default(0) @map("events_skipped")
+  eventsFailed    Int               @default(0) @map("events_failed")
+  status          BackfillRunStatus @default(pending)
+  cancelledAt     DateTime?         @map("cancelled_at")
+  cancelledBy     String?           @map("cancelled_by")
+  cancellationNote String?          @map("cancellation_note")
+  errorMessage    String?           @map("error_message")
+  parentRunId     Int?              @map("parent_run_id")
+  parentRun       BackfillRun?      @relation("BackfillRunResume", fields: [parentRunId], references: [id])
+  resumedRuns     BackfillRun[]     @relation("BackfillRunResume")
+  checkpoints     BackfillCheckpoint[]
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@index([contractId, status])
+  @@index([contractId, startLedger, endLedger])
   @@map("backfill_runs")
+}
+
+model BackfillCheckpoint {
+  id                Int          @id @default(autoincrement())
+  runId             Int          @map("run_id")
+  run               BackfillRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  contractId        String       @map("contract_id")
+  checkpointLedger  BigInt       @map("checkpoint_ledger")
+  startLedgerRange  BigInt       @map("start_ledger_range")
+  endLedgerRange    BigInt       @map("end_ledger_range")
+  lastEventCursor   String?      @map("last_event_cursor")
+  lastEventId       String?      @map("last_event_id")
+  eventsInBatch     Int          @default(0) @map("events_in_batch")
+  eventsProcessedBefore Int      @default(0) @map("events_processed_before")
+  eventsMatchedBefore Int        @default(0) @map("events_matched_before")
+  eventsSkippedBefore Int        @default(0) @map("events_skipped_before")
+  eventsFailedBefore  Int        @default(0) @map("events_failed_before")
+  note              String?
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  @@index([runId])
+  @@index([contractId, checkpointLedger])
+  @@map("backfill_checkpoints")
 }
 
 model ProcessedEvent {
