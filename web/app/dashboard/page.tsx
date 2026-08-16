@@ -40,6 +40,12 @@ function DashboardContent() {
         <div className="flex items-center gap-3 self-start sm:self-center">
           <WalletAuthControls />
           <Link
+            href="/analytics"
+            className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
+          >
+            Analytics
+          </Link>
+          <Link
             href="/settings"
             className="inline-flex items-center rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-50 transition-colors"
           >

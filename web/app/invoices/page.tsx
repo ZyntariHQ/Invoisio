@@ -567,6 +567,12 @@ function InvoicesContent() {
           </div>
           <div className="flex items-center gap-3 self-start sm:self-center">
             <WalletAuthControls />
+            <Link
+              href="/analytics"
+              className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              Analytics
+            </Link>
             <button
               type="button"
               onClick={() => refetch()}
