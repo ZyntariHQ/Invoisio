@@ -467,6 +467,49 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 7 | InvalidAsset | `asset_code` empty, or non-XLM asset without `asset_issuer`; or invalid allowlist args. |
 | 8 | AssetNotAllowed | The asset (code, issuer) is not in the admin-controlled allowlist. |
 | 9 | Unauthorized | The caller is not authorized to perform the operation. |
+| 10 | StorageSchemaTooNew | `upgrade_storage()` called on a deployment whose `storage_schema_version` is newer than this WASM knows about. |
+| 11 | StorageSchemaTooOld | `upgrade_storage()` called but the schema is already at or beyond the version this WASM implements. |
+| 12 | ContractPaused | The contract is paused and cannot perform the requested operation. |
+| 13 | InvalidSettlementRef | `settlement_ref` was empty or exceeded the maximum allowed length. |
+
+#### Typed error manifest (off-chain reference)
+
+The TypeScript client ships a typed, single-source-of-truth manifest at
+`soroban/client/src/error-manifest.ts` (`CONTRACT_ERROR_MANIFEST`), mirroring
+`errors.rs` exactly: each entry carries the stable `code`, the `name` matching
+the Rust variant, and a `meaning`. `ContractErrorCode`, `CONTRACT_ERROR_CODES`,
+and `getContractErrorCode()` are derived from it, and `parseContractError`
+resolves host error strings against it — see
+`soroban/client/src/error-manifest.test.ts` for the regression coverage.
+
+```typescript
+import { CONTRACT_ERROR_MANIFEST, parseContractError } from '@invoisio/soroban-client';
+
+// Full typed reference for off-chain error handling
+CONTRACT_ERROR_MANIFEST // [{ code: 1, name: 'AlreadyInitialized', meaning: ... }, ...]
+
+// Parse a host/simulation error string into a typed SorobanContractError
+try {
+  await client.recordPayment(params);
+} catch (err) {
+  if (err instanceof SorobanContractError) {
+    console.error(err.code); // 'PaymentAlreadyRecorded' | 'Unknown' | ...
+  }
+}
+```
+
+**Evolving the manifest.** Error codes are permanent once deployed. When a new
+Soroban error is introduced:
+
+1. Append the new variant at the **end** of `ContractError` in
+   `soroban/contracts/invoice-payment/src/errors.rs` — never reorder, remove, or
+   reuse codes.
+2. Append the matching entry (same numeric `code`, identical camelCase `name`)
+   to `CONTRACT_ERROR_MANIFEST` in `soroban/client/src/error-manifest.ts`.
+3. Extend the regression tests in `soroban/client/src/error-manifest.test.ts`
+   so the new code is covered by the `parseContractError` mapping tests.
+4. Update this table, then rebuild the client (`cd soroban/client && npm run build`)
+   so the committed `dist/` ships the new codes to downstream consumers.
 
 ### `PaymentRecord` struct
 
@@ -775,18 +818,26 @@ Total payments on-chain: 1
 
 ### Error handling
 
-All contract-level rejections are thrown as `SorobanContractError`:
+All contract-level rejections are thrown as `SorobanContractError`, with `code`
+resolved against the typed manifest (`CONTRACT_ERROR_MANIFEST`) described in
+[Contract error codes](#contract-error-codes):
 
 ```typescript
+import { SorobanContractError } from '@invoisio/soroban-client';
+
 try {
   await client.recordPayment({ invoiceId: 'invoisio-abc123', ... });
 } catch (err) {
   if (err instanceof SorobanContractError) {
-    // err.code: 'PaymentAlreadyRecorded' | 'InvalidAmount' | 'NotInitialized' | ...
-    console.error(`Rejected by contract [${err.code}]`);
+    // err.code: 'AlreadyInitialized' | 'PaymentAlreadyRecorded' | 'Unknown' | ...
+    console.error(`Rejected by contract [${err.code}] (${err.numericCode})`);
   }
 }
 ```
+
+Unknown numeric codes are surfaced as `code: 'Unknown'` (numeric code preserved)
+so forward-compatible clients degrade gracefully when the contract grows new
+errors before the client manifest is updated.
 
 ---
 

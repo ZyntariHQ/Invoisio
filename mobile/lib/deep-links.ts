@@ -95,7 +95,7 @@ export function navigateToDeepLink(
     case "payment":
     case "receipt":
       if (id) {
-        router.push(`/invoices/${id}`);
+        router.push(`/receipts/${id}`);
         return true;
       }
       return false;

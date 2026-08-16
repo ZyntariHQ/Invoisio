@@ -19,6 +19,8 @@ export class User {
 
   isAdmin: boolean;
 
+  pushNotificationsEnabled: boolean;
+
   createdAt?: Date;
 
   updatedAt?: Date;

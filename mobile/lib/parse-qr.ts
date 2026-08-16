@@ -20,6 +20,20 @@ export interface ParsedPayment {
   sep0007Uri: string;
 }
 
+/**
+ * A typed parse failure. `code` lets the UI tailor the message and recovery
+ * actions, while `message` is a plain-language explanation for the user.
+ */
+export type ParseQrErrorCode =
+  | "unsupported-format"
+  | "missing-destination"
+  | "invalid-destination";
+
+export interface ParseQrError {
+  code: ParseQrErrorCode;
+  message: string;
+}
+
 const G_ADDRESS_RE = /^G[A-Z2-7]{55}$/;
 
 function isValidGAddress(addr: string): boolean {
@@ -55,9 +69,10 @@ function buildSep0007Uri(p: Omit<ParsedPayment, "sep0007Uri">): string {
 }
 
 /**
- * @returns ParsedPayment on success, or a string error message on failure.
+ * @returns ParsedPayment on success, or a ParseQrError describing what went
+ * wrong so the UI can offer a clear recovery path.
  */
-export function parseQrCode(raw: string): ParsedPayment | string {
+export function parseQrCode(raw: string): ParsedPayment | ParseQrError {
   const trimmed = raw.trim();
 
   // 1. Raw G-address
@@ -74,7 +89,11 @@ export function parseQrCode(raw: string): ParsedPayment | string {
   const isInvoisio = trimmed.startsWith("invoisio://pay?");
 
   if (!isSep0007 && !isInvoisio) {
-    return "Unsupported QR code format. Expected a Stellar address or web+stellar: payment link.";
+    return {
+      code: "unsupported-format",
+      message:
+        "This QR code isn't a Stellar payment request. Expected a Stellar address (G...) or a web+stellar: payment link.",
+    };
   }
 
   let queryString: string;
@@ -89,11 +108,18 @@ export function parseQrCode(raw: string): ParsedPayment | string {
   const destination = params.get("destination");
 
   if (!destination) {
-    return "QR code is missing a destination address.";
+    return {
+      code: "missing-destination",
+      message:
+        "This QR code doesn't include a destination address. Ask the merchant to regenerate the payment QR code.",
+    };
   }
 
   if (!isValidGAddress(destination)) {
-    return `Invalid destination address: ${destination}`;
+    return {
+      code: "invalid-destination",
+      message: `Invalid destination address: ${destination}. It must be a valid Stellar public key that starts with "G".`,
+    };
   }
 
   const memoType = parseMemoType(params.get("memo_type"));

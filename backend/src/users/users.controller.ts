@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Patch,
   Post,
   Req,
@@ -37,5 +38,10 @@ export class UsersController {
       req.user.id,
       pushNotificationsEnabled,
     );
+  }
+
+  @Get("preferences")
+  async getPreferences(@Req() req) {
+    return this.usersService.getPreferences(req.user.id);
   }
 }

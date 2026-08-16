@@ -45,4 +45,15 @@ export class UsersService {
     });
     return { success: true };
   }
+
+  async getPreferences(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { pushNotificationsEnabled: true },
+    });
+
+    if (!user) throw new NotFoundException("User not found");
+
+    return user;
+  }
 }

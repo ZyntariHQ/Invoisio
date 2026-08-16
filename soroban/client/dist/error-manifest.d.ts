@@ -1,0 +1,86 @@
+/** A single stable contract error: its on-chain numeric code, name, and meaning. */
+export interface ContractErrorManifestEntry {
+    /**
+     * Numeric code surfaced as `ScError::Contract(u32)` — stable part of the
+     * on-chain ABI. Never reused.
+     */
+    readonly code: number;
+    /** Stable name matching the Rust `ContractError` variant (camelCase). */
+    readonly name: string;
+    /** Human-readable meaning: the condition under which the contract raises this error. */
+    readonly meaning: string;
+}
+/**
+ * Typed manifest of every error the invoice-payment contract can return.
+ * Keep in sync with `soroban/contracts/invoice-payment/src/errors.rs`.
+ */
+export declare const CONTRACT_ERROR_MANIFEST: readonly [{
+    readonly code: 1;
+    readonly name: "AlreadyInitialized";
+    readonly meaning: "initialize() was called on a contract that is already set up.";
+}, {
+    readonly code: 2;
+    readonly name: "NotInitialized";
+    readonly meaning: "A method that requires admin was called before initialize().";
+}, {
+    readonly code: 3;
+    readonly name: "PaymentAlreadyRecorded";
+    readonly meaning: "record_payment() was called with an invoice_id that was already recorded; each invoice may be recorded exactly once.";
+}, {
+    readonly code: 4;
+    readonly name: "PaymentNotFound";
+    readonly meaning: "get_payment() was called for an invoice_id that has no record.";
+}, {
+    readonly code: 5;
+    readonly name: "InvalidAmount";
+    readonly meaning: "amount was zero or negative; all payments must be strictly positive.";
+}, {
+    readonly code: 6;
+    readonly name: "InvalidInvoiceId";
+    readonly meaning: "invoice_id was an empty string; every payment must reference a non-empty invoice identifier.";
+}, {
+    readonly code: 7;
+    readonly name: "InvalidAsset";
+    readonly meaning: "asset_code was empty, or a non-XLM asset was supplied without an asset_issuer; every payment must identify the asset unambiguously.";
+}, {
+    readonly code: 8;
+    readonly name: "AssetNotAllowed";
+    readonly meaning: "The asset (code, issuer pair) is not in the admin-controlled allowlist.";
+}, {
+    readonly code: 9;
+    readonly name: "Unauthorized";
+    readonly meaning: "The caller is not authorized to perform this operation.";
+}, {
+    readonly code: 10;
+    readonly name: "StorageSchemaTooNew";
+    readonly meaning: "upgrade_storage() was called on a deployment whose on-chain storage_schema_version is newer than this WASM knows about.";
+}, {
+    readonly code: 11;
+    readonly name: "StorageSchemaTooOld";
+    readonly meaning: "upgrade_storage() was called but the schema is already at or beyond the version this WASM implements — nothing to do.";
+}, {
+    readonly code: 12;
+    readonly name: "ContractPaused";
+    readonly meaning: "The contract is paused and cannot perform the requested operation.";
+}, {
+    readonly code: 13;
+    readonly name: "InvalidSettlementRef";
+    readonly meaning: "settlement_ref was empty or exceeded the maximum allowed length.";
+}];
+/** Union of every known contract error name (excludes the `Unknown` fallback). */
+export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];
+/** A known contract error name, or `Unknown` when the numeric code is not mapped. */
+export type ContractErrorCode = ContractErrorName | 'Unknown';
+/**
+ * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.
+ * Kept for backward compatibility with existing consumers.
+ */
+export declare const CONTRACT_ERROR_CODES: Readonly<Record<number, ContractErrorName>>;
+/** Look up the full manifest entry for a numeric code; `undefined` if unmapped. */
+export declare function getContractError(code: number): ContractErrorManifestEntry | undefined;
+/**
+ * Map a numeric contract error code to its stable name.
+ * Returns `'Unknown'` when the code is not in the manifest.
+ */
+export declare function getContractErrorCode(code: number): ContractErrorCode;
+//# sourceMappingURL=error-manifest.d.ts.map

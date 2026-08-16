@@ -51,6 +51,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       updatedAt: user.updatedAt,
       email: user.email,
       isAdmin: user.isAdmin,
+      pushNotificationsEnabled: user.pushNotificationsEnabled,
       tokenVersion: (user as any).tokenVersion ?? 0,
     } as any;
   }

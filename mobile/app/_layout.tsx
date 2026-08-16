@@ -72,6 +72,13 @@ export default function RootLayout() {
               }}
             />
             <Stack.Screen
+              name="receipts/[id]"
+              options={{
+                title: 'Payment Receipt',
+                headerShown: true,
+              }}
+            />
+            <Stack.Screen
               name="scan"
               options={{
                 title: 'Scan QR',

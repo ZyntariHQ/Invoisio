@@ -6,6 +6,7 @@ exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
+exports.decodeContractConfig = decodeContractConfig;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
@@ -132,15 +133,14 @@ function decodeContractConfig(scVal) {
 const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)|contractError\((\d+)\)/;
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
- * Returns code `Unknown` (-1) when the numeric code is not in the known set.
+ * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code
+ * `Unknown` (-1) when the numeric code is not in the known set.
  */
 function parseContractError(errorString) {
     const match = CONTRACT_ERROR_RE.exec(errorString);
     // Group 1 = new SDK v14 format `Error(Contract, #N)`, group 2 = legacy `contractError(N)`
     const numericCode = match ? parseInt(match[1] ?? match[2], 10) : -1;
-    const code = numericCode in types_1.CONTRACT_ERROR_CODES
-        ? types_1.CONTRACT_ERROR_CODES[numericCode]
-        : 'Unknown';
+    const code = (0, types_1.getContractErrorCode)(numericCode);
     return new types_1.SorobanContractError(code, numericCode, `Soroban contract error: ${code} (code=${numericCode})`);
 }
 //# sourceMappingURL=codec.js.map

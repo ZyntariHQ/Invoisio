@@ -1,0 +1,7 @@
+[toolchain]
+# soroban-sdk v25 / ethnum v1.5.2 requires a Rust toolchain <= 1.91.x.
+# rustc 1.92+ changed mem::transmute size semantics in a way that breaks
+# ethnum's internal error-type conversion.  Pin here so `cargo test` and
+# the CI `cargo build` step both use the same known-good version.
+channel = "1.91.0"
+targets = ["wasm32-unknown-unknown"]
