@@ -5,6 +5,7 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectivityProvider } from "../components/ConnectivityProvider";
 import { OfflineBanner } from "../components/OfflineBanner";
+import { SyncStatusBanner } from "../components/SyncStatusBanner";
 import { AuthGuard } from "../components/auth-guard";
 import { useAuthStore } from "../hooks/use-auth-store";
 
@@ -23,6 +24,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <StatusBar style="light" />
           <OfflineBanner />
+          <SyncStatusBanner />
           <AuthGuard>
             <Stack
               screenOptions={{
