@@ -27,6 +27,7 @@ describe("SorobanService", () => {
         assetCode: "XLM",
         assetIssuer: "",
         amount: "10000000",
+        settlementRef: "settle-hash-abc",
       });
 
       expect(result).toBeNull();
@@ -58,6 +59,7 @@ describe("SorobanService", () => {
         assetCode: "XLM",
         assetIssuer: "",
         amount: "10000000",
+        settlementRef: "settle-hash-abc",
       });
 
       expect(result).toBeNull();

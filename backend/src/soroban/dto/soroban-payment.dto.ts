@@ -1,4 +1,9 @@
-import { IsNotEmpty, IsString, Matches } from "class-validator";
+import {
+  IsNotEmpty,
+  IsString,
+  Matches,
+  MaxLength,
+} from "class-validator";
 
 export class RecordPaymentDto {
   /** Unique invoice identifier, e.g. "invoisio-abc123" */
@@ -35,4 +40,16 @@ export class RecordPaymentDto {
   @IsNotEmpty()
   @Matches(/^\d+$/, { message: "amount must be a non-negative integer string" })
   amount!: string;
+
+  /**
+   * Normalised settlement reference (hash or reconciliation ID) required by
+   * the live contract ABI for backend deduplication and idempotent settlement
+   * reconciliation. Must be non-empty and at most 128 characters.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128, {
+    message: "settlementRef must not exceed 128 characters",
+  })
+  settlementRef!: string;
 }

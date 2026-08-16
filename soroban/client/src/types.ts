@@ -69,6 +69,12 @@ export interface PaymentRecord {
   readonly amount: bigint;
   /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
+  /**
+   * Normalised settlement reference (hash or reconciliation ID) used for
+   * backend deduplication and idempotent settlement reconciliation.
+   * Stores the value passed to `record_payment`.
+   */
+  readonly settlementRef: string;
 }
 
 /** Bounded page of payment history returned by the contract. */
@@ -150,6 +156,13 @@ export interface RecordPaymentParams {
   readonly assetIssuer: string;
   /** Amount in smallest denomination (must be > 0) */
   readonly amount: bigint;
+  /**
+   * Normalised settlement reference or hash for backend deduplication and
+   * idempotent reconciliation. Required — must be non-empty and at most
+   * 128 characters (the contract rejects longer values with
+   * `InvalidSettlementRef`).
+   */
+  readonly settlementRef: string;
 }
 
 /** Confirmed on-chain transaction result. */

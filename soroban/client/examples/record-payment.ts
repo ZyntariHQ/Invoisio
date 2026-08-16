@@ -49,6 +49,8 @@ async function main(): Promise<void> {
       assetCode: 'USDC',
       assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       amount: 1_500_000_000n,
+      // Required by the contract: normalised settlement reference (max 128 chars)
+      settlementRef: process.env['SETTLEMENT_REF'] ?? 'settle-demo-001',
     });
 
     console.log('✓  Transaction confirmed');

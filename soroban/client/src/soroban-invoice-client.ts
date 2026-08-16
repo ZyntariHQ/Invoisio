@@ -100,8 +100,13 @@ export class SorobanInvoiceClient {
    * Horizon **before** calling this method. The contract admin keypair must be
    * provided via `signerSecretKey` in the config.
    *
+   * `params.settlementRef` is the normalised settlement reference (e.g. a
+   * SHA-256 hash or reconciliation ID) used for backend deduplication and
+   * idempotent reconciliation. It must be non-empty and at most 128 chars —
+   * the contract rejects longer values with `InvalidSettlementRef`.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`)
+   *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`, `InvalidSettlementRef`)
    * @throws {Error} on network errors or confirmation timeout
    */
   async recordPayment(params: RecordPaymentParams): Promise<TransactionResult> {
@@ -123,6 +128,7 @@ export class SorobanInvoiceClient {
           encodeString(params.assetCode),
           encodeString(params.assetIssuer),
           encodeI128(params.amount),
+          encodeString(params.settlementRef),
         ),
       )
       .setTimeout(TX_TIMEOUT_SECONDS)

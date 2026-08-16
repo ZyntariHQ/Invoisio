@@ -133,6 +133,7 @@ describe("Soroban Integration", () => {
         assetCode: "XLM",
         assetIssuer: "",
         amount: "100000000",
+        settlementRef: mockPaymentRecord.transaction_hash,
       });
 
       expect(invoicesService.updateSorobanMetadata).toHaveBeenCalledWith(

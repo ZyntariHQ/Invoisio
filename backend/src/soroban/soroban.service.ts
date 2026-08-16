@@ -67,6 +67,7 @@ export class SorobanService implements OnModuleInit {
       assetCode: dto.assetCode,
       assetIssuer: dto.assetIssuer,
       amount: BigInt(dto.amount),
+      settlementRef: dto.settlementRef,
     });
 
     this.logger.log(
