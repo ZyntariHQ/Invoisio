@@ -731,15 +731,18 @@ describe("BackfillService", () => {
 
       expect(result.id).toBe(7);
       expect(result.status).toBe(BackfillRunStatus.cancelled);
-      expect(prismaService.backfillRun.update).toHaveBeenCalledWith({
-        where: { id: 7 },
-        data: expect.objectContaining({
-          status: BackfillRunStatus.cancelled,
-          cancelledBy: "admin",
-          cancellationNote: "Maintenance window",
-          cancelledAt: expect.any(Date),
+      expect(prismaService.backfillRun.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 7 },
+          data: expect.objectContaining({
+            status: BackfillRunStatus.cancelled,
+            cancelledBy: "admin",
+            cancellationNote: "Maintenance window",
+            cancelledAt: expect.any(Date),
+            completedAt: expect.any(Date),
+          }),
         }),
-      });
+      );
     });
 
     it("should throw BadRequestException for already-completed run", async () => {
