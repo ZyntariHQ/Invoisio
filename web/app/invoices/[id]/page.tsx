@@ -482,7 +482,7 @@ function InvoiceDetailContent() {
 
             {/* Status Info */}
             {lastUpdated && (
-              <div className="mb-6 text-xs text-gray-500">
+              <div className="mb-6 text-xs text-gray-500 print:hidden">
                 Last updated: {new Date(lastUpdated).toLocaleTimeString()}
               </div>
             )}
@@ -536,7 +536,7 @@ function InvoiceDetailContent() {
         </div>
 
         {/* Footer Help Text */}
-        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600">
+        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600 print:hidden">
           <p>
             {isPending && walletInfo?.hasWallet
               ? 'Click "Pay Invoice" to open your Stellar wallet and send payment.'
