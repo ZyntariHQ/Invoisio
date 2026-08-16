@@ -47,6 +47,7 @@ model Merchant {
   activationChecklist MerchantActivationChecklist?
   paymentReviews PaymentReview[]
   recurringSchedules RecurringSchedule[]
+  pushNotifications PushNotification[]
 
   @@map("merchants")
 }
@@ -99,6 +100,7 @@ model User {
   activities     ActivityEvent[]
   webhookDeadLetters  WebhookDeadLetter[]
   recurringSchedules  RecurringSchedule[]
+  pushNotifications PushNotification[]
 
   @@index([merchantId])
   @@map("users")
@@ -168,6 +170,27 @@ enum MerchantRole {
   admin
   operator
   viewer
+}
+
+enum PushNotificationStatus {
+  queued
+  ticket_ok
+  ticket_error
+  receipt_ok
+  receipt_error_permanent
+  receipt_error_retryable
+  token_removed
+}
+
+enum PushNotificationFailureReason {
+  DeviceNotRegistered
+  InvalidCredentials
+  MessageTooBig
+  MessageRateExceeded
+  ProviderError
+  InvalidProviderError
+  DeviceNotRegisteredOnPlatform
+  Unknown
 }
 
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
@@ -389,4 +412,41 @@ model RecurringInvoiceRun {
 
   @@unique([scheduleId, periodKey])
   @@map("recurring_invoice_runs")
+}
+
+model PushNotification {
+  id               String                       @id @default(uuid())
+  userId           String                       @map("user_id")
+  user             User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId       String                       @map("merchant_id")
+  merchant         Merchant                     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  pushToken        String                       @map("push_token")
+  eventType        String                       @map("event_type")
+  title            String
+  body             String
+  payload          Json?
+  status           PushNotificationStatus       @default(queued)
+  expoTicketId     String?                      @unique @map("expo_ticket_id")
+  ticketError      String?                      @map("ticket_error")
+  ticketErrorDetails Json?                      @map("ticket_error_details")
+  ticketCreatedAt  DateTime?                    @map("ticket_created_at")
+  receiptStatus    String?                      @map("receipt_status")
+  receiptMessage   String?                      @map("receipt_message")
+  receiptFailureReason PushNotificationFailureReason? @map("receipt_failure_reason")
+  receiptFetchedAt DateTime?                    @map("receipt_fetched_at")
+  receiptDetails   Json?                        @map("receipt_details")
+  retryCount       Int                          @default(0) @map("retry_count")
+  lastRetriedAt    DateTime?                    @map("last_retried_at")
+  removedTokenAt   DateTime?                    @map("removed_token_at")
+  removedTokenNote String?                      @map("removed_token_note")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+
+  @@index([merchantId])
+  @@index([userId])
+  @@index([status])
+  @@index([expoTicketId])
+  @@index([pushToken])
+  @@index([status, receiptFetchedAt])
+  @@map("push_notifications")
 }
