@@ -119,6 +119,7 @@ export function useWalletAuth(): UseWalletAuthReturn {
       await close();
 
       // Clear auth state
+      await authService.clearPendingAuth();
       await clearAuth();
       setError(null);
       console.log("Wallet disconnected");

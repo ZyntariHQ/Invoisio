@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useEffect, useRef } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+} from "react";
 import { AppState, AppStateStatus } from "react-native";
 import { useConnectivity } from "../hooks/use-connectivity";
 import { offlineQueue } from "../lib/offline-queue";
 import { authService } from "../lib/auth-service";
+import { useAuthStore } from "../hooks/use-auth-store";
 
 interface ConnectivityContextValue {
   isOnline: boolean;
@@ -18,10 +25,46 @@ const ConnectivityContext = createContext<ConnectivityContextValue>({
   processQueue: async () => {},
 });
 
-export function ConnectivityProvider({ children }: { children: React.ReactNode }) {
+export function ConnectivityProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { isOffline, isDegraded } = useConnectivity();
   const [queueSize, setQueueSize] = React.useState(0);
   const appState = useRef(AppState.currentState);
+
+  const processQueue = useCallback(async () => {
+    if (isOffline) return;
+
+    try {
+      const loginResult = await authService.retryPendingOperation();
+      if (loginResult) {
+        await useAuthStore
+          .getState()
+          .setAuth(loginResult.response.accessToken, loginResult.publicKey);
+      } else {
+        const { accessToken, clearAuth } = useAuthStore.getState();
+        if (accessToken) {
+          const status = await authService.verifyToken(accessToken);
+          if (status === "invalid") await clearAuth();
+        }
+      }
+
+      await offlineQueue.processQueue(
+        (request) => {
+          console.log(`Request ${request.id} processed successfully`);
+        },
+        (request, error) => {
+          console.error(`Request ${request.id} failed after retries:`, error);
+        },
+      );
+
+      setQueueSize(offlineQueue.getQueueSize());
+    } catch (error) {
+      console.error("Error processing queue:", error);
+    }
+  }, [isOffline]);
 
   // Subscribe to queue changes
   useEffect(() => {
@@ -35,59 +78,31 @@ export function ConnectivityProvider({ children }: { children: React.ReactNode }
   // Process queue when coming online
   useEffect(() => {
     if (!isOffline) {
-      processQueue();
+      void processQueue();
     }
-  }, [isOffline]);
+  }, [isOffline, processQueue]);
 
   // Handle app state changes (background/foreground)
   useEffect(() => {
-    const subscription = AppState.addEventListener("change", (nextAppState: AppStateStatus) => {
-      if (
-        appState.current.match(/inactive|background/) &&
-        nextAppState === "active" &&
-        !isOffline
-      ) {
-        // App came to foreground and we're online - process queue
-        processQueue();
-      }
-      appState.current = nextAppState;
-    });
-
-    return () => subscription.remove();
-  }, [isOffline]);
-
-  const processQueue = async () => {
-    if (isOffline) return;
-
-    try {
-      // Try to retry pending login first
-      const loginResult = await authService.retryPendingOperation();
-      if (loginResult) {
-        // Update auth store if login succeeded
-        // setAuth requires two arguments: (accessToken: string, publicKey: string)
-        // If we don't have the publicKey, we need to skip this or get it from storage
-        // For now, we'll just log and not set auth to avoid errors
-        console.log("Login retry succeeded, but publicKey is needed for setAuth");
-        // TODO: Store publicKey alongside credentials in the queue to enable auto-login
-        // useAuthStore.getState().setAuth(loginResult.accessToken, loginResult.user?.publicKey ?? "");
-      }
-
-      // Process the offline queue
-      await offlineQueue.processQueue(
-        (request) => {
-          console.log(`Request ${request.id} processed successfully`);
-          // Optionally invalidate relevant queries
-        },
-        (request, error) => {
-          console.error(`Request ${request.id} failed after retries:`, error);
+    const subscription = AppState.addEventListener(
+      "change",
+      (nextAppState: AppStateStatus) => {
+        if (
+          appState.current.match(/inactive|background/) &&
+          nextAppState === "active" &&
+          !isOffline
+        ) {
+          // App came to foreground and we're online - process queue
+          void processQueue();
         }
-      );
+        appState.current = nextAppState;
+      },
+    );
 
-      setQueueSize(offlineQueue.getQueueSize());
-    } catch (error) {
-      console.error("Error processing queue:", error);
-    }
-  };
+    return () => {
+      subscription.remove();
+    };
+  }, [isOffline, processQueue]);
 
   const value: ConnectivityContextValue = {
     isOnline: !isOffline,
