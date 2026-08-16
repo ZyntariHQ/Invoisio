@@ -9,6 +9,7 @@ import { User } from "../users/user.entity";
 import { JwtStrategy } from "./strategy/jwt.strategy";
 import { JwtAuthGuard } from "./guard/auth.guard";
 import { AdminGuard } from "./guard/admin.guard";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 
 @Module({
   imports: [
@@ -25,8 +26,14 @@ import { AdminGuard } from "./guard/admin.guard";
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard, AdminGuard],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtAuthGuard,
+    AdminGuard,
+    MerchantRolesGuard,
+  ],
   controllers: [AuthController],
-  exports: [JwtAuthGuard, AdminGuard, JwtModule],
+  exports: [JwtAuthGuard, AdminGuard, MerchantRolesGuard, JwtModule],
 })
 export class AuthModule {}

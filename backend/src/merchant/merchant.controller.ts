@@ -1,10 +1,13 @@
-import { Controller, Get, Patch, Body } from "@nestjs/common";
+import { Controller, Get, Patch, Body, UseGuards } from "@nestjs/common";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { MerchantService } from "./merchant.service";
 import { UpdateMerchantSettingsDto } from "./dto/update-merchant-settings.dto";
 import { UpdateChecklistDto } from "./dto/update-checklist.dto";
 import { PrismaService } from "../prisma/prisma.service";
+import { Roles } from "../common/decorators/roles.decorator";
+import { MerchantRole } from "../common/enums/merchant-role.enum";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 
 /**
  * MerchantController
@@ -35,8 +38,10 @@ export class MerchantController {
    * PATCH /merchants/settings
    * Updates merchant settings (name, payout key, preferred asset, webhook).
    * Validates Stellar public key format before persisting.
+   * Restricted to merchant OWNERs and ADMINs.
    */
-  @Auth()
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  @UseGuards(MerchantRolesGuard)
   @Patch("settings")
   async updateSettings(
     @CurrentUser() user: User,
@@ -62,8 +67,10 @@ export class MerchantController {
   /**
    * PATCH /merchants/checklist
    * Updates checklist completion status.
+   * Restricted to merchant OWNERs, ADMINs and OPERATORs.
    */
-  @Auth()
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN, MerchantRole.OPERATOR)
+  @UseGuards(MerchantRolesGuard)
   @Patch("checklist")
   async updateChecklist(
     @CurrentUser() user: User,
@@ -77,8 +84,10 @@ export class MerchantController {
   /**
    * POST /merchants/checklist/sync
    * Syncs checklist based on current merchant state.
+   * Restricted to merchant OWNERs, ADMINs and OPERATORs.
    */
-  @Auth()
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN, MerchantRole.OPERATOR)
+  @UseGuards(MerchantRolesGuard)
   @Patch("checklist/sync")
   async syncChecklist(@CurrentUser() user: User) {
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
