@@ -35,6 +35,11 @@ export interface ContractVersionInfo {
 export interface ContractConfig {
     /** Admin Stellar account (G...) after initialization; `null` before. */
     readonly admin: string | null;
+    /**
+     * Address awaiting acceptance via `accept_admin` after `propose_admin`, or
+     * `null` when no admin transfer is in flight.
+     */
+    readonly pendingAdmin: string | null;
     /** Whether `initialize(admin)` has already completed. */
     readonly initialized: boolean;
     /** Version metadata describing the current stored state. */
@@ -85,7 +90,8 @@ export interface SorobanInvoiceClientConfig {
      */
     readonly sourcePublicKey?: string;
     /**
-     * Admin secret key (S...). Required for write operations: record_payment.
+     * Admin secret key (S...). Required for write operations: record_payment,
+     * propose_admin (current admin), and accept_admin (proposed admin).
      * Must be read from environment — never hard-code.
      */
     readonly signerSecretKey?: string;

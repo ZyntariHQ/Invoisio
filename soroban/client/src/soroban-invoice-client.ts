@@ -121,24 +121,60 @@ export class SorobanInvoiceClient {
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
 
-    // prepareTransaction simulates and assembles the fee + storage footprint.
-    // It throws if the simulation fails (e.g. contract returns Err(...)).
-    let prepared: Transaction;
-    try {
-      prepared = await this.server.prepareTransaction(tx);
-    } catch (err) {
-      throw parseContractError(err instanceof Error ? err.message : String(err));
-    }
+    return this.submitWrite(tx);
+  }
 
-    prepared.sign(this.keypair!);
+  /**
+   * Step 1 of the two-step admin handoff: propose `newAdmin` as the next
+   * contract admin.
+   *
+   * The **current admin** keypair must be provided via `signerSecretKey` in
+   * the config. The role does NOT change until the proposed address calls
+   * `acceptAdmin`.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
+   */
+  async proposeAdmin(newAdmin: string): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
 
-    const sendResult = await this.server.sendTransaction(prepared);
-    if (sendResult.status === 'ERROR') {
-      const detail = sendResult.errorResult?.toXDR('base64') ?? 'unknown';
-      throw new Error(`Transaction rejected by network: ${detail}`);
-    }
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(this.contract.call('propose_admin', encodeAddress(newAdmin)))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
 
-    return this.awaitTransaction(sendResult.hash);
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Step 2 of the two-step admin handoff: accept a pending proposal and become
+   * the contract admin.
+   *
+   * The **proposed admin** keypair must be provided via `signerSecretKey` in
+   * the config — the caller is derived from that keypair and must match the
+   * address proposed by `proposeAdmin`.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   */
+  async acceptAdmin(): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(this.contract.call('accept_admin', encodeAddress(caller)))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
   }
 
   // ─── Read operations (permissionless) ──────────────────────────────────────
@@ -153,6 +189,16 @@ export class SorobanInvoiceClient {
   async getConfig(): Promise<ContractConfig> {
     const retval = await this.simulateView('config');
     return decodeContractConfig(retval);
+  }
+
+  /**
+   * Return the address currently proposed as the next admin, or `null` when no
+   * admin transfer is in flight. Permissionless read.
+   */
+  async getPendingAdmin(): Promise<string | null> {
+    const retval = await this.simulateView('pending_admin');
+    const native = scValToNative(retval);
+    return native === null || native === undefined ? null : String(native);
   }
 
   /**
@@ -198,6 +244,33 @@ export class SorobanInvoiceClient {
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────
+
+  /**
+   * Simulate, sign, submit, and await a write transaction with the configured
+   * signer keypair. Shared by all admin-gated write operations.
+   *
+   * Time: O(k), k ≤ MAX_POLL_ATTEMPTS.
+   */
+  private async submitWrite(tx: Transaction): Promise<TransactionResult> {
+    // prepareTransaction simulates and assembles the fee + storage footprint.
+    // It throws if the simulation fails (e.g. contract returns Err(...)).
+    let prepared: Transaction;
+    try {
+      prepared = await this.server.prepareTransaction(tx);
+    } catch (err) {
+      throw parseContractError(err instanceof Error ? err.message : String(err));
+    }
+
+    prepared.sign(this.keypair!);
+
+    const sendResult = await this.server.sendTransaction(prepared);
+    if (sendResult.status === 'ERROR') {
+      const detail = sendResult.errorResult?.toXDR('base64') ?? 'unknown';
+      throw new Error(`Transaction rejected by network: ${detail}`);
+    }
+
+    return this.awaitTransaction(sendResult.hash);
+  }
 
   /**
    * Build and simulate a read-only contract call without submitting a transaction.

@@ -52,6 +52,20 @@ export type ContractPausedEvent = {
   timestamp: bigint;
 };
 
+export type AdminTransferProposedEvent = {
+  type: 'admin_transfer_proposed';
+  currentAdmin: string;
+  newAdmin: string;
+  timestamp: bigint;
+};
+
+export type AdminTransferAcceptedEvent = {
+  type: 'admin_transfer_accepted';
+  previousAdmin: string;
+  newAdmin: string;
+  timestamp: bigint;
+};
+
 export type UnknownSorobanEvent = {
   type: 'unknown';
   name?: string;
@@ -65,6 +79,8 @@ export type DecodedSorobanEvent =
   | NativeAllowChangedEvent
   | StorageSchemaUpgradedEvent
   | ContractPausedEvent
+  | AdminTransferProposedEvent
+  | AdminTransferAcceptedEvent
   | UnknownSorobanEvent;
 
 // ─── Raw event input ─────────────────────────────────────────────────────────
@@ -200,6 +216,22 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
           type: 'contract_paused',
           paused: Boolean(fieldAt(payload, 0, 'paused')),
           triggeredBy: String(fieldAt(payload, 1, 'triggered_by')),
+          timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+        };
+      case 'admin_transfer_proposed':
+        if (!checkArity(payload, 3)) break;
+        return {
+          type: 'admin_transfer_proposed',
+          currentAdmin: String(fieldAt(payload, 0, 'current_admin')),
+          newAdmin: String(fieldAt(payload, 1, 'new_admin')),
+          timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+        };
+      case 'admin_transfer_accepted':
+        if (!checkArity(payload, 3)) break;
+        return {
+          type: 'admin_transfer_accepted',
+          previousAdmin: String(fieldAt(payload, 0, 'previous_admin')),
+          newAdmin: String(fieldAt(payload, 1, 'new_admin')),
           timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
         };
       default:

@@ -138,6 +138,38 @@ describe('decodeSorobanEvent', () => {
     expect(decode(false)).toMatchObject({ type: 'contract_paused', paused: false });
   });
 
+  it('decodes admin_transfer_proposed and admin_transfer_accepted events', () => {
+    const proposed = decodeSorobanEvent({
+      topics: [topic('admin_transfer_proposed')],
+      data: vecPayload(
+        nativeToScVal(G_ADMIN, { type: 'address' }),
+        nativeToScVal(G_PAYER, { type: 'address' }),
+        nativeToScVal(1_786_000_100, { type: 'u64' }),
+      ),
+    });
+    expect(proposed).toEqual({
+      type: 'admin_transfer_proposed',
+      currentAdmin: G_ADMIN,
+      newAdmin: G_PAYER,
+      timestamp: BigInt(1_786_000_100),
+    });
+
+    const accepted = decodeSorobanEvent({
+      topics: [topic('admin_transfer_accepted')],
+      data: vecPayload(
+        nativeToScVal(G_ADMIN, { type: 'address' }),
+        nativeToScVal(G_PAYER, { type: 'address' }),
+        nativeToScVal(1_786_000_101, { type: 'u64' }),
+      ),
+    });
+    expect(accepted).toEqual({
+      type: 'admin_transfer_accepted',
+      previousAdmin: G_ADMIN,
+      newAdmin: G_PAYER,
+      timestamp: BigInt(1_786_000_101),
+    });
+  });
+
   it('passes unknown event names through as unknown instead of throwing', () => {
     const event: SorobanEventInput = {
       topics: [topic('some_future_event')],

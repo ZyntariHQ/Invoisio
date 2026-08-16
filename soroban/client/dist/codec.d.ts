@@ -26,6 +26,7 @@ export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHisto
  *
  * Rust fields are snake_case:
  * - admin
+ * - pending_admin
  * - initialized
  * - version.contract_version
  * - version.storage_schema_version

@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
 #
-# Transfer admin rights to a new admin on the Invoisio Soroban contract
+# Step 2 of the two-step admin handoff: accept a pending admin transfer on the
+# Invoisio Soroban contract.
 #
-# Usage: ./invoke-set-admin.sh <new_admin>
+# The PROPOSED admin signs this transaction and becomes the contract admin.
+# Run after invoke-propose-admin.sh.
+#
+# Usage: ./invoke-accept-admin.sh <new_admin>
 #
 # Arguments:
-#   new_admin     - Stellar account address for the new admin (G...)
+#   new_admin     - Stellar account address accepting the role (G...). Must
+#                   match the address proposed by invoke-propose-admin.sh.
 #
 # Environment variables:
 #   STELLAR_NETWORK   - Network to use (default: testnet)
-#   STELLAR_IDENTITY  - Identity to sign with (default: invoisio-admin)
+#   STELLAR_IDENTITY  - Identity to sign with (default: invoisio-admin —
+#                       set this to the NEW admin's identity before accepting)
 #   CONTRACT_ID       - Override contract ID (default: read from .contract-id file)
 #
 
@@ -35,7 +41,7 @@ if [ -z "$NEW_ADMIN" ]; then
     echo "Usage: $0 <new_admin>"
     echo ""
     echo "Arguments:"
-    echo "  new_admin     - Stellar account address for the new admin (G...)"
+    echo "  new_admin     - Stellar account address accepting the role (G...)"
     exit 1
 fi
 
@@ -59,14 +65,14 @@ else
 fi
 
 echo "========================================="
-echo "Transferring Admin Rights"
+echo "Accepting Admin Transfer"
 echo "========================================="
 echo "Contract ID:    $CONTRACT_ID"
 echo "New Admin:      $NEW_ADMIN"
 echo "Network:        $NETWORK"
-echo "Identity:       $IDENTITY"
+echo "Identity:       $IDENTITY (must be the proposed admin)"
 echo ""
-echo "🚀 Invoking set_admin..."
+echo "🚀 Invoking accept_admin..."
 echo ""
 
 stellar contract invoke \
@@ -74,9 +80,9 @@ stellar contract invoke \
     --source "$IDENTITY" \
     --network "$NETWORK" \
     --send yes \
-    -- set_admin \
-    --new_admin "$NEW_ADMIN"
+    -- accept_admin \
+    --caller "$NEW_ADMIN"
 
 echo ""
-echo "✅ Admin transferred successfully!"
+echo "✅ Admin transfer accepted! $NEW_ADMIN is now the contract admin."
 echo ""

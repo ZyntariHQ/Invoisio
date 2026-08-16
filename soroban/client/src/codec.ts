@@ -112,6 +112,7 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
  *
  * Rust fields are snake_case:
  * - admin
+ * - pending_admin
  * - initialized
  * - version.contract_version
  * - version.storage_schema_version
@@ -126,6 +127,10 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
   return {
     admin:
       raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+    pendingAdmin:
+      raw['pending_admin'] === null || raw['pending_admin'] === undefined
+        ? null
+        : String(raw['pending_admin']),
     initialized: Boolean(raw['initialized']),
     version: {
       contractVersion: Number(version['contract_version']),
