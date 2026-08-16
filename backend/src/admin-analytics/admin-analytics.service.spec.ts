@@ -215,4 +215,150 @@ describe("AdminAnalyticsService", () => {
       );
     });
   });
+
+  describe("getMerchantAnalyticsOverview", () => {
+    const buildModule = (invoices: any[]) => {
+      const matches = (inv: any, where: any) => {
+        if (where?.merchantId && inv.merchantId !== where.merchantId)
+          return false;
+        if (where?.status) {
+          if (Array.isArray(where.status.in)) {
+            if (!where.status.in.includes(inv.status)) return false;
+          } else if (inv.status !== where.status) {
+            return false;
+          }
+        }
+        return true;
+      };
+
+      const aggregate = jest
+        .fn()
+        .mockImplementation(({ where, _count, _sum }: any) => {
+          const rows = invoices.filter((inv) => matches(inv, where));
+          const sumOf = (field: string) =>
+            rows.reduce((acc, inv) => acc + Number(inv[field] ?? 0), 0);
+          return Promise.resolve({
+            _count: _count ? rows.length : undefined,
+            _sum: {
+              amount: _sum?.amount
+                ? { toNumber: () => sumOf("amount") }
+                : undefined,
+              amountDue: _sum?.amountDue
+                ? { toNumber: () => sumOf("amountDue") }
+                : undefined,
+            },
+          });
+        });
+
+      return Test.createTestingModule({
+        providers: [
+          AdminAnalyticsService,
+          { provide: PrismaService, useValue: { invoice: { aggregate } } },
+        ],
+      }).compile();
+    };
+
+    it("returns merchant-scoped totals for a populated account", async () => {
+      const invoices = [
+        {
+          id: "inv-1",
+          merchantId: "merchant-1",
+          amount: 100,
+          amountDue: 0,
+          status: "paid",
+        },
+        {
+          id: "inv-2",
+          merchantId: "merchant-1",
+          amount: 50,
+          amountDue: 50,
+          status: "pending",
+        },
+        {
+          id: "inv-3",
+          merchantId: "merchant-1",
+          amount: 75,
+          amountDue: 25,
+          status: "partially_paid",
+        },
+        {
+          id: "inv-4",
+          merchantId: "merchant-1",
+          amount: 40,
+          amountDue: 40,
+          status: "overdue",
+        },
+        {
+          id: "inv-5",
+          merchantId: "merchant-1",
+          amount: 30,
+          amountDue: 0,
+          status: "draft",
+        },
+        // Other merchant's invoices are excluded by merchant scoping.
+        {
+          id: "inv-6",
+          merchantId: "merchant-2",
+          amount: 999,
+          amountDue: 999,
+          status: "paid",
+        },
+      ];
+      const module = await buildModule(invoices);
+      const svc = module.get<AdminAnalyticsService>(AdminAnalyticsService);
+
+      await expect(
+        svc.getMerchantAnalyticsOverview("merchant-1"),
+      ).resolves.toEqual({
+        paid: { count: 1, totalAmount: 100 },
+        overdue: { count: 1, totalAmount: 40 },
+        draft: { count: 1, totalAmount: 30 },
+        outstanding: { count: 3, totalAmount: 115 },
+      });
+    });
+
+    it("returns a valid zeroed response shape for an empty account", async () => {
+      const module = await buildModule([]);
+      const svc = module.get<AdminAnalyticsService>(AdminAnalyticsService);
+
+      await expect(
+        svc.getMerchantAnalyticsOverview("merchant-empty"),
+      ).resolves.toEqual({
+        paid: { count: 0, totalAmount: 0 },
+        overdue: { count: 0, totalAmount: 0 },
+        draft: { count: 0, totalAmount: 0 },
+        outstanding: { count: 0, totalAmount: 0 },
+      });
+    });
+
+    it("returns only issued invoices as outstanding (drafts excluded)", async () => {
+      const invoices = [
+        {
+          id: "inv-1",
+          merchantId: "merchant-1",
+          amount: 20,
+          amountDue: 20,
+          status: "draft",
+        },
+        {
+          id: "inv-2",
+          merchantId: "merchant-1",
+          amount: 10,
+          amountDue: 10,
+          status: "pending",
+        },
+      ];
+      const module = await buildModule(invoices);
+      const svc = module.get<AdminAnalyticsService>(AdminAnalyticsService);
+
+      await expect(
+        svc.getMerchantAnalyticsOverview("merchant-1"),
+      ).resolves.toEqual({
+        paid: { count: 0, totalAmount: 0 },
+        overdue: { count: 0, totalAmount: 0 },
+        draft: { count: 1, totalAmount: 20 },
+        outstanding: { count: 1, totalAmount: 10 },
+      });
+    });
+  });
 });
