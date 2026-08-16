@@ -40,6 +40,14 @@ export class MerchantAnalyticsController {
   ) {}
 
   @Auth()
+  @Get("overview")
+  async getMerchantAnalyticsOverview(@CurrentUser() user: User) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.adminAnalyticsService.getMerchantAnalyticsOverview(user.merchantId),
+    );
+  }
+
+  @Auth()
   @Get("payments")
   async getMerchantAnalytics(
     @CurrentUser() user: User,
