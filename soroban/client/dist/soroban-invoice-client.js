@@ -26,6 +26,12 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `getPayment`     | O(1)                       | O(1) |
  * | `hasPayment`     | O(1)                       | O(1) |
  * | `getPaymentCount`| O(1)                       | O(1) |
+ * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`       | O(1)                       | O(1) |
+ * | `isPaused`       | O(1)                       | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -123,6 +129,91 @@ class SorobanInvoiceClient {
             .build();
         return this.submitWrite(tx);
     }
+    /**
+     * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
+     *
+     * Only assets that have been allowlisted are accepted by `recordPayment`.
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    async allowAsset(code, issuer) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('allow_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Remove a `(code, issuer)` token pair from the allowlist.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     * Revoking an asset that was never allowlisted is a no-op on-chain.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    async revokeAsset(code, issuer) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('revoke_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Toggle whether native XLM payments are accepted by `recordPayment`.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    async setAllowNative(allowed) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('set_allow_native', (0, codec_1.encodeBool)(allowed)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Pause or unpause the contract.
+     *
+     * While paused, write operations (e.g. `recordPayment`) are rejected with
+     * `ContractPaused`; read operations remain available. The caller is derived
+     * from `signerSecretKey` and must match the contract admin.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    async setPaused(paused) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('set_paused', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeBool)(paused)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
     // ─── Read operations (permissionless) ──────────────────────────────────────
     /**
      * Return the stable high-level contract configuration snapshot.
@@ -134,6 +225,16 @@ class SorobanInvoiceClient {
     async getConfig() {
         const retval = await this.simulateView('config');
         return (0, codec_1.decodeContractConfig)(retval);
+    }
+    /**
+     * Return the current contract admin address. Permissionless read.
+     *
+     * @throws {SorobanContractError} with code `NotInitialized` if the contract
+     *   has not been initialised yet.
+     */
+    async getAdmin() {
+        const retval = await this.simulateView('admin');
+        return String((0, stellar_sdk_1.scValToNative)(retval));
     }
     /**
      * Return the address currently proposed as the next admin, or `null` when no
@@ -177,6 +278,14 @@ class SorobanInvoiceClient {
     async getPaymentHistory(cursor = 0, limit = 25) {
         const retval = await this.simulateView('payment_history', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
         return (0, codec_1.decodePaymentHistoryPage)(retval);
+    }
+    /**
+     * Return `true` if the contract is currently paused (writes disabled).
+     * Permissionless read.
+     */
+    async isPaused() {
+        const retval = await this.simulateView('is_paused');
+        return Boolean((0, stellar_sdk_1.scValToNative)(retval));
     }
     // ─── Private helpers ────────────────────────────────────────────────────────
     /**

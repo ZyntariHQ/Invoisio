@@ -23,6 +23,7 @@ import {
   decodePaymentRecord,
   decodePaymentHistoryPage,
   encodeAddress,
+  encodeBool,
   encodeI128,
   encodeString,
   encodeU32,
@@ -55,6 +56,12 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `getPayment`     | O(1)                       | O(1) |
  * | `hasPayment`     | O(1)                       | O(1) |
  * | `getPaymentCount`| O(1)                       | O(1) |
+ * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`       | O(1)                       | O(1) |
+ * | `isPaused`       | O(1)                       | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -177,6 +184,109 @@ export class SorobanInvoiceClient {
     return this.submitWrite(tx);
   }
 
+  /**
+   * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
+   *
+   * Only assets that have been allowlisted are accepted by `recordPayment`.
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   */
+  async allowAsset(code: string, issuer: string): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call('allow_asset', encodeString(code), encodeString(issuer)),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Remove a `(code, issuer)` token pair from the allowlist.
+   *
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   * Revoking an asset that was never allowlisted is a no-op on-chain.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   */
+  async revokeAsset(code: string, issuer: string): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call('revoke_asset', encodeString(code), encodeString(issuer)),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Toggle whether native XLM payments are accepted by `recordPayment`.
+   *
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NotInitialized`, `Unauthorized`)
+   */
+  async setAllowNative(allowed: boolean): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(this.contract.call('set_allow_native', encodeBool(allowed)))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Pause or unpause the contract.
+   *
+   * While paused, write operations (e.g. `recordPayment`) are rejected with
+   * `ContractPaused`; read operations remain available. The caller is derived
+   * from `signerSecretKey` and must match the contract admin.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NotInitialized`, `Unauthorized`)
+   */
+  async setPaused(paused: boolean): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call('set_paused', encodeAddress(caller), encodeBool(paused)),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
   // ─── Read operations (permissionless) ──────────────────────────────────────
 
   /**
@@ -189,6 +299,17 @@ export class SorobanInvoiceClient {
   async getConfig(): Promise<ContractConfig> {
     const retval = await this.simulateView('config');
     return decodeContractConfig(retval);
+  }
+
+  /**
+   * Return the current contract admin address. Permissionless read.
+   *
+   * @throws {SorobanContractError} with code `NotInitialized` if the contract
+   *   has not been initialised yet.
+   */
+  async getAdmin(): Promise<string> {
+    const retval = await this.simulateView('admin');
+    return String(scValToNative(retval));
   }
 
   /**
@@ -241,6 +362,15 @@ export class SorobanInvoiceClient {
       encodeU32(limit),
     );
     return decodePaymentHistoryPage(retval);
+  }
+
+  /**
+   * Return `true` if the contract is currently paused (writes disabled).
+   * Permissionless read.
+   */
+  async isPaused(): Promise<boolean> {
+    const retval = await this.simulateView('is_paused');
+    return Boolean(scValToNative(retval));
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

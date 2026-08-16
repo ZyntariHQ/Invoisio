@@ -33,6 +33,10 @@ export function encodeU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: 'u32' });
 }
 
+export function encodeBool(value: boolean): xdr.ScVal {
+  return nativeToScVal(value, { type: 'bool' });
+}
+
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 
 /**
