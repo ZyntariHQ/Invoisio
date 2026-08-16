@@ -102,7 +102,9 @@ function makePrismaMock() {
             out.pushNotificationsEnabled = u.pushNotificationsEnabled;
           }
           if (select.pushTokens) {
-            out.pushTokens = [...u.pushTokens];
+            out.pushTokens = Array.isArray(u.pushTokens)
+              ? [...u.pushTokens]
+              : u.pushTokens;
           }
           return out;
         }
