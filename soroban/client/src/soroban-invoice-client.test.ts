@@ -246,6 +246,48 @@ describe('allowlist operations', () => {
   });
 });
 
+describe('recordPayment', () => {
+  it('recordPayment() submits record_payment with settlementRef as the 6th argument', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const amount = 10_000_000n;
+    const result = await makeClient(signer.secret()).recordPayment({
+      invoiceId: 'invoisio-abc123',
+      payer: READER,
+      assetCode: 'XLM',
+      assetIssuer: '',
+      amount,
+      settlementRef: 'settle-hash-abc123',
+    });
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'record_payment',
+      args: ['invoisio-abc123', READER, 'XLM', '', amount, 'settle-hash-abc123'],
+    });
+  });
+});
+
 describe('admin read method', () => {
   it('getAdmin() calls admin and decodes the admin address', async () => {
     let simulated: Transaction | undefined;
@@ -276,6 +318,58 @@ describe('admin read method', () => {
     const err = await makeClient().getAdmin().catch((e) => e);
     expect(err).toBeInstanceOf(SorobanContractError);
     expect((err as SorobanContractError).code).toBe('NotInitialized');
+  });
+});
+
+describe('getPayment', () => {
+  it('getPayment() decodes settlementRef from the stored PaymentRecord', async () => {
+    const paymentRecord = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('invoice_id', { type: 'symbol' }),
+        val: nativeToScVal('invoisio-abc123', { type: 'string' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('payer', { type: 'symbol' }),
+        val: nativeToScVal(READER, { type: 'address' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('asset', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([nativeToScVal('Native', { type: 'symbol' })]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('amount', { type: 'symbol' }),
+        val: nativeToScVal(BigInt(10_000_000), { type: 'i128' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('timestamp', { type: 'symbol' }),
+        val: nativeToScVal(BigInt(1_786_000_000), { type: 'u64' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('settlement_ref', { type: 'symbol' }),
+        val: nativeToScVal('settle-hash-abc123', { type: 'string' }),
+      }),
+    ]);
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(paymentRecord);
+      },
+    );
+
+    await expect(makeClient().getPayment('invoisio-abc123')).resolves.toEqual({
+      invoiceId: 'invoisio-abc123',
+      payer: READER,
+      asset: { type: 'native' },
+      amount: 10_000_000n,
+      timestamp: 1_786_000_000n,
+      settlementRef: 'settle-hash-abc123',
+    });
+    expect(simulated).toBeDefined();
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'get_payment',
+      args: ['invoisio-abc123'],
+    });
   });
 });
 

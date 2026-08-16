@@ -215,6 +215,9 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
           assetCode: record.asset_code ?? "XLM",
           assetIssuer: record.asset_issuer ?? "",
           amount,
+          // The native Stellar payment hash anchors the Soroban record to the
+          // Horizon settlement it represents — the contract requires it.
+          settlementRef: txHash,
         }),
     );
 

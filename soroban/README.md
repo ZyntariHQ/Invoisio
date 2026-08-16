@@ -465,7 +465,7 @@ Contract v1 (C1) live
 | Method | Auth | Description |
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | admin | Persist record + emit event. |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `settlement_ref` is a non-empty hash/reference ID (≤ 128 chars) for backend deduplication. |
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
@@ -545,11 +545,12 @@ Soroban error is introduced:
 
 ```rust
 pub struct PaymentRecord {
-    pub invoice_id:   String,   // e.g. "invoisio-abc123"
-    pub payer:        Address,  // Stellar account that paid
-    pub asset:        Asset,    // Native XLM or Token(code, issuer)
-    pub amount:       i128,     // stroops for XLM; token-specific decimals
-    pub timestamp:    u64,      // ledger Unix timestamp at recording time
+    pub invoice_id:    String,   // e.g. "invoisio-abc123"
+    pub payer:         Address,  // Stellar account that paid
+    pub asset:         Asset,    // Native XLM or Token(code, issuer)
+    pub amount:        i128,     // stroops for XLM; token-specific decimals
+    pub timestamp:     u64,      // ledger Unix timestamp at recording time
+    pub settlement_ref: String,  // normalised settlement reference (≤ 128 chars)
 }
 
 pub enum Asset {
@@ -790,6 +791,7 @@ const result = await client.recordPayment({
   assetCode: 'USDC',
   assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   amount: 1_500_000_000n,
+  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference
 });
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
 

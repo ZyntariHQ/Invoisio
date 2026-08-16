@@ -13,7 +13,8 @@ export declare function encodeBool(value: boolean): xdr.ScVal;
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
- * The Rust struct fields are snake_case: invoice_id, payer, asset, amount, timestamp.
+ * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,
+ * timestamp, settlement_ref.
  * Time:  O(1) — fixed number of fields.
  * Space: O(1) — fixed-size output struct.
  */
