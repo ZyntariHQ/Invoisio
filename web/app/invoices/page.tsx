@@ -41,29 +41,42 @@ interface SavedQuery {
     asset: string;
     dueDate: string;
     q: string;
+    customer: string;
+    dateFrom: string;
+    dateTo: string;
+    amountMin: string;
+    amountMax: string;
   };
 }
 
+const EMPTY_FILTERS = {
+  status: "all",
+  asset: "all",
+  dueDate: "all",
+  q: "",
+  customer: "",
+  dateFrom: "",
+  dateTo: "",
+  amountMin: "",
+  amountMax: "",
+} as const;
+
 const PREDEFINED_QUERIES: SavedQuery[] = [
-  {
-    id: "all",
-    name: "All Invoices",
-    filters: { status: "all", asset: "all", dueDate: "all", q: "" },
-  },
+  { id: "all", name: "All Invoices", filters: { ...EMPTY_FILTERS } },
   {
     id: "pending",
     name: "Pending Invoices",
-    filters: { status: "pending", asset: "all", dueDate: "all", q: "" },
+    filters: { ...EMPTY_FILTERS, status: "pending" },
   },
   {
     id: "overdue",
     name: "Overdue Invoices",
-    filters: { status: "overdue", asset: "all", dueDate: "all", q: "" },
+    filters: { ...EMPTY_FILTERS, status: "overdue" },
   },
   {
     id: "paid-usdc",
     name: "Paid USDC",
-    filters: { status: "paid", asset: "USDC", dueDate: "all", q: "" },
+    filters: { ...EMPTY_FILTERS, status: "paid", asset: "USDC" },
   },
 ];
 
@@ -121,12 +134,27 @@ function InvoicesContent() {
   const urlAsset = searchParams.get("asset") || "all";
   const urlDueDate = searchParams.get("dueDate") || "all";
   const urlQ = searchParams.get("q") || "";
+  const urlCustomer = searchParams.get("customer") || "";
+  const urlDateFrom = searchParams.get("dateFrom") || "";
+  const urlDateTo = searchParams.get("dateTo") || "";
+  const urlAmountMin = searchParams.get("amountMin") || "";
+  const urlAmountMax = searchParams.get("amountMax") || "";
 
   const [statusFilter, setStatusFilter] = useState(urlStatus);
   const [assetFilter, setAssetFilter] = useState(urlAsset);
   const [dueDateFilter, setDueDateFilter] = useState(urlDueDate);
   const [searchQuery, setSearchQuery] = useState(urlQ);
+  const [customerFilter, setCustomerFilter] = useState(urlCustomer);
+  const [dateFromFilter, setDateFromFilter] = useState(urlDateFrom);
+  const [dateToFilter, setDateToFilter] = useState(urlDateTo);
+  const [amountMinFilter, setAmountMinFilter] = useState(urlAmountMin);
+  const [amountMaxFilter, setAmountMaxFilter] = useState(urlAmountMax);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const [activeTab, setActiveTab] = useState<"invoices" | "drafts">("invoices");
+
+  // Bulk selection
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [prevSearchParams, setPrevSearchParams] = useState(searchParams);
 
@@ -136,6 +164,11 @@ function InvoicesContent() {
     setAssetFilter(urlAsset);
     setDueDateFilter(urlDueDate);
     setSearchQuery(urlQ);
+    setCustomerFilter(urlCustomer);
+    setDateFromFilter(urlDateFrom);
+    setDateToFilter(urlDateTo);
+    setAmountMinFilter(urlAmountMin);
+    setAmountMaxFilter(urlAmountMax);
   }
 
   const [customQueries, setCustomQueries] = useState<SavedQuery[]>([]);
@@ -200,6 +233,16 @@ function InvoicesContent() {
   }, [rawInvoices]);
 
   const filteredInvoices = useMemo(() => {
+    const amountMin =
+      amountMinFilter.trim() !== "" ? parseFloat(amountMinFilter) : null;
+    const amountMax =
+      amountMaxFilter.trim() !== "" ? parseFloat(amountMaxFilter) : null;
+    const dateFrom =
+      dateFromFilter.trim() !== "" ? new Date(dateFromFilter) : null;
+    const dateTo =
+      dateToFilter.trim() !== "" ? new Date(dateToFilter) : null;
+    if (dateTo) dateTo.setHours(23, 59, 59, 999);
+
     return rawInvoices.filter((invoice) => {
       // Search
       const matchesSearch =
@@ -213,6 +256,13 @@ function InvoicesContent() {
           invoice.clientEmail
             .toLowerCase()
             .includes(searchQuery.toLowerCase()));
+
+      // Customer (dedicated name-only filter)
+      const matchesCustomer =
+        customerFilter.trim() === "" ||
+        invoice.clientName
+          .toLowerCase()
+          .includes(customerFilter.toLowerCase());
 
       // Status
       const matchesStatus =
@@ -267,21 +317,61 @@ function InvoicesContent() {
         }
       }
 
-      return matchesSearch && matchesStatus && matchesAsset && matchesDueDate;
+      // Created-At date range
+      const createdAt = new Date(invoice.createdAt);
+      const matchesDateFrom = !dateFrom || createdAt >= dateFrom;
+      const matchesDateTo = !dateTo || createdAt <= dateTo;
+
+      // Amount range
+      const matchesAmountMin = amountMin === null || invoice.amount >= amountMin;
+      const matchesAmountMax = amountMax === null || invoice.amount <= amountMax;
+
+      return (
+        matchesSearch &&
+        matchesCustomer &&
+        matchesStatus &&
+        matchesAsset &&
+        matchesDueDate &&
+        matchesDateFrom &&
+        matchesDateTo &&
+        matchesAmountMin &&
+        matchesAmountMax
+      );
     });
-  }, [rawInvoices, searchQuery, statusFilter, assetFilter, dueDateFilter]);
+  }, [
+    rawInvoices,
+    searchQuery,
+    customerFilter,
+    statusFilter,
+    assetFilter,
+    dueDateFilter,
+    dateFromFilter,
+    dateToFilter,
+    amountMinFilter,
+    amountMaxFilter,
+  ]);
 
   const updateUrl = (
     status: string,
     asset: string,
     dueDate: string,
     q: string,
+    customer: string,
+    dateFrom: string,
+    dateTo: string,
+    amountMin: string,
+    amountMax: string,
   ) => {
     const params = new URLSearchParams();
     if (status !== "all") params.set("status", status);
     if (asset !== "all") params.set("asset", asset);
     if (dueDate !== "all") params.set("dueDate", dueDate);
     if (q.trim() !== "") params.set("q", q);
+    if (customer.trim() !== "") params.set("customer", customer);
+    if (dateFrom.trim() !== "") params.set("dateFrom", dateFrom);
+    if (dateTo.trim() !== "") params.set("dateTo", dateTo);
+    if (amountMin.trim() !== "") params.set("amountMin", amountMin);
+    if (amountMax.trim() !== "") params.set("amountMax", amountMax);
 
     const queryString = params.toString();
     router.replace(queryString ? `${pathname}?${queryString}` : pathname, {
@@ -294,6 +384,11 @@ function InvoicesContent() {
     asset?: string;
     dueDate?: string;
     q?: string;
+    customer?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    amountMin?: string;
+    amountMax?: string;
   }) => {
     const nextStatus =
       updates.status !== undefined ? updates.status : statusFilter;
@@ -301,13 +396,38 @@ function InvoicesContent() {
     const nextDueDate =
       updates.dueDate !== undefined ? updates.dueDate : dueDateFilter;
     const nextQ = updates.q !== undefined ? updates.q : searchQuery;
+    const nextCustomer =
+      updates.customer !== undefined ? updates.customer : customerFilter;
+    const nextDateFrom =
+      updates.dateFrom !== undefined ? updates.dateFrom : dateFromFilter;
+    const nextDateTo =
+      updates.dateTo !== undefined ? updates.dateTo : dateToFilter;
+    const nextAmountMin =
+      updates.amountMin !== undefined ? updates.amountMin : amountMinFilter;
+    const nextAmountMax =
+      updates.amountMax !== undefined ? updates.amountMax : amountMaxFilter;
 
     setStatusFilter(nextStatus);
     setAssetFilter(nextAsset);
     setDueDateFilter(nextDueDate);
     setSearchQuery(nextQ);
+    setCustomerFilter(nextCustomer);
+    setDateFromFilter(nextDateFrom);
+    setDateToFilter(nextDateTo);
+    setAmountMinFilter(nextAmountMin);
+    setAmountMaxFilter(nextAmountMax);
 
-    updateUrl(nextStatus, nextAsset, nextDueDate, nextQ);
+    updateUrl(
+      nextStatus,
+      nextAsset,
+      nextDueDate,
+      nextQ,
+      nextCustomer,
+      nextDateFrom,
+      nextDateTo,
+      nextAmountMin,
+      nextAmountMax,
+    );
   };
 
   const clearAllFilters = () => {
@@ -315,6 +435,11 @@ function InvoicesContent() {
     setAssetFilter("all");
     setDueDateFilter("all");
     setSearchQuery("");
+    setCustomerFilter("");
+    setDateFromFilter("");
+    setDateToFilter("");
+    setAmountMinFilter("");
+    setAmountMaxFilter("");
     router.replace(pathname, { scroll: false });
   };
 
@@ -328,6 +453,11 @@ function InvoicesContent() {
         asset: assetFilter,
         dueDate: dueDateFilter,
         q: searchQuery,
+        customer: customerFilter,
+        dateFrom: dateFromFilter,
+        dateTo: dateToFilter,
+        amountMin: amountMinFilter,
+        amountMax: amountMaxFilter,
       },
     };
     const updated = [...customQueries, newQuery];
@@ -354,6 +484,49 @@ function InvoicesContent() {
       console.error("Failed to duplicate invoice:", error);
       alert("Failed to duplicate invoice. Please try again.");
     }
+  };
+
+  // Bulk selection helpers
+  const allVisibleIds = filteredInvoices.map((inv) => inv.id);
+  const allVisibleSelected =
+    allVisibleIds.length > 0 &&
+    allVisibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected =
+    !allVisibleSelected && allVisibleIds.some((id) => selectedIds.has(id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(allVisibleIds));
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const exportSelectedAsJson = () => {
+    const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id));
+    const blob = new Blob([JSON.stringify(selected, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `invoices-export-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const getStatusColor = (status: string) => {
@@ -460,7 +633,12 @@ function InvoicesContent() {
                       statusFilter === q.filters.status &&
                       assetFilter === q.filters.asset &&
                       dueDateFilter === q.filters.dueDate &&
-                      searchQuery === q.filters.q;
+                      searchQuery === q.filters.q &&
+                      customerFilter === q.filters.customer &&
+                      dateFromFilter === q.filters.dateFrom &&
+                      dateToFilter === q.filters.dateTo &&
+                      amountMinFilter === q.filters.amountMin &&
+                      amountMaxFilter === q.filters.amountMax;
                     return (
                       <button
                         key={q.id}
@@ -482,7 +660,12 @@ function InvoicesContent() {
                       statusFilter === q.filters.status &&
                       assetFilter === q.filters.asset &&
                       dueDateFilter === q.filters.dueDate &&
-                      searchQuery === q.filters.q;
+                      searchQuery === q.filters.q &&
+                      customerFilter === (q.filters.customer ?? "") &&
+                      dateFromFilter === (q.filters.dateFrom ?? "") &&
+                      dateToFilter === (q.filters.dateTo ?? "") &&
+                      amountMinFilter === (q.filters.amountMin ?? "") &&
+                      amountMaxFilter === (q.filters.amountMax ?? "");
                     return (
                       <div
                         key={q.id}
@@ -698,6 +881,136 @@ function InvoicesContent() {
                   </select>
                 </div>
               </div>
+
+              {/* Advanced Filters Toggle */}
+              <div className="mt-3 border-t border-gray-100 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced((v) => !v)}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                  <svg
+                    className={`h-3.5 w-3.5 transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M19 9l-7 7-7-7"
+                    />
+                  </svg>
+                  {showAdvanced ? "Hide Advanced Filters" : "Show Advanced Filters"}
+                </button>
+
+                {showAdvanced && (
+                  <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-12">
+                    {/* Customer Filter */}
+                    <div className="sm:col-span-4">
+                      <label
+                        htmlFor="customer-filter"
+                        className="mb-1 block text-xs font-medium text-gray-500"
+                      >
+                        Customer name
+                      </label>
+                      <input
+                        id="customer-filter"
+                        type="text"
+                        placeholder="Filter by customer…"
+                        value={customerFilter}
+                        onChange={(e) =>
+                          handleFilterChange({ customer: e.target.value })
+                        }
+                        className="block w-full rounded-lg border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400 transition-colors"
+                      />
+                    </div>
+
+                    {/* Created From */}
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="date-from-filter"
+                        className="mb-1 block text-xs font-medium text-gray-500"
+                      >
+                        Created from
+                      </label>
+                      <input
+                        id="date-from-filter"
+                        type="date"
+                        value={dateFromFilter}
+                        onChange={(e) =>
+                          handleFilterChange({ dateFrom: e.target.value })
+                        }
+                        className="block w-full rounded-lg border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                      />
+                    </div>
+
+                    {/* Created To */}
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="date-to-filter"
+                        className="mb-1 block text-xs font-medium text-gray-500"
+                      >
+                        Created to
+                      </label>
+                      <input
+                        id="date-to-filter"
+                        type="date"
+                        value={dateToFilter}
+                        onChange={(e) =>
+                          handleFilterChange({ dateTo: e.target.value })
+                        }
+                        className="block w-full rounded-lg border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+                      />
+                    </div>
+
+                    {/* Amount Min */}
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="amount-min-filter"
+                        className="mb-1 block text-xs font-medium text-gray-500"
+                      >
+                        Min amount
+                      </label>
+                      <input
+                        id="amount-min-filter"
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="0"
+                        value={amountMinFilter}
+                        onChange={(e) =>
+                          handleFilterChange({ amountMin: e.target.value })
+                        }
+                        className="block w-full rounded-lg border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400 transition-colors"
+                      />
+                    </div>
+
+                    {/* Amount Max */}
+                    <div className="sm:col-span-2">
+                      <label
+                        htmlFor="amount-max-filter"
+                        className="mb-1 block text-xs font-medium text-gray-500"
+                      >
+                        Max amount
+                      </label>
+                      <input
+                        id="amount-max-filter"
+                        type="number"
+                        min="0"
+                        step="any"
+                        placeholder="∞"
+                        value={amountMaxFilter}
+                        onChange={(e) =>
+                          handleFilterChange({ amountMax: e.target.value })
+                        }
+                        className="block w-full rounded-lg border border-gray-300 bg-white py-2 px-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400 transition-colors"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Error State */}
@@ -835,6 +1148,46 @@ function InvoicesContent() {
                       </span>
                     </div>
                   )}
+                  {customerFilter.trim() !== "" && (
+                    <div>
+                      • Customer is{" "}
+                      <span className="font-semibold text-gray-800">
+                        &quot;{customerFilter}&quot;
+                      </span>
+                    </div>
+                  )}
+                  {dateFromFilter.trim() !== "" && (
+                    <div>
+                      • Created from{" "}
+                      <span className="font-semibold text-gray-800">
+                        {dateFromFilter}
+                      </span>
+                    </div>
+                  )}
+                  {dateToFilter.trim() !== "" && (
+                    <div>
+                      • Created to{" "}
+                      <span className="font-semibold text-gray-800">
+                        {dateToFilter}
+                      </span>
+                    </div>
+                  )}
+                  {amountMinFilter.trim() !== "" && (
+                    <div>
+                      • Min amount{" "}
+                      <span className="font-semibold text-gray-800">
+                        {amountMinFilter}
+                      </span>
+                    </div>
+                  )}
+                  {amountMaxFilter.trim() !== "" && (
+                    <div>
+                      • Max amount{" "}
+                      <span className="font-semibold text-gray-800">
+                        {amountMaxFilter}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-6">
                   <button
@@ -848,12 +1201,70 @@ function InvoicesContent() {
               </div>
             ) : (
               <>
+                {/* Bulk Action Bar */}
+                {selectedIds.size > 0 && (
+                  <div className="mb-4 flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 shadow-sm">
+                    <span className="text-sm font-semibold text-blue-800">
+                      {selectedIds.size} invoice{selectedIds.size !== 1 ? "s" : ""} selected
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={exportSelectedAsJson}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
+                      >
+                        <svg
+                          className="h-3.5 w-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth="2"
+                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                          />
+                        </svg>
+                        Export JSON
+                      </button>
+                      <button
+                        type="button"
+                        disabled
+                        title="Coming soon"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 cursor-not-allowed"
+                      >
+                        Mark as Reviewed
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearSelection}
+                        className="rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Invoices Table */}
                 <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
                   <div className="overflow-x-auto">
                     <table className="w-full border-collapse text-left">
                       <thead>
                         <tr className="border-b border-gray-200 bg-gray-50">
+                          <th className="w-10 px-4 py-4">
+                            <input
+                              type="checkbox"
+                              aria-label="Select all visible invoices"
+                              checked={allVisibleSelected}
+                              ref={(el) => {
+                                if (el) el.indeterminate = someVisibleSelected;
+                              }}
+                              onChange={toggleSelectAll}
+                              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </th>
                           <th className="px-6 py-4 text-xs font-semibold uppercase tracking-wider text-gray-500">
                             Invoice #
                           </th>
@@ -881,8 +1292,18 @@ function InvoicesContent() {
                         {filteredInvoices.map((invoice) => (
                           <tr
                             key={invoice.id}
-                            className="hover:bg-gray-50/75 transition-colors"
+                            className={`hover:bg-gray-50/75 transition-colors ${selectedIds.has(invoice.id) ? "bg-blue-50/40" : ""}`}
                           >
+                            <td className="w-10 px-4 py-4">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select invoice ${invoice.invoiceNumber || invoice.id}`}
+                                checked={selectedIds.has(invoice.id)}
+                                onChange={() => toggleSelectOne(invoice.id)}
+                                onClick={(e) => e.stopPropagation()}
+                                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            </td>
                             <td className="whitespace-nowrap px-6 py-4 text-sm font-mono font-medium text-gray-900">
                               {invoice.invoiceNumber ||
                                 `#${invoice.id.slice(0, 8)}`}
