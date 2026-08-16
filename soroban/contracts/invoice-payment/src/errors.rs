@@ -57,4 +57,16 @@ pub enum ContractError {
 
     /// `settlement_ref` was empty or exceeded the maximum allowed length.
     InvalidSettlementRef = 13,
+
+    /// `accept_admin()` was called but no admin transfer proposal is pending.
+    NoPendingAdmin = 14,
+
+    /// `propose_admin()` was called while an admin transfer proposal is
+    /// already pending. Only one handoff may be in flight at a time.
+    PendingAdminExists = 15,
+
+    /// `propose_admin()` was called with an invalid proposed admin — for
+    /// example, the current admin re-proposing themselves. A transfer must
+    /// hand the role to a different address.
+    InvalidProposedAdmin = 16,
 }

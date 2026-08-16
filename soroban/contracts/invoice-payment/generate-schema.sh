@@ -132,6 +132,12 @@ cat > "$OUT" <<JSON
             { "type": "null",   "description": "Null before initialize() is called." }
           ]
         },
+        "pending_admin": {
+          "oneOf": [
+            { "type": "string", "description": "Address awaiting acceptance via accept_admin() after propose_admin()." },
+            { "type": "null",   "description": "Null when no admin transfer is in flight." }
+          ]
+        },
         "initialized": {
           "type": "boolean",
           "description": "True once initialize(admin) has completed."
@@ -143,7 +149,7 @@ cat > "$OUT" <<JSON
           "description": "Whether the contract is currently paused (writes disabled)."
         }
       },
-      "required": ["admin", "initialized", "version", "allowlist_mode", "paused"],
+      "required": ["admin", "pending_admin", "initialized", "version", "allowlist_mode", "paused"],
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
@@ -228,6 +234,26 @@ cat > "$OUT" <<JSON
         "timestamp": { "type": "integer", "description": "Ledger timestamp when change occurred." }
       },
       "required": ["paused", "triggered_by", "timestamp"]
+    },
+    "AdminTransferProposed": {
+      "description": "Emitted by propose_admin(). Signals step 1 of the two-step admin handoff.",
+      "topic": "admin_transfer_proposed",
+      "fields": {
+        "current_admin": { "type": "string", "description": "Admin that initiated the handoff." },
+        "new_admin": { "type": "string", "description": "Address proposed to become the next admin." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when the proposal was made." }
+      },
+      "required": ["current_admin", "new_admin", "timestamp"]
+    },
+    "AdminTransferAccepted": {
+      "description": "Emitted by accept_admin(). Signals step 2 of the two-step admin handoff — the role has transferred.",
+      "topic": "admin_transfer_accepted",
+      "fields": {
+        "previous_admin": { "type": "string", "description": "Admin that relinquished the role." },
+        "new_admin": { "type": "string", "description": "Address that accepted and is now the contract admin." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when the transfer completed." }
+      },
+      "required": ["previous_admin", "new_admin", "timestamp"]
     }
   },
   "errors": {
@@ -243,7 +269,10 @@ cat > "$OUT" <<JSON
     "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
     "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
     "ContractPaused":       { "code": 12, "description": "The contract is paused and write operations are disabled." },
-    "InvalidSettlementRef": { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." }
+    "InvalidSettlementRef": { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." },
+    "NoPendingAdmin":       { "code": 14, "description": "accept_admin() called but no admin transfer proposal is pending." },
+    "PendingAdminExists":   { "code": 15, "description": "propose_admin() called while an admin transfer proposal is already pending." },
+    "InvalidProposedAdmin": { "code": 16, "description": "propose_admin() called with the current admin (or other invalid address)." }
   },
   "methods": {
     "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
@@ -257,7 +286,9 @@ cat > "$OUT" <<JSON
     "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
     "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },
     "admin":             { "auth": "none",  "description": "Return current admin address." },
-    "set_admin":         { "auth": "admin+new_admin", "description": "Transfer admin rights." },
+    "pending_admin":     { "auth": "none",  "description": "Return the address proposed as next admin, if any." },
+    "propose_admin":     { "auth": "admin", "description": "Step 1 of two-step handoff: propose the next admin." },
+    "accept_admin":      { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
     "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
     "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
     "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." },

@@ -105,6 +105,21 @@ exports.CONTRACT_ERROR_MANIFEST = [
         name: 'InvalidSettlementRef',
         meaning: 'settlement_ref was empty or exceeded the maximum allowed length.',
     },
+    {
+        code: 14,
+        name: 'NoPendingAdmin',
+        meaning: 'accept_admin() was called but no admin transfer proposal is pending.',
+    },
+    {
+        code: 15,
+        name: 'PendingAdminExists',
+        meaning: 'propose_admin() was called while an admin transfer proposal is already pending; only one handoff may be in flight at a time.',
+    },
+    {
+        code: 16,
+        name: 'InvalidProposedAdmin',
+        meaning: 'propose_admin() was called with an invalid proposed admin, e.g. the current admin re-proposing themselves.',
+    },
 ];
 /**
  * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.

@@ -3,11 +3,17 @@ import { INestApplication, ValidationPipe } from "@nestjs/common";
 import request from "supertest";
 import { MerchantController } from "./merchant.controller";
 import { MerchantService } from "./merchant.service";
-import { JwtAuthGuard } from "../auth/guard/auth.guard";
 import { PrismaService } from "../prisma/prisma.service";
+import {
+  jwtAuthImports,
+  jwtAuthProviders,
+  signUserToken,
+} from "../auth/guard/auth-testing.util";
+import { MerchantRole } from "../common/enums/merchant-role.enum";
 
 describe("MerchantController", () => {
   let app: INestApplication;
+  let module: TestingModule;
 
   const mockMerchant = {
     id: "merchant-1",
@@ -29,11 +35,26 @@ describe("MerchantController", () => {
         "GCKFBEIYTKGLP4V4EMMZHHQVBNHGVTCNQJOWP4SUXFJTMW74VDAD5Z6R",
       preferredAsset: "EURC",
     }),
+    updateChecklist: jest.fn().mockResolvedValue({ success: true }),
+  };
+
+  const auth = (user: {
+    id?: string;
+    merchantId?: string;
+    role?: MerchantRole;
+  }) => {
+    const token = signUserToken(module as any, {
+      id: user.id ?? "user-1",
+      merchantId: user.merchantId ?? "merchant-1",
+      role: user.role ?? MerchantRole.OWNER,
+    });
+    return `Bearer ${token}`;
   };
 
   beforeAll(async () => {
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       controllers: [MerchantController],
+      imports: [...jwtAuthImports],
       providers: [
         { provide: MerchantService, useValue: mockMerchantService },
         {
@@ -42,17 +63,9 @@ describe("MerchantController", () => {
             runWithMerchantScope: (_id: string, cb: () => unknown) => cb(),
           },
         },
+        ...jwtAuthProviders,
       ],
-    })
-      .overrideGuard(JwtAuthGuard)
-      .useValue({
-        canActivate: (context) => {
-          const req = context.switchToHttp().getRequest();
-          req.user = { id: "user-1", merchantId: "merchant-1" };
-          return true;
-        },
-      })
-      .compile();
+    }).compile();
 
     app = module.createNestApplication();
     app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
@@ -63,9 +76,10 @@ describe("MerchantController", () => {
     if (app) await app.close();
   });
 
-  it("GET /merchants/profile should return merchant profile", async () => {
+  it("GET /merchants/profile should return merchant profile for any authenticated role", async () => {
     const res = await request(app.getHttpServer())
       .get("/merchants/profile")
+      .set("Authorization", auth({ role: MerchantRole.VIEWER }))
       .expect(200);
 
     expect(res.body).toMatchObject({
@@ -75,9 +89,14 @@ describe("MerchantController", () => {
     });
   });
 
-  it("PATCH /merchants/settings should update settings", async () => {
+  it("GET /merchants/profile should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer()).get("/merchants/profile").expect(401);
+  });
+
+  it("PATCH /merchants/settings should allow merchant owner", async () => {
     const res = await request(app.getHttpServer())
       .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.OWNER }))
       .send({
         name: "Updated Name",
         payoutPublicKey:
@@ -90,9 +109,41 @@ describe("MerchantController", () => {
     expect(res.body.preferredAsset).toBe("EURC");
   });
 
+  it("PATCH /merchants/settings should allow merchant admin", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.ADMIN }))
+      .send({ name: "Updated Name" })
+      .expect(200);
+  });
+
+  it("PATCH /merchants/settings should forbid viewer", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.VIEWER }))
+      .send({ name: "Nope" })
+      .expect(403);
+  });
+
+  it("PATCH /merchants/settings should forbid operator", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.OPERATOR }))
+      .send({ name: "Nope" })
+      .expect(403);
+  });
+
+  it("PATCH /merchants/settings should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/settings")
+      .send({ name: "Nope" })
+      .expect(401);
+  });
+
   it("PATCH /merchants/settings should reject invalid payout key", async () => {
     await request(app.getHttpServer())
       .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.OWNER }))
       .send({ payoutPublicKey: "INVALID_KEY" })
       .expect(400);
   });
@@ -100,7 +151,31 @@ describe("MerchantController", () => {
   it("PATCH /merchants/settings should reject invalid preferredAsset", async () => {
     await request(app.getHttpServer())
       .patch("/merchants/settings")
+      .set("Authorization", auth({ role: MerchantRole.OWNER }))
       .send({ preferredAsset: "DOGE" })
       .expect(400);
+  });
+
+  it("PATCH /merchants/checklist should allow operator", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/checklist")
+      .set("Authorization", auth({ role: MerchantRole.OPERATOR }))
+      .send({ profileCompleted: true })
+      .expect(200);
+  });
+
+  it("PATCH /merchants/checklist should forbid viewer", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/checklist")
+      .set("Authorization", auth({ role: MerchantRole.VIEWER }))
+      .send({ profileCompleted: true })
+      .expect(403);
+  });
+
+  it("PATCH /merchants/checklist/sync should forbid viewer", async () => {
+    await request(app.getHttpServer())
+      .patch("/merchants/checklist/sync")
+      .set("Authorization", auth({ role: MerchantRole.VIEWER }))
+      .expect(403);
   });
 });

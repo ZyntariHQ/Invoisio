@@ -1,7 +1,14 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { INestApplication } from "@nestjs/common";
+import request from "supertest";
 import { BadRequestException } from "@nestjs/common";
 import { BackfillController } from "./backfill.controller";
 import { BackfillService, BackfillStats } from "./backfill.service";
+import {
+  jwtAuthImports,
+  jwtAuthProviders,
+  signUserToken,
+} from "../auth/guard/auth-testing.util";
 
 describe("BackfillController", () => {
   let controller: BackfillController;
@@ -166,5 +173,85 @@ describe("BackfillController", () => {
       expect(result).toEqual(mockStats);
       expect(service.getStats).toHaveBeenCalledWith(contractId);
     });
+  });
+});
+
+describe("BackfillController (auth enforcement)", () => {
+  let app: INestApplication;
+  let module: TestingModule;
+
+  beforeAll(async () => {
+    module = await Test.createTestingModule({
+      controllers: [BackfillController],
+      imports: [...jwtAuthImports],
+      providers: [
+        {
+          provide: BackfillService,
+          useValue: {
+            reconcile: jest.fn().mockResolvedValue({
+              runId: 1,
+              stats: {
+                totalEvents: 1,
+                matched: 1,
+                skipped: 0,
+                failed: 0,
+                failedEvents: [],
+              },
+            }),
+            getHistory: jest.fn().mockResolvedValue([]),
+          },
+        },
+        ...jwtAuthProviders,
+      ],
+    }).compile();
+
+    app = module.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    if (app) await app.close();
+  });
+
+  it("POST /backfill/reconcile should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .send({ startLedger: 1000 })
+      .expect(401);
+  });
+
+  it("POST /backfill/reconcile should allow authenticated users", async () => {
+    const token = signUserToken(module as any, {
+      id: "user-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startLedger: 1000 })
+      .expect(202);
+
+    expect(res.body).toMatchObject({ success: true, runId: 1 });
+  });
+
+  it("GET /backfill/history should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer()).get("/backfill/history").expect(401);
+  });
+
+  it("GET /backfill/history should allow authenticated users", async () => {
+    const token = signUserToken(module as any, {
+      id: "user-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get("/backfill/history")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(res.body).toEqual([]);
   });
 });

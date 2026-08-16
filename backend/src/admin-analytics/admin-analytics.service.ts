@@ -182,4 +182,75 @@ export class AdminAnalyticsService {
       })),
     };
   }
+
+  /**
+   * Merchant-scoped dashboard KPI snapshot: paid, overdue, draft, and
+   * outstanding invoice totals.
+   *
+   * Great for the merchant dashboard's headline cards — one round-trip for
+   * the four core metrics. All buckets are scoped to `merchantId`.
+   *
+   * - `paid`       — fully paid invoices (`status = paid`)
+   * - `overdue`    — past due, unpaid invoices (`status = overdue`)
+   * - `draft`      — not-yet-issued drafts (`status = draft`)
+   * - `outstanding`— issued but not fully paid (`pending`, `partially_paid`,
+   *                  `overdue`); totals the remaining `amountDue`
+   *
+   * An account with no invoices returns the same shape with every bucket at
+   * `{ count: 0, totalAmount: 0 }`.
+   */
+  async getMerchantAnalyticsOverview(merchantId: string) {
+    const merchantWhere: any = { merchantId };
+
+    const [paid, overdue, draft, outstanding] = await Promise.all([
+      this.prisma.invoice.aggregate({
+        where: { ...merchantWhere, status: InvoiceStatus.paid },
+        _count: true,
+        _sum: { amount: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: { ...merchantWhere, status: InvoiceStatus.overdue },
+        _count: true,
+        _sum: { amount: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: { ...merchantWhere, status: InvoiceStatus.draft },
+        _count: true,
+        _sum: { amount: true },
+      }),
+      this.prisma.invoice.aggregate({
+        where: {
+          ...merchantWhere,
+          status: {
+            in: [
+              InvoiceStatus.pending,
+              InvoiceStatus.partially_paid,
+              InvoiceStatus.overdue,
+            ],
+          },
+        },
+        _count: true,
+        _sum: { amountDue: true },
+      }),
+    ]);
+
+    return {
+      paid: {
+        count: paid._count,
+        totalAmount: paid._sum.amount?.toNumber() || 0,
+      },
+      overdue: {
+        count: overdue._count,
+        totalAmount: overdue._sum.amount?.toNumber() || 0,
+      },
+      draft: {
+        count: draft._count,
+        totalAmount: draft._sum.amount?.toNumber() || 0,
+      },
+      outstanding: {
+        count: outstanding._count,
+        totalAmount: outstanding._sum.amountDue?.toNumber() || 0,
+      },
+    };
+  }
 }

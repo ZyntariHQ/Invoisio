@@ -35,10 +35,24 @@ export type ActivityEventType =
   | "webhook_delivered"
   | "webhook_failed";
 
+export interface ActivityFeedQuery {
+  page?: number;
+  pageSize?: number;
+  limit?: number;
+  cursor?: string;
+  type?: string;
+  startDate?: string;
+  endDate?: string;
+  invoiceId?: string;
+  before?: boolean;
+}
+
 export interface PaginatedActivityEvents {
   items: ActivityEventDto[];
   total: number;
   page: number;
   pageSize: number;
   hasMore: boolean;
+  nextCursor: string | null;
+  prevCursor: string | null;
 }

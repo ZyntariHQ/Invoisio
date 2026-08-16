@@ -7,6 +7,8 @@ export {
 } from './events';
 
 export type {
+  AdminTransferAcceptedEvent,
+  AdminTransferProposedEvent,
   AssetAllowlistedEvent,
   AssetRevokedEvent,
   ContractPausedEvent,

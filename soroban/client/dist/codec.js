@@ -4,6 +4,7 @@ exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
+exports.encodeBool = encodeBool;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
@@ -27,6 +28,9 @@ function encodeI128(value) {
 }
 function encodeU32(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'u32' });
+}
+function encodeBool(value) {
+    return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'bool' });
 }
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 /**
@@ -72,12 +76,14 @@ function decodePaymentRecordFromNative(raw) {
         asset: decodeAsset(raw['asset']),
         amount: BigInt(raw['amount']),
         timestamp: BigInt(raw['timestamp']),
+        settlementRef: String(raw['settlement_ref']),
     };
 }
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
- * The Rust struct fields are snake_case: invoice_id, payer, asset, amount, timestamp.
+ * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,
+ * timestamp, settlement_ref.
  * Time:  O(1) — fixed number of fields.
  * Space: O(1) — fixed-size output struct.
  */
@@ -101,6 +107,7 @@ function decodePaymentHistoryPage(scVal) {
  *
  * Rust fields are snake_case:
  * - admin
+ * - pending_admin
  * - initialized
  * - version.contract_version
  * - version.storage_schema_version
@@ -113,6 +120,9 @@ function decodeContractConfig(scVal) {
     const allowlistMode = raw['allowlist_mode'];
     return {
         admin: raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+        pendingAdmin: raw['pending_admin'] === null || raw['pending_admin'] === undefined
+            ? null
+            : String(raw['pending_admin']),
         initialized: Boolean(raw['initialized']),
         version: {
             contractVersion: Number(version['contract_version']),

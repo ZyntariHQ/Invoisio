@@ -15,6 +15,12 @@ export interface RecordPaymentParams {
   assetCode: string;
   assetIssuer: string;
   amount: string;
+  /**
+   * Normalised settlement reference (hash or reconciliation ID) required by
+   * the live contract ABI for backend deduplication and idempotent
+   * reconciliation. Must be non-empty and at most 128 characters.
+   */
+  settlementRef: string;
 }
 
 export interface SorobanMetadata {
@@ -90,7 +96,8 @@ export class SorobanService {
   private async invokeRecordPayment(
     params: RecordPaymentParams,
   ): Promise<SorobanMetadata> {
-    const { invoiceId, payer, assetCode, assetIssuer, amount } = params;
+    const { invoiceId, payer, assetCode, assetIssuer, amount, settlementRef } =
+      params;
 
     const contract = new Contract(this.contractId);
     const sourceAccount = await this.server!.getAccount(
@@ -120,6 +127,7 @@ export class SorobanService {
               lo: xdr.Uint64.fromString(amount),
             }),
           ),
+          xdr.ScVal.scvString(settlementRef),
         ),
       )
       .setTimeout(30)
