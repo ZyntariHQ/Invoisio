@@ -93,8 +93,20 @@ function makePrismaMock() {
       findUnique: jest.fn(({ where, select }: any) => {
         const u = usersInDb.get(where.id);
         if (!u) return null;
-        if (select?.pushTokens) {
-          return { pushTokens: [...u.pushTokens] };
+        if (where.merchantId && u.merchantId !== where.merchantId) {
+          return null;
+        }
+        if (select) {
+          const out: any = {};
+          if (select.pushNotificationsEnabled) {
+            out.pushNotificationsEnabled = u.pushNotificationsEnabled;
+          }
+          if (select.pushTokens) {
+            out.pushTokens = Array.isArray(u.pushTokens)
+              ? [...u.pushTokens]
+              : u.pushTokens;
+          }
+          return out;
         }
         return cloneUser(u);
       }),
@@ -118,6 +130,8 @@ function makePrismaMock() {
     usersInDb,
     user: {
       findMany: jest.fn().mockResolvedValue([cloneUser(user1)]),
+      findUnique: mockTx.user.findUnique,
+      update: mockTx.user.update,
     },
     pushNotification: mockTx.pushNotification,
   };
@@ -661,5 +675,104 @@ describe("NotificationsService", () => {
   it("processReceipts is idempotent and skips when nothing pending", async () => {
     await service["processReceipts"]();
     expect(getPushNotificationReceiptsAsync).not.toHaveBeenCalled();
+  });
+
+  describe("getNotificationPreferences", () => {
+    it("returns explicit saved preference with token count for a known user", async () => {
+      const result = await service.getNotificationPreferences(
+        "user-1",
+        "merchant-1",
+      );
+      expect(result).toEqual({
+        pushNotificationsEnabled: true,
+        registeredPushTokensCount: 2,
+        preferenceExplicit: true,
+        contractVersion: "1.0.0",
+      });
+    });
+
+    it("respects pushNotificationsEnabled = false on the user row", async () => {
+      const user = prismaMock.usersInDb.get("user-1")!;
+      user.pushNotificationsEnabled = false;
+
+      const result = await service.getNotificationPreferences(
+        "user-1",
+        "merchant-1",
+      );
+      expect(result.pushNotificationsEnabled).toBe(false);
+      expect(result.preferenceExplicit).toBe(true);
+      expect(result.contractVersion).toBe("1.0.0");
+    });
+
+    it("returns the documented default (preferenceExplicit=false) when the user is missing / legacy record not found", async () => {
+      const result = await service.getNotificationPreferences(
+        "user-does-not-exist",
+        "merchant-1",
+      );
+      expect(result).toEqual({
+        pushNotificationsEnabled: true,
+        registeredPushTokensCount: 0,
+        preferenceExplicit: false,
+        contractVersion: "1.0.0",
+      });
+    });
+
+    it("returns the documented default when the userId doesn't match the merchant scope", async () => {
+      const result = await service.getNotificationPreferences(
+        "user-1",
+        "merchant-does-not-belong",
+      );
+      expect(result).toEqual({
+        pushNotificationsEnabled: true,
+        registeredPushTokensCount: 0,
+        preferenceExplicit: false,
+        contractVersion: "1.0.0",
+      });
+    });
+
+    it("returns registeredPushTokensCount=0 safely when legacy row has non-array pushTokens", async () => {
+      const poisonedUser: any = {
+        id: "user-legacy",
+        merchantId: "merchant-1",
+        pushNotificationsEnabled: true,
+        pushTokens: null,
+      };
+      prismaMock.usersInDb.set(poisonedUser.id, poisonedUser);
+
+      const result = await service.getNotificationPreferences(
+        "user-legacy",
+        "merchant-1",
+      );
+      expect(result.registeredPushTokensCount).toBe(0);
+      expect(result.preferenceExplicit).toBe(true);
+      expect(result.pushNotificationsEnabled).toBe(true);
+    });
+
+    it("falls back to pushNotificationsEnabled=true when legacy row has a non-boolean preference value", async () => {
+      const poisonedUser: any = {
+        id: "user-weird",
+        merchantId: "merchant-1",
+        pushNotificationsEnabled: null,
+        pushTokens: ["Expo[x]"],
+      };
+      prismaMock.usersInDb.set(poisonedUser.id, poisonedUser);
+
+      const result = await service.getNotificationPreferences(
+        "user-weird",
+        "merchant-1",
+      );
+      expect(result.pushNotificationsEnabled).toBe(true);
+      expect(result.registeredPushTokensCount).toBe(1);
+      expect(result.preferenceExplicit).toBe(true);
+    });
+
+    it("always returns the same stable contractVersion string", async () => {
+      const [found, missing] = await Promise.all([
+        service.getNotificationPreferences("user-1", "merchant-1"),
+        service.getNotificationPreferences("missing", "merchant-1"),
+      ]);
+      expect(found.contractVersion).toBe("1.0.0");
+      expect(missing.contractVersion).toBe("1.0.0");
+    });
   });
 });
