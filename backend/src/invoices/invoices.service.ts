@@ -1008,6 +1008,8 @@ export class InvoicesService implements OnModuleInit {
    * @param assetCode   - "XLM" or token code
    * @param assetIssuer - Issuer G... address; empty string for XLM
    * @param amount      - Amount as string (i128 smallest denomination)
+   * @param settlementRef - Normalised settlement reference (hash or reconciliation
+   *                       ID) required by the contract; non-empty, ≤ 128 chars.
    * @returns Updated invoice with status "paid" and on-chain tx hash
    */
   async reconcilePayment(
@@ -1016,6 +1018,7 @@ export class InvoicesService implements OnModuleInit {
     assetCode: string,
     assetIssuer: string,
     amount: string,
+    settlementRef: string,
   ): Promise<Invoice & { txHash: string; ledger: number }> {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
@@ -1070,6 +1073,7 @@ export class InvoicesService implements OnModuleInit {
           assetCode,
           assetIssuer,
           amount: newAmountPaid.toString(),
+          settlementRef,
         });
         txHash = result.hash;
         ledger = result.ledger;

@@ -35,6 +35,11 @@ export interface ContractVersionInfo {
 export interface ContractConfig {
     /** Admin Stellar account (G...) after initialization; `null` before. */
     readonly admin: string | null;
+    /**
+     * Address awaiting acceptance via `accept_admin` after `propose_admin`, or
+     * `null` when no admin transfer is in flight.
+     */
+    readonly pendingAdmin: string | null;
     /** Whether `initialize(admin)` has already completed. */
     readonly initialized: boolean;
     /** Version metadata describing the current stored state. */
@@ -56,6 +61,12 @@ export interface PaymentRecord {
     readonly amount: bigint;
     /** Unix seconds at which the ledger included this record */
     readonly timestamp: bigint;
+    /**
+     * Normalised settlement reference (hash or reconciliation ID) used for
+     * backend deduplication and idempotent settlement reconciliation.
+     * Stores the value passed to `record_payment`.
+     */
+    readonly settlementRef: string;
 }
 /** Bounded page of payment history returned by the contract. */
 export interface PaymentHistoryPage {
@@ -85,7 +96,8 @@ export interface SorobanInvoiceClientConfig {
      */
     readonly sourcePublicKey?: string;
     /**
-     * Admin secret key (S...). Required for write operations: record_payment.
+     * Admin secret key (S...). Required for write operations: record_payment,
+     * propose_admin (current admin), and accept_admin (proposed admin).
      * Must be read from environment — never hard-code.
      */
     readonly signerSecretKey?: string;
@@ -101,6 +113,13 @@ export interface RecordPaymentParams {
     readonly assetIssuer: string;
     /** Amount in smallest denomination (must be > 0) */
     readonly amount: bigint;
+    /**
+     * Normalised settlement reference or hash for backend deduplication and
+     * idempotent reconciliation. Required — must be non-empty and at most
+     * 128 characters (the contract rejects longer values with
+     * `InvalidSettlementRef`).
+     */
+    readonly settlementRef: string;
 }
 /** Confirmed on-chain transaction result. */
 export interface TransactionResult {

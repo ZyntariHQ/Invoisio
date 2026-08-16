@@ -21,6 +21,7 @@ model Customer {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   invoices Invoice[]
+  recurringSchedules RecurringSchedule[]
 
   @@unique([merchantId, email])
   @@index([merchantId])
@@ -45,6 +46,7 @@ model Merchant {
   customers      Customer[]
   activationChecklist MerchantActivationChecklist?
   paymentReviews PaymentReview[]
+  recurringSchedules RecurringSchedule[]
 
   @@map("merchants")
 }
@@ -72,18 +74,19 @@ model MerchantActivationChecklist {
 
 // User model matching backend/src/users/user.entity.ts
 model User {
-  id             String    @id @default(uuid())
-  merchantId     String    @map("merchant_id")
-  merchant       Merchant  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  publicKey      String    @unique
+  id             String       @id @default(uuid())
+  merchantId     String       @map("merchant_id")
+  merchant       Merchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  publicKey      String       @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?   @map("nonce_expires_at")
-  nonceUsedAt    DateTime? @map("nonce_used_at")
-  tokenVersion   Int       @default(0) @map("token_version")
-  isAdmin        Boolean   @default(false) @map("is_admin")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  nonceExpiresAt BigInt?      @map("nonce_expires_at")
+  nonceUsedAt    DateTime?    @map("nonce_used_at")
+  tokenVersion   Int          @default(0) @map("token_version")
+  isAdmin        Boolean      @default(false) @map("is_admin")
+  role           MerchantRole @default(owner)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
@@ -95,6 +98,7 @@ model User {
   webhooks       WebhookDelivery[]
   activities     ActivityEvent[]
   webhookDeadLetters  WebhookDeadLetter[]
+  recurringSchedules  RecurringSchedule[]
 
   @@index([merchantId])
   @@map("users")
@@ -159,6 +163,13 @@ enum DeadLetterStatus {
   recovered
 }
 
+enum MerchantRole {
+  owner
+  admin
+  operator
+  viewer
+}
+
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
 model Invoice {
   id                 String        @id @default(uuid())
@@ -201,6 +212,7 @@ model Invoice {
   payments           Payment[]
   activities         ActivityEvent[]
   paymentReviews     PaymentReview[]
+  recurringInvoiceRun RecurringInvoiceRun?
 
   @@index([merchantId])
   @@index([isDraft, merchantId])
@@ -321,4 +333,60 @@ model PaymentReview {
   @@index([merchantId])
   @@index([status])
   @@map("payment_reviews")
+}
+
+// Recurring billing: merchant-defined rules that generate invoices on a
+// schedule. Lives on the same Prisma persistence layer as the rest of the
+// app (previously a disconnected TypeORM entity that was never wired in).
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+}
+
+enum RecurringScheduleStatus {
+  active
+  paused
+  cancelled
+}
+
+model RecurringSchedule {
+  id              String                   @id @default(uuid())
+  merchantId      String                   @map("merchant_id")
+  merchant        Merchant                 @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customerId      String                   @map("customer_id")
+  customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdByUserId String                   @map("created_by_user_id")
+  createdByUser   User                     @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  amount          Decimal                  @db.Decimal(18, 7)
+  assetCode       String                   @map("asset_code")
+  assetIssuer     String?                  @map("asset_issuer")
+  description     String?
+  frequency       RecurringFrequency
+  status          RecurringScheduleStatus  @default(active)
+  nextRunDate     DateTime                 @map("next_run_date")
+  lastGeneratedAt DateTime?                @map("last_generated_at")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  runs RecurringInvoiceRun[]
+
+  @@index([merchantId])
+  @@index([status, nextRunDate])
+  @@map("recurring_schedules")
+}
+
+// One row per generated cycle. The unique (scheduleId, periodKey) constraint
+// prevents a schedule from generating two invoices for the same period,
+// even under concurrent cron ticks or a retried run.
+model RecurringInvoiceRun {
+  id         String            @id @default(uuid())
+  scheduleId String            @map("schedule_id")
+  schedule   RecurringSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  periodKey  String            @map("period_key")
+  invoiceId  String?           @unique @map("invoice_id")
+  invoice    Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  @@unique([scheduleId, periodKey])
+  @@map("recurring_invoice_runs")
 }

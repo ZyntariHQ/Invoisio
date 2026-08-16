@@ -75,6 +75,7 @@ fn test_config_before_initialize_reports_uninitialized_state() {
         client.config(),
         ContractConfig {
             admin: None,
+            pending_admin: None,
             initialized: false,
             version: ContractMeta {
                 contract_version: 0,
@@ -98,6 +99,7 @@ fn test_config_after_initialize_returns_high_level_snapshot() {
         client.config(),
         ContractConfig {
             admin: Some(admin),
+            pending_admin: None,
             initialized: true,
             version: ContractMeta {
                 contract_version: CONTRACT_VERSION,
@@ -705,34 +707,142 @@ fn test_write_backfills_missing_version_metadata() {
     );
 }
 
-// Admin management
+// Admin management — explicit propose-and-accept handoff flow
 
 #[test]
-fn test_set_admin_updates_admin() {
+fn test_propose_and_accept_transfers_admin() {
     let env = Env::default();
     env.mock_all_auths();
-    let (client, _old_admin) = setup(&env);
+    let (client, old_admin) = setup(&env);
 
     let new_admin = Address::generate(&env);
-    client.set_admin(&new_admin);
+    client.propose_admin(&new_admin);
+
+    // The role does NOT change until the proposed admin accepts.
+    assert_eq!(client.admin(), old_admin);
+    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
+    assert_eq!(client.config().pending_admin, Some(new_admin.clone()));
+
+    client.accept_admin(&new_admin);
 
     assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.pending_admin(), None);
+    assert_eq!(client.config().pending_admin, None);
 }
 
 #[test]
-fn test_new_admin_can_record_payment() {
+fn test_new_admin_can_record_payment_after_accept() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _old_admin) = setup(&env);
 
     let new_admin = Address::generate(&env);
-    client.set_admin(&new_admin);
+    client.propose_admin(&new_admin);
+    client.accept_admin(&new_admin);
 
     // With mock_all_auths the new admin's require_auth passes automatically.
     let payer = Address::generate(&env);
     record_xlm(&env, &client, "invoisio-new-admin", &payer, 7_000_000);
 
     assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_old_admin_loses_write_access_after_accept() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, old_admin) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+    client.accept_admin(&new_admin);
+
+    // The old admin is no longer the admin: their write must be rejected.
+    let result = client.try_upgrade_storage(&old_admin);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_pending_admin_is_none_before_proposal() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    assert_eq!(client.pending_admin(), None);
+    assert_eq!(client.config().pending_admin, None);
+}
+
+#[test]
+fn test_accept_admin_without_proposal_returns_no_pending_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let stranger = Address::generate(&env);
+    let result = client.try_accept_admin(&stranger);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NoPendingAdmin)),
+        "accept_admin with no pending proposal must return NoPendingAdmin"
+    );
+}
+
+#[test]
+fn test_propose_admin_twice_returns_pending_admin_exists() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let first = Address::generate(&env);
+    client.propose_admin(&first);
+
+    // A second proposal while one is already pending must be rejected.
+    let second = Address::generate(&env);
+    let result = client.try_propose_admin(&second);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::PendingAdminExists)),
+        "a second proposal while one is pending must return PendingAdminExists"
+    );
+
+    // The original proposal is unchanged.
+    assert_eq!(client.pending_admin(), Some(first));
+}
+
+#[test]
+fn test_propose_admin_rejects_current_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let result = client.try_propose_admin(&admin);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::InvalidProposedAdmin)),
+        "proposing the current admin must return InvalidProposedAdmin"
+    );
+}
+
+#[test]
+fn test_accept_admin_rejects_non_pending_caller() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, old_admin) = setup(&env);
+
+    let proposed = Address::generate(&env);
+    client.propose_admin(&proposed);
+
+    // A different address (not the proposed admin) attempts to accept.
+    let attacker = Address::generate(&env);
+    let result = client.try_accept_admin(&attacker);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "accept_admin by a non-proposed caller must return Unauthorized"
+    );
+
+    // The proposal is still intact and the admin is unchanged.
+    assert_eq!(client.pending_admin(), Some(proposed));
+    assert_eq!(client.admin(), old_admin);
 }
 
 // record_payment — invoice_id / asset validation
@@ -853,61 +963,84 @@ fn test_record_payment_emits_payment_recorded_event() {
     );
 }
 
-// Admin — set_admin co-sign
+// Admin — propose/accept authorization
 
 #[test]
-fn test_set_admin_requires_new_admin_auth() {
+fn test_propose_admin_requires_current_admin_auth() {
     let env = Env::default();
-    let (client, old_admin) = setup(&env);
+    let (client, _old_admin) = setup(&env);
     let new_admin = Address::generate(&env);
 
-    // Only mock the current admin's auth — new_admin does NOT co-sign.
-    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
-        address: &old_admin,
-        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+    // Only mock the current admin's auth — a proposal still needs admin auth.
+    env.mock_auths(&[MockAuth {
+        address: &new_admin,
+        invoke: &MockAuthInvoke {
             contract: &client.address,
-            fn_name: "set_admin",
+            fn_name: "propose_admin",
             args: (new_admin.clone(),).into_val(&env),
             sub_invokes: &[],
         },
     }]);
 
-    // Without new_admin's auth the host must reject the call.
-    let result = client.try_set_admin(&new_admin);
+    // Without the current admin's auth the host must reject the call.
+    let result = client.try_propose_admin(&new_admin);
     assert!(result.is_err());
+
+    // The proposal was NOT staged by the unauthenticated call.
+    assert_eq!(client.pending_admin(), None);
 }
 
 #[test]
-fn test_set_admin_rejects_calls_from_non_admin() {
+fn test_accept_admin_requires_proposed_admin_auth() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _old_admin) = setup(&env);
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+
+    // Only mock the current admin's auth — the proposed admin must accept.
+    env.mock_auths(&[MockAuth {
+        address: &new_admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "accept_admin",
+            args: (new_admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // Correct auth: the proposed admin accepts the transfer.
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_propose_admin_rejects_calls_from_non_admin() {
     let env = Env::default();
     let (client, admin) = setup(&env);
     let attacker = Address::generate(&env);
     let new_admin = Address::generate(&env);
 
-    // The attacker (not the current admin) attempts to call set_admin.
+    // The attacker (not the current admin) attempts to call propose_admin.
     env.mock_auths(&[MockAuth {
         address: &attacker,
         invoke: &MockAuthInvoke {
             contract: &client.address,
-            fn_name: "set_admin",
+            fn_name: "propose_admin",
             args: (new_admin.clone(),).into_val(&env),
             sub_invokes: &[],
         },
     }]);
 
-    let result = client.try_set_admin(&new_admin);
+    let result = client.try_propose_admin(&new_admin);
     assert!(result.is_err());
 
+    // No proposal was staged.
+    assert_eq!(client.pending_admin(), None);
+
     // Sanity check: original admin is still the same when properly authorised.
-    env.mock_auths(&[MockAuth {
-        address: &admin,
-        invoke: &MockAuthInvoke {
-            contract: &client.address,
-            fn_name: "admin",
-            args: ().into_val(&env),
-            sub_invokes: &[],
-        },
-    }]);
+    env.mock_all_auths();
     assert_eq!(client.admin(), admin);
 }
 // Multi-asset support tests
@@ -1241,6 +1374,7 @@ fn test_config_reflects_allowlist_mode_changes() {
         client.config(),
         ContractConfig {
             admin: Some(admin),
+            pending_admin: None,
             initialized: true,
             version: ContractMeta {
                 contract_version: CONTRACT_VERSION,
@@ -1898,6 +2032,89 @@ fn test_pause_event_emitted() {
     );
 }
 
+// Admin transfer events
+
+#[test]
+fn test_propose_admin_emits_admin_transfer_proposed_event() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+
+    let admin_val: soroban_sdk::Val = admin.into_val(&env);
+    let new_admin_val: soroban_sdk::Val = new_admin.into_val(&env);
+
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "admin_transfer_proposed").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "current_admin"), admin_val),
+                    (Symbol::new(&env, "new_admin"), new_admin_val),
+                    (
+                        Symbol::new(&env, "timestamp"),
+                        env.ledger().timestamp().into_val(&env)
+                    )
+                ]
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_accept_admin_emits_admin_transfer_accepted_event() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+    client.accept_admin(&new_admin);
+
+    let admin_val: soroban_sdk::Val = admin.into_val(&env);
+    let new_admin_val: soroban_sdk::Val = new_admin.into_val(&env);
+
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![
+            &env,
+            (
+                client.address.clone(),
+                soroban_sdk::vec![
+                    &env,
+                    Symbol::new(&env, "admin_transfer_accepted").into_val(&env)
+                ],
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "previous_admin"), admin_val),
+                    (Symbol::new(&env, "new_admin"), new_admin_val),
+                    (
+                        Symbol::new(&env, "timestamp"),
+                        env.ledger().timestamp().into_val(&env)
+                    )
+                ]
+                .into_val(&env),
+            ),
+        ]
+    );
+}
+
 #[test]
 fn test_config_includes_paused_state() {
     let env = Env::default();
@@ -2190,7 +2407,10 @@ fn test_revoke_asset_nonexistent_is_noop() {
 
     // This asset was never added — revoke must succeed without error.
     let result = client.try_revoke_asset(&code, &issuer);
-    assert!(result.is_ok(), "revoking a non-existent asset must be a no-op");
+    assert!(
+        result.is_ok(),
+        "revoking a non-existent asset must be a no-op"
+    );
 
     // The allowlist state is still empty: a payment attempt must be rejected.
     let payer = Address::generate(&env);
@@ -2325,7 +2545,10 @@ fn test_revoke_asset_by_non_admin_returns_error() {
     }]);
 
     let result = client.try_revoke_asset(&code, &issuer);
-    assert!(result.is_err(), "non-admin must not be able to revoke_asset");
+    assert!(
+        result.is_err(),
+        "non-admin must not be able to revoke_asset"
+    );
 }
 
 // ─── Regression Tests: Native-Asset Policy ───────────────────────────────────
@@ -2358,7 +2581,10 @@ fn test_set_allow_native_idempotent_true_to_true() {
     client.set_allow_native(&true);
     // Setting again to true must not error and must leave flag set.
     let result = client.try_set_allow_native(&true);
-    assert!(result.is_ok(), "set_allow_native(true→true) must be idempotent");
+    assert!(
+        result.is_ok(),
+        "set_allow_native(true→true) must be idempotent"
+    );
 
     let config = client.config();
     assert!(
@@ -2609,9 +2835,10 @@ fn test_set_allow_native_works_while_paused() {
     );
 }
 
-/// While paused, `set_admin` must still succeed (it is not a payment write).
+/// While paused, the propose-and-accept admin handoff must still succeed
+/// (it is not a payment write).
 #[test]
-fn test_set_admin_works_while_paused() {
+fn test_admin_transfer_works_while_paused() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -2620,12 +2847,23 @@ fn test_set_admin_works_while_paused() {
     assert!(client.is_paused());
 
     let new_admin = Address::generate(&env);
-    let result = client.try_set_admin(&new_admin);
+    let propose = client.try_propose_admin(&new_admin);
     assert!(
-        result.is_ok(),
-        "set_admin must work while contract is paused"
+        propose.is_ok(),
+        "propose_admin must work while contract is paused"
     );
-    assert_eq!(client.admin(), new_admin, "admin must be updated while paused");
+    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
+
+    let accept = client.try_accept_admin(&new_admin);
+    assert!(
+        accept.is_ok(),
+        "accept_admin must work while contract is paused"
+    );
+    assert_eq!(
+        client.admin(),
+        new_admin,
+        "admin must be updated while paused"
+    );
 }
 
 /// `record_payment` must return [`ContractError::ContractPaused`] specifically,
@@ -2735,10 +2973,7 @@ fn test_set_paused_by_non_admin_explicit_error() {
     }]);
 
     let result = client.try_set_paused(&attacker, &true);
-    assert!(
-        result.is_err(),
-        "non-admin set_paused must be rejected"
-    );
+    assert!(result.is_err(), "non-admin set_paused must be rejected");
     // Contract must remain unpaused after the failed attempt.
     assert!(
         !client.is_paused(),
@@ -2766,21 +3001,28 @@ fn test_set_paused_wrong_caller_returns_unauthorized() {
     );
 }
 
-/// Calling `set_admin` before `initialize()` must return
+/// Calling `propose_admin` / `accept_admin` before `initialize()` must return
 /// [`ContractError::NotInitialized`] with an explicit error code assertion.
 #[test]
-fn test_set_admin_before_init_returns_not_initialized() {
+fn test_admin_transfer_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
     let contract_id = env.register(InvoicePaymentContract, ());
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
     let new_admin = Address::generate(&env);
 
-    let result = client.try_set_admin(&new_admin);
+    let propose = client.try_propose_admin(&new_admin);
     assert_eq!(
-        result,
+        propose,
         Err(Ok(ContractError::NotInitialized)),
-        "set_admin on uninitialised contract must return NotInitialized"
+        "propose_admin on uninitialised contract must return NotInitialized"
+    );
+
+    let accept = client.try_accept_admin(&new_admin);
+    assert_eq!(
+        accept,
+        Err(Ok(ContractError::NotInitialized)),
+        "accept_admin on uninitialised contract must return NotInitialized"
     );
 }
 
@@ -2875,7 +3117,10 @@ fn test_allow_asset_explicit_auth_rejection() {
     let result = client.try_allow_asset(&code, &issuer);
     // Host auth failure is not a ContractError; it is a host-level error.
     // We assert is_err() here, which is stable — the point is that it must fail.
-    assert!(result.is_err(), "allow_asset with wrong auth must be rejected");
+    assert!(
+        result.is_err(),
+        "allow_asset with wrong auth must be rejected"
+    );
 
     // Confirm the asset was NOT actually added by checking a payment still fails.
     env.mock_all_auths();

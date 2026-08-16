@@ -5,6 +5,7 @@ This document defines a lightweight, contributor-friendly manual smoke test for 
 ## Scope
 
 Covers the following critical paths:
+
 - Login / authentication flow
 - Invoice list view
 - Invoice detail view
@@ -43,6 +44,13 @@ Supports both Android and iOS expectations for simulators and physical devices.
 - [ ] Android expectation: system back button returns to the previous screen or exits the app cleanly.
 - [ ] iOS expectation: navigation gestures and the keyboard behave normally.
 
+### Offline auth recovery
+
+- [ ] Sign in, force-close the app, disable connectivity, and relaunch it. Confirm the unexpired session restores and the dashboard shows the same public wallet address.
+- [ ] Start sign-in online, disconnect after signing but before verification completes, then reconnect. Confirm verification retries once and the authenticated dashboard opens without another signature prompt.
+- [ ] Relaunch after the JWT expires, or reconnect with a server-revoked JWT. Confirm protected screens return to login.
+- [ ] Inspect auth-recovery storage in a development build: the session contains only the JWT, its expiry, and the Stellar public key. Pending verification data is in SecureStore, expires after two minutes, is not duplicated into the AsyncStorage queue, and contains no private key, seed phrase, or wallet profile.
+
 ## 2. Invoice list
 
 - [ ] Confirm the invoice list loads with invoices or a valid empty state.
@@ -79,11 +87,13 @@ Supports both Android and iOS expectations for simulators and physical devices.
 ## Platform-specific expectations
 
 ### Android
+
 - [ ] Android share sheet appears and is usable.
 - [ ] Hardware/back button behavior is correct in each flow.
 - [ ] No platform-specific UI clipping or input issues exist.
 
 ### iOS
+
 - [ ] iOS share sheet appears and is usable.
 - [ ] Swipe gestures and native navigation behave correctly.
 - [ ] The on-screen keyboard does not hide important fields.
@@ -91,6 +101,7 @@ Supports both Android and iOS expectations for simulators and physical devices.
 ## PR readiness checklist
 
 Before opening a PR, confirm:
+
 - [ ] All smoke test items were completed on at least one platform.
 - [ ] Android and iOS platform expectations were validated when available.
 - [ ] Any regressions were documented with screenshots and device/emulator details.

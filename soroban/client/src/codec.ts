@@ -33,6 +33,10 @@ export function encodeU32(value: number): xdr.ScVal {
   return nativeToScVal(value, { type: 'u32' });
 }
 
+export function encodeBool(value: boolean): xdr.ScVal {
+  return nativeToScVal(value, { type: 'bool' });
+}
+
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 
 /**
@@ -80,13 +84,15 @@ function decodePaymentRecordFromNative(raw: Record<string, unknown>): PaymentRec
     settlementRef: String(raw['settlement_ref']),
     amount: BigInt(raw['amount'] as bigint | number | string),
     timestamp: BigInt(raw['timestamp'] as bigint | number | string),
+    settlementRef: String(raw['settlement_ref']),
   };
 }
 
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
- * The Rust struct fields are snake_case: invoice_id, payer, asset, amount, timestamp.
+ * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,
+ * timestamp, settlement_ref.
  * Time:  O(1) — fixed number of fields.
  * Space: O(1) — fixed-size output struct.
  */
@@ -113,6 +119,7 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
  *
  * Rust fields are snake_case:
  * - admin
+ * - pending_admin
  * - initialized
  * - version.contract_version
  * - version.storage_schema_version
@@ -127,6 +134,10 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
   return {
     admin:
       raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+    pendingAdmin:
+      raw['pending_admin'] === null || raw['pending_admin'] === undefined
+        ? null
+        : String(raw['pending_admin']),
     initialized: Boolean(raw['initialized']),
     version: {
       contractVersion: Number(version['contract_version']),

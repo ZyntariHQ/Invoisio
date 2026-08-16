@@ -99,6 +99,27 @@ invoke-has-payment:
 	  -- has_payment \
 	  --invoice_id "$(INVOICE_ID)"
 
+# Step 1 of admin handoff: propose a new admin (current admin signs)
+# Usage: make invoke-propose-admin CONTRACT_ID=<id> NEW_ADMIN=<G...>
+invoke-propose-admin:
+	stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source invoisio-admin \
+	  --network testnet \
+	  -- propose_admin \
+	  --new_admin "$(NEW_ADMIN)"
+
+# Step 2 of admin handoff: accept a pending proposal (proposed admin signs;
+# --source must be the new admin's identity)
+# Usage: make invoke-accept-admin CONTRACT_ID=<id> NEW_ADMIN=<G...>
+invoke-accept-admin:
+	stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source invoisio-admin \
+	  --network testnet \
+	  -- accept_admin \
+	  --caller "$(NEW_ADMIN)"
+
 # Return current payment count
 invoke-payment-count:
 	stellar contract invoke \
@@ -123,4 +144,5 @@ schema:
 .PHONY: default all build test fmt clean schema \
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
-	invoke-has-payment invoke-payment-count invoke-payment-history events
+	invoke-has-payment invoke-payment-count invoke-payment-history \
+	invoke-propose-admin invoke-accept-admin events

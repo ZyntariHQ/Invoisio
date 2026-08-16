@@ -439,7 +439,7 @@ function SettingsContent() {
   return (
     <div className="mx-auto max-w-3xl">
       <Link
-        href="/"
+        href="/dashboard"
         className="mb-6 inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700"
       >
         ← Back to dashboard

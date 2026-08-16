@@ -376,7 +376,14 @@ describe("InvoicesService", () => {
     it("throws BadRequestException when attempting to pay a cancelled invoice", async () => {
       await service.cancelInvoice("invoice-a-1", MERCHANT_A);
       await expect(
-        service.reconcilePayment("invoice-a-1", "GPAYER", "XLM", "", "1000000"),
+        service.reconcilePayment(
+          "invoice-a-1",
+          "GPAYER",
+          "XLM",
+          "",
+          "1000000",
+          "settle-invoice-a-1",
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -387,6 +394,7 @@ describe("InvoicesService", () => {
         "USDC",
         "GASDF",
         "200",
+        "settle-invoice-b-1",
       );
       expect(first.status).toBe("paid");
       mockSorobanService.recordInvoicePayment.mockClear();
@@ -397,6 +405,7 @@ describe("InvoicesService", () => {
         "USDC",
         "GASDF",
         "200",
+        "settle-invoice-b-1",
       );
 
       expect(replayed.status).toBe("paid");

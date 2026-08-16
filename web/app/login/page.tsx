@@ -1,10 +1,22 @@
-
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { WalletAuthControls } from '@/components/wallet-auth-controls';
+import { useWalletAuth } from '@/hooks/use-wallet-auth';
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { isAuthenticated, isLoading } = useWalletAuth();
+
+  // Returning merchants land on the dashboard once signed in.
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.replace('/dashboard');
+    }
+  }, [isAuthenticated, isLoading, router]);
+
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-2xl">

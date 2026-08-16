@@ -165,6 +165,7 @@ async function main() {
     assetCode: 'USDC',
     assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
     amount,
+    settlementRef: `settle-e2e-${invoiceId}`,
   });
 
   console.log('  ✓ Transaction confirmed');
@@ -190,6 +191,7 @@ async function main() {
   console.log(`    payer     : ${record.payer}`);
   console.log(`    asset     : ${assetLabel}`);
   console.log(`    amount    : ${record.amount}  (${formatUnits(record.amount, record.asset.type === 'native' ? 'XLM' : record.asset.code)})`);
+  console.log(`    settlementRef : ${record.settlementRef}`);
   console.log(`    timestamp : ${record.timestamp}  (${isoDate})`);
   console.log('  }');
 
@@ -206,6 +208,7 @@ async function main() {
       assetCode: 'USDC',
       assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       amount,
+      settlementRef: `settle-e2e-${invoiceId}`,
     });
     console.log('  ERROR: expected PaymentAlreadyRecorded but got success');
   } catch (err) {

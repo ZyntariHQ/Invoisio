@@ -29,7 +29,7 @@ export default function OnboardingAssetPage() {
       await MerchantService.updateChecklist({
         assetPreferenceCompleted: Boolean(updated.preferredAsset),
       });
-      router.push('/');
+      router.push('/dashboard');
     } catch (err) {
       setError(extractApiErrorMessage(err));
       setIsSaving(false);
@@ -73,7 +73,7 @@ export default function OnboardingAssetPage() {
         onSave={handleSave}
         isSaving={isSaving}
         saveLabel="Save preference"
-        nextHref="/"
+        nextHref="/dashboard"
       />
     </OnboardingShell>
   );

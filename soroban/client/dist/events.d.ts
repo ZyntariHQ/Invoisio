@@ -42,12 +42,24 @@ export type ContractPausedEvent = {
     triggeredBy: string;
     timestamp: bigint;
 };
+export type AdminTransferProposedEvent = {
+    type: 'admin_transfer_proposed';
+    currentAdmin: string;
+    newAdmin: string;
+    timestamp: bigint;
+};
+export type AdminTransferAcceptedEvent = {
+    type: 'admin_transfer_accepted';
+    previousAdmin: string;
+    newAdmin: string;
+    timestamp: bigint;
+};
 export type UnknownSorobanEvent = {
     type: 'unknown';
     name?: string;
     reason: string;
 };
-export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | UnknownSorobanEvent;
+export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | UnknownSorobanEvent;
 /**
  * Shape of a contract event as delivered by the Soroban RPC `getEvents`
  * endpoint (or `SorobanRpc.Server.getEvents`). `topics` and `data` are

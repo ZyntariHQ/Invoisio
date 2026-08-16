@@ -74,10 +74,13 @@ function decodeSorobanEvent(event) {
     let name;
     let payload;
     try {
+        if (!event.topics || event.topics.length === 0) {
+            return { type: 'unknown', reason: 'missing event topic' };
+        }
         const topic = parseScVal(event.topics[0]);
         name = String((0, stellar_sdk_1.scValToNative)(topic));
         const raw = (0, stellar_sdk_1.scValToNative)(parseScVal(event.data));
-        if (!Array.isArray(raw) || (raw !== null && typeof raw !== 'object')) {
+        if (!(Array.isArray(raw) || (raw !== null && typeof raw === 'object'))) {
             return { type: 'unknown', name, reason: 'event data is neither a struct nor a vec' };
         }
         payload = raw;
@@ -130,6 +133,24 @@ function decodeSorobanEvent(event) {
                     type: 'contract_paused',
                     paused: Boolean(fieldAt(payload, 0, 'paused')),
                     triggeredBy: String(fieldAt(payload, 1, 'triggered_by')),
+                    timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+                };
+            case 'admin_transfer_proposed':
+                if (!checkArity(payload, 3))
+                    break;
+                return {
+                    type: 'admin_transfer_proposed',
+                    currentAdmin: String(fieldAt(payload, 0, 'current_admin')),
+                    newAdmin: String(fieldAt(payload, 1, 'new_admin')),
+                    timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+                };
+            case 'admin_transfer_accepted':
+                if (!checkArity(payload, 3))
+                    break;
+                return {
+                    type: 'admin_transfer_accepted',
+                    previousAdmin: String(fieldAt(payload, 0, 'previous_admin')),
+                    newAdmin: String(fieldAt(payload, 1, 'new_admin')),
                     timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
                 };
             default:

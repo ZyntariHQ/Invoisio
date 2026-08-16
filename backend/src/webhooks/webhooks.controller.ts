@@ -1,4 +1,11 @@
-import { Controller, Get, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
@@ -7,6 +14,9 @@ import {
   WebhookSecretMetadata,
   WebhookSecretRotationResult,
 } from "./webhooks.service";
+import { Roles } from "../common/decorators/roles.decorator";
+import { MerchantRole } from "../common/enums/merchant-role.enum";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 
 @Controller("webhooks")
 export class WebhooksController {
@@ -32,9 +42,10 @@ export class WebhooksController {
    * Generate and persist a new webhook secret for the current merchant.
    *
    * The raw secret is returned once so the caller can copy it into their
-   * signing configuration.
+   * signing configuration. Restricted to merchant OWNERs and ADMINs.
    */
-  @Auth()
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  @UseGuards(MerchantRolesGuard)
   @Post("secret/rotate")
   @HttpCode(HttpStatus.OK)
   async rotateSecret(

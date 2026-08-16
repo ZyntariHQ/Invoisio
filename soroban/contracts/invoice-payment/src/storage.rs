@@ -75,6 +75,9 @@ pub struct AllowlistMode {
 pub struct ContractConfig {
     /// `Some(admin)` once `initialize(admin)` has been called; `None` before.
     pub admin: Option<Address>,
+    /// The address awaiting acceptance via `accept_admin()`, if `propose_admin()`
+    /// was called. `None` when no transfer is in flight.
+    pub pending_admin: Option<Address>,
     /// Whether the contract has been initialised and can accept admin-gated writes.
     pub initialized: bool,
     /// On-chain version metadata associated with the current stored state.
@@ -115,6 +118,9 @@ pub enum DataKey {
     AllowNative,
     /// Flag indicating whether the contract is paused (instance storage).
     Paused,
+    /// Address proposed as the next admin by `propose_admin()` in **instance**
+    /// storage. Read by `accept_admin()` to complete the two-step handoff.
+    PendingAdmin,
 }
 
 // Data structures
@@ -222,6 +228,7 @@ pub fn get_state_contract_version(env: &Env) -> u32 {
 pub fn get_contract_config(env: &Env) -> ContractConfig {
     ContractConfig {
         admin: env.storage().instance().get(&DataKey::Admin),
+        pending_admin: get_pending_admin_opt(env),
         initialized: has_admin(env),
         version: ContractMeta {
             contract_version: get_state_contract_version(env),
@@ -256,6 +263,40 @@ pub fn get_admin(env: &Env) -> Result<Address, ContractError> {
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().set(&DataKey::Admin, admin);
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// Pending-admin helpers (instance storage)
+
+/// Return `true` if an admin transfer proposal is pending.
+pub fn has_pending_admin(env: &Env) -> bool {
+    env.storage().instance().has(&DataKey::PendingAdmin)
+}
+
+/// Read the proposed next admin without erroring when none is pending.
+pub fn get_pending_admin_opt(env: &Env) -> Option<Address> {
+    env.storage().instance().get(&DataKey::PendingAdmin)
+}
+
+/// Read the currently proposed next admin.
+///
+/// Returns [`ContractError::NoPendingAdmin`] if `propose_admin()` was never
+/// called (or the previous proposal was accepted/cleared).
+pub fn get_pending_admin(env: &Env) -> Result<Address, ContractError> {
+    env.storage()
+        .instance()
+        .get(&DataKey::PendingAdmin)
+        .ok_or(ContractError::NoPendingAdmin)
+}
+
+/// Persist the proposed next admin and extend instance TTL.
+pub fn set_pending_admin(env: &Env, admin: &Address) {
+    env.storage().instance().set(&DataKey::PendingAdmin, admin);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Remove any pending admin transfer proposal (e.g. after acceptance).
+pub fn clear_pending_admin(env: &Env) {
+    env.storage().instance().remove(&DataKey::PendingAdmin);
 }
 
 // Payment helpers (persistent storage)

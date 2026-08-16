@@ -12,6 +12,7 @@ export interface PaymentRecord {
   asset: unknown;
   amount: bigint;
   timestamp: bigint;
+  settlementRef: string;
 }
 
 export interface RecordPaymentParams {
@@ -20,6 +21,7 @@ export interface RecordPaymentParams {
   assetCode: string;
   assetIssuer: string;
   amount: bigint;
+  settlementRef: string;
 }
 
 export interface TransactionResult {
