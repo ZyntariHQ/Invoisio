@@ -13,6 +13,12 @@ import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams,
  * | `getPayment`     | O(1)                       | O(1) |
  * | `hasPayment`     | O(1)                       | O(1) |
  * | `getPaymentCount`| O(1)                       | O(1) |
+ * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`       | O(1)                       | O(1) |
+ * | `isPaused`       | O(1)                       | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -62,6 +68,46 @@ export declare class SorobanInvoiceClient {
      */
     acceptAdmin(): Promise<TransactionResult>;
     /**
+     * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
+     *
+     * Only assets that have been allowlisted are accepted by `recordPayment`.
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    allowAsset(code: string, issuer: string): Promise<TransactionResult>;
+    /**
+     * Remove a `(code, issuer)` token pair from the allowlist.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     * Revoking an asset that was never allowlisted is a no-op on-chain.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    revokeAsset(code: string, issuer: string): Promise<TransactionResult>;
+    /**
+     * Toggle whether native XLM payments are accepted by `recordPayment`.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    setAllowNative(allowed: boolean): Promise<TransactionResult>;
+    /**
+     * Pause or unpause the contract.
+     *
+     * While paused, write operations (e.g. `recordPayment`) are rejected with
+     * `ContractPaused`; read operations remain available. The caller is derived
+     * from `signerSecretKey` and must match the contract admin.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    setPaused(paused: boolean): Promise<TransactionResult>;
+    /**
      * Return the stable high-level contract configuration snapshot.
      *
      * This is the preferred single-call read for deployment checks, backend
@@ -69,6 +115,13 @@ export declare class SorobanInvoiceClient {
      * initialization status, version metadata, and allowlist policy together.
      */
     getConfig(): Promise<ContractConfig>;
+    /**
+     * Return the current contract admin address. Permissionless read.
+     *
+     * @throws {SorobanContractError} with code `NotInitialized` if the contract
+     *   has not been initialised yet.
+     */
+    getAdmin(): Promise<string>;
     /**
      * Return the address currently proposed as the next admin, or `null` when no
      * admin transfer is in flight. Permissionless read.
@@ -96,6 +149,11 @@ export declare class SorobanInvoiceClient {
      * contract so responses remain bounded and predictable.
      */
     getPaymentHistory(cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
+    /**
+     * Return `true` if the contract is currently paused (writes disabled).
+     * Permissionless read.
+     */
+    isPaused(): Promise<boolean>;
     /**
      * Simulate, sign, submit, and await a write transaction with the configured
      * signer keypair. Shared by all admin-gated write operations.

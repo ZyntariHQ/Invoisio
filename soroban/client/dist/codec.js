@@ -4,6 +4,7 @@ exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
+exports.encodeBool = encodeBool;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
@@ -27,6 +28,9 @@ function encodeI128(value) {
 }
 function encodeU32(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'u32' });
+}
+function encodeBool(value) {
+    return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'bool' });
 }
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 /**

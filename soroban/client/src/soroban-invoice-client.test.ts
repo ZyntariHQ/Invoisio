@@ -1,0 +1,292 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  Account,
+  Keypair,
+  nativeToScVal,
+  rpc,
+  scValToNative,
+  SorobanDataBuilder,
+  Transaction,
+  xdr,
+} from '@stellar/stellar-sdk';
+
+import { SorobanInvoiceClient } from './soroban-invoice-client';
+import { SorobanContractError } from './types';
+
+const RPC_URL = 'https://soroban-testnet.stellar.org';
+const NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
+const CONTRACT_ID = 'CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2';
+const ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+const READER = Keypair.random().publicKey();
+const TX_HASH = 'a'.repeat(64);
+const LEDGER = 12_345;
+
+const signer = Keypair.random();
+const SIGNER_PUBLIC = signer.publicKey();
+
+/** Build a read-only client, or a write-capable client when a secret is given. */
+function makeClient(secretKey?: string): SorobanInvoiceClient {
+  return new SorobanInvoiceClient({
+    rpcUrl: RPC_URL,
+    networkPassphrase: NETWORK_PASSPHRASE,
+    contractId: CONTRACT_ID,
+    signerSecretKey: secretKey,
+    sourcePublicKey: READER,
+  });
+}
+
+/**
+ * Extract the contract method name and its native-decoded arguments from the
+ * single `invokeHostFunction` operation carried by a transaction.
+ */
+function decodeInvocation(tx: Transaction): { method: string; args: unknown[] } {
+  const op = tx.operations[0];
+  if (op.type !== 'invokeHostFunction') {
+    throw new Error(`expected invokeHostFunction operation, got ${op.type}`);
+  }
+  const invoke = op.func.invokeContract();
+  return {
+    method: String(invoke.functionName()),
+    args: invoke.args().map((arg: xdr.ScVal): unknown => scValToNative(arg)),
+  };
+}
+
+/** A minimal, well-typed successful simulation response carrying `retval`. */
+function simulateSuccess(retval: xdr.ScVal): rpc.Api.SimulateTransactionResponse {
+  return {
+    id: 'sim-1',
+    latestLedger: LEDGER,
+    events: [],
+    _parsed: true,
+    transactionData: new SorobanDataBuilder(),
+    minResourceFee: '100',
+    result: { auth: [], retval },
+  };
+}
+
+/** A successful getTransaction response assembled from the signed transaction. */
+function getTransactionSuccess(
+  tx: Transaction,
+  ledger: number,
+): rpc.Api.GetSuccessfulTransactionResponse {
+  return {
+    status: rpc.Api.GetTransactionStatus.SUCCESS,
+    ledger,
+    txHash: tx.hash().toString('hex'),
+    latestLedger: ledger,
+    latestLedgerCloseTime: 0,
+    oldestLedger: 0,
+    oldestLedgerCloseTime: 0,
+    createdAt: 0,
+    applicationOrder: 0,
+    feeBump: false,
+    envelopeXdr: tx.toEnvelope(),
+    resultXdr: new xdr.TransactionResult({
+      feeCharged: new xdr.Int64(0),
+      result: xdr.TransactionResultResult.txSuccess([]),
+      ext: new xdr.TransactionResultExt(0),
+    }),
+    resultMetaXdr: new xdr.TransactionMeta(0, []),
+    events: { transactionEventsXdr: [], contractEventsXdr: [] },
+  };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('pause-state methods', () => {
+  it('setPaused() submits set_paused(caller, paused) and returns the tx result', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const client = makeClient(signer.secret());
+    const result = await client.setPaused(true);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(prepared).toBeDefined();
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'set_paused',
+      args: [SIGNER_PUBLIC, true],
+    });
+  });
+
+  it('isPaused() calls is_paused and decodes the boolean', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(nativeToScVal(true));
+      },
+    );
+
+    await expect(makeClient().isPaused()).resolves.toBe(true);
+    expect(simulated).toBeDefined();
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'is_paused',
+      args: [],
+    });
+  });
+});
+
+describe('allowlist operations', () => {
+  it('allowAsset() submits allow_asset(code, issuer)', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const result = await makeClient(signer.secret()).allowAsset('USDC', ISSUER);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'allow_asset',
+      args: ['USDC', ISSUER],
+    });
+  });
+
+  it('revokeAsset() submits revoke_asset(code, issuer)', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const result = await makeClient(signer.secret()).revokeAsset('USDC', ISSUER);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'revoke_asset',
+      args: ['USDC', ISSUER],
+    });
+  });
+
+  it('setAllowNative() submits set_allow_native(allowed)', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const result = await makeClient(signer.secret()).setAllowNative(true);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'set_allow_native',
+      args: [true],
+    });
+  });
+});
+
+describe('admin read method', () => {
+  it('getAdmin() calls admin and decodes the admin address', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(nativeToScVal(SIGNER_PUBLIC, { type: 'address' }));
+      },
+    );
+
+    await expect(makeClient().getAdmin()).resolves.toBe(SIGNER_PUBLIC);
+    expect(simulated).toBeDefined();
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'admin',
+      args: [],
+    });
+  });
+
+  it('getAdmin() surfaces a NotInitialized contract error', async () => {
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockResolvedValue({
+      id: 'sim-err',
+      latestLedger: LEDGER,
+      events: [],
+      _parsed: true,
+      error: 'host error: Error(Contract, #2)',
+    });
+
+    const err = await makeClient().getAdmin().catch((e) => e);
+    expect(err).toBeInstanceOf(SorobanContractError);
+    expect((err as SorobanContractError).code).toBe('NotInitialized');
+  });
+});
+
+describe('write methods require a signer', () => {
+  it('rejects when no signerSecretKey is configured', async () => {
+    const client = makeClient();
+    const expected = 'signerSecretKey is required for write operations';
+
+    await expect(client.setPaused(true)).rejects.toThrow(expected);
+    await expect(client.allowAsset('USDC', ISSUER)).rejects.toThrow(expected);
+    await expect(client.revokeAsset('USDC', ISSUER)).rejects.toThrow(expected);
+    await expect(client.setAllowNative(true)).rejects.toThrow(expected);
+  });
+});

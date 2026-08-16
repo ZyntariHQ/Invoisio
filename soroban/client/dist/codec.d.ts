@@ -9,6 +9,7 @@ export declare function encodeAddress(address: string): xdr.ScVal;
  */
 export declare function encodeI128(value: bigint): xdr.ScVal;
 export declare function encodeU32(value: number): xdr.ScVal;
+export declare function encodeBool(value: boolean): xdr.ScVal;
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
