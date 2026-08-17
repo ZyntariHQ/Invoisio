@@ -1,5 +1,12 @@
 import { apiClient, extractApiErrorMessage } from '@/lib/api-client';
 
+export interface NotificationPreferences {
+  pushNotificationsEnabled: boolean;
+  registeredPushTokensCount: number;
+  preferenceExplicit: boolean;
+  contractVersion: string;
+}
+
 export interface UpdateNotificationPreferences {
   pushNotificationsEnabled: boolean;
 }
@@ -27,11 +34,14 @@ export const UserService = {
     }
   },
 
-  /** Load the authenticated user's notification preferences. */
-  async getNotificationPreferences(): Promise<UpdateNotificationPreferences> {
+  /**
+   * Load the authenticated user's notification preferences.
+   * Backed by GET /notifications/preferences.
+   */
+  async getNotificationPreferences(): Promise<NotificationPreferences> {
     try {
-      const response = await apiClient.get<UpdateNotificationPreferences>(
-        '/users/preferences',
+      const response = await apiClient.get<NotificationPreferences>(
+        '/notifications/preferences',
       );
       return response.data;
     } catch (error) {
