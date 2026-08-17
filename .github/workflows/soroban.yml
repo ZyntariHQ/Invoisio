@@ -29,28 +29,6 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Ensure Rust toolchain & components (with retries)
-        run: |
-          retry() {
-            local n=1
-            local max=5
-            local delay=5
-            until "$@" ; do
-              if [ $n -ge $max ] ; then
-                echo "Command failed after $n attempts: $*"
-                return 1
-              fi
-              echo "Command failed. Attempt $n/$max:"
-              n=$((n+1))
-              sleep $delay
-            done
-          }
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          retry rustup toolchain install stable --no-self-update
-          retry rustup component add cargo --toolchain stable
-          retry rustup target add wasm32-unknown-unknown --toolchain stable
-        shell: bash
-
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
         with:
