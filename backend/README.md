@@ -46,6 +46,24 @@ USDC_ASSET_CODE=USDC
 MEMO_PREFIX=invoisio-
 ```
 
+
+### Database Seeding & Demo Data
+
+Automatic seeding on startup is disabled by default to ensure production and staging databases remain clean.
+
+To seed sample demo invoices and a demo merchant intentionally during local development:
+
+```bash
+# Run Prisma seed script directly
+npm run db:seed
+```
+
+Alternatively, enable automatic seeding on startup in development mode by setting in `.env`:
+```env
+NODE_ENV=development
+SEED_SAMPLE_DATA=true
+```
+
 ### 3. Run the Server
 
 ```bash

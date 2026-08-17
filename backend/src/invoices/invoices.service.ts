@@ -72,13 +72,11 @@ export class InvoicesService implements OnModuleInit {
   }
 
   async onModuleInit() {
-    // Skip seeding in test environment
-    if (process.env.NODE_ENV === "test") {
-      return;
+    // Automatic seeding on startup is disabled to prevent polluting fresh production or staging environments.
+    // Explicit manual seeding is available via `npm run db:seed` or by enabling SEED_SAMPLE_DATA=true in development.
+    if (process.env.NODE_ENV === "development" && process.env.SEED_SAMPLE_DATA === "true") {
+      await this.seedSampleInvoices();
     }
-
-    // seed after PrismaService onModuleInit has run so client/fallback is available
-    await this.seedSampleInvoices();
   }
 
   /**
