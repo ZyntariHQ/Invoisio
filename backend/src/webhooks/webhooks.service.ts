@@ -95,6 +95,10 @@ export class WebhooksService {
    * `WebhookDelivery` table and therefore never appears in production delivery
    * history or the dead-letter queue.
    *
+   * The destination URL comes from the merchant-scoped webhook configuration
+   * (the same value merchants manage in settings), while the signing secret is
+   * read from the requesting user within that merchant.
+   *
    * Returns a result object describing whether the endpoint accepted the
    * payload, the HTTP status code, round-trip latency, and a clear failure
    * reason when the endpoint is unreachable or rejects the request.
@@ -103,16 +107,26 @@ export class WebhooksService {
     userId: string,
     merchantId: string,
   ): Promise<WebhookTestDeliveryResultDto> {
-    const user = await this.prisma.user.findFirst({
-      where: { id: userId, merchantId },
-      select: { webhookUrl: true, webhookSecret: true },
-    });
+    const [user, merchant] = await Promise.all([
+      this.prisma.user.findFirst({
+        where: { id: userId, merchantId },
+        select: { webhookSecret: true },
+      }),
+      this.prisma.merchant.findUnique({
+        where: { id: merchantId },
+        select: { webhookUrl: true },
+      }),
+    ]);
 
     if (!user) {
       throw new NotFoundException("User not found.");
     }
 
-    if (!user.webhookUrl) {
+    if (!merchant) {
+      throw new NotFoundException("Merchant not found.");
+    }
+
+    if (!merchant.webhookUrl) {
       throw new UnprocessableEntityException(
         "No webhook URL is configured. Please set a webhook URL before sending a test delivery.",
       );
@@ -148,7 +162,7 @@ export class WebhooksService {
     let failureReason: string | null = null;
 
     try {
-      const response = await axios.post(user.webhookUrl, payload, {
+      const response = await axios.post(merchant.webhookUrl, payload, {
         headers: {
           "Content-Type": "application/json",
           "x-invoisio-signature": signature,
@@ -207,7 +221,11 @@ export class WebhooksService {
   }
 
   /**
-   * Enqueues a webhook delivery for an invoice status change if the user has a webhook URL configured.
+   * Enqueues a webhook delivery for an invoice status change if the merchant has a webhook URL configured.
+   *
+   * The destination URL is read from the merchant-scoped webhook configuration
+   * (the same value merchants manage in settings) so that deliveries always
+   * follow the configuration the merchant actually sees.
    */
   async enqueueWebhook(
     invoiceId: string,
@@ -220,15 +238,14 @@ export class WebhooksService {
       : { id: invoiceId };
     const invoice = await this.prisma.invoice.findFirst({
       where,
-      include: { user: true },
+      include: { merchant: true },
     });
 
-    if (!invoice || !invoice.user || !invoice.user.webhookUrl) {
-      if (!invoice?.user?.webhookUrl) {
-        this.logger.debug(
-          `Skipping webhook for invoice ${invoiceId}: No webhook URL configured for user.`,
-        );
-      }
+    const webhookUrl = invoice?.merchant?.webhookUrl ?? null;
+    if (!invoice || !webhookUrl) {
+      this.logger.debug(
+        `Skipping webhook for invoice ${invoiceId}: No webhook URL configured for merchant.`,
+      );
       return;
     }
 
@@ -243,7 +260,7 @@ export class WebhooksService {
       data: {
         invoiceId: invoice.id,
         userId: invoice.userId!,
-        url: invoice.user.webhookUrl,
+        url: webhookUrl,
         payload: payload,
         status: "pending",
         attempts: 0,
