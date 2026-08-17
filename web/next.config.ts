@@ -13,11 +13,6 @@ const nextConfig: NextConfig = {
         destination: "/pay/:id",
         permanent: false,
       },
-      {
-        source: "/receipt/:id",
-        destination: "/invoices/:id",
-        permanent: false,
-      },
     ];
   },
 };

@@ -143,23 +143,6 @@ class SyncCoordinator {
   }
 
   /**
-   * Load sync status from storage
-   */
-  private async loadSyncStatus(): Promise<void> {
-    try {
-      const stored = await AsyncStorage.getItem(SYNC_STATUS_KEY);
-      if (stored) {
-        const status = JSON.parse(stored);
-        this.isSyncing = status.isSyncing || false;
-        this.currentOperation = status.currentOperation || null;
-        this.operationQueue = status.queue || [];
-      }
-    } catch (error) {
-      console.error('Failed to load sync status:', error);
-    }
-  }
-
-  /**
    * Add sync operation to queue
    */
   private enqueueOperation(type: SyncOperationType, details?: SyncOperation['details']): string {
@@ -171,7 +154,7 @@ class SyncCoordinator {
       startTime: Date.now(),
       retryCount: 0,
       details,
-    };
+    } as SyncOperation;
     this.operationQueue.push(operation);
     this.notifyListeners();
     return id;
@@ -189,13 +172,13 @@ class SyncCoordinator {
       this.operationQueue[index] = {
         ...this.operationQueue[index],
         ...updates,
-      };
+      } as SyncOperation;
       this.notifyListeners();
     } else if (this.currentOperation?.id === id) {
       this.currentOperation = {
         ...this.currentOperation,
         ...updates,
-      };
+      } as SyncOperation;
       this.notifyListeners();
     }
   }
@@ -306,7 +289,7 @@ class SyncCoordinator {
           details: {
             totalItems: queueSize,
             processedItems: processed,
-            failedItems,
+            failedItems: failed,
           },
         });
       },
@@ -327,7 +310,7 @@ class SyncCoordinator {
    * Retry pending auth operations
    */
   private async retryAuth(): Promise<void> {
-    const operationId = this.enqueueOperation('auth_retry');
+    this.enqueueOperation('auth_retry');
     
     try {
       const loginResult = await authService.retryPendingOperation();
@@ -345,7 +328,7 @@ class SyncCoordinator {
   /**
    * Check for stale invoice status updates
    */
-  private async syncInvoiceStatus(token: string): Promise<void> {
+  private async syncInvoiceStatus(_token: string): Promise<void> {
     const operationId = this.enqueueOperation('invoices');
     
     try {
@@ -366,7 +349,7 @@ class SyncCoordinator {
   /**
    * Catch up on pending notifications
    */
-  private async syncNotifications(token: string): Promise<void> {
+  private async syncNotifications(_token: string): Promise<void> {
     const operationId = this.enqueueOperation('notifications');
     
     try {
@@ -412,7 +395,6 @@ class SyncCoordinator {
     }
 
     const startTime = Date.now();
-    const operations: SyncOperation[] = [];
 
     try {
       // Step 1: Retry auth if needed
@@ -491,7 +473,7 @@ class SyncCoordinator {
    */
   private async recordSyncHistory(
     startTime: number,
-    operations: SyncOperation[],
+    _operations: SyncOperation[],
     success: boolean
   ): Promise<void> {
     try {

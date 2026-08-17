@@ -18,7 +18,7 @@ import type { DraftInvoice } from '../types/draft.types';
 export default function DraftsScreen() {
   const router = useRouter();
   const { accessToken } = useAuthStore();
-  const { isOffline } = useConnectivity();
+  useConnectivity();
 
   const [drafts, setDrafts] = useState<DraftInvoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,6 +95,13 @@ export default function DraftsScreen() {
           text: 'Discard',
           style: 'destructive',
           onPress: async () => {
+            if (!accessToken) {
+              Alert.alert('Error', 'You need to be signed in to discard a draft.', [
+                { text: 'OK' },
+              ]);
+              return;
+            }
+
             try {
               await DraftService.discardDraft(accessToken, draft.id);
               setDrafts((prev) => prev.filter((d) => d.id !== draft.id));

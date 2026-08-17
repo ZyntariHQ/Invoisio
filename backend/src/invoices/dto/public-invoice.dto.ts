@@ -36,10 +36,18 @@ export class PublicInvoiceDto {
   @IsString()
   status: string;
 
+  @IsString()
+  @IsOptional()
+  tx_hash?: string;
+
   @IsDateString()
   @IsOptional()
   dueDate?: string;
 
   @IsDateString()
   createdAt: string;
+
+  @IsDateString()
+  @IsOptional()
+  updatedAt?: string;
 }

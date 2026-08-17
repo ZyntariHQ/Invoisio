@@ -522,14 +522,24 @@ function InvoiceDetailContent() {
               </button>
 
               {isPaid && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  aria-label="Print invoice"
-                  className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  🖨️ Print
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/receipt/${invoice.id}`)}
+                    aria-label="Open payment receipt"
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-center font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    🧾 View Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    aria-label="Print invoice"
+                    className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    🖨️ Print
+                  </button>
+                </>
               )}
             </div>
           </div>
