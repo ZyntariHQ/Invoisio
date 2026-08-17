@@ -1,7 +1,7 @@
 import { useDeepLinks } from "../hooks/useDeepLinks";
 
 interface DeepLinkHandlerProps {
-  children: React.ReactNode;
+  children?: React.ReactNode;
 }
 
 /**

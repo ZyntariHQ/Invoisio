@@ -11,7 +11,6 @@ import type {
 } from '../types/draft.types';
 
 const DRAFT_STORAGE_KEY = '@invoisio_local_drafts';
-const DRAFT_SYNC_KEY = '@invoisio_draft_sync';
 
 /**
  * DraftService handles all draft-related API operations on mobile

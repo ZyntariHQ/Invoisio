@@ -743,8 +743,10 @@ export class InvoicesService implements OnModuleInit {
     memo: string;
     destination_address: string;
     status: string;
+    tx_hash?: string;
     dueDate?: string;
     createdAt: string;
+    updatedAt?: string;
   } | null> {
     const invoice = await this.prisma.invoice.findUnique({
       where: { id },
@@ -770,12 +772,16 @@ export class InvoicesService implements OnModuleInit {
       memo: normalized.memo ?? "",
       destination_address: normalized.destination_address || "",
       status: normalized.status,
+      tx_hash: normalized.tx_hash ?? undefined,
       dueDate: invoice.dueDate
         ? new Date(invoice.dueDate).toISOString()
         : undefined,
       createdAt: invoice.createdAt
         ? new Date(invoice.createdAt).toISOString()
         : new Date().toISOString(),
+      updatedAt: invoice.updatedAt
+        ? new Date(invoice.updatedAt).toISOString()
+        : undefined,
     };
   }
 

@@ -22,6 +22,7 @@ import { useDraftAutosave } from '../hooks/use-draft-autosave';
 import { useConnectivity } from '../hooks/use-connectivity';
 import axios from 'axios';
 import { API_URL } from '@env';
+import type { UpdateDraftDto } from '../types/draft.types';
 
 const currencies = ['USDC', 'EURC', 'USD'];
 const paymentTerms = ['Net 7', 'Net 14', 'Net 30'];
@@ -29,7 +30,7 @@ const paymentTerms = ['Net 7', 'Net 14', 'Net 30'];
 export default function CreateInvoiceScreen() {
   const router = useRouter();
   const { accessToken } = useAuthStore();
-  const { isOffline } = useConnectivity();
+  useConnectivity();
 
   // Form state
   const [company, setCompany] = useState('');
@@ -145,32 +146,34 @@ export default function CreateInvoiceScreen() {
     }
 
     // Build update payload
-    const updates: Record<string, unknown> = {};
+    const updates: Partial<UpdateDraftDto> = {};
     switch (field) {
       case 'company':
         updates.clientName = value || undefined;
         break;
-      case 'amount':
+      case 'amount': {
         const parsedAmount = parseFloat(value.replace(/,/g, ''));
         updates.amount = isNaN(parsedAmount) ? undefined : parsedAmount;
         break;
+      }
       case 'currency':
         updates.asset_code = value;
         break;
       case 'memo':
         updates.description = value || undefined;
         break;
-      case 'terms':
+      case 'terms': {
         // Calculate due date based on terms
         const days = parseInt(value.split(' ')[1] || '30');
         const dueDate = new Date();
         dueDate.setDate(dueDate.getDate() + days);
         updates.due_date = dueDate.toISOString();
         break;
+      }
     }
 
     // Trigger autosave
-    updateDraft(updates);
+    updateDraft(updates as UpdateDraftDto);
   };
 
   // Debounced customer search
@@ -214,7 +217,7 @@ export default function CreateInvoiceScreen() {
       clientName: customer.name,
       clientEmail: customer.email || undefined,
       customer_id: customer.id,
-    });
+    } as UpdateDraftDto);
   };
 
   const clearSelectedCustomer = () => {
@@ -223,7 +226,7 @@ export default function CreateInvoiceScreen() {
     setCompany('');
     updateDraft({
       customer_id: undefined,
-    });
+    } as UpdateDraftDto);
   };
 
   // Offline mutation for creating invoices
