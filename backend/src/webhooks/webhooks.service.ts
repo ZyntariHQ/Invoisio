@@ -3,12 +3,14 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
 import axios from "axios";
 import * as crypto from "crypto";
 import { DeadLetterStatus, Prisma } from "@prisma/client";
+import { WebhookTestDeliveryResultDto } from "./dto/webhook-test-delivery.dto";
 
 export interface WebhookSecretMetadata {
   hasSecret: boolean;
@@ -83,6 +85,124 @@ export class WebhooksService {
     return {
       secret,
       metadata: this.toSecretMetadata(secret),
+    };
+  }
+
+  /**
+   * Send a signed test webhook delivery to the merchant's configured endpoint.
+   *
+   * The delivery is entirely transient – it is **never** written to the
+   * `WebhookDelivery` table and therefore never appears in production delivery
+   * history or the dead-letter queue.
+   *
+   * Returns a result object describing whether the endpoint accepted the
+   * payload, the HTTP status code, round-trip latency, and a clear failure
+   * reason when the endpoint is unreachable or rejects the request.
+   */
+  async sendTestDelivery(
+    userId: string,
+    merchantId: string,
+  ): Promise<WebhookTestDeliveryResultDto> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, merchantId },
+      select: { webhookUrl: true, webhookSecret: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException("User not found.");
+    }
+
+    if (!user.webhookUrl) {
+      throw new UnprocessableEntityException(
+        "No webhook URL is configured. Please set a webhook URL before sending a test delivery.",
+      );
+    }
+
+    const sentAt = new Date().toISOString();
+
+    const payload = {
+      event: "test",
+      invoiceId: "__test__",
+      status: "test",
+      txHash: null,
+      timestamp: sentAt,
+      description:
+        "This is a signed test webhook delivery from Invoisio. No action required.",
+    };
+
+    const payloadStr = JSON.stringify(payload);
+
+    // Sign with the active secret so merchants can verify HMAC validation
+    // works end-to-end before going live.
+    let signature = "";
+    if (user.webhookSecret) {
+      signature = crypto
+        .createHmac("sha256", user.webhookSecret)
+        .update(payloadStr)
+        .digest("hex");
+    }
+
+    const startMs = Date.now();
+    let httpStatus: number | null = null;
+    let success = false;
+    let failureReason: string | null = null;
+
+    try {
+      const response = await axios.post(user.webhookUrl, payload, {
+        headers: {
+          "Content-Type": "application/json",
+          "x-invoisio-signature": signature,
+          "x-invoisio-test-delivery": "true",
+        },
+        timeout: 10_000,
+        // Treat any 2xx as success; do not throw on 4xx/5xx so we can
+        // capture the status code and report it back to the merchant.
+        validateStatus: () => true,
+      });
+
+      httpStatus = response.status;
+      success = response.status >= 200 && response.status < 300;
+
+      if (!success) {
+        failureReason = `Endpoint responded with HTTP ${response.status}.`;
+      }
+    } catch (error: any) {
+      // Network-level failure (DNS, timeout, TLS, etc.)
+      httpStatus = null;
+      success = false;
+
+      if (axios.isAxiosError(error)) {
+        if (error.code === "ECONNABORTED") {
+          failureReason =
+            "Request timed out. The endpoint did not respond within 10 seconds.";
+        } else if (error.code === "ECONNREFUSED") {
+          failureReason =
+            "Connection refused. Verify the endpoint URL is reachable from the internet.";
+        } else if (error.code === "ENOTFOUND") {
+          failureReason =
+            "DNS resolution failed. Verify the hostname in your webhook URL is correct.";
+        } else {
+          failureReason = error.message ?? "Network error";
+        }
+      } else {
+        failureReason =
+          (error as Error)?.message ?? "Unknown error during test delivery.";
+      }
+    }
+
+    const durationMs = Date.now() - startMs;
+
+    this.logger.log(
+      `Test webhook delivery for user ${userId} (merchant ${merchantId}): ` +
+        `success=${success}, httpStatus=${httpStatus ?? "N/A"}, durationMs=${durationMs}`,
+    );
+
+    return {
+      success,
+      httpStatus,
+      durationMs,
+      failureReason,
+      sentAt,
     };
   }
 

@@ -5,8 +5,10 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ConnectivityProvider } from "../components/ConnectivityProvider";
 import { OfflineBanner } from "../components/OfflineBanner";
+import { SyncStatusBanner } from "../components/SyncStatusBanner";
 import { AuthGuard } from "../components/auth-guard";
 import { useAuthStore } from "../hooks/use-auth-store";
+import { DeepLinkHandler } from "../components/DeepLinkHandler";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +25,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <StatusBar style="light" />
           <OfflineBanner />
+          <SyncStatusBanner />
           <AuthGuard>
             <Stack
               screenOptions={{
@@ -44,6 +47,13 @@ export default function RootLayout() {
                 options={{
                   title: "Invoisio",
                   headerShown: false,
+                }}
+              />
+              <Stack.Screen
+                name="payments/[id]"
+                options={{
+                  title: "Pay Invoice",
+                  headerShown: true,
                 }}
               />
               <Stack.Screen
@@ -104,6 +114,7 @@ export default function RootLayout() {
               />
             </Stack>
           </AuthGuard>
+          <DeepLinkHandler />
         </SafeAreaProvider>
       </ConnectivityProvider>
     </QueryClientProvider>

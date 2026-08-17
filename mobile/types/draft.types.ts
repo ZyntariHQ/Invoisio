@@ -29,16 +29,16 @@ export interface DraftInvoice {
  * DTO for creating a new draft
  */
 export interface CreateDraftDto {
-  invoiceNumber?: string;
-  clientName?: string;
-  clientEmail?: string;
-  description?: string;
-  amount?: number;
-  asset_code?: string;
-  asset_issuer?: string;
-  customer_id?: string;
-  due_date?: string;
-  metadata?: Record<string, unknown>;
+  invoiceNumber?: string | undefined;
+  clientName?: string | undefined;
+  clientEmail?: string | undefined;
+  description?: string | undefined;
+  amount?: number | undefined;
+  asset_code?: string | undefined;
+  asset_issuer?: string | undefined;
+  customer_id?: string | undefined;
+  due_date?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 /**

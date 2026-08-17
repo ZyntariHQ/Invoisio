@@ -7,6 +7,10 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { CreateCustomerDto } from "./dto/create-customer.dto";
 import { UpdateCustomerDto } from "./dto/update-customer.dto";
+import {
+  CustomerSummaryDto,
+  CustomerRecentInvoice,
+} from "./dto/customer-summary.dto";
 import { Prisma } from "@prisma/client";
 
 /**
@@ -146,5 +150,85 @@ export class CustomersService {
       orderBy: { updatedAt: "desc" },
       take: limit,
     });
+  }
+
+  /**
+   * Return a customer detail summary with business metrics.
+   *
+   * Returns invoice count, paid volume, outstanding balance, overdue balance,
+   * and recent invoice activity — all scoped to the merchant.
+   *
+   * Empty-history customers get a stable zero-value response shape.
+   */
+  async getCustomerSummary(
+    merchantId: string,
+    customerId: string,
+  ): Promise<CustomerSummaryDto> {
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: customerId, merchantId },
+    });
+
+    if (!customer) {
+      throw new NotFoundException("Customer not found");
+    }
+
+    const invoiceWhere = {
+      merchantId,
+      customerId,
+      isDraft: false,
+    };
+
+    const [invoiceCount, paidAgg, outstandingAgg, overdueAgg, recentInvoices] =
+      await Promise.all([
+        this.prisma.invoice.count({ where: invoiceWhere }),
+        this.prisma.invoice.aggregate({
+          where: { ...invoiceWhere, status: "paid" as const },
+          _sum: { amount: true },
+        }),
+        this.prisma.invoice.aggregate({
+          where: {
+            ...invoiceWhere,
+            status: {
+              in: ["pending", "partially_paid", "overdue" as const],
+            },
+          },
+          _sum: { amountDue: true },
+        }),
+        this.prisma.invoice.aggregate({
+          where: { ...invoiceWhere, status: "overdue" as const },
+          _sum: { amountDue: true },
+        }),
+        this.prisma.invoice.findMany({
+          where: invoiceWhere,
+          orderBy: { createdAt: "desc" },
+          take: 5,
+          select: {
+            id: true,
+            invoiceNumber: true,
+            amount: true,
+            status: true,
+            createdAt: true,
+          },
+        }),
+      ]);
+
+    return {
+      id: customer.id,
+      name: customer.name,
+      email: customer.email,
+      invoiceCount,
+      paidVolume: paidAgg._sum.amount?.toNumber() || 0,
+      outstandingBalance: outstandingAgg._sum.amountDue?.toNumber() || 0,
+      overdueBalance: overdueAgg._sum.amountDue?.toNumber() || 0,
+      recentInvoices: recentInvoices.map(
+        (inv): CustomerRecentInvoice => ({
+          id: inv.id,
+          invoiceNumber: inv.invoiceNumber,
+          amount: inv.amount.toNumber(),
+          status: inv.status,
+          createdAt: inv.createdAt,
+        }),
+      ),
+    };
   }
 }

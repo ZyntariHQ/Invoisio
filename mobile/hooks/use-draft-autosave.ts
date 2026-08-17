@@ -1,7 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Alert } from 'react-native';
 import { useAuthStore } from './use-auth-store';
-import { useConnectivity } from './use-connectivity';
 import { DraftService } from '../lib/draft-service';
 import type { DraftInvoice, UpdateDraftDto, CreateDraftDto } from '../types/draft.types';
 
@@ -44,7 +42,7 @@ interface UseDraftAutosaveReturn {
   /** Manually save the draft immediately */
   saveDraft: () => Promise<DraftInvoice>;
   /** Manually trigger autosave (bypasses debounce) */
-  triggerAutosave: () => Promise<DraftInvoice>;
+  triggerAutosave: () => Promise<void>;
   /** Convert draft to invoice */
   convertToInvoice: () => Promise<unknown>;
   /** Discard the draft */
@@ -77,7 +75,6 @@ export function useDraftAutosave(
   } = config;
 
   const { accessToken } = useAuthStore();
-  const { isOffline } = useConnectivity();
 
   const [draft, setDraft] = useState<DraftInvoice | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -355,12 +352,12 @@ export function useDraftAutosave(
   }, [draft, draftId, accessToken, pendingUpdates, onSave, onError]);
 
   // Trigger immediate autosave
-  const triggerAutosave = useCallback(async (): Promise<DraftInvoice> => {
+  const triggerAutosave = useCallback(async (): Promise<void> => {
     if (autosaveTimeoutRef.current) {
       clearTimeout(autosaveTimeoutRef.current);
       autosaveTimeoutRef.current = null;
     }
-    return performAutosave(pendingUpdates);
+    await performAutosave(pendingUpdates);
   }, [pendingUpdates, performAutosave]);
 
   // Convert draft to invoice

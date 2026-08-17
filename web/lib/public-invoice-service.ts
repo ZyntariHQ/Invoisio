@@ -11,8 +11,10 @@ export interface PublicInvoice {
   memo: string;
   destination_address: string;
   status: string;
+  tx_hash?: string;
   dueDate?: string;
   createdAt: string;
+  updatedAt?: string;
 }
 
 export const PublicInvoiceService = {

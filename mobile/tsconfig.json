@@ -2,6 +2,7 @@
   "extends": "./node_modules/expo/tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
     "strict": true,
     "noImplicitAny": true,
     "noImplicitReturns": true,
@@ -13,7 +14,6 @@
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
     "jsx": "react-native",
-    "types": ["nativewind/types"],
     "typeRoots": ["./types", "./node_modules/@types"],
     "paths": {
       "@/*": ["./*"]

@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useState, useCallback, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";
@@ -21,6 +21,7 @@ interface WalletInfo {
 
 export default function PublicPayerPage() {
   const params = useParams<{ id: string }>();
+  const router = useRouter();
   const invoiceId = params?.id as string;
 
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
@@ -284,6 +285,13 @@ export default function PublicPayerPage() {
                 <p className="text-sm font-medium text-green-900">
                   ✓ Payment received successfully! Thank you.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/receipt/${invoice.id}`)}
+                  className="mt-3 inline-flex items-center rounded-md border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-800 hover:bg-green-50"
+                >
+                  View payment receipt
+                </button>
               </div>
             )}
 

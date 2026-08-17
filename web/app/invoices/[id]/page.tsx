@@ -482,7 +482,7 @@ function InvoiceDetailContent() {
 
             {/* Status Info */}
             {lastUpdated && (
-              <div className="mb-6 text-xs text-gray-500">
+              <div className="mb-6 text-xs text-gray-500 print:hidden">
                 Last updated: {new Date(lastUpdated).toLocaleTimeString()}
               </div>
             )}
@@ -522,21 +522,31 @@ function InvoiceDetailContent() {
               </button>
 
               {isPaid && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  aria-label="Print invoice"
-                  className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  🖨️ Print
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/receipt/${invoice.id}`)}
+                    aria-label="Open payment receipt"
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-center font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    🧾 View Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    aria-label="Print invoice"
+                    className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    🖨️ Print
+                  </button>
+                </>
               )}
             </div>
           </div>
         </div>
 
         {/* Footer Help Text */}
-        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600">
+        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600 print:hidden">
           <p>
             {isPending && walletInfo?.hasWallet
               ? 'Click "Pay Invoice" to open your Stellar wallet and send payment.'

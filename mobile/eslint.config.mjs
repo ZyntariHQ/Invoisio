@@ -21,6 +21,7 @@ export default tseslint.config(
       "babel.config.js",
       "tailwind.config.js",
       "metro.config.js",
+      "jest.config.js",
     ],
   },
   eslint.configs.recommended,

@@ -17,6 +17,7 @@ describe("WebhooksController", () => {
   const mockWebhooksService = {
     getWebhookSecretMetadata: jest.fn(),
     rotateWebhookSecret: jest.fn(),
+    sendTestDelivery: jest.fn(),
   };
 
   const mockPrismaService = {
@@ -90,6 +91,32 @@ describe("WebhooksController", () => {
       "merchant-2",
     );
   });
+
+  it("sends a test delivery and returns the result", async () => {
+    const testResult = {
+      success: true,
+      httpStatus: 200,
+      durationMs: 123,
+      failureReason: null,
+      sentAt: "2026-08-16T22:00:00.000Z",
+    };
+    mockWebhooksService.sendTestDelivery.mockResolvedValue(testResult);
+
+    const result = await controller.sendTestDelivery({
+      id: "user-3",
+      merchantId: "merchant-3",
+    } as any);
+
+    expect(result).toEqual(testResult);
+    expect(mockPrismaService.runWithMerchantScope).toHaveBeenCalledWith(
+      "merchant-3",
+      expect.any(Function),
+    );
+    expect(mockWebhooksService.sendTestDelivery).toHaveBeenCalledWith(
+      "user-3",
+      "merchant-3",
+    );
+  });
 });
 
 describe("WebhooksController (role enforcement)", () => {
@@ -109,6 +136,13 @@ describe("WebhooksController (role enforcement)", () => {
         maskedSecret: "new-...cret",
         secretLength: 10,
       },
+    }),
+    sendTestDelivery: jest.fn().mockResolvedValue({
+      success: true,
+      httpStatus: 200,
+      durationMs: 50,
+      failureReason: null,
+      sentAt: "2026-08-16T22:00:00.000Z",
     }),
   };
 
@@ -188,5 +222,46 @@ describe("WebhooksController (role enforcement)", () => {
       .expect(200);
 
     expect(res.body.maskedSecret).toBe("abcd...wxyz");
+  });
+
+  // ── Test delivery role enforcement ───────────────────────────────────────
+
+  it("POST /webhooks/test should allow merchant owner", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/webhooks/test")
+      .set("Authorization", auth({ role: MerchantRole.OWNER }))
+      .expect(200);
+
+    expect(res.body.success).toBe(true);
+    expect(res.body.httpStatus).toBe(200);
+    expect(typeof res.body.durationMs).toBe("number");
+    expect(res.body.sentAt).toBeDefined();
+  });
+
+  it("POST /webhooks/test should allow merchant admin", async () => {
+    await request(app.getHttpServer())
+      .post("/webhooks/test")
+      .set("Authorization", auth({ role: MerchantRole.ADMIN }))
+      .expect(200);
+  });
+
+  it("POST /webhooks/test should forbid viewer", async () => {
+    await request(app.getHttpServer())
+      .post("/webhooks/test")
+      .set("Authorization", auth({ role: MerchantRole.VIEWER }))
+      .expect(403);
+  });
+
+  it("POST /webhooks/test should forbid operator", async () => {
+    await request(app.getHttpServer())
+      .post("/webhooks/test")
+      .set("Authorization", auth({ role: MerchantRole.OPERATOR }))
+      .expect(403);
+  });
+
+  it("POST /webhooks/test should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer())
+      .post("/webhooks/test")
+      .expect(401);
   });
 });

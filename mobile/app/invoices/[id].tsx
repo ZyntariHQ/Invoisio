@@ -1,10 +1,21 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Alert, Pressable, ScrollView, Share, Text, View } from "react-native";
+import {
+  Alert,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Share,
+  Text,
+  View,
+} from "react-native";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { API_URL } from "@env";
 import { useAuthStore } from "../../hooks/use-auth-store";
+import { useConnectivity } from "../../hooks/use-connectivity";
+import { useInvoiceLive } from "../../hooks/use-invoice-live";
 import type { Invoice } from "../../lib/invoices";
 import {
   buildInvoiceShareMessage,
@@ -14,30 +25,52 @@ import {
   getInvoiceMemoType,
 } from "../../lib/payment-link";
 import { generateDeepLink, generateWebUrl } from "../../lib/share-links";
+import { InvoiceLiveStatusBadge } from "../../components/InvoiceLiveStatusBadge";
+
+const POLL_FALLBACK_INTERVAL_MS = 15000;
 
 export default function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
   const { accessToken } = useAuthStore();
+  const { isOffline } = useConnectivity();
+  const {
+    status: liveStatus,
+    lastEventAt,
+    shouldPoll,
+  } = useInvoiceLive(id.length > 0 ? id : undefined);
 
-  const { data, isLoading } = useQuery<Invoice>({
-    queryKey: ["invoice", id, accessToken],
-    queryFn: async () => {
-      const headers =
-        accessToken != null
-          ? {
-              Authorization: `Bearer ${accessToken}`,
-            }
-          : undefined;
-      const res = await axios.get(
-        `${API_URL}/invoices/${id}`,
-        headers ? { headers } : undefined,
-      );
-      return res.data as Invoice;
-    },
-    enabled: typeof id === "string" && id.length > 0,
-  });
+  const { data, isLoading, isFetching, dataUpdatedAt, refetch } =
+    useQuery<Invoice>({
+      queryKey: ["invoice", id, accessToken, isOffline],
+      queryFn: async () => {
+        const headers =
+          accessToken != null
+            ? {
+                Authorization: `Bearer ${accessToken}`,
+              }
+            : undefined;
+        const res = await axios.get(
+          `${API_URL}/invoices/${id}`,
+          headers ? { headers } : undefined,
+        );
+        return res.data as Invoice;
+      },
+      enabled: typeof id === "string" && id.length > 0,
+      refetchInterval:
+        !isOffline && shouldPoll ? POLL_FALLBACK_INTERVAL_MS : false,
+      refetchIntervalInBackground: false,
+    });
+
+  // A matching realtime event is a signal the server-side status changed;
+  // refetch the full invoice rather than trusting the event payload alone.
+  useEffect(() => {
+    if (lastEventAt !== null) {
+      void refetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new event arrives
+  }, [lastEventAt]);
 
   const invoice = data;
   const created = invoice
@@ -69,13 +102,13 @@ export default function InvoiceDetailScreen() {
       // Generate deep links for the invoice
       const deepLink = generateDeepLink("invoice", invoice.id);
       const webUrl = generateWebUrl("invoice", invoice.id);
-      
+
       const shareMessage = buildInvoiceShareMessage(invoice);
       const shareContent = {
         title: invoice.invoiceNumber ?? invoice.id,
         message: `${shareMessage}\n\n📱 Open in app: ${deepLink}\n🌐 Web: ${webUrl}`,
       };
-      
+
       await Share.share(shareContent);
     } catch (error) {
       console.error("Invoice share failed", error);
@@ -88,7 +121,18 @@ export default function InvoiceDetailScreen() {
 
   return (
     <SafeAreaView className="flex-1 bg-[#050914]">
-      <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 48 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={isFetching}
+            onRefresh={() => {
+              void refetch();
+            }}
+            tintColor="#7dd3fc"
+          />
+        }
+      >
         <View className="px-6 pt-10">
           <View className="mb-4 flex-row gap-3">
             <Pressable
@@ -116,6 +160,26 @@ export default function InvoiceDetailScreen() {
                 style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
               >
                 Share invoice
+              </Text>
+            </Pressable>
+          </View>
+          <View className="mb-4 flex-row items-center justify-between">
+            <InvoiceLiveStatusBadge
+              status={liveStatus}
+              {...(dataUpdatedAt > 0 ? { updatedAt: dataUpdatedAt } : {})}
+            />
+            <Pressable
+              className="rounded-full border border-white/15 px-3 py-1.5"
+              disabled={isFetching}
+              onPress={() => {
+                void refetch();
+              }}
+            >
+              <Text
+                className={isFetching ? "text-slate-500" : "text-slate-200"}
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+              >
+                {isFetching ? "Refreshing…" : "↻ Refresh"}
               </Text>
             </Pressable>
           </View>
