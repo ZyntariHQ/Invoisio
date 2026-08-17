@@ -29,6 +29,7 @@ import { MerchantModule } from "./merchant/merchant.module";
 import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
 import { CustomersModule } from "./customers/customers.module";
 import { RecurringBillingModule } from "./recurring-billing/recurring-billing.module";
+import { InvoiceEngagementModule } from "./invoice-engagement/invoice-engagement.module";
 
 /**
  * Root application module
@@ -120,6 +121,7 @@ import { RecurringBillingModule } from "./recurring-billing/recurring-billing.mo
     ActivityFeedModule,
     CustomersModule,
     RecurringBillingModule,
+    InvoiceEngagementModule,
   ],
 })
 export class AppModule {}
