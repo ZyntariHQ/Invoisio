@@ -40,14 +40,15 @@ model Merchant {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  users          User[]
-  invoices       Invoice[]
-  activities     ActivityEvent[]
-  customers      Customer[]
+  users               User[]
+  invoices            Invoice[]
+  activities          ActivityEvent[]
+  customers           Customer[]
   activationChecklist MerchantActivationChecklist?
-  paymentReviews PaymentReview[]
-  recurringSchedules RecurringSchedule[]
-  pushNotifications PushNotification[]
+  paymentReviews      PaymentReview[]
+  recurringSchedules  RecurringSchedule[]
+  pushNotifications   PushNotification[]
+  engagementEvents    InvoiceEngagementEvent[]
 
   @@map("merchants")
 }
@@ -233,9 +234,10 @@ model Invoice {
   webhookDeadLetters WebhookDeadLetter[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
-  activities         ActivityEvent[]
-  paymentReviews     PaymentReview[]
+  activities          ActivityEvent[]
+  paymentReviews      PaymentReview[]
   recurringInvoiceRun RecurringInvoiceRun?
+  engagementEvents    InvoiceEngagementEvent[]
 
   @@index([merchantId])
   @@index([isDraft, merchantId])
@@ -277,6 +279,32 @@ model Payment {
 
   @@index([invoiceId])
   @@map("payments")
+}
+
+// Funnel signals captured from the public (unauthenticated) invoice view —
+// impressions and payment-intent actions (wallet launch, copy, etc.) — kept
+// separate from Payment/InvoiceStatusHistory since they never confirm
+// on-chain settlement, only payer engagement prior to it.
+enum InvoiceEngagementEventType {
+  view
+  wallet_launch
+  copy
+  other
+}
+
+model InvoiceEngagementEvent {
+  id         String                     @id @default(uuid())
+  invoiceId  String                     @map("invoice_id")
+  invoice    Invoice                    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  merchantId String                     @map("merchant_id")
+  merchant   Merchant                   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  type       InvoiceEngagementEventType
+  target     String?
+  createdAt  DateTime                   @default(now()) @map("created_at")
+
+  @@index([invoiceId, createdAt])
+  @@index([merchantId, type, createdAt])
+  @@map("invoice_engagement_events")
 }
 
 // Backfill tracking tables
