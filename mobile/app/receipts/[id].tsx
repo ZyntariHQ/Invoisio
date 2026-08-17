@@ -1,12 +1,25 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+} from "react-native";
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import axios from "axios";
 import { API_URL } from "@env";
 import { useAuthStore } from "../../hooks/use-auth-store";
 import type { Invoice, PaymentRecord } from "../../lib/invoices";
 import { getInvoiceAsset, getInvoiceDestination } from "../../lib/payment-link";
+import {
+  exportReceiptAsPdf,
+  shareReceiptAsText,
+} from "../../lib/receipt-export";
+import type { ExportError } from "../../lib/receipt-export";
 
 /** How often to re-check the invoice while settlement is still in flight. */
 const SETTLEMENT_POLL_MS = 5000;
@@ -69,11 +82,56 @@ function statusStyle(status: Invoice["status"]): {
   }
 }
 
+/**
+ * Human-readable recovery guidance for each error type.
+ * Shown via Alert so the merchant always knows what to do next.
+ */
+function exportErrorAlert(error: ExportError): void {
+  const guidance: Record<
+    ExportError,
+    { title: string; message: string }
+  > = {
+    SHARE_DISMISSED: {
+      title: "Share cancelled",
+      message: "You closed the share sheet. Tap the share button again whenever you're ready.",
+    },
+    SHARE_UNAVAILABLE: {
+      title: "Sharing not available",
+      message:
+        "Your device does not support the native share sheet right now.\n\n" +
+        "Try: checking that your device has at least one share target installed " +
+        "(e.g. Mail, Messages, or a cloud-storage app) then try again.\n\n" +
+        "As an alternative you can copy the transaction hash shown on screen and " +
+        "paste it into any app.",
+    },
+    PDF_RENDER_FAILED: {
+      title: "PDF could not be created",
+      message:
+        "The PDF renderer encountered an error.\n\n" +
+        "Try: restarting the app. If the problem continues, use 'Share as text' " +
+        "which works without any additional modules.",
+    },
+    UNKNOWN: {
+      title: "Export failed",
+      message:
+        "Something unexpected went wrong while preparing the receipt.\n\n" +
+        "Try: closing and reopening the receipt, then tap the export button " +
+        "again. If the issue persists, use 'Share as text' instead.",
+    },
+  };
+
+  const { title, message } = guidance[error];
+  Alert.alert(title, message, [{ text: "OK" }]);
+}
+
 export default function ReceiptScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
   const { accessToken } = useAuthStore();
+
+  const [sharingText, setSharingText] = useState(false);
+  const [exportingPdf, setExportingPdf] = useState(false);
 
   const { data, isLoading } = useQuery<Invoice>({
     queryKey: ["receipt", id, accessToken],
@@ -109,10 +167,59 @@ export default function ReceiptScreen() {
   const hasExplicitPayments = payments.length > 0;
   const txHash = invoice?.tx_hash ?? payments[0]?.txHash;
 
+  // ── share as text ────────────────────────────────────────────────────────
+
+  const handleShareText = async () => {
+    if (!invoice || sharingText) return;
+
+    setSharingText(true);
+    try {
+      const result = await shareReceiptAsText(invoice);
+      if (!result.success) {
+        exportErrorAlert(result.error);
+      }
+    } catch {
+      exportErrorAlert("UNKNOWN");
+    } finally {
+      setSharingText(false);
+    }
+  };
+
+  // ── export as PDF ─────────────────────────────────────────────────────────
+
+  const handleExportPdf = async () => {
+    if (!invoice || exportingPdf) return;
+
+    setExportingPdf(true);
+    try {
+      const result = await exportReceiptAsPdf(invoice);
+      if (result.success && "fallback" in result && result.fallback) {
+        // expo-print / expo-sharing not installed — we already fell back to
+        // text share; let the merchant know so they can install the packages.
+        Alert.alert(
+          "PDF sharing unavailable",
+          "The PDF export module is not installed on this build.\n\n" +
+            "To enable PDF export run:\n  npx expo install expo-print expo-sharing\n\n" +
+            "Your receipt has been shared as text instead.",
+          [{ text: "OK" }],
+        );
+      } else if (!result.success) {
+        exportErrorAlert(result.error);
+      }
+    } catch {
+      exportErrorAlert("UNKNOWN");
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
+  const isExporting = sharingText || exportingPdf;
+
   return (
     <SafeAreaView className="flex-1 bg-[#050914]">
       <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>
         <View className="px-6 pt-10">
+          {/* ── navigation row ─────────────────────────────────────────── */}
           <View className="mb-4 flex-row gap-3">
             <Pressable
               className="flex-1 rounded-2xl border border-white/20 px-4 py-3"
@@ -143,6 +250,73 @@ export default function ReceiptScreen() {
               </Pressable>
             ) : null}
           </View>
+
+          {/* ── export / share action row ───────────────────────────────── */}
+          {invoice ? (
+            <View className="mb-4 gap-3">
+              {/* Share as text — always available */}
+              <Pressable
+                className={`flex-row items-center justify-center gap-2 rounded-2xl border border-[#2663FF]/60 bg-[#2663FF]/15 px-4 py-3 ${
+                  isExporting ? "opacity-60" : ""
+                }`}
+                disabled={isExporting}
+                onPress={() => {
+                  void handleShareText();
+                }}
+                accessibilityLabel="Share receipt as text"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isExporting }}
+              >
+                {sharingText ? (
+                  <ActivityIndicator color="#7dd3fc" size="small" />
+                ) : (
+                  <Text
+                    className="text-base text-[#7dd3fc]"
+                    style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                  >
+                    📤
+                  </Text>
+                )}
+                <Text
+                  className="text-center text-[#7dd3fc]"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Share receipt
+                </Text>
+              </Pressable>
+
+              {/* Export as PDF */}
+              <Pressable
+                className={`flex-row items-center justify-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 ${
+                  isExporting ? "opacity-60" : ""
+                }`}
+                disabled={isExporting}
+                onPress={() => {
+                  void handleExportPdf();
+                }}
+                accessibilityLabel="Export receipt as PDF"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isExporting }}
+              >
+                {exportingPdf ? (
+                  <ActivityIndicator color="#34d399" size="small" />
+                ) : (
+                  <Text
+                    className="text-base text-emerald-300"
+                    style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                  >
+                    📄
+                  </Text>
+                )}
+                <Text
+                  className="text-center text-emerald-300"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Export as PDF
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
 
           {isLoading ? (
             <View className="h-32 animate-pulse rounded-2xl bg-white/10" />
@@ -308,6 +482,17 @@ export default function ReceiptScreen() {
                   </Text>
                 </View>
               )}
+
+              {/* Export hint */}
+              <View className="rounded-2xl border border-white/5 bg-white/3 px-4 py-3">
+                <Text
+                  className="text-center text-xs text-slate-500"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                >
+                  Use the buttons above to share this receipt or export it as a
+                  PDF for your records.
+                </Text>
+              </View>
             </View>
           ) : (
             <Text
