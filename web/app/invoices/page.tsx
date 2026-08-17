@@ -1510,21 +1510,21 @@ function InvoicesContent() {
             )}
           </>
         )}
+
+        {/* CSV Upload Dialog */}
+        <CSVUploadDialog
+          isOpen={showUploadDialog}
+          onClose={() => setShowUploadDialog(false)}
+          onImportComplete={handleImportComplete}
+        />
+
+        {/* Import Results Display */}
+        <ImportResultsDisplay
+          summary={importResults}
+          onClose={() => setImportResults(null)}
+        />
       </div>
     </div>
-
-    {/* CSV Upload Dialog */}
-    <CSVUploadDialog
-      isOpen={showUploadDialog}
-      onClose={() => setShowUploadDialog(false)}
-      onImportComplete={handleImportComplete}
-    />
-
-    {/* Import Results Display */}
-    <ImportResultsDisplay
-      summary={importResults}
-      onClose={() => setImportResults(null)}
-    />
   );
 }
 
