@@ -54,3 +54,38 @@ body {
 .metric-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.7rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 0.9rem; }
 .dual-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
 @media (max-width: 780px) { .hero { flex-direction: column; align-items: flex-start; } }
+.section-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.sync-center { margin-top: 1.5rem; }
+.summary-tile.danger { background: linear-gradient(135deg, rgba(220, 38, 38, 0.14), #fff); }
+.summary-tile.warning { background: linear-gradient(135deg, rgba(245, 158, 11, 0.18), #fff); }
+.draft-list { display: grid; gap: 0.9rem; margin-top: 1rem; }
+.draft-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-left: 6px solid var(--accent);
+  border-radius: 14px;
+  padding: 1rem;
+  background: #fff;
+}
+.draft-card.danger { border-left-color: #dc2626; }
+.draft-card.warning { border-left-color: #d97706; }
+.draft-card.info { border-left-color: var(--accent); }
+.draft-title { font-weight: 800; }
+.draft-card p { margin: 0.35rem 0; color: var(--muted); }
+.draft-card small { color: var(--muted); }
+.recovery-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; }
+.recovery-actions button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  padding: 0.55rem 0.8rem;
+}
+@media (max-width: 780px) {
+  .section-heading, .draft-card { grid-template-columns: 1fr; }
+  .recovery-actions { justify-content: flex-start; }
+}
