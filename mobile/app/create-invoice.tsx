@@ -1,7 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import {
-  FlatList,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,7 +15,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '../hooks/use-auth-store';
 import { MerchantService } from '../lib/merchant-service';
-import { CustomerService, Customer } from '../lib/customer-service';
+import { type Customer } from '../lib/customer-service';
+import { CustomerPicker } from '../components/CustomerPicker';
 import { useOfflineMutation } from '../hooks/use-offline-mutation';
 import { useDraftAutosave } from '../hooks/use-draft-autosave';
 import { useConnectivity } from '../hooks/use-connectivity';
@@ -39,14 +39,10 @@ export default function CreateInvoiceScreen() {
   const [memo, setMemo] = useState('');
   const [payoutKey, setPayoutKey] = useState<string | null>(null);
 
-  // Customer search state
-  const [customerQuery, setCustomerQuery] = useState('');
-  const [customerResults, setCustomerResults] = useState<Customer[]>([]);
+  // Customer selection state (managed by CustomerPicker)
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
     null,
   );
-  const [showCustomerResults, setShowCustomerResults] = useState(false);
-  const searchDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   /**
    * Draft autosave hook integration
@@ -173,58 +169,28 @@ export default function CreateInvoiceScreen() {
     updateDraft(updates);
   };
 
-  // Debounced customer search
-  useEffect(() => {
-    if (!accessToken) return;
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!customerQuery.trim()) {
-      setCustomerResults([]);
-      setShowCustomerResults(false);
-      return;
-    }
-    searchDebounceRef.current = setTimeout(() => {
-      void (async () => {
-        try {
-          const results = await CustomerService.search(
-            accessToken,
-            customerQuery.trim(),
-            8,
-          );
-          setCustomerResults(results);
-          setShowCustomerResults(results.length > 0);
-        } catch {
-          setCustomerResults([]);
-        }
-      })();
-    }, 300);
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [customerQuery, accessToken]);
+  // ─── CustomerPicker handlers ───────────────────────────────────────────────
 
-  const selectCustomer = (customer: Customer) => {
-    setSelectedCustomer(customer);
-    setCompany(customer.name);
-    setCustomerQuery(
-      `${customer.name}${customer.email ? ` (${customer.email})` : ''}`,
-    );
-    setShowCustomerResults(false);
-    // Update draft with customer info
-    updateDraft({
-      clientName: customer.name,
-      clientEmail: customer.email || undefined,
-      customer_id: customer.id,
-    });
-  };
+  const handleCustomerSelect = useCallback(
+    (customer: Customer) => {
+      setSelectedCustomer(customer);
+      setCompany(customer.name);
+      const draftUpdate: Record<string, unknown> = {
+        clientName: customer.name,
+        customer_id: customer.id,
+      };
+      if (customer.email) draftUpdate['clientEmail'] = customer.email;
+      updateDraft(draftUpdate);
+    },
+    [updateDraft],
+  );
 
-  const clearSelectedCustomer = () => {
+  const handleCustomerClear = useCallback(() => {
     setSelectedCustomer(null);
-    setCustomerQuery('');
     setCompany('');
-    updateDraft({
-      customer_id: undefined,
-    });
-  };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    updateDraft({ customer_id: undefined } as any);
+  }, [updateDraft]);
 
   // Offline mutation for creating invoices
   const createInvoiceMutation = useOfflineMutation(
@@ -436,86 +402,17 @@ export default function CreateInvoiceScreen() {
           )}
 
           <View className="mt-6 gap-6">
-            {/* Saved Client Search */}
-            <View>
-              <Text
-                className="text-sm text-slate-300"
-                style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
-              >
-                Saved client
-              </Text>
-              <TextInput
-                value={customerQuery}
-                onChangeText={(text: string) => {
-                  setCustomerQuery(text);
-                  if (selectedCustomer) {
-                    setSelectedCustomer(null);
-                  }
-                }}
-                placeholder="Search saved clients..."
-                placeholderTextColor="#475569"
-                className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-white"
-                style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
-                autoComplete="off"
-                editable={!isLoading}
+            {/* Customer picker — search, select, or quick-create */}
+            {accessToken && (
+              <CustomerPicker
+                accessToken={accessToken}
+                selectedCustomer={selectedCustomer}
+                onSelect={handleCustomerSelect}
+                onClear={handleCustomerClear}
+                onCustomerCreated={handleCustomerSelect}
+                disabled={isLoading}
               />
-              {selectedCustomer && (
-                <View className="mt-2 flex-row items-center justify-between rounded-xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-4 py-2">
-                  <View>
-                    <Text
-                      className="text-sm text-[#00D6B9]"
-                      style={{ fontFamily: 'SpaceGrotesk_600SemiBold' }}
-                    >
-                      {selectedCustomer.name}
-                    </Text>
-                    {selectedCustomer.email && (
-                      <Text
-                        className="text-xs text-slate-400"
-                        style={{ fontFamily: 'SpaceGrotesk_400Regular' }}
-                      >
-                        {selectedCustomer.email}
-                      </Text>
-                    )}
-                  </View>
-                  <TouchableOpacity onPress={clearSelectedCustomer}>
-                    <Text className="text-sm text-slate-400">✕</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-              {showCustomerResults && customerResults.length > 0 && (
-                <View className="mt-2 rounded-2xl border border-white/10 bg-[#0d1525]">
-                  <FlatList
-                    data={customerResults}
-                    keyExtractor={(item: Customer) => item.id}
-                    nestedScrollEnabled
-                    style={{ maxHeight: 200 }}
-                    renderItem={({ item }: { item: Customer }) => (
-                      <Pressable
-                        className="border-b border-white/5 px-4 py-3"
-                        onPress={() => {
-                          selectCustomer(item);
-                        }}
-                      >
-                        <Text
-                          className="text-sm text-white"
-                          style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
-                        >
-                          {item.name}
-                        </Text>
-                        {item.email && (
-                          <Text
-                            className="text-xs text-slate-400"
-                            style={{ fontFamily: 'SpaceGrotesk_400Regular' }}
-                          >
-                            {item.email}
-                          </Text>
-                        )}
-                      </Pressable>
-                    )}
-                  />
-                </View>
-              )}
-            </View>
+            )}
 
             <View>
               <Text
