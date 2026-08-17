@@ -4,14 +4,18 @@
   "description": "Soroban invoice-payment contract client helper library for Invoisio",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
     "example:query": "ts-node -r dotenv/config examples/query-payment.ts",
-    "example:config": "ts-node -r dotenv/config examples/query-config.ts"
+    "example:config": "ts-node -r dotenv/config examples/query-config.ts",
+    "generate": "stellar contract bindings typescript --wasm ../target/wasm32-unknown-unknown/release/invoice_payment.wasm --output-dir ./src/generated --overwrite"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.0"
