@@ -60,6 +60,20 @@ export class CustomersController {
   }
 
   /**
+   * Get a customer detail summary with business metrics.
+   *
+   * Returns invoice count, paid volume, outstanding balance, overdue balance,
+   * and recent invoice activity — all scoped to the merchant.
+   */
+  @Auth()
+  @Get(":id/summary")
+  async getSummary(@CurrentUser() user: User, @Param("id") id: string) {
+    return await this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.customersService.getCustomerSummary(user.merchantId, id),
+    );
+  }
+
+  /**
    * Get a single customer by ID
    */
   @Auth()
