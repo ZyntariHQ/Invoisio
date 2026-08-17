@@ -4,11 +4,13 @@ import { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Copy } from "lucide-react";
+import { Copy, Upload } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { WalletAuthControls } from "@/components/wallet-auth-controls";
 import { RequireAuth } from "@/components/require-auth";
 import { DraftList } from "@/components/DraftList";
+import { CSVUploadDialog, type ImportSummary } from "@/components/CSVUploadDialog";
+import { ImportResultsDisplay } from "@/components/ImportResultsDisplay";
 
 interface Invoice {
   id: string;
@@ -152,6 +154,10 @@ function InvoicesContent() {
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const [activeTab, setActiveTab] = useState<"invoices" | "drafts">("invoices");
+
+  // CSV Import state
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [importResults, setImportResults] = useState<ImportSummary | null>(null);
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -486,6 +492,12 @@ function InvoicesContent() {
     }
   };
 
+  const handleImportComplete = (summary: ImportSummary) => {
+    setImportResults(summary);
+    // Refetch invoices to show newly created ones
+    refetch();
+  };
+
   // Bulk selection helpers
   const allVisibleIds = filteredInvoices.map((inv) => inv.id);
   const allVisibleSelected =
@@ -580,6 +592,15 @@ function InvoicesContent() {
               className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
             >
               Refresh
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowUploadDialog(true)}
+              aria-label="Import CSV invoices"
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              <Upload className="h-4 w-4" />
+              Import CSV
             </button>
             <Link
               href="/invoices/new"
@@ -1491,6 +1512,19 @@ function InvoicesContent() {
         )}
       </div>
     </div>
+
+    {/* CSV Upload Dialog */}
+    <CSVUploadDialog
+      isOpen={showUploadDialog}
+      onClose={() => setShowUploadDialog(false)}
+      onImportComplete={handleImportComplete}
+    />
+
+    {/* Import Results Display */}
+    <ImportResultsDisplay
+      summary={importResults}
+      onClose={() => setImportResults(null)}
+    />
   );
 }
 
