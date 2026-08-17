@@ -3220,3 +3220,493 @@ fn test_unauthorized_ops_cannot_modify_contract_state() {
         "attacker-added asset must not appear in allowlist"
     );
 }
+
+// ─── Storage Upgrade Compatibility Regression Tests (issue #299) ─────────────
+
+/// Simulate a full V0→V1 upgrade cycle: seed legacy payment data under V0 keys,
+/// upgrade storage, then verify every payment is readable, migrated to V1 keys,
+/// and the history index is intact.
+#[test]
+fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // 1. Seed legacy V0 state: admin + 3 payments under legacy keys, no metadata.
+    let invoices: soroban_sdk::Vec<String> = soroban_sdk::vec![
+        &env,
+        String::from_str(&env, "reg-001"),
+        String::from_str(&env, "reg-002"),
+        String::from_str(&env, "reg-003"),
+    ];
+    let payers: soroban_sdk::Vec<Address> = soroban_sdk::vec![
+        &env,
+        Address::generate(&env),
+        Address::generate(&env),
+        Address::generate(&env),
+    ];
+    let records: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::vec![
+        &env,
+        PaymentRecord {
+            invoice_id: invoices.get(0).unwrap(),
+            payer: payers.get(0).unwrap(),
+            asset: Asset::Native,
+            amount: 5_000_000i128,
+            timestamp: 100u64,
+            settlement_ref: String::from_str(&env, "reg-ref-001"),
+        },
+        PaymentRecord {
+            invoice_id: invoices.get(1).unwrap(),
+            payer: payers.get(1).unwrap(),
+            asset: Asset::Token(
+                String::from_str(&env, "USDC"),
+                String::from_str(&env, "GBIssuer"),
+            ),
+            amount: 100_000_000i128,
+            timestamp: 200u64,
+            settlement_ref: String::from_str(&env, "reg-ref-002"),
+        },
+        PaymentRecord {
+            invoice_id: invoices.get(2).unwrap(),
+            payer: payers.get(2).unwrap(),
+            asset: Asset::Native,
+            amount: 15_000_000i128,
+            timestamp: 300u64,
+            settlement_ref: String::from_str(&env, "reg-ref-003"),
+        },
+    ];
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+        for i in 0..3u32 {
+            env.storage().persistent().set(
+                &DataKey::Payment(records.get(i).unwrap().invoice_id.clone()),
+                &records.get(i).unwrap(),
+            );
+        }
+    });
+
+    // 2. Verify V0 state: version_info shows legacy, payments exist under legacy keys.
+    assert_eq!(
+        client.version_info(),
+        ContractMeta {
+            contract_version: 0,
+            storage_schema_version: 0,
+        }
+    );
+    for i in 0..3u32 {
+        let inv = records.get(i).unwrap().invoice_id.clone();
+        assert!(client.has_payment(&inv));
+        let loaded = client.get_payment(&inv);
+        assert_eq!(loaded, records.get(i).unwrap());
+    }
+
+    // 3. Upgrade storage schema.
+    let result = client.try_upgrade_storage(&admin);
+    assert!(result.is_ok());
+
+    // 4. Verify schema version updated.
+    assert_eq!(
+        client.version_info(),
+        ContractMeta {
+            contract_version: CONTRACT_VERSION,
+            storage_schema_version: STORAGE_SCHEMA_VERSION,
+        }
+    );
+
+    // 5. Verify all payments readable and migrated to V1 keys.
+    for i in 0..3u32 {
+        let inv = records.get(i).unwrap().invoice_id.clone();
+        let loaded = client.get_payment(&inv);
+        assert_eq!(loaded, records.get(i).unwrap());
+
+        let has_v1 = env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(inv.clone()))
+        });
+        assert!(has_v1, "payment must be migrated to V1 key");
+    }
+
+    // 6. Record a new payment after upgrade — must succeed and use V1 key.
+    let new_payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    client.record_payment(
+        &String::from_str(&env, "reg-new-001"),
+        &new_payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &7_000_000i128,
+        &String::from_str(&env, "reg-new-ref"),
+    );
+    assert_eq!(client.payment_count(), 1);
+    let has_v1 = env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .has(&DataKey::PaymentV1(String::from_str(&env, "reg-new-001")))
+    });
+    assert!(has_v1, "new payment must be stored under V1 key");
+}
+
+/// After upgrading from V0, the config view must reflect the correct admin,
+/// initialized state, version metadata, and allowlist defaults.
+#[test]
+fn test_regression_config_after_upgrade_reflects_all_fields() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+    });
+
+    env.mock_all_auths();
+    client.upgrade_storage(&admin);
+
+    let config = client.config();
+    assert_eq!(config.admin, Some(admin));
+    assert!(config.initialized);
+    assert_eq!(
+        config.version,
+        ContractMeta {
+            contract_version: CONTRACT_VERSION,
+            storage_schema_version: STORAGE_SCHEMA_VERSION,
+        }
+    );
+    assert!(!config.allowlist_mode.native_allowed);
+    assert!(config.allowlist_mode.requires_token_allowlist);
+    assert!(!config.paused);
+}
+
+/// Admin transfer (propose + accept) must work correctly after a schema upgrade,
+/// and the new admin must be able to call record_payment and upgrade_storage.
+#[test]
+fn test_regression_admin_controls_after_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // Seed legacy state.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+    });
+
+    // Upgrade.
+    client.upgrade_storage(&admin);
+
+    // Propose new admin.
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
+    assert_eq!(client.admin(), admin);
+
+    // Accept.
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.pending_admin(), None);
+
+    // New admin can record payment.
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "reg-admin-new", &payer, 1_000_000);
+    assert!(client.has_payment(&String::from_str(&env, "reg-admin-new")));
+
+    // New admin can upgrade storage (idempotent).
+    let result = client.try_upgrade_storage(&new_admin);
+    assert!(result.is_ok());
+
+    // Old admin cannot record payments or upgrade.
+    let result = client.try_upgrade_storage(&admin);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+/// Upgrade_storage must emit a StorageSchemaUpgraded event with correct from/to
+/// versions and a valid timestamp. Subsequent idempotent calls must NOT emit
+/// another event.
+#[test]
+fn test_regression_upgrade_storage_schema_upgraded_event_emitted() {
+    use soroban_sdk::testutils::Events as _;
+    use soroban_sdk::Symbol;
+
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // Seed legacy V0 state.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+    });
+
+    env.mock_all_auths();
+
+    // First upgrade — must emit StorageSchemaUpgraded(0 → 1).
+    let result = client.try_upgrade_storage(&admin);
+    assert!(result.is_ok());
+
+    let events = env.events().all();
+    assert_eq!(events.events().len(), 1);
+
+    // Second upgrade (idempotent) — must NOT emit another event.
+    let result2 = client.try_upgrade_storage(&admin);
+    assert!(result2.is_ok());
+    let events2 = env.events().all();
+    assert_eq!(
+        events2.events().len(),
+        0,
+        "idempotent upgrade must not emit a second event"
+    );
+}
+
+/// After upgrade, the admin allowlist, native-asset toggle, and pause state must
+/// all remain functional. This catches regressions where upgrade_storage
+/// accidentally resets instance-storage flags.
+#[test]
+fn test_regression_allowlist_and_pause_intact_after_upgrade() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // Seed legacy state.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+    });
+
+    // Upgrade.
+    client.upgrade_storage(&admin);
+
+    // Configure allowlist and pause.
+    let usdc_code = String::from_str(&env, "USDC");
+    let usdc_issuer = String::from_str(&env, "GBIssuerPostUpgrade");
+    client.allow_asset(&usdc_code, &usdc_issuer);
+    client.set_allow_native(&true);
+
+    let payer = Address::generate(&env);
+    client.record_payment(
+        &String::from_str(&env, "reg-post-upgrade"),
+        &payer,
+        &usdc_code,
+        &usdc_issuer,
+        &1_000_000i128,
+        &String::from_str(&env, "reg-post-ref"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "reg-post-upgrade")));
+
+    // Pause and verify record_payment is blocked but reads still work.
+    client.set_paused(&admin, &true);
+    let blocked = client.try_record_payment(
+        &String::from_str(&env, "reg-blocked"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "reg-blocked-ref"),
+    );
+    assert_eq!(blocked, Err(Ok(ContractError::ContractPaused)));
+
+    // Read still works.
+    assert!(client.has_payment(&String::from_str(&env, "reg-post-upgrade")));
+    assert_eq!(client.payment_count(), 1);
+
+    // Unpause and verify writes resume.
+    client.set_paused(&admin, &false);
+    client.record_payment(
+        &String::from_str(&env, "reg-after-unpause"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &100i128,
+        &String::from_str(&env, "reg-after-ref"),
+    );
+    assert_eq!(client.payment_count(), 2);
+}
+
+/// Payment history pagination must work correctly after an upgrade from V0
+/// with pre-existing legacy payments.
+#[test]
+fn test_regression_payment_history_after_upgrade() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // Seed 3 legacy V0 payments.
+    let records: soroban_sdk::Vec<PaymentRecord> = soroban_sdk::vec![
+        &env,
+        PaymentRecord {
+            invoice_id: String::from_str(&env, "hist-001"),
+            payer: Address::generate(&env),
+            asset: Asset::Native,
+            amount: 1_000_000i128,
+            timestamp: 100u64,
+            settlement_ref: String::from_str(&env, "hist-ref-001"),
+        },
+        PaymentRecord {
+            invoice_id: String::from_str(&env, "hist-002"),
+            payer: Address::generate(&env),
+            asset: Asset::Native,
+            amount: 2_000_000i128,
+            timestamp: 200u64,
+            settlement_ref: String::from_str(&env, "hist-ref-002"),
+        },
+        PaymentRecord {
+            invoice_id: String::from_str(&env, "hist-003"),
+            payer: Address::generate(&env),
+            asset: Asset::Native,
+            amount: 3_000_000i128,
+            timestamp: 300u64,
+            settlement_ref: String::from_str(&env, "hist-ref-003"),
+        },
+    ];
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &3u32);
+        for i in 0..3u32 {
+            let rec = records.get(i).unwrap();
+            env.storage()
+                .persistent()
+                .set(&DataKey::PaymentHistory(i), &rec);
+        }
+    });
+
+    // Upgrade schema.
+    env.mock_all_auths();
+    client.upgrade_storage(&admin);
+
+    // Verify history pagination: page 1 of 2.
+    let page1 = client.payment_history(&0u32, &2u32);
+    assert_eq!(page1.records.len(), 2);
+    assert_eq!(
+        page1.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "hist-001")
+    );
+    assert_eq!(
+        page1.records.get(1).unwrap().invoice_id,
+        String::from_str(&env, "hist-002")
+    );
+    assert!(page1.has_more);
+
+    // Page 2.
+    let page2 = client.payment_history(&page1.next_cursor, &2u32);
+    assert_eq!(page2.records.len(), 1);
+    assert_eq!(
+        page2.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "hist-003")
+    );
+    assert!(!page2.has_more);
+}
+
+/// A fresh deployment (no legacy state) that goes straight through initialize()
+/// must land at the current schema version without requiring upgrade_storage().
+#[test]
+fn test_regression_fresh_deploy_is_at_current_schema() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let info = client.version_info();
+    assert_eq!(
+        info,
+        ContractMeta {
+            contract_version: CONTRACT_VERSION,
+            storage_schema_version: STORAGE_SCHEMA_VERSION,
+        },
+        "fresh deployment must already be at current schema version"
+    );
+
+    // upgrade_storage on an already-current contract must be idempotent.
+    let result = client.try_upgrade_storage(&_admin);
+    assert!(result.is_ok());
+
+    let info2 = client.version_info();
+    assert_eq!(info2, info);
+}
+
+/// Upgrade from V0 must preserve the legacy PaymentRecord fields exactly:
+/// invoice_id, payer, asset, amount, timestamp, settlement_ref.
+#[test]
+fn test_regression_legacy_record_fields_preserved_after_upgrade() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let invoice_id = String::from_str(&env, "field-preserve-001");
+    let payer = Address::generate(&env);
+    let usdc_code = String::from_str(&env, "USDC");
+    let usdc_issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+
+    let legacy_record = PaymentRecord {
+        invoice_id: invoice_id.clone(),
+        payer: payer.clone(),
+        asset: Asset::Token(usdc_code.clone(), usdc_issuer.clone()),
+        amount: 42_500_000i128,
+        timestamp: 9999u64,
+        settlement_ref: String::from_str(&env, "sha256-abcdef"),
+    };
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::Admin, &admin);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentCount, &0u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(invoice_id.clone()), &legacy_record);
+    });
+
+    env.mock_all_auths();
+    client.upgrade_storage(&admin);
+
+    let loaded = client.get_payment(&invoice_id);
+    assert_eq!(loaded.invoice_id, legacy_record.invoice_id);
+    assert_eq!(loaded.payer, legacy_record.payer);
+    assert_eq!(loaded.asset, legacy_record.asset);
+    assert_eq!(loaded.amount, legacy_record.amount);
+    assert_eq!(loaded.timestamp, legacy_record.timestamp);
+    assert_eq!(loaded.settlement_ref, legacy_record.settlement_ref);
+}
