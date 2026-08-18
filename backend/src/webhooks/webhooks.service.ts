@@ -268,6 +268,124 @@ export class WebhooksService {
     }
   }
 
+  /**
+   * Fire a synthetic test payload to the merchant's currently configured
+   * webhook URL.  The delivery is NOT persisted – it is a best-effort
+   * connectivity probe only.
+   */
+  async sendTestWebhook(
+    userId: string,
+    merchantId: string,
+  ): Promise<{ success: boolean; httpStatus: number | null; error: string | null }> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, merchantId },
+      select: { webhookUrl: true, webhookSecret: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    if (!user.webhookUrl) {
+      throw new BadRequestException('No webhook URL configured. Add one in Notifications settings first.');
+    }
+
+    const payload = {
+      event: 'test',
+      invoiceId: 'test-invoice-id',
+      status: 'test',
+      txHash: null,
+      timestamp: new Date().toISOString(),
+    };
+
+    const payloadStr = JSON.stringify(payload);
+    let signature = '';
+    if (user.webhookSecret) {
+      signature = crypto
+        .createHmac('sha256', user.webhookSecret)
+        .update(payloadStr)
+        .digest('hex');
+    }
+
+    try {
+      const response = await axios.post(user.webhookUrl, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'x-invoisio-signature': signature,
+          'x-invoisio-event': 'test',
+        },
+        timeout: 8000,
+      });
+
+      return { success: true, httpStatus: response.status, error: null };
+    } catch (error: any) {
+      const httpStatus: number | null = error?.response?.status ?? null;
+      const failure = this.toFailureDetails(error);
+      return { success: false, httpStatus, error: failure.message };
+    }
+  }
+
+  /**
+   * Return recent webhook deliveries for the authenticated merchant's user,
+   * ordered newest-first.
+   */
+  async getRecentDeliveries(
+    userId: string,
+    merchantId: string,
+    limit = 20,
+  ) {
+    // Validate user belongs to merchant
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, merchantId },
+      select: { id: true },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found.');
+    }
+
+    const take = Math.min(Math.max(limit, 1), 100);
+
+    const deliveries = await this.prisma.webhookDelivery.findMany({
+      where: { userId },
+      take,
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        url: true,
+        status: true,
+        attempts: true,
+        lastAttemptAt: true,
+        nextAttemptAt: true,
+        createdAt: true,
+        invoice: {
+          select: { id: true, invoiceNumber: true },
+        },
+      },
+    });
+
+    const deadLetters = await this.prisma.webhookDeadLetter.findMany({
+      where: { userId },
+      take,
+      orderBy: { exhaustedAt: 'desc' },
+      select: {
+        id: true,
+        url: true,
+        status: true,
+        failedAttempts: true,
+        lastError: true,
+        lastHttpStatus: true,
+        exhaustedAt: true,
+        createdAt: true,
+        invoice: {
+          select: { id: true, invoiceNumber: true },
+        },
+      },
+    });
+
+    return { deliveries, deadLetters };
+  }
+
   async listDeadLetters(query: DeadLetterListQuery = {}) {
     const take = this.normalizeDeadLetterLimit(query.limit);
 

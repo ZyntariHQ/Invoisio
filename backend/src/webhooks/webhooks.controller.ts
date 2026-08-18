@@ -4,6 +4,7 @@ import {
   HttpCode,
   HttpStatus,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
@@ -53,6 +54,42 @@ export class WebhooksController {
   ): Promise<WebhookSecretRotationResult> {
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.webhooksService.rotateWebhookSecret(user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Fire a synthetic test payload to the merchant's configured webhook URL.
+   * Not persisted – connectivity probe only. Restricted to OWNERs and ADMINs.
+   */
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  @UseGuards(MerchantRolesGuard)
+  @Post("test-send")
+  @HttpCode(HttpStatus.OK)
+  async testSend(
+    @CurrentUser() user: User,
+  ): Promise<{ success: boolean; httpStatus: number | null; error: string | null }> {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.webhooksService.sendTestWebhook(user.id, user.merchantId),
+    );
+  }
+
+  /**
+   * Return recent delivery history and dead-letters for the current merchant.
+   * Accepts optional `limit` query param (1-100, default 20).
+   */
+  @Auth()
+  @Get("deliveries")
+  async getDeliveries(
+    @CurrentUser() user: User,
+    @Query("limit") limit?: string,
+  ) {
+    const parsedLimit = limit ? parseInt(limit, 10) : 20;
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.webhooksService.getRecentDeliveries(
+        user.id,
+        user.merchantId,
+        isNaN(parsedLimit) ? 20 : parsedLimit,
+      ),
     );
   }
 }

@@ -8,6 +8,9 @@ import {
   type MerchantProfile,
 } from '@/lib/merchant-service';
 import { UserService } from '@/lib/user-service';
+import { WebhookSecretCard } from '@/components/WebhookSecretCard';
+import { WebhookDeliveryHealth } from '@/components/WebhookDeliveryHealth';
+import { WebhookTestSend } from '@/components/WebhookTestSend';
 
 const STELLAR_KEY_RE = /^G[A-Z2-7]{55}$/;
 const ASSETS = ['USDC', 'EURC', 'XLM', 'USD'] as const;
@@ -18,6 +21,7 @@ const TABS = [
   { id: 'payout', label: 'Payout wallet' },
   { id: 'asset', label: 'Preferred asset' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'webhooks', label: 'Webhooks' },
 ] as const;
 type TabId = (typeof TABS)[number]['id'];
 
@@ -390,6 +394,21 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
   );
 }
 
+function WebhooksSection() {
+  return (
+    <SectionCard
+      title="Webhooks"
+      subtitle="Manage your webhook signing secret, view delivery health, and send a test event to verify your endpoint."
+    >
+      <div className="space-y-6">
+        <WebhookSecretCard />
+        <WebhookTestSend />
+        <WebhookDeliveryHealth />
+      </div>
+    </SectionCard>
+  );
+}
+
 function SettingsContent() {
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
@@ -488,6 +507,9 @@ function SettingsContent() {
         )}
         {activeTab === 'notifications' && (
           <NotificationsSection profile={profile} onSaved={setProfile} />
+        )}
+        {activeTab === 'webhooks' && (
+          <WebhooksSection />
         )}
       </div>
     </div>
