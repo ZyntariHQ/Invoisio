@@ -44,6 +44,10 @@ export class MerchantService {
   /**
    * Update merchant settings (name, payout public key, preferred asset, webhook URL).
    * Validates the payout public key format before persisting.
+   *
+   * When a name or preferredAsset is explicitly saved, the corresponding
+   * "configuredAt" timestamp is stamped so the checklist can distinguish
+   * intentional configuration from auto-generated defaults.
    */
   async updateSettings(merchantId: string, dto: UpdateMerchantSettingsDto) {
     // Verify the merchant exists
@@ -67,15 +71,24 @@ export class MerchantService {
       }
     }
 
+    const now = new Date();
+
     const updated = await this.prisma.merchant.update({
       where: { id: merchantId },
       data: {
-        ...(dto.name !== undefined && { name: dto.name }),
+        ...(dto.name !== undefined && {
+          name: dto.name,
+          // Stamp the configuration timestamp so checklist knows this was
+          // an intentional update, not an auto-generated placeholder.
+          nameConfiguredAt: now,
+        }),
         ...(dto.payoutPublicKey !== undefined && {
           payoutWallet: dto.payoutPublicKey,
         }),
         ...(dto.preferredAsset !== undefined && {
           preferredAsset: dto.preferredAsset,
+          // Same intent tracking for the asset choice.
+          assetConfiguredAt: now,
         }),
         ...(dto.webhookUrl !== undefined && { webhookUrl: dto.webhookUrl }),
       },
@@ -163,12 +176,20 @@ export class MerchantService {
   }
 
   /**
-   * Auto-update checklist based on merchant state
+   * Auto-update checklist based on merchant state.
+   *
+   * Completion rules (intentional-configuration-only):
+   *  - profileCompleted:          nameConfiguredAt is NOT NULL
+   *                               (name was explicitly saved, not the auto-generated placeholder)
+   *  - assetPreferenceCompleted:  assetConfiguredAt is NOT NULL
+   *                               (asset was explicitly chosen, not left at the schema default "XLM")
+   *  - payoutKeyCompleted:        payoutWallet is NOT NULL
+   *  - firstInvoiceCompleted:     at least one invoice exists
    */
   async syncChecklist(merchantId: string) {
     const merchant = await this.prisma.merchant.findUnique({
       where: { id: merchantId },
-      include: { invoices: true },
+      include: { invoices: { take: 1 } },
     });
 
     if (!merchant) {
@@ -177,29 +198,36 @@ export class MerchantService {
 
     const checklist = await this.getChecklist(merchantId);
 
-    const updates: any = {};
+    const updates: Partial<{
+      profileCompleted: boolean;
+      payoutKeyCompleted: boolean;
+      assetPreferenceCompleted: boolean;
+      firstInvoiceCompleted: boolean;
+    }> = {};
 
-    // Profile is complete if name is set (beyond default)
-    if (merchant.name && merchant.name.length > 0) {
+    // Profile step: only complete when the merchant has explicitly saved a name.
+    // The auto-generated placeholder ("Merchant GXXXXX") does NOT count.
+    if (merchant.nameConfiguredAt !== null) {
       updates.profileCompleted = true;
     }
 
-    // Payout key is complete if set
-    if (merchant.payoutWallet) {
+    // Payout key step: non-null means it was intentionally set (null by default).
+    if (merchant.payoutWallet !== null) {
       updates.payoutKeyCompleted = true;
     }
 
-    // Asset preference is complete if set (has default but check if explicitly set)
-    if (merchant.preferredAsset) {
+    // Asset preference step: only complete when the merchant has explicitly
+    // chosen an asset. The schema default ("XLM") does NOT count.
+    if (merchant.assetConfiguredAt !== null) {
       updates.assetPreferenceCompleted = true;
     }
 
-    // First invoice is complete if at least one invoice exists
+    // First invoice step: at least one invoice must exist.
     if (merchant.invoices.length > 0) {
       updates.firstInvoiceCompleted = true;
     }
 
-    // Only update if there are changes
+    // Only write to the DB when there are actual changes.
     if (Object.keys(updates).length > 0) {
       return this.updateChecklist(merchantId, updates);
     }
