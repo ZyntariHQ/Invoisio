@@ -473,9 +473,11 @@ describe("BackfillService", () => {
           {
             provide: PrismaService,
             useValue: {
-              $transaction: jest.fn().mockImplementation(async (ops: any[]) =>
-                Promise.all(ops.map((op: any) => Promise.resolve(op))),
-              ),
+              $transaction: jest
+                .fn()
+                .mockImplementation(async (ops: any[]) =>
+                  Promise.all(ops.map((op: any) => Promise.resolve(op))),
+                ),
               backfillRun: {
                 create: jest.fn(),
                 update: jest.fn(),
@@ -514,7 +516,10 @@ describe("BackfillService", () => {
         module.get<BackfillService>(BackfillService);
 
       await expect(
-        serviceWithEmptyContract.reconcile({ startLedger: 1000, endLedger: 2000 }),
+        serviceWithEmptyContract.reconcile({
+          startLedger: 1000,
+          endLedger: 2000,
+        }),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -533,9 +538,7 @@ describe("BackfillService", () => {
         ledger: BigInt(999),
       });
 
-      prismaService.backfillRun.findFirst = jest
-        .fn()
-        .mockResolvedValue(null);
+      prismaService.backfillRun.findFirst = jest.fn().mockResolvedValue(null);
 
       prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
 
@@ -600,9 +603,7 @@ describe("BackfillService", () => {
       const mockRun = makeDefaultRun();
       prismaService.backfillRun.create = jest.fn().mockResolvedValue(mockRun);
       prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
-      prismaService.backfillRun.findFirst = jest
-        .fn()
-        .mockResolvedValue(null);
+      prismaService.backfillRun.findFirst = jest.fn().mockResolvedValue(null);
       prismaService.backfillRun.findUnique = jest
         .fn()
         .mockResolvedValue({ status: BackfillRunStatus.running });
@@ -629,7 +630,8 @@ describe("BackfillService", () => {
       expect(prismaService.$transaction).toHaveBeenCalled();
       expect(prismaService.backfillCheckpoint.create).toHaveBeenCalled();
 
-      const updateMock = prismaService.backfillRun.update as unknown as jest.Mock;
+      const updateMock = prismaService.backfillRun
+        .update as unknown as jest.Mock;
       const finalUpdate =
         updateMock.mock.calls[updateMock.mock.calls.length - 1][0];
       expect(finalUpdate.where.id).toBe(1);
@@ -639,23 +641,23 @@ describe("BackfillService", () => {
 
     it("should mark status=cancelled if cancellation detected mid-run", async () => {
       let callCount = 0;
-      prismaService.backfillRun.findUnique = jest.fn().mockImplementation(() => {
-        callCount++;
-        return Promise.resolve({
-          status:
-            callCount >= 2
-              ? BackfillRunStatus.cancelled
-              : BackfillRunStatus.running,
-        });
-      });
-
-      prismaService.backfillRun.create = jest.fn().mockResolvedValue(
-        makeDefaultRun(),
-      );
-      prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
-      prismaService.backfillRun.findFirst = jest
+      prismaService.backfillRun.findUnique = jest
         .fn()
-        .mockResolvedValue(null);
+        .mockImplementation(() => {
+          callCount++;
+          return Promise.resolve({
+            status:
+              callCount >= 2
+                ? BackfillRunStatus.cancelled
+                : BackfillRunStatus.running,
+          });
+        });
+
+      prismaService.backfillRun.create = jest
+        .fn()
+        .mockResolvedValue(makeDefaultRun());
+      prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
+      prismaService.backfillRun.findFirst = jest.fn().mockResolvedValue(null);
 
       jest
         .spyOn(service as any, "fetchEvents")
@@ -670,7 +672,8 @@ describe("BackfillService", () => {
       });
 
       expect(result.runId).toBe(1);
-      const updateMock2 = prismaService.backfillRun.update as unknown as jest.Mock;
+      const updateMock2 = prismaService.backfillRun
+        .update as unknown as jest.Mock;
       const finalUpdate2 =
         updateMock2.mock.calls[updateMock2.mock.calls.length - 1][0];
       expect(finalUpdate2.data.status).toBe(BackfillRunStatus.cancelled);
@@ -683,9 +686,7 @@ describe("BackfillService", () => {
 
       prismaService.backfillRun.create = jest.fn().mockResolvedValue(mockRun);
       prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
-      prismaService.backfillRun.findFirst = jest
-        .fn()
-        .mockResolvedValue(null);
+      prismaService.backfillRun.findFirst = jest.fn().mockResolvedValue(null);
       prismaService.backfillRun.findUnique = jest
         .fn()
         .mockResolvedValue({ status: BackfillRunStatus.running });
@@ -702,7 +703,8 @@ describe("BackfillService", () => {
         }),
       ).rejects.toThrow("RPC connection failed");
 
-      const updateMock3 = prismaService.backfillRun.update as unknown as jest.Mock;
+      const updateMock3 = prismaService.backfillRun
+        .update as unknown as jest.Mock;
       const updateCall = updateMock3.mock.calls.find(
         (c: any) => c[0].data.status === BackfillRunStatus.failed,
       );
@@ -767,13 +769,11 @@ describe("BackfillService", () => {
     });
 
     it("should throw BadRequestException if run missing", async () => {
-      prismaService.backfillRun.findUnique = jest
-        .fn()
-        .mockResolvedValue(null);
+      prismaService.backfillRun.findUnique = jest.fn().mockResolvedValue(null);
 
-      await expect(
-        service.cancelRun({ runId: 999 }),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.cancelRun({ runId: 999 })).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 
@@ -828,9 +828,7 @@ describe("BackfillService", () => {
     });
 
     it("throws BadRequestException for missing run", async () => {
-      prismaService.backfillRun.findUnique = jest
-        .fn()
-        .mockResolvedValue(null);
+      prismaService.backfillRun.findUnique = jest.fn().mockResolvedValue(null);
       await expect(service.getLatestCheckpoint(404)).rejects.toThrow(
         BadRequestException,
       );
@@ -859,13 +857,13 @@ describe("BackfillService", () => {
           }
           return Promise.resolve({ status: BackfillRunStatus.running });
         });
-      prismaService.backfillRun.create = jest.fn().mockResolvedValue(
-        makeDefaultRun({ id: 4, startLedger: BigInt(1401) }),
-      );
-      prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
-      prismaService.backfillRun.findFirst = jest
+      prismaService.backfillRun.create = jest
         .fn()
-        .mockResolvedValue(null);
+        .mockResolvedValue(
+          makeDefaultRun({ id: 4, startLedger: BigInt(1401) }),
+        );
+      prismaService.backfillRun.update = jest.fn().mockResolvedValue({});
+      prismaService.backfillRun.findFirst = jest.fn().mockResolvedValue(null);
 
       jest
         .spyOn(service as any, "fetchEvents")
@@ -900,9 +898,9 @@ describe("BackfillService", () => {
           return Promise.resolve({ status: BackfillRunStatus.running });
         });
 
-      await expect(
-        service.reconcile({ resumeFromRunId: 3 }),
-      ).rejects.toThrow(ConflictException);
+      await expect(service.reconcile({ resumeFromRunId: 3 })).rejects.toThrow(
+        ConflictException,
+      );
     });
 
     it("blocks resume of already-completed run", async () => {
@@ -922,9 +920,9 @@ describe("BackfillService", () => {
           return Promise.resolve({ status: BackfillRunStatus.running });
         });
 
-      await expect(
-        service.reconcile({ resumeFromRunId: 3 }),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.reconcile({ resumeFromRunId: 3 })).rejects.toThrow(
+        BadRequestException,
+      );
     });
   });
 });

@@ -404,6 +404,8 @@ describe("WebhooksService", () => {
     });
 
     it("returns success=false with a network-level failure reason on timeout", async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(baseUser as any);
+
       const timeoutError = Object.assign(
         new Error("timeout of 10000ms exceeded"),
         {

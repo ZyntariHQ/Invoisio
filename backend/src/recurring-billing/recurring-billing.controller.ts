@@ -10,7 +10,9 @@ import { CreateScheduleDto } from "./dto/create-schedule.dto";
  */
 @Controller("recurring-schedules")
 export class RecurringBillingController {
-  constructor(private readonly recurringBillingService: RecurringBillingService) {}
+  constructor(
+    private readonly recurringBillingService: RecurringBillingService,
+  ) {}
 
   @Auth()
   @Post()

@@ -1,9 +1,4 @@
-import {
-  IsNotEmpty,
-  IsString,
-  Matches,
-  MaxLength,
-} from "class-validator";
+import { IsNotEmpty, IsString, Matches, MaxLength } from "class-validator";
 
 export class RecordPaymentDto {
   /** Unique invoice identifier, e.g. "invoisio-abc123" */

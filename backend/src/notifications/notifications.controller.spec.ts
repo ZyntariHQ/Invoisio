@@ -32,9 +32,7 @@ describe("NotificationsController", () => {
     }).compile();
 
     controller = module.get<NotificationsController>(NotificationsController);
-    service = module.get(
-      NotificationsService,
-    ) as jest.Mocked<NotificationsService>;
+    service = module.get(NotificationsService);
   });
 
   it("is defined", () => {

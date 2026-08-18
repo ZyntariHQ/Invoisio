@@ -13,7 +13,8 @@ export const ALLOWED_ENGAGEMENT_TARGETS = [
   "payment_uri",
 ] as const;
 
-export type InvoiceEngagementTarget = (typeof ALLOWED_ENGAGEMENT_TARGETS)[number];
+export type InvoiceEngagementTarget =
+  (typeof ALLOWED_ENGAGEMENT_TARGETS)[number];
 
 export class CreateInvoiceEngagementEventDto {
   @IsEnum(InvoiceEngagementEventType)

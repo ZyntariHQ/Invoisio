@@ -16,15 +16,21 @@ describe("InvoiceEngagementService", () => {
   ];
 
   const mockPrisma = () => {
-    createMock = jest.fn().mockImplementation(({ data }: any) =>
-      Promise.resolve({ id: "event-1", createdAt: new Date(), ...data }),
-    );
+    createMock = jest
+      .fn()
+      .mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: "event-1", createdAt: new Date(), ...data }),
+      );
 
     return {
       invoice: {
-        findUnique: jest.fn().mockImplementation(({ where }: any) =>
-          Promise.resolve(invoices.find((inv) => inv.id === where.id) ?? null),
-        ),
+        findUnique: jest
+          .fn()
+          .mockImplementation(({ where }: any) =>
+            Promise.resolve(
+              invoices.find((inv) => inv.id === where.id) ?? null,
+            ),
+          ),
       },
       invoiceEngagementEvent: {
         create: createMock,

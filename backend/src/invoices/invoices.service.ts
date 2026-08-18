@@ -74,7 +74,10 @@ export class InvoicesService implements OnModuleInit {
   async onModuleInit() {
     // Automatic seeding on startup is disabled to prevent polluting fresh production or staging environments.
     // Explicit manual seeding is available via `npm run db:seed` or by enabling SEED_SAMPLE_DATA=true in development.
-    if (process.env.NODE_ENV === "development" && process.env.SEED_SAMPLE_DATA === "true") {
+    if (
+      process.env.NODE_ENV === "development" &&
+      process.env.SEED_SAMPLE_DATA === "true"
+    ) {
       await this.seedSampleInvoices();
     }
   }
