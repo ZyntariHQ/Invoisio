@@ -118,3 +118,47 @@ describe('parseContractError', () => {
     expect(err.numericCode).toBe(4);
   });
 });
+
+describe('representative contract failure scenarios', () => {
+  it('maps a paused-write rejection to ContractPaused', () => {
+    const err = parseContractError(
+      'simulation failed: HostError: Error(Contract, #12)',
+    );
+    expect(err.code).toBe('ContractPaused');
+    expect(err.numericCode).toBe(12);
+    expect(getContractError(12)?.name).toBe('ContractPaused');
+    expect(getContractError(12)?.meaning).toContain('paused');
+  });
+
+  it('maps an upgrade_storage() mismatch to the matching storage-schema code', () => {
+    const tooNew = parseContractError(
+      'simulation failed: upgrade_storage: Error(Contract, #10)',
+    );
+    expect(tooNew.code).toBe('StorageSchemaTooNew');
+    expect(tooNew.numericCode).toBe(10);
+    expect(getContractError(10)?.meaning).toContain('storage_schema_version');
+
+    const tooOld = parseContractError(
+      'simulation failed: upgrade_storage: Error(Contract, #11)',
+    );
+    expect(tooOld.code).toBe('StorageSchemaTooOld');
+    expect(tooOld.numericCode).toBe(11);
+  });
+
+  it('maps an invalid settlement reference on record_payment() to InvalidSettlementRef', () => {
+    const err = parseContractError(
+      'simulation failed: record_payment: Error(Contract, #13)',
+    );
+    expect(err.code).toBe('InvalidSettlementRef');
+    expect(err.numericCode).toBe(13);
+    expect(getContractError(13)?.name).toBe('InvalidSettlementRef');
+  });
+
+  it('falls back cleanly, without throwing, for a code the manifest does not know yet', () => {
+    expect(() => parseContractError('Error(Contract, #99)')).not.toThrow();
+    const err = parseContractError('Error(Contract, #99)');
+    expect(err.code).toBe('Unknown');
+    expect(err.numericCode).toBe(99);
+    expect(getContractError(99)).toBeUndefined();
+  });
+});
