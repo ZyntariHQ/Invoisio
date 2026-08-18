@@ -2,7 +2,6 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
-  UnauthorizedException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
@@ -304,9 +303,9 @@ export class DraftService {
         status: "pending",
         isDraft: false,
         invoiceNumber: invoiceNumber,
-        // Ensure all required fields are set
-        clientName: draft.clientName || "Client",
-        clientEmail: draft.clientEmail || "client@example.com",
+        // Validation guarantees these are real values, not placeholders
+        clientName: draft.clientName,
+        clientEmail: draft.clientEmail,
         amountDue: draft.amount,
         // If draft had due date, keep it, otherwise set default 30 days
         dueDate:
@@ -494,20 +493,39 @@ export class DraftService {
   }
 
   /**
-   * Validate if a draft has all required fields to become an invoice
+   * Validate if a draft has all required fields to become an invoice.
+   * Rejects empty, missing, and placeholder client identity values so
+   * that production invoices always carry real client data.
    */
   private validateDraftForConversion(draft: any): string[] {
     const errors: string[] = [];
 
-    if (!draft.clientName || draft.clientName.trim().length === 0) {
+    // --- clientName ---
+    const name = (draft.clientName ?? "").trim();
+    if (!name) {
       errors.push("Client name is required");
+    } else if (this.isPlaceholderName(name)) {
+      errors.push(
+        `Client name "${name}" appears to be a placeholder. Please enter the real client or company name`,
+      );
     }
-    if (!draft.clientEmail || draft.clientEmail.trim().length === 0) {
+
+    // --- clientEmail ---
+    const email = (draft.clientEmail ?? "").trim();
+    if (!email) {
       errors.push("Client email is required");
+    } else if (this.isPlaceholderEmail(email)) {
+      errors.push(
+        `Client email "${email}" appears to be a placeholder. Please enter a real email address`,
+      );
     }
+
+    // --- amount ---
     if (!draft.amount || draft.amount <= 0) {
       errors.push("Amount must be greater than 0");
     }
+
+    // --- asset code ---
     if (!draft.assetCode) {
       errors.push("Asset code is required");
     }
@@ -516,6 +534,80 @@ export class DraftService {
     }
 
     return errors;
+  }
+
+  /**
+   * Patterns that indicate a client name is still a placeholder.
+   * Matched case-insensitively against the trimmed value.
+   */
+  private static readonly PLACEHOLDER_NAME_PATTERNS: RegExp[] = [
+    /^client$/i,
+    /^customer$/i,
+    /^untitled\s*client$/i,
+    /^vendor\s*(or|&)\s*client$/i,
+    /^vendor$/i,
+    /^counterparty$/i,
+    /^test(\s*client)?$/i,
+    /^placeholder$/i,
+    /^n\/?a$/i,
+    /^none$/i,
+    /^xxx+$/i,
+    /^todo$/i,
+    /^tbd$/i,
+    /^lambda\s*cargo$/i,
+    /^your\s*client$/i,
+    /^company\s*name$/i,
+    /^client\s*name$/i,
+    /^enter\s*name$/i,
+    /^name$/i,
+  ];
+
+  /**
+   * Email patterns that are clearly not real client addresses.
+   */
+  private static readonly PLACEHOLDER_EMAIL_PATTERNS: RegExp[] = [
+    /^test@/i,
+    /@example\.com$/i,
+    /@placeholder/i,
+    /@test\.com$/i,
+    /@todo\.com$/i,
+    /@yourcompany\.com$/i,
+    /@noreply/i,
+    /@noemail/i,
+    /@none\.com$/i,
+    /^n\/?a$/i,
+    /^none$/i,
+    /^placeholder$/i,
+    /^email$/i,
+    /^enter\s*email$/i,
+    /^client\s*email$/i,
+    /^client@example\.com$/i,
+  ];
+
+  /**
+   * Check whether a client name looks like a placeholder value.
+   */
+  private isPlaceholderName(name: string): boolean {
+    const trimmed = name.trim();
+    if (!trimmed) return true;
+    for (const pattern of DraftService.PLACEHOLDER_NAME_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    if (trimmed.length <= 1) return true;
+    return false;
+  }
+
+  /**
+   * Check whether an email looks like a placeholder value.
+   */
+  private isPlaceholderEmail(email: string): boolean {
+    const trimmed = email.trim();
+    if (!trimmed) return true;
+    if (!trimmed.includes("@")) return true;
+    for (const pattern of DraftService.PLACEHOLDER_EMAIL_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    return false;
   }
 
   /**
