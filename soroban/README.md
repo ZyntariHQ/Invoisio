@@ -807,6 +807,22 @@ const newAdminClient = new SorobanInvoiceClient({ /* ... signerSecretKey: NEW_AD
 await newAdminClient.acceptAdmin();
 console.log('New admin:', (await newAdminClient.getConfig()).admin);
 
+// ── Allowlist management (admin-gated) ───────────────────────────────────────
+// Only allowlisted (code, issuer) pairs are accepted by recordPayment().
+await client.allowAsset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+await client.revokeAsset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+await client.setAllowNative(false); // reject plain XLM payments
+
+// A non-admin signer, or an empty code/issuer, is rejected with a typed error:
+try {
+  await client.allowAsset('', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+} catch (err) {
+  if (err instanceof SorobanContractError) {
+    // err.code: 'InvalidAsset' | 'Unauthorized' | 'NotInitialized' | 'Unknown'
+    console.error(`allow_asset rejected [${err.code}] (${err.numericCode})`);
+  }
+}
+
 // ── Read (permissionless) ────────────────────────────────────────────────────
 const config = await client.getConfig();
 console.log(config.initialized, config.admin, config.allowlistMode.nativeAllowed);
