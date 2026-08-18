@@ -260,8 +260,6 @@ describe("WebhooksController (role enforcement)", () => {
   });
 
   it("POST /webhooks/test should reject unauthenticated requests", async () => {
-    await request(app.getHttpServer())
-      .post("/webhooks/test")
-      .expect(401);
+    await request(app.getHttpServer()).post("/webhooks/test").expect(401);
   });
 });

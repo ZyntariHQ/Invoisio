@@ -196,7 +196,8 @@ export class BackfillService {
         }
 
         const batchEnd = Math.min(
-          currentLedger + batchSize - 1, actualEndLedger,
+          currentLedger + batchSize - 1,
+          actualEndLedger,
         );
 
         this.logger.debug(
@@ -339,10 +340,10 @@ export class BackfillService {
     contractId: string,
     runId: number,
   ): Promise<{
-      parentRunId: number;
-      resumeStartLedger: number;
-      resumeCursor: string | undefined;
-    }> {
+    parentRunId: number;
+    resumeStartLedger: number;
+    resumeCursor: string | undefined;
+  }> {
     const parentRun = await this.prisma.backfillRun.findUnique({
       where: { id: runId },
       include: {

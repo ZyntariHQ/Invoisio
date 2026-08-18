@@ -120,7 +120,7 @@ describe("RecurringBillingService lifecycle", () => {
       expect.objectContaining({
         where: { id: "sched-1" },
         data: expect.objectContaining({
-          nextRunDate: new Date("2026-08-31T00:00:00Z"),
+          nextRunDate: new Date("2026-09-01T00:00:00Z"),
         }),
       }),
     );
@@ -140,5 +140,51 @@ describe("RecurringBillingService lifecycle", () => {
     ).resolves.toBeUndefined();
 
     expect(mockTx.invoice.create).not.toHaveBeenCalled();
+  });
+
+  describe("calendar-aware month progression", () => {
+    it("handles standard months", () => {
+      const fromDate = new Date("2026-08-15T12:00:00Z");
+      const nextDate = (service as any).computeNextRunDate(
+        fromDate,
+        RecurringFrequency.MONTHLY,
+      );
+      expect(nextDate.toISOString()).toBe("2026-09-15T12:00:00.000Z");
+    });
+
+    it("handles short month boundaries (Jan 31 to Feb 28)", () => {
+      const fromDate = new Date("2026-01-31T00:00:00Z");
+      const nextDate = (service as any).computeNextRunDate(
+        fromDate,
+        RecurringFrequency.MONTHLY,
+      );
+      // 2026 is not a leap year, so Feb has 28 days
+      expect(nextDate.toISOString()).toBe("2026-02-28T00:00:00.000Z");
+    });
+
+    it("handles leap years (Jan 31 to Feb 29)", () => {
+      const fromDate = new Date("2028-01-31T00:00:00Z"); // 2028 is a leap year
+      const nextDate = (service as any).computeNextRunDate(
+        fromDate,
+        RecurringFrequency.MONTHLY,
+      );
+      expect(nextDate.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+    });
+
+    it("handles year transition (Dec 15 to Jan 15)", () => {
+      const fromDate = new Date("2026-12-15T00:00:00Z");
+      const nextDate = (service as any).computeNextRunDate(
+        fromDate,
+        RecurringFrequency.MONTHLY,
+      );
+      expect(nextDate.toISOString()).toBe("2027-01-15T00:00:00.000Z");
+    });
+
+    it("does not mutate the input date object", () => {
+      const fromDate = new Date("2026-08-15T12:00:00Z");
+      const clonedDate = new Date(fromDate.getTime());
+      (service as any).computeNextRunDate(fromDate, RecurringFrequency.MONTHLY);
+      expect(fromDate.toISOString()).toBe(clonedDate.toISOString());
+    });
   });
 });

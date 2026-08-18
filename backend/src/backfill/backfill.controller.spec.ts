@@ -6,7 +6,10 @@ import { BackfillController } from "./backfill.controller";
 import { BackfillService, BackfillStats } from "./backfill.service";
 import { BackfillRunStatus } from "@prisma/client";
 import {
-  jwtAuthImports, jwtAuthProviders, signUserToken } from "../auth/guard/auth-testing.util";
+  jwtAuthImports,
+  jwtAuthProviders,
+  signUserToken,
+} from "../auth/guard/auth-testing.util";
 
 describe("BackfillController", () => {
   let controller: BackfillController;
@@ -136,7 +139,10 @@ describe("BackfillController", () => {
   describe("getLatestCheckpoint", () => {
     it("should delegate to service", async () => {
       const payload = {
-        runId: 1, status: BackfillRunStatus.failed, checkpoint: null };
+        runId: 1,
+        status: BackfillRunStatus.failed,
+        checkpoint: null,
+      };
       service.getLatestCheckpoint.mockResolvedValue(payload);
       expect(await controller.getLatestCheckpoint("1")).toBe(payload);
       expect(service.getLatestCheckpoint).toHaveBeenCalledWith(1);

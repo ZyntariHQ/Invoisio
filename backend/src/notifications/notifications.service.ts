@@ -1,6 +1,11 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
-import { Expo, ExpoPushMessage, ExpoPushTicket, ExpoPushReceipt } from "expo-server-sdk";
+import {
+  Expo,
+  ExpoPushMessage,
+  ExpoPushTicket,
+  ExpoPushReceipt,
+} from "expo-server-sdk";
 import {
   Invoice,
   Payment,
@@ -161,27 +166,29 @@ export class NotificationsService {
 
     if (messagesWithMeta.length === 0) return;
 
-    const createdRecords = await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      const records: { id: string; index: number }[] = [];
-      for (let i = 0; i < messagesWithMeta.length; i++) {
-        const meta = messagesWithMeta[i];
-        const record = await tx.pushNotification.create({
-          data: {
-            userId: meta.userId,
-            merchantId: meta.merchantId,
-            pushToken: meta.pushToken,
-            eventType: meta.eventType,
-            title: meta.title,
-            body: meta.body,
-            payload: this.toPrismaJsonValue(meta.data),
-            status: "queued",
-          },
-          select: { id: true },
-        });
-        records.push({ id: record.id, index: i });
-      }
-      return records;
-    });
+    const createdRecords = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const records: { id: string; index: number }[] = [];
+        for (let i = 0; i < messagesWithMeta.length; i++) {
+          const meta = messagesWithMeta[i];
+          const record = await tx.pushNotification.create({
+            data: {
+              userId: meta.userId,
+              merchantId: meta.merchantId,
+              pushToken: meta.pushToken,
+              eventType: meta.eventType,
+              title: meta.title,
+              body: meta.body,
+              payload: this.toPrismaJsonValue(meta.data),
+              status: "queued",
+            },
+            select: { id: true },
+          });
+          records.push({ id: record.id, index: i });
+        }
+        return records;
+      },
+    );
 
     const recordIndexToId = new Map<number, string>();
     for (const r of createdRecords) {
@@ -194,7 +201,8 @@ export class NotificationsService {
 
     for (const chunk of chunks) {
       try {
-        const ticketChunk: ExpoPushTicket[] = await this.expo.sendPushNotificationsAsync(chunk);
+        const ticketChunk: ExpoPushTicket[] =
+          await this.expo.sendPushNotificationsAsync(chunk);
         this.logger.log(
           `Sent push notifications: ${JSON.stringify(ticketChunk)}`,
         );
@@ -223,7 +231,9 @@ export class NotificationsService {
                 data: {
                   status: "ticket_error",
                   ticketError: ticket.message ?? null,
-                  ticketErrorDetails: this.toPrismaJsonValue(ticket.details ?? null),
+                  ticketErrorDetails: this.toPrismaJsonValue(
+                    ticket.details ?? null,
+                  ),
                   receiptFailureReason: failureReason,
                 },
               });
@@ -286,7 +296,10 @@ export class NotificationsService {
         `Fetching delivery receipts for ${pendingReceipts.length} push notifications...`,
       );
 
-      const ticketIdToRecord = new Map<string, typeof pendingReceipts[number]>();
+      const ticketIdToRecord = new Map<
+        string,
+        (typeof pendingReceipts)[number]
+      >();
       const ticketIds: string[] = [];
       for (const record of pendingReceipts) {
         if (record.expoTicketId) {
@@ -295,7 +308,8 @@ export class NotificationsService {
         }
       }
 
-      const receiptIdChunks = this.expo.chunkPushNotificationReceiptIds(ticketIds);
+      const receiptIdChunks =
+        this.expo.chunkPushNotificationReceiptIds(ticketIds);
       for (const chunk of receiptIdChunks) {
         try {
           const receipts: Record<string, ExpoPushReceipt> =
@@ -315,7 +329,10 @@ export class NotificationsService {
 
   private async processReceiptChunk(
     receipts: Record<string, ExpoPushReceipt>,
-    ticketIdToRecord: Map<string, { id: string; userId: string; pushToken: string; merchantId: string }>,
+    ticketIdToRecord: Map<
+      string,
+      { id: string; userId: string; pushToken: string; merchantId: string }
+    >,
   ) {
     await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       for (const [ticketId, receipt] of Object.entries(receipts)) {
@@ -345,7 +362,9 @@ export class NotificationsService {
           await tx.pushNotification.update({
             where: { id: record.id },
             data: {
-              status: isPermanent ? "receipt_error_permanent" : "receipt_error_retryable",
+              status: isPermanent
+                ? "receipt_error_permanent"
+                : "receipt_error_retryable",
               receiptStatus: receipt.status,
               receiptMessage: receipt.message ?? null,
               receiptFailureReason: failureReason,
@@ -381,13 +400,13 @@ export class NotificationsService {
     });
 
     if (!user) {
-      this.logger.warn(
-        `Cannot remove push token: user ${userId} not found`,
-      );
+      this.logger.warn(`Cannot remove push token: user ${userId} not found`);
       return;
     }
 
-    const updatedTokens = user.pushTokens.filter((t: string) => t !== pushToken);
+    const updatedTokens = user.pushTokens.filter(
+      (t: string) => t !== pushToken,
+    );
     const wasRemoved = updatedTokens.length !== user.pushTokens.length;
 
     if (!wasRemoved) {
@@ -414,9 +433,7 @@ export class NotificationsService {
       },
     });
 
-    this.logger.warn(
-      `Removed invalid push token from user ${userId}: ${note}`,
-    );
+    this.logger.warn(`Removed invalid push token from user ${userId}: ${note}`);
   }
 
   private toPushNotificationFailureReason(
@@ -487,7 +504,8 @@ export class NotificationsService {
       : 0;
 
     return {
-      pushNotificationsEnabled: typeof pushEnabled === "boolean" ? pushEnabled : true,
+      pushNotificationsEnabled:
+        typeof pushEnabled === "boolean" ? pushEnabled : true,
       registeredPushTokensCount: tokenCount,
       preferenceExplicit: true,
       contractVersion: "1.0.0",

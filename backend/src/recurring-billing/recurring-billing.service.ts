@@ -194,12 +194,22 @@ export class RecurringBillingService {
     return nextRunDate.toISOString().slice(0, 10);
   }
 
-  private computeNextRunDate(
-    from: Date,
-    frequency: RecurringFrequency,
-  ): Date {
-    const days = frequency === RecurringFrequency.MONTHLY ? 30 : 7;
-    return new Date(from.getTime() + days * 24 * 60 * 60 * 1000);
+  private computeNextRunDate(from: Date, frequency: RecurringFrequency): Date {
+    if (frequency === RecurringFrequency.MONTHLY) {
+      const next = new Date(from.getTime());
+      const targetMonth = (next.getMonth() + 1) % 12;
+      next.setMonth(next.getMonth() + 1);
+
+      // If the month overflowed because the next month has fewer days
+      // (e.g. Jan 31 -> Mar 3 or Mar 2), we snap it back to the end of the intended month.
+      if (next.getMonth() !== targetMonth) {
+        next.setDate(0);
+      }
+      return next;
+    } else {
+      // Weekly
+      return new Date(from.getTime() + 7 * 24 * 60 * 60 * 1000);
+    }
   }
 
   private generateMemoId(): string {

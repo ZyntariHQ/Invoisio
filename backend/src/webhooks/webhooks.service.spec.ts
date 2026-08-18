@@ -2,7 +2,10 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { WebhooksService } from "./webhooks.service";
 import { PrismaService } from "../prisma/prisma.service";
 import axios from "axios";
-import { BadRequestException, UnprocessableEntityException } from "@nestjs/common";
+import {
+  BadRequestException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 
 jest.mock("axios");
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -314,7 +317,9 @@ describe("WebhooksService", () => {
       expect(config?.headers?.["x-invoisio-test-delivery"]).toBe("true");
       expect(config?.headers?.["x-invoisio-signature"]).toBeDefined();
       // Signature must be a non-empty hex string
-      expect((config?.headers?.["x-invoisio-signature"] as string).length).toBeGreaterThan(0);
+      expect(
+        (config?.headers?.["x-invoisio-signature"] as string).length,
+      ).toBeGreaterThan(0);
     });
 
     it("returns an empty signature when no webhook secret is configured", async () => {
@@ -344,10 +349,13 @@ describe("WebhooksService", () => {
     it("returns success=false with a network-level failure reason on timeout", async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(baseUser as any);
 
-      const timeoutError = Object.assign(new Error("timeout of 10000ms exceeded"), {
-        isAxiosError: true,
-        code: "ECONNABORTED",
-      });
+      const timeoutError = Object.assign(
+        new Error("timeout of 10000ms exceeded"),
+        {
+          isAxiosError: true,
+          code: "ECONNABORTED",
+        },
+      );
       (timeoutError as any).isAxiosError = true;
       mockedAxios.isAxiosError = jest.fn().mockReturnValue(true) as any;
       mockedAxios.post.mockRejectedValue(timeoutError);

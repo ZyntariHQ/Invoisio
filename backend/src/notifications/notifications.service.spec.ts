@@ -62,7 +62,10 @@ function makePrismaMock() {
       update: jest.fn(({ where, data }: any) => {
         const idx = pushNotificationsInDb.findIndex((r) => r.id === where.id);
         if (idx >= 0) {
-          pushNotificationsInDb[idx] = { ...pushNotificationsInDb[idx], ...data };
+          pushNotificationsInDb[idx] = {
+            ...pushNotificationsInDb[idx],
+            ...data,
+          };
           return pushNotificationsInDb[idx];
         }
         return null;
@@ -73,7 +76,10 @@ function makePrismaMock() {
         for (const id of ids) {
           const idx = pushNotificationsInDb.findIndex((r) => r.id === id);
           if (idx >= 0) {
-            pushNotificationsInDb[idx] = { ...pushNotificationsInDb[idx], ...data };
+            pushNotificationsInDb[idx] = {
+              ...pushNotificationsInDb[idx],
+              ...data,
+            };
             count++;
           }
         }
@@ -162,9 +168,11 @@ describe("NotificationsService", () => {
 
     service = module.get<NotificationsService>(NotificationsService);
     const expoCtor = Expo as unknown as jest.Mock;
-    const expoInstance = expoCtor.mock.results[expoCtor.mock.results.length - 1].value;
+    const expoInstance =
+      expoCtor.mock.results[expoCtor.mock.results.length - 1].value;
     sendPushNotificationsAsync = expoInstance.sendPushNotificationsAsync;
-    getPushNotificationReceiptsAsync = expoInstance.getPushNotificationReceiptsAsync;
+    getPushNotificationReceiptsAsync =
+      expoInstance.getPushNotificationReceiptsAsync;
   });
 
   afterEach(() => {
@@ -556,7 +564,8 @@ describe("NotificationsService", () => {
           },
         ],
       }).compile();
-      const localService = localModule.get<NotificationsService>(NotificationsService);
+      const localService =
+        localModule.get<NotificationsService>(NotificationsService);
 
       const localExpoCtor = Expo as unknown as jest.Mock;
       const localExpoInstance =
@@ -609,7 +618,8 @@ describe("NotificationsService", () => {
           },
         ],
       }).compile();
-      const localService = localModule.get<NotificationsService>(NotificationsService);
+      const localService =
+        localModule.get<NotificationsService>(NotificationsService);
 
       const localExpoCtor = Expo as unknown as jest.Mock;
       const localExpoInstance =
