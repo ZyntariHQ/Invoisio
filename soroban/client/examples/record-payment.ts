@@ -13,8 +13,9 @@
  * Sample output:
  *   Recording payment for invoice invoisio-demo-001 ...
  *   ✓  Transaction confirmed
- *      Hash   : e7a4b2c1d9f83a56b0e2c4d7f1a3b8e9c0d2f4a6b8c1d3e5f7a9b0c2d4e6f8a0
- *      Ledger : 588412
+ *      Hash           : e7a4b2c1d9f83a56b0e2c4d7f1a3b8e9c0d2f4a6b8c1d3e5f7a9b0c2d4e6f8a0
+ *      Ledger         : 588412
+ *      Settlement Ref : settle-demo-001
  */
 
 import * as dotenv from 'dotenv';
@@ -54,8 +55,9 @@ async function main(): Promise<void> {
     });
 
     console.log('✓  Transaction confirmed');
-    console.log(`   Hash   : ${result.hash}`);
-    console.log(`   Ledger : ${result.ledger}`);
+    console.log(`   Hash           : ${result.hash}`);
+    console.log(`   Ledger         : ${result.ledger}`);
+    console.log(`   Settlement Ref : ${process.env['SETTLEMENT_REF'] ?? 'settle-demo-001'}`);
   } catch (err) {
     if (err instanceof SorobanContractError) {
       console.error(`Contract error [${err.code}]: ${err.message}`);

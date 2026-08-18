@@ -141,7 +141,7 @@ Network:     testnet
 ./invoke-record-payment.sh \
   invoisio-demo-001 \
   GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL \
-  XLM "" 10000000
+  XLM "" 10000000 settle-demo-001
 ```
 
 **Expected output:**
@@ -155,6 +155,7 @@ Payer:          GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
 Asset Code:     XLM
 Asset Issuer:   <native XLM>
 Amount:         10000000
+Settlement Ref: settle-demo-001
 Network:        testnet
 
 🚀 Invoking record_payment...
