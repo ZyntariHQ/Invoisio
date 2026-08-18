@@ -110,6 +110,8 @@ describe("RecurringBillingService lifecycle", () => {
     mockTx.recurringInvoiceRun.create.mockResolvedValue({ id: "run-1" });
     mockTx.invoice.create.mockResolvedValue({ id: "inv-1" });
 
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00Z"));
+
     await service.generateInvoiceForSchedule(schedule as any);
 
     expect(mockTx.recurringInvoiceRun.create).toHaveBeenCalledWith({
@@ -124,6 +126,64 @@ describe("RecurringBillingService lifecycle", () => {
         }),
       }),
     );
+
+    jest.useRealTimers();
+  });
+
+  it("generates multiple invoices for a schedule that has missed multiple periods", async () => {
+    mockPrisma.customer.findUniqueOrThrow.mockResolvedValue({
+      name: "Acme Co",
+    });
+    mockTx.recurringInvoiceRun.create.mockResolvedValue({ id: "run-x" });
+    mockTx.invoice.create.mockResolvedValue({ id: "inv-x" });
+
+    const oldSchedule = {
+      ...schedule,
+      nextRunDate: new Date("2026-05-01T00:00:00Z"),
+    };
+
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-18T00:00:00Z"));
+
+    await service.generateInvoiceForSchedule(oldSchedule as any);
+
+    expect(mockTx.invoice.create).toHaveBeenCalledTimes(4);
+    expect(mockTx.recurringSchedule.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "sched-1" },
+        data: expect.objectContaining({
+          nextRunDate: new Date("2026-09-01T00:00:00Z"),
+        }),
+      }),
+    );
+
+    jest.useRealTimers();
+  });
+
+  it("pauses the schedule if it exceeds MAX_CATCH_UP_PERIODS", async () => {
+    mockPrisma.customer.findUniqueOrThrow.mockResolvedValue({
+      name: "Acme Co",
+    });
+    mockTx.recurringInvoiceRun.create.mockResolvedValue({ id: "run-x" });
+    mockTx.invoice.create.mockResolvedValue({ id: "inv-x" });
+
+    const oldSchedule = {
+      ...schedule,
+      nextRunDate: new Date("2025-05-01T00:00:00Z"), // 15 months back
+    };
+
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-18T00:00:00Z"));
+
+    await service.generateInvoiceForSchedule(oldSchedule as any);
+
+    expect(mockTx.invoice.create).toHaveBeenCalledTimes(12);
+    expect(mockPrisma.recurringSchedule.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "sched-1" },
+        data: { status: "paused" },
+      }),
+    );
+
+    jest.useRealTimers();
   });
 
   it("does not generate a duplicate invoice when the same period is retried", async () => {
@@ -135,11 +195,15 @@ describe("RecurringBillingService lifecycle", () => {
       uniqueConstraintError(),
     );
 
+    jest.useFakeTimers().setSystemTime(new Date("2026-08-02T00:00:00Z"));
+
     await expect(
       service.generateInvoiceForSchedule(schedule as any),
     ).resolves.toBeUndefined();
 
     expect(mockTx.invoice.create).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
   });
 
   describe("calendar-aware month progression", () => {

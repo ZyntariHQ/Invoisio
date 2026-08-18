@@ -17,6 +17,7 @@ import { CreateScheduleDto } from "./dto/create-schedule.dto";
 @Injectable()
 export class RecurringBillingService {
   private readonly logger = new Logger(RecurringBillingService.name);
+  private readonly MAX_CATCH_UP_PERIODS = 12;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -107,58 +108,81 @@ export class RecurringBillingService {
   }
 
   /**
-   * Generates the invoice for a schedule's current due period, at most
-   * once. Safety comes from the unique (scheduleId, periodKey) constraint
-   * on RecurringInvoiceRun, enforced inside the same transaction.
+   * Generates invoices for a schedule's missed periods up to the current date,
+   * capped at MAX_CATCH_UP_PERIODS. Safety comes from the unique (scheduleId, periodKey)
+   * constraint on RecurringInvoiceRun.
    */
   async generateInvoiceForSchedule(schedule: RecurringSchedule): Promise<void> {
-    const periodKey = this.computePeriodKey(schedule.nextRunDate);
-    const nextRunDate = this.computeNextRunDate(
-      schedule.nextRunDate,
-      schedule.frequency,
-    );
     const customer = await this.prisma.customer.findUniqueOrThrow({
       where: { id: schedule.customerId },
     });
 
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        // This insert is the duplicate guard: a second attempt for the
-        // same schedule + period hits the unique index and throws P2002.
-        const run = await tx.recurringInvoiceRun.create({
-          data: { scheduleId: schedule.id, periodKey },
-        });
+    let currentRunDate = new Date(schedule.nextRunDate);
+    let iterations = 0;
+    const now = new Date();
 
-        const invoice = await tx.invoice.create({
-          data: this.buildInvoiceData(
-            schedule,
-            customer,
-            `${schedule.id}-${periodKey}`,
-          ),
-        });
-
-        await tx.recurringInvoiceRun.update({
-          where: { id: run.id },
-          data: { invoiceId: invoice.id },
-        });
-
-        await tx.recurringSchedule.update({
-          where: { id: schedule.id },
-          data: { nextRunDate, lastGeneratedAt: new Date() },
-        });
-      });
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === "P2002"
-      ) {
-        // Already generated for this period by another run/retry — no-op.
-        this.logger.warn(
-          `Skipped duplicate generation for schedule ${schedule.id}, period ${periodKey}`,
+    while (currentRunDate <= now) {
+      if (iterations >= this.MAX_CATCH_UP_PERIODS) {
+        this.logger.error(
+          `Schedule ${schedule.id} exceeded max catch-up periods (${this.MAX_CATCH_UP_PERIODS}). Pausing schedule to prevent invoice flood.`,
         );
-        return;
+        await this.prisma.recurringSchedule.update({
+          where: { id: schedule.id },
+          data: { status: RecurringScheduleStatus.paused },
+        });
+        break;
       }
-      throw error;
+
+      const periodKey = this.computePeriodKey(currentRunDate);
+      const nextRunDate = this.computeNextRunDate(
+        currentRunDate,
+        schedule.frequency,
+      );
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          // This insert is the duplicate guard: a second attempt for the
+          // same schedule + period hits the unique index and throws P2002.
+          const run = await tx.recurringInvoiceRun.create({
+            data: { scheduleId: schedule.id, periodKey },
+          });
+
+          const invoice = await tx.invoice.create({
+            data: this.buildInvoiceData(
+              schedule,
+              customer,
+              `${schedule.id}-${periodKey}`,
+            ),
+          });
+
+          await tx.recurringInvoiceRun.update({
+            where: { id: run.id },
+            data: { invoiceId: invoice.id },
+          });
+
+          await tx.recurringSchedule.update({
+            where: { id: schedule.id },
+            data: { nextRunDate, lastGeneratedAt: new Date() },
+          });
+        });
+
+        currentRunDate = nextRunDate;
+        iterations++;
+      } catch (error) {
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2002"
+        ) {
+          // Already generated for this period by another run/retry — no-op.
+          this.logger.warn(
+            `Skipped duplicate generation for schedule ${schedule.id}, period ${periodKey}`,
+          );
+          currentRunDate = nextRunDate;
+          iterations++;
+          continue;
+        }
+        throw error;
+      }
     }
   }
 
