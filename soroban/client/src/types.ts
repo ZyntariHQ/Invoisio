@@ -61,6 +61,8 @@ export interface PaymentRecord {
   /** Stellar account (G...) that made the payment */
   readonly payer: string;
   readonly asset: Asset;
+  /** Normalised settlement reference for backend deduplication and auditing */
+  readonly settlementRef: string;
   /**
    * Amount in smallest denomination.
    * - XLM: stroops — 1 XLM = 10_000_000 stroops

@@ -17,6 +17,7 @@ import {
   RecordPaymentParams,
   SorobanInvoiceClientConfig,
   TransactionResult,
+  ContractConfig,
 } from './types';
 import {
   decodeContractConfig,
