@@ -61,6 +61,17 @@ export const CustomerService = {
   },
 
   /**
+   * Check for existing customers whose name closely matches `name`.
+   * Used to surface duplicate hints before creating a new customer.
+   * Returns up to `limit` results (default 5).
+   */
+  async checkDuplicate(name: string, limit = 5): Promise<Customer[]> {
+    if (!name.trim()) return [];
+    // Re-use the search endpoint; callers filter by intent.
+    return CustomerService.search(name.trim(), limit);
+  },
+
+  /**
    * Delete a customer.
    */
   async remove(id: string): Promise<void> {

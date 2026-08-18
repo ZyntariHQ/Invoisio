@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -9,7 +9,8 @@ import { generatePaymentUri } from "@/lib/sep0007";
 import { RequireAuth } from "@/components/require-auth";
 import { MerchantService } from "@/lib/merchant-service";
 import { checklistQueryKey } from "@/hooks/use-merchant-checklist";
-import { CustomerService, Customer } from "@/lib/customer-service";
+import { Customer } from "@/lib/customer-service";
+import { CustomerAutocomplete } from "@/components/CustomerAutocomplete";
 
 // Stellar mainnet USDC issuer — override via NEXT_PUBLIC_USDC_ISSUER for testnet
 const USDC_ISSUER =
@@ -28,134 +29,6 @@ interface Invoice {
 }
 
 type Asset = "XLM" | "USDC";
-
-function CustomerSearch({
-  onCustomerSelect,
-}: {
-  onCustomerSelect: (customer: Customer | null) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Customer[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [selected, setSelected] = useState<Customer | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (
-        containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
-      ) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
-
-  useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      if (!query.trim()) {
-        setResults([]);
-        return;
-      }
-      try {
-        const customers = await CustomerService.search(query, 6);
-        setResults(customers);
-        setIsOpen(customers.length > 0);
-      } catch {
-        setResults([]);
-      }
-    }, 250);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, [query]);
-
-  const selectCustomer = (c: Customer) => {
-    setSelected(c);
-    setQuery(`${c.name}${c.email ? ` (${c.email})` : ""}`);
-    setIsOpen(false);
-    onCustomerSelect(c);
-  };
-
-  return (
-    <div ref={containerRef} className="relative">
-      <label
-        htmlFor="pos-customer-search"
-        className="block text-sm font-medium text-gray-700"
-      >
-        Saved Client{" "}
-        <span className="font-normal text-gray-400">(optional)</span>
-      </label>
-      <div className="mt-1 relative">
-        <input
-          id="pos-customer-search"
-          type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            if (selected) {
-              setSelected(null);
-              onCustomerSelect(null);
-            }
-          }}
-          placeholder="Search saved clients..."
-          className="block w-full rounded-md border-0 py-2 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600"
-          autoComplete="off"
-        />
-        {selected && (
-          <button
-            type="button"
-            onClick={() => {
-              setSelected(null);
-              setQuery("");
-              onCustomerSelect(null);
-            }}
-            className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
-          >
-            <svg
-              className="h-4 w-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
-      {isOpen && results.length > 0 && (
-        <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md bg-white shadow-lg ring-1 ring-black/5">
-          {results.map((c) => (
-            <li
-              key={c.id}
-              onClick={() => selectCustomer(c)}
-              className="cursor-pointer px-4 py-2.5 text-sm text-gray-900 hover:bg-blue-50 transition-colors"
-            >
-              <div className="font-medium">{c.name}</div>
-              {c.email && (
-                <div className="text-xs text-gray-500">{c.email}</div>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {selected && (
-        <p className="mt-1 text-xs text-blue-600 font-medium">
-          Selected: {selected.name}
-        </p>
-      )}
-    </div>
-  );
-}
 
 function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
   const [amount, setAmount] = useState("");
@@ -352,8 +225,15 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
             </div>
           </div>
 
-          {/* Saved Client Search */}
-          <CustomerSearch onCustomerSelect={setSelectedCustomer} />
+          {/* Saved Client Search — supports quick-create and inline edit */}
+          <CustomerAutocomplete
+            onCustomerSelect={(c) => {
+              setSelectedCustomer(c);
+              if (c) setCustomerName(c.name);
+            }}
+            label="Client"
+            helperText="optional — search, create or edit"
+          />
 
           {error && (
             <div
