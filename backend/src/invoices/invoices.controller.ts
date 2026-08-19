@@ -77,14 +77,18 @@ export class InvoicesController {
    * Search invoices by client name, email, or memo for the authenticated merchant
    * @returns Array of matching invoices ordered by relevance
    */
-  @Auth()
+ @Auth()
   @Get("search")
   async search(
     @CurrentUser() user: User,
     @Query() query: SearchInvoicesDto,
   ): Promise<Invoice[]> {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
-      this.invoicesService.searchInvoices(user.id, query.q, query.limit ?? 20),
+      this.invoicesService.searchInvoices(
+        user.merchantId,
+        query.q,
+        query.limit ?? 20,
+      ),
     );
   }
 

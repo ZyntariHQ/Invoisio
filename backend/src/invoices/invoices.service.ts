@@ -151,12 +151,21 @@ export class InvoicesService implements OnModuleInit {
    * @param rawTerm - Query string from user input
    * @param limit - Max results (1-50)
    */
+   /**
+   * Search invoices by merchant-scoped term using full-text and trigram similarity.
+   * Scoped to the merchant account, not the invoice creator — any authorized
+   * teammate under the same merchant can find invoices created by any other
+   * teammate in that merchant. Cross-merchant results are never returned.
+   * @param merchantId - Authenticated user's merchant id
+   * @param rawTerm - Query string from user input
+   * @param limit - Max results (1-50)
+   */
   async searchInvoices(
-    userId: string | undefined,
+    merchantId: string | undefined,
     rawTerm: string,
     limit = 20,
   ): Promise<Invoice[]> {
-    if (!userId) {
+    if (!merchantId) {
       throw new UnauthorizedException("Missing merchant context");
     }
 
@@ -183,10 +192,11 @@ export class InvoicesService implements OnModuleInit {
               coalesce(i."memo", '')
             ) AS document
           FROM "invoices" i
-          WHERE i."user_id" = ${userId}
+          WHERE i."merchant_id" = ${merchantId}
         )
         SELECT
           s."id",
+          s."merchant_id" AS "merchantId",
           s."user_id" AS "userId",
           s."invoice_number" AS "invoiceNumber",
           s."client_name" AS "clientName",
