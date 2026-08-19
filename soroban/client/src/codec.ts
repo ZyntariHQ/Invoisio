@@ -148,6 +148,7 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
         allowlistMode['requires_token_allowlist'],
       ),
     },
+    paused: Boolean(raw['paused']),
   };
 }
 

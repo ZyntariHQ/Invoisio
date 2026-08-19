@@ -53,6 +53,8 @@ export interface ContractConfig {
   readonly version: ContractVersionInfo;
   /** High-level asset allowlist policy. */
   readonly allowlistMode: AllowlistMode;
+  /** Whether the contract is currently paused (writes disabled). */
+  readonly paused: boolean;
 }
 
 /** On-chain record stored for each invoice payment. */

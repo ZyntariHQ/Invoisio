@@ -373,6 +373,85 @@ describe('getPayment', () => {
   });
 });
 
+describe('config read method', () => {
+  it('getConfig() decodes the complete contract config snapshot including paused flag', async () => {
+    const configVal = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('admin', { type: 'symbol' }),
+        val: nativeToScVal(SIGNER_PUBLIC, { type: 'address' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('pending_admin', { type: 'symbol' }),
+        val: nativeToScVal(null, { type: 'void' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('initialized', { type: 'symbol' }),
+        val: nativeToScVal(true, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('version', { type: 'symbol' }),
+        val: xdr.ScVal.scvMap([
+          new xdr.ScMapEntry({
+            key: nativeToScVal('contract_version', { type: 'symbol' }),
+            val: nativeToScVal(1_000_000, { type: 'u32' }),
+          }),
+          new xdr.ScMapEntry({
+            key: nativeToScVal('storage_schema_version', { type: 'symbol' }),
+            val: nativeToScVal(1, { type: 'u32' }),
+          }),
+        ]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('allowlist_mode', { type: 'symbol' }),
+        val: xdr.ScVal.scvMap([
+          new xdr.ScMapEntry({
+            key: nativeToScVal('native_allowed', { type: 'symbol' }),
+            val: nativeToScVal(true, { type: 'bool' }),
+          }),
+          new xdr.ScMapEntry({
+            key: nativeToScVal('requires_token_allowlist', { type: 'symbol' }),
+            val: nativeToScVal(true, { type: 'bool' }),
+          }),
+        ]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('paused', { type: 'symbol' }),
+        val: nativeToScVal(true, { type: 'bool' }),
+      }),
+    ]);
+
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(configVal);
+      },
+    );
+
+    const client = makeClient();
+    const config = await client.getConfig();
+
+    expect(config).toEqual({
+      admin: SIGNER_PUBLIC,
+      pendingAdmin: null,
+      initialized: true,
+      version: {
+        contractVersion: 1_000_000,
+        storageSchemaVersion: 1,
+      },
+      allowlistMode: {
+        nativeAllowed: true,
+        requiresTokenAllowlist: true,
+      },
+      paused: true,
+    });
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'config',
+      args: [],
+    });
+  });
+});
+
 describe('write methods require a signer', () => {
   it('rejects when no signerSecretKey is configured', async () => {
     const client = makeClient();
