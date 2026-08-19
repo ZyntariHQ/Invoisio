@@ -23,10 +23,11 @@ use events::{
 use storage::{
     allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
     clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
-    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
-    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
+    get_contract_config, get_count, get_invoice_by_settlement_ref, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_storage_schema_version, has_admin, has_payment, has_pending_admin, has_settlement_ref,
+    is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
+    set_native_allowed, set_payment, set_pending_admin, set_settlement_ref,
 };
 
 // Contract
@@ -239,6 +240,11 @@ impl InvoicePaymentContract {
             return Err(ContractError::PaymentAlreadyRecorded);
         }
 
+        // 5b. Settlement reference uniqueness guard.
+        if has_settlement_ref(&env, &settlement_ref) {
+            return Err(ContractError::DuplicateSettlementRef);
+        }
+
         // 6. Build the asset enum based on parameters.
         let asset = if is_xlm {
             Asset::Native
@@ -248,7 +254,7 @@ impl InvoicePaymentContract {
 
         // 7. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
-            invoice_id,
+            invoice_id: invoice_id.clone(),
             payer,
             asset,
             amount,
@@ -256,6 +262,7 @@ impl InvoicePaymentContract {
             settlement_ref: settlement_ref.clone(),
         };
         set_payment(&env, &record);
+        set_settlement_ref(&env, &settlement_ref, &invoice_id);
 
         // Track the invoice ID in write order so migrations can enumerate
         // every payment even if the history index is later corrupted.
@@ -303,6 +310,28 @@ impl InvoicePaymentContract {
             return false;
         }
         has_payment(&env, &invoice_id)
+    }
+
+    /// Return `true` if a settlement reference has been anchored on-chain.
+    pub fn has_settlement(env: Env, settlement_ref: String) -> bool {
+        if settlement_ref.is_empty() {
+            return false;
+        }
+        has_settlement_ref(&env, &settlement_ref)
+    }
+
+    /// Return the `invoice_id` associated with a settlement reference.
+    ///
+    /// Returns [`ContractError::PaymentNotFound`] if no payment record anchors
+    /// the given settlement reference.
+    pub fn get_invoice_by_settlement(
+        env: Env,
+        settlement_ref: String,
+    ) -> Result<String, ContractError> {
+        if settlement_ref.is_empty() {
+            return Err(ContractError::InvalidSettlementRef);
+        }
+        get_invoice_by_settlement_ref(&env, &settlement_ref).ok_or(ContractError::PaymentNotFound)
     }
 
     /// Return the total number of payments recorded in this contract instance.

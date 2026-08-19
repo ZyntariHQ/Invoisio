@@ -32,6 +32,10 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 14, name: 'NoPendingAdmin' },
   { code: 15, name: 'PendingAdminExists' },
   { code: 16, name: 'InvalidProposedAdmin' },
+  { code: 17, name: 'HistoryIndexRebuildFailed' },
+  { code: 18, name: 'MigrationRequired' },
+  { code: 19, name: 'HistoryIndexIncomplete' },
+  { code: 20, name: 'DuplicateSettlementRef' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {

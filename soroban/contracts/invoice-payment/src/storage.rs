@@ -173,6 +173,9 @@ pub enum DataKey {
     /// Address proposed as the next admin by `propose_admin()` in **instance**
     /// storage. Read by `accept_admin()` to complete the two-step handoff.
     PendingAdmin,
+    /// Maps settlement_ref -> invoice_id in **persistent** storage.
+    /// Enforces global 1:1 invariant across all recorded invoices.
+    SettlementRef(String),
 }
 
 // Data structures
@@ -489,6 +492,59 @@ pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
 
 fn payment_log_key(index: u32) -> DataKey {
     DataKey::PaymentLog(index)
+}
+
+// Settlement reference uniqueness helpers (persistent storage)
+
+fn settlement_ref_key(settlement_ref: &String) -> DataKey {
+    DataKey::SettlementRef(settlement_ref.clone())
+}
+
+/// Return `true` if a settlement reference has already been anchored on-chain.
+pub fn has_settlement_ref(env: &Env, settlement_ref: &String) -> bool {
+    let key = settlement_ref_key(settlement_ref);
+    let exists = env.storage().persistent().has(&key);
+    if exists {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    exists
+}
+
+/// Map a `settlement_ref` to its `invoice_id` in persistent storage with TTL extension.
+pub fn set_settlement_ref(env: &Env, settlement_ref: &String, invoice_id: &String) {
+    let key = settlement_ref_key(settlement_ref);
+    env.storage().persistent().set(&key, invoice_id);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Retrieve the `invoice_id` anchored by a `settlement_ref`.
+pub fn get_invoice_by_settlement_ref(env: &Env, settlement_ref: &String) -> Option<String> {
+    let key = settlement_ref_key(settlement_ref);
+    let invoice_id: Option<String> = env.storage().persistent().get(&key);
+    if invoice_id.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    invoice_id
+}
+
+// Payment counter helpers (instance storage)
+
+/// Return the current payment count (0 if not yet set).
+pub fn get_count(env: &Env) -> u32 {
+    let count = env.storage()
+        .instance()
+        .get(&DataKey::PaymentCount)
+        .unwrap_or(0u32);
+    env.storage()
+        .instance()
+        .extend_ttl(MIN_TTL, BUMP_TTL);
+    count
 }
 
 /// Append `invoice_id` to the write-order log at the current `PaymentCount`

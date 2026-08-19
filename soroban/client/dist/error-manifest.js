@@ -120,6 +120,26 @@ exports.CONTRACT_ERROR_MANIFEST = [
         name: 'InvalidProposedAdmin',
         meaning: 'propose_admin() was called with an invalid proposed admin, e.g. the current admin re-proposing themselves.',
     },
+    {
+        code: 17,
+        name: 'HistoryIndexRebuildFailed',
+        meaning: 'History index rebuild failed - check storage consistency.',
+    },
+    {
+        code: 18,
+        name: 'MigrationRequired',
+        meaning: 'Migration required before rebuilding history index.',
+    },
+    {
+        code: 19,
+        name: 'HistoryIndexIncomplete',
+        meaning: 'History index is incomplete - rebuild required.',
+    },
+    {
+        code: 20,
+        name: 'DuplicateSettlementRef',
+        meaning: 'record_payment() was called with a settlement_ref that has already been recorded for another invoice; each settlement reference may only anchor one payment.',
+    },
 ];
 /**
  * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.

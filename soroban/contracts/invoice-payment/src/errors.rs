@@ -75,4 +75,9 @@ pub enum ContractError {
     MigrationRequired = 18,
     /// History index is incomplete - rebuild required
     HistoryIndexIncomplete = 19,
+
+    /// `record_payment()` was called with a `settlement_ref` that has already
+    /// been recorded for another invoice. Each settlement reference can only
+    /// anchor one invoice payment across the contract.
+    DuplicateSettlementRef = 20,
 }
