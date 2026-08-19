@@ -1,4 +1,21 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+let AsyncStorage: any;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const mod = require('@react-native-async-storage/async-storage');
+  AsyncStorage = mod.default ?? mod;
+} catch {
+  const memoryStore: Record<string, string> = {};
+  AsyncStorage = {
+    getItem: async (key: string) => memoryStore[key] ?? null,
+    setItem: async (key: string, value: string) => {
+      memoryStore[key] = value;
+    },
+    removeItem: async (key: string) => {
+      delete memoryStore[key];
+    },
+  };
+}
+
 import { DraftService } from './draft-service';
 import { offlineQueue } from './offline-queue';
 import { authService } from './auth-service';
