@@ -2,6 +2,54 @@ use crate::errors::ContractError;
 use crate::events;
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
+// ============================================================================
+// TTL Policy
+// ============================================================================
+//
+// The contract uses two TTL thresholds:
+// - MIN_TTL = 17,280 ledgers (~1 day)  - extend when remaining TTL falls below this
+// - BUMP_TTL = 518,400 ledgers (~30 days) - target TTL after extension
+//
+// TTL Extension Strategy:
+//
+// 1. WRITE operations (any state mutation):
+//    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after writing
+//    - This applies to: set_admin, set_pending_admin, set_contract_meta,
+//      set_native_allowed, set_paused, bump_count, bump_history_count
+//
+// 2. CRITICAL READ operations (instance storage that must survive):
+//    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after reading
+//    - This applies to: get_admin, get_pending_admin_opt, get_pending_admin,
+//      has_admin, has_pending_admin, is_native_allowed, is_paused,
+//      get_count, get_history_count, get_contract_config, get_contract_meta,
+//      get_storage_schema_version, get_state_contract_version,
+//      is_schema_compatible, is_history_index_consistent,
+//      get_missing_history_count, get_payment_count
+//
+// 3. PERSISTENT READ operations (payment records, history, allowlist):
+//    - TTL is extended on read via individual get/read functions
+//    - This applies to: get_payment, get_history_record, is_asset_allowed
+//
+// Rationale:
+// - Instance storage contains critical contract configuration (admin, pause state,
+//   allowlist policy, counters) that must remain available for as long as the
+//   contract is actively used.
+// - Permissionless views (config, admin, pending_admin, is_paused, payment_count,
+//   history_count) are frequently called by off-chain tooling and should keep
+//   instance storage alive without requiring admin intervention.
+// - Persistent storage records are bumped on read/write to prevent archival
+//   while still being accessed.
+//
+// Idempotency:
+// - `extend_ttl` is idempotent - calling it multiple times is safe
+// - The contract maintains a "bump on access" pattern that naturally keeps
+//   actively-used storage alive
+//
+// Maintenance:
+// - If adding a new instance storage read, ALWAYS add `extend_ttl` after the read
+// - If adding a new instance storage write, ALWAYS add `extend_ttl` after the write
+// ============================================================================
+
 // TTL budget
 // At ~5-second ledger close times:
 //   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
@@ -195,42 +243,78 @@ pub struct PaymentHistoryPage {
     pub has_more: bool,
 }
 
-// Version helpers (instance storage)
+// ─── Version Helpers (Instance Storage) ──────────────────────────────────────
 
+/// Get contract metadata from instance storage. Bumps TTL if present.
 pub fn get_contract_meta(env: &Env) -> Option<ContractMeta> {
-    env.storage().instance().get(&DataKey::ContractMeta)
+    let meta: Option<ContractMeta> = env.storage().instance().get(&DataKey::ContractMeta);
+    if meta.is_some() {
+        // Bump TTL on every critical instance read
+        env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    }
+    meta
 }
 
+/// Persist contract metadata and extend instance TTL.
 pub fn set_contract_meta(env: &Env, meta: &ContractMeta) {
     env.storage().instance().set(&DataKey::ContractMeta, meta);
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
 /// Ensure metadata exists and reflects the current contract build/schema.
+/// Bumps instance TTL on every call.
 pub fn ensure_current_contract_meta(env: &Env) {
     let expected = current_contract_meta();
     match get_contract_meta(env) {
         Some(meta) if meta == expected => {
+            // Bump TTL on every critical instance read
             env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
         }
         _ => set_contract_meta(env, &expected),
     }
 }
 
+/// Get the storage schema version from instance storage. Bumps TTL.
 pub fn get_storage_schema_version(env: &Env) -> u32 {
-    get_contract_meta(env)
+    let version = get_contract_meta(env)
         .map(|meta| meta.storage_schema_version)
-        .unwrap_or(LEGACY_STORAGE_SCHEMA_VERSION)
+        .unwrap_or(LEGACY_STORAGE_SCHEMA_VERSION);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    version
 }
 
+/// Get the contract version from instance storage. Bumps TTL.
 pub fn get_state_contract_version(env: &Env) -> u32 {
-    get_contract_meta(env)
+    let version = get_contract_meta(env)
         .map(|meta| meta.contract_version)
-        .unwrap_or(LEGACY_CONTRACT_VERSION)
+        .unwrap_or(LEGACY_CONTRACT_VERSION);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    version
 }
 
+/// Check if the current storage schema is compatible with this contract version.
+/// Returns true if the schema version is <= the version expected by the contract.
+/// Bumps instance TTL on every call.
+pub fn is_schema_compatible(env: &Env) -> bool {
+    let current = get_storage_schema_version(env);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    current <= STORAGE_SCHEMA_VERSION
+}
+
+/// Get the current storage schema version or 0 if not set. Bumps TTL.
+pub fn get_schema_version(env: &Env) -> u32 {
+    get_storage_schema_version(env)
+}
+
+// ─── Config Helpers (Instance Storage) ──────────────────────────────────────
+
+/// Return a high-level snapshot of contract state for ops tooling.
+/// Bumps instance TTL on every call to keep critical config alive.
 pub fn get_contract_config(env: &Env) -> ContractConfig {
-    ContractConfig {
+    let config = ContractConfig {
         admin: env.storage().instance().get(&DataKey::Admin),
         pending_admin: get_pending_admin_opt(env),
         initialized: has_admin(env),
@@ -243,24 +327,30 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
             requires_token_allowlist: true,
         },
         paused: is_paused(env),
-    }
+    };
+    // Additional TTL bump for the config read itself
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    config
 }
 
-// Admin helpers (instance storage)
+// ─── Admin Helpers (Instance Storage) ──────────────────────────────────────
 
-/// Return `true` if the contract has been initialised.
+/// Return `true` if the contract has been initialised. Bumps instance TTL.
 pub fn has_admin(env: &Env) -> bool {
-    env.storage().instance().has(&DataKey::Admin)
+    let has = env.storage().instance().has(&DataKey::Admin);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    has
 }
 
-/// Read the admin address.
+/// Read the admin address. Bumps instance TTL.
 ///
 /// Returns [`ContractError::NotInitialized`] if `initialize()` was never called.
 pub fn get_admin(env: &Env) -> Result<Address, ContractError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::Admin)
-        .ok_or(ContractError::NotInitialized)
+    let admin: Option<Address> = env.storage().instance().get(&DataKey::Admin);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    admin.ok_or(ContractError::NotInitialized)
 }
 
 /// Persist a new admin address and extend instance TTL.
@@ -269,27 +359,34 @@ pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
-// Pending-admin helpers (instance storage)
+// ─── Pending-Admin Helpers (Instance Storage) ──────────────────────────────
 
-/// Return `true` if an admin transfer proposal is pending.
+/// Return `true` if an admin transfer proposal is pending. Bumps instance TTL.
 pub fn has_pending_admin(env: &Env) -> bool {
-    env.storage().instance().has(&DataKey::PendingAdmin)
+    let has = env.storage().instance().has(&DataKey::PendingAdmin);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    has
 }
 
 /// Read the proposed next admin without erroring when none is pending.
+/// Bumps instance TTL on every read.
 pub fn get_pending_admin_opt(env: &Env) -> Option<Address> {
-    env.storage().instance().get(&DataKey::PendingAdmin)
+    let pending: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    pending
 }
 
-/// Read the currently proposed next admin.
+/// Read the currently proposed next admin. Bumps instance TTL.
 ///
 /// Returns [`ContractError::NoPendingAdmin`] if `propose_admin()` was never
 /// called (or the previous proposal was accepted/cleared).
 pub fn get_pending_admin(env: &Env) -> Result<Address, ContractError> {
-    env.storage()
-        .instance()
-        .get(&DataKey::PendingAdmin)
-        .ok_or(ContractError::NoPendingAdmin)
+    let pending: Option<Address> = env.storage().instance().get(&DataKey::PendingAdmin);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    pending.ok_or(ContractError::NoPendingAdmin)
 }
 
 /// Persist the proposed next admin and extend instance TTL.
@@ -301,9 +398,10 @@ pub fn set_pending_admin(env: &Env, admin: &Address) {
 /// Remove any pending admin transfer proposal (e.g. after acceptance).
 pub fn clear_pending_admin(env: &Env) {
     env.storage().instance().remove(&DataKey::PendingAdmin);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
-// Payment helpers (persistent storage)
+// ─── Payment Helpers (Persistent Storage) ──────────────────────────────────
 
 fn payment_key_legacy(invoice_id: &String) -> DataKey {
     DataKey::Payment(invoice_id.clone())
@@ -318,17 +416,26 @@ fn payment_history_key(index: u32) -> DataKey {
 }
 
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
+/// Extends persistent storage TTL if record exists.
 pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
     let v1_key = payment_key_v1(invoice_id);
     if env.storage().persistent().has(&v1_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
         return true;
     }
-    env.storage()
-        .persistent()
-        .has(&payment_key_legacy(invoice_id))
+    let legacy_key = payment_key_legacy(invoice_id);
+    if env.storage().persistent().has(&legacy_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+        return true;
+    }
+    false
 }
 
-/// Read a stored [`PaymentRecord`].
+/// Read a stored [`PaymentRecord`]. Extends persistent storage TTL.
 ///
 /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded for
 /// `invoice_id`.
@@ -370,7 +477,7 @@ pub fn set_payment(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
-/// Append a record to the deterministic history index.
+/// Append a record to the deterministic history index and bump TTL.
 pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
     let index = get_history_count(env);
     let key = payment_history_key(index);
@@ -408,44 +515,7 @@ pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
     entry
 }
 
-// Payment counter helpers (instance storage)
-
-/// Return the current payment count (0 if not yet set).
-pub fn get_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::PaymentCount)
-        .unwrap_or(0u32)
-}
-
-/// Increment the payment counter and extend instance TTL.
-pub fn bump_count(env: &Env) {
-    let count = get_count(env);
-    env.storage()
-        .instance()
-        .set(&DataKey::PaymentCount, &(count + 1u32));
-    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-}
-
-// Payment history helpers (instance storage)
-
-/// Return the number of indexed payment history entries.
-pub fn get_history_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::PaymentHistoryCount)
-        .unwrap_or(0u32)
-}
-
-/// Increment the history index counter and extend instance TTL.
-pub fn bump_history_count(env: &Env) {
-    let count = get_history_count(env);
-    env.storage()
-        .instance()
-        .set(&DataKey::PaymentHistoryCount, &(count + 1u32));
-    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-}
-
+/// Get a history record by index. Extends TTL if record exists.
 fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
     let key = payment_history_key(index);
     let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
@@ -458,6 +528,7 @@ fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
 }
 
 /// Read a bounded page of history starting at `cursor`.
+/// Extends instance TTL for history count and persistent TTL for records.
 pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
     let total = get_history_count(env);
     let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
@@ -481,17 +552,113 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     }
 }
 
-// Allowlist helpers
+// ─── Payment Counter Helpers (Instance Storage) ─────────────────────────────
 
-/// Return `true` if native XLM is allowed.
-pub fn is_native_allowed(env: &Env) -> bool {
-    env.storage()
+/// Return the current payment count (0 if not yet set). Bumps instance TTL.
+pub fn get_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
         .instance()
-        .get(&DataKey::AllowNative)
-        .unwrap_or(false)
+        .get(&DataKey::PaymentCount)
+        .unwrap_or(0u32);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
 }
 
-/// Set allow flag for native XLM.
+/// Gets the total number of payment records from instance storage. Bumps TTL.
+pub fn get_payment_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::PaymentCount)
+        .unwrap_or(0u32);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+/// Increment the payment counter and extend instance TTL.
+pub fn bump_count(env: &Env) {
+    let count = get_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Sets the payment count in instance storage.
+pub fn set_payment_count(env: &Env, count: u32) {
+    env.storage().instance().set(&DataKey::PaymentCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+// ─── Payment History Helpers (Instance Storage) ─────────────────────────────
+
+/// Return the number of indexed payment history entries. Bumps instance TTL.
+pub fn get_history_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::PaymentHistoryCount)
+        .unwrap_or(0u32);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+/// Sets the history count in instance storage.
+pub fn set_history_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Increment the history index counter and extend instance TTL.
+pub fn bump_history_count(env: &Env) {
+    let count = get_history_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Checks if the history index is consistent with the payment count.
+/// Bumps instance TTL on every call.
+pub fn is_history_index_consistent(env: &Env) -> bool {
+    let history_count = get_history_count(env);
+    let payment_count = get_payment_count(env);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    history_count == payment_count
+}
+
+/// Returns the number of history entries that are missing from the index.
+/// Bumps instance TTL on every call.
+pub fn get_missing_history_count(env: &Env) -> u32 {
+    let history_count = get_history_count(env);
+    let payment_count = get_payment_count(env);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    payment_count.saturating_sub(history_count)
+}
+
+// ─── Allowlist Helpers ──────────────────────────────────────────────────────
+
+/// Return `true` if native XLM is allowed. Bumps instance TTL.
+pub fn is_native_allowed(env: &Env) -> bool {
+    let allowed = env
+        .storage()
+        .instance()
+        .get(&DataKey::AllowNative)
+        .unwrap_or(false);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    allowed
+}
+
+/// Set allow flag for native XLM and extend instance TTL.
 pub fn set_native_allowed(env: &Env, allowed: bool) {
     env.storage()
         .instance()
@@ -500,12 +667,19 @@ pub fn set_native_allowed(env: &Env, allowed: bool) {
 }
 
 /// Return `true` if the specific token is allowlisted.
+/// Extends persistent storage TTL if entry exists.
 pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
-    env.storage().persistent().has(&key)
+    let exists = env.storage().persistent().has(&key);
+    if exists {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    exists
 }
 
-/// Add an asset to the allowlist.
+/// Add an asset to the allowlist and bump TTL.
 pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     // We store a unit value since we only care about existence.
@@ -519,6 +693,26 @@ pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
 pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     env.storage().persistent().remove(&key);
+}
+
+// ─── Pause Helpers ──────────────────────────────────────────────────────────
+
+/// Return `true` if the contract is paused. Bumps instance TTL.
+pub fn is_paused(env: &Env) -> bool {
+    let paused = env
+        .storage()
+        .instance()
+        .get(&DataKey::Paused)
+        .unwrap_or(false);
+    // Bump TTL on every critical instance read
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    paused
+}
+
+/// Set the paused state. Admin-only. Extends instance TTL.
+pub fn set_paused(env: &Env, paused: bool) {
+    env.storage().instance().set(&DataKey::Paused, &paused);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
 // ─── Storage Schema Migration ───────────────────────────────────────────────
@@ -580,70 +774,4 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     events::emit_storage_schema_upgraded(env, old_version, target_version);
 
     Ok(())
-}
-
-/// Check if the current storage schema is compatible with this contract version.
-///
-/// Returns true if the schema version is <= the version expected by the contract.
-/// This prevents code from reading a newer schema it doesn't understand.
-pub fn is_schema_compatible(env: &Env) -> bool {
-    let current = get_storage_schema_version(env);
-    current <= STORAGE_SCHEMA_VERSION
-}
-
-/// Get the current storage schema version or 0 if not set.
-pub fn get_schema_version(env: &Env) -> u32 {
-    get_storage_schema_version(env)
-}
-
-// ─── Pause helpers ──────────────────────────────────────────────────────────
-
-/// Return `true` if the contract is paused.
-pub fn is_paused(env: &Env) -> bool {
-    env.storage()
-        .instance()
-        .get(&DataKey::Paused)
-        .unwrap_or(false)
-}
-
-/// Set the paused state. Admin-only.
-pub fn set_paused(env: &Env, paused: bool) {
-    env.storage().instance().set(&DataKey::Paused, &paused);
-    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-}
-
-/// Sets the history count in instance storage.
-pub fn set_history_count(env: &Env, count: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PaymentHistoryCount, &count);
-    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-}
-
-/// Gets the total number of payment records from instance storage.
-pub fn get_payment_count(env: &Env) -> u32 {
-    env.storage()
-        .instance()
-        .get(&DataKey::PaymentCount)
-        .unwrap_or(0u32)
-}
-
-/// Sets the payment count in instance storage.
-pub fn set_payment_count(env: &Env, count: u32) {
-    env.storage().instance().set(&DataKey::PaymentCount, &count);
-    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-}
-
-/// Checks if the history index is consistent with the payment count.
-pub fn is_history_index_consistent(env: &Env) -> bool {
-    let history_count = get_history_count(env);
-    let payment_count = get_payment_count(env);
-    history_count == payment_count
-}
-
-/// Returns the number of history entries that are missing from the index.
-pub fn get_missing_history_count(env: &Env) -> u32 {
-    let history_count = get_history_count(env);
-    let payment_count = get_payment_count(env);
-    payment_count.saturating_sub(history_count)
 }
