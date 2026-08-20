@@ -161,3 +161,20 @@ pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admi
     };
     payload.publish(env);
 }
+
+/// Event emitted when the history index is rebuilt.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryIndexRebuilt {
+    pub record_count: u32,
+    pub rebuilt_at: u64,
+}
+
+/// Emit a history index rebuilt event.
+pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
+    let payload = HistoryIndexRebuilt {
+        record_count,
+        rebuilt_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}

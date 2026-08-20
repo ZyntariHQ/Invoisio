@@ -14,10 +14,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_allow_native",
+              "function_name": "upgrade_storage",
               "args": [
                 {
-                  "bool": true
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 }
               ]
             }
@@ -26,40 +26,7 @@
         }
       ]
     ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "record_payment",
-              "args": [
-                {
-                  "string": "invoisio-event-test"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
-                },
-                {
-                  "i128": "10000000"
-                },
-                {
-                  "string": "settle-event-test"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ]
+    []
   ],
   "ledger": {
     "protocol_version": 25,
@@ -97,34 +64,14 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "5541220902715666415"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "vec": [
                   {
-                    "symbol": "PaymentHistory"
+                    "symbol": "Payment"
                   },
                   {
-                    "u32": 0
+                    "string": "field-preserve-001"
                   }
                 ]
               },
@@ -136,7 +83,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "42500000"
                     }
                   },
                   {
@@ -146,7 +93,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -156,7 +109,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-event-test"
+                      "string": "field-preserve-001"
                     }
                   },
                   {
@@ -172,7 +125,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-event-test"
+                      "string": "sha256-abcdef"
                     }
                   },
                   {
@@ -180,37 +133,10 @@
                       "symbol": "timestamp"
                     },
                     "val": {
-                      "u64": "0"
+                      "u64": "9999"
                     }
                   }
                 ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PaymentLog"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "invoisio-event-test"
               }
             }
           },
@@ -231,7 +157,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-event-test"
+                    "string": "field-preserve-001"
                   }
                 ]
               },
@@ -243,7 +169,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "42500000"
                     }
                   },
                   {
@@ -253,7 +179,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -263,7 +195,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-event-test"
+                      "string": "field-preserve-001"
                     }
                   },
                   {
@@ -279,7 +211,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-event-test"
+                      "string": "sha256-abcdef"
                     }
                   },
                   {
@@ -287,7 +219,7 @@
                       "symbol": "timestamp"
                     },
                     "val": {
-                      "u64": "0"
+                      "u64": "9999"
                     }
                   }
                 ]
@@ -329,18 +261,6 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "AllowNative"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
                             "symbol": "ContractMeta"
                           }
                         ]
@@ -375,7 +295,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 1
+                        "u32": 0
                       }
                     },
                     {
@@ -387,7 +307,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 1
+                        "u32": 0
                       }
                     }
                   ]
@@ -415,83 +335,5 @@
       }
     ]
   },
-  "events": [
-    {
-      "event": {
-        "ext": "v0",
-        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-        "type_": "contract",
-        "body": {
-          "v0": {
-            "topics": [
-              {
-                "symbol": "invoice_payment_recorded"
-              }
-            ],
-            "data": {
-              "map": [
-                {
-                  "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": "10000000"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_code"
-                  },
-                  "val": {
-                    "string": "XLM"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_issuer"
-                  },
-                  "val": {
-                    "string": ""
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "invoice_id"
-                  },
-                  "val": {
-                    "string": "invoisio-event-test"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "payer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "schema_version"
-                  },
-                  "val": {
-                    "u32": 1
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "settlement_ref"
-                  },
-                  "val": {
-                    "string": "settle-event-test"
-                  }
-                }
-              ]
-            }
-          }
-        }
-      },
-      "failed_call": false
-    }
-  ]
+  "events": []
 }
