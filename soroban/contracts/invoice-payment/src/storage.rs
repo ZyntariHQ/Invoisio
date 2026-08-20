@@ -524,7 +524,8 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
 
 /// Return the current payment count (0 if not yet set). Bumps instance TTL.
 pub fn get_count(env: &Env) -> u32 {
-    let count = env.storage()
+    let count = env
+        .storage()
         .instance()
         .get(&DataKey::PaymentCount)
         .unwrap_or(0u32);
@@ -535,7 +536,8 @@ pub fn get_count(env: &Env) -> u32 {
 
 /// Gets the total number of payment records from instance storage. Bumps TTL.
 pub fn get_payment_count(env: &Env) -> u32 {
-    let count = env.storage()
+    let count = env
+        .storage()
         .instance()
         .get(&DataKey::PaymentCount)
         .unwrap_or(0u32);
@@ -563,7 +565,8 @@ pub fn set_payment_count(env: &Env, count: u32) {
 
 /// Return the number of indexed payment history entries. Bumps instance TTL.
 pub fn get_history_count(env: &Env) -> u32 {
-    let count = env.storage()
+    let count = env
+        .storage()
         .instance()
         .get(&DataKey::PaymentHistoryCount)
         .unwrap_or(0u32);
@@ -613,7 +616,8 @@ pub fn get_missing_history_count(env: &Env) -> u32 {
 
 /// Return `true` if native XLM is allowed. Bumps instance TTL.
 pub fn is_native_allowed(env: &Env) -> bool {
-    let allowed = env.storage()
+    let allowed = env
+        .storage()
         .instance()
         .get(&DataKey::AllowNative)
         .unwrap_or(false);
@@ -663,7 +667,8 @@ pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
 
 /// Return `true` if the contract is paused. Bumps instance TTL.
 pub fn is_paused(env: &Env) -> bool {
-    let paused = env.storage()
+    let paused = env
+        .storage()
         .instance()
         .get(&DataKey::Paused)
         .unwrap_or(false);

@@ -3279,12 +3279,8 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
     ];
 
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
         for i in 0..3u32 {
             env.storage().persistent().set(
                 &DataKey::Payment(records.get(i).unwrap().invoice_id.clone()),
@@ -3365,12 +3361,8 @@ fn test_regression_config_after_upgrade_reflects_all_fields() {
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
     });
 
     env.mock_all_auths();
@@ -3403,12 +3395,8 @@ fn test_regression_admin_controls_after_upgrade() {
 
     // Seed legacy state.
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
     });
 
     // Upgrade.
@@ -3445,7 +3433,6 @@ fn test_regression_admin_controls_after_upgrade() {
 #[test]
 fn test_regression_upgrade_storage_schema_upgraded_event_emitted() {
     use soroban_sdk::testutils::Events as _;
-    use soroban_sdk::Symbol;
 
     let env = Env::default();
     let admin = Address::generate(&env);
@@ -3454,12 +3441,8 @@ fn test_regression_upgrade_storage_schema_upgraded_event_emitted() {
 
     // Seed legacy V0 state.
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
     });
 
     env.mock_all_auths();
@@ -3495,12 +3478,8 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
 
     // Seed legacy state.
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
     });
 
     // Upgrade.
@@ -3591,12 +3570,8 @@ fn test_regression_payment_history_after_upgrade() {
     ];
 
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
         env.storage()
             .instance()
             .set(&DataKey::PaymentHistoryCount, &3u32);
@@ -3688,12 +3663,8 @@ fn test_regression_legacy_record_fields_preserved_after_upgrade() {
     };
 
     env.as_contract(&client.address, || {
-        env.storage()
-            .instance()
-            .set(&DataKey::Admin, &admin);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentCount, &0u32);
+        env.storage().instance().set(&DataKey::Admin, &admin);
+        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
         env.storage()
             .persistent()
             .set(&DataKey::Payment(invoice_id.clone()), &legacy_record);
