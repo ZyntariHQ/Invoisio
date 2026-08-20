@@ -178,5 +178,3 @@ pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
     };
     payload.publish(env);
 }
-
-

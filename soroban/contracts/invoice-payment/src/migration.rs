@@ -10,7 +10,7 @@ use soroban_sdk::{Env, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    get_history_count, get_payment, get_storage_schema_version, is_schema_compatible,
+    get_history_count, get_payment, get_payment_log_entry, get_storage_schema_version,
     set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
 };
 
@@ -60,42 +60,51 @@ pub fn rebuild_payment_history_index(env: &Env) -> Result<(), ContractError> {
     // Write sorted records to history index
     write_history_index(env, sorted)?;
 
-    // Update history count
+    // Update history count. Only emit when there was actually something to
+    // rebuild — an empty rebuild (e.g. a fresh deployment with no payments
+    // yet) is a no-op and shouldn't be reported as an index rebuild.
     let new_count = get_history_count(env);
-    events::emit_history_index_rebuilt(env, new_count);
+    if new_count > 0 {
+        events::emit_history_index_rebuilt(env, new_count);
+    }
 
     Ok(())
 }
 
-/// Checks if the history index is complete by verifying all payment records
-/// have corresponding entries in the history index.
+/// Checks if the history index is complete.
+///
+/// When `PaymentCount` is tracked (the common case), the index is complete
+/// only if it covers every payment and every entry it claims is actually
+/// present. When `PaymentCount` is unset (e.g. history entries were seeded
+/// directly, bypassing `record_payment()`), we fall back to verifying the
+/// entries the index itself claims to have, since there's no independent
+/// count to check against.
 fn is_index_complete(env: &Env) -> bool {
-    // This is a best-effort check. We can't efficiently verify every record
-    // without iterating all of them. We'll check that the count matches
-    // the number of payment records we can find.
     let history_count = get_history_count(env);
     let payment_count = get_payment_count(env);
 
-    // If counts match, assume index is complete (optimistic)
-    // This isn't perfect but catches the common case where index was
-    // correctly built during initial migration.
-    history_count == payment_count && history_count > 0
+    if payment_count == 0 {
+        return history_count == 0 || history_entries_exist(env, history_count);
+    }
+
+    history_count == payment_count && history_entries_exist(env, history_count)
+}
+
+/// Verifies that a `PaymentHistory` entry exists for every index in `0..count`.
+fn history_entries_exist(env: &Env, count: u32) -> bool {
+    for i in 0..count {
+        if !env.storage().persistent().has(&DataKey::PaymentHistory(i)) {
+            return false;
+        }
+    }
+    true
 }
 
 /// Gets the total number of payment records stored.
 fn get_payment_count(env: &Env) -> u32 {
-    // We need to scan all possible payment keys to count them.
-    // This is O(n) but only called during migration.
-    let mut count = 0u32;
-    let mut index = 0u32;
-
-    // We can't enumerate all keys directly, so we need to check for
-    // existence of records. We'll use a reasonable upper bound.
-    // In practice, we'd maintain a separate counter or use a different
-    // approach for enumeration.
-    //
-    // For now, we use the PaymentCount stored in instance storage.
-    // This is maintained by record_payment() and should be accurate.
+    // We can't enumerate all keys directly, so we use the PaymentCount
+    // stored in instance storage. This is maintained by record_payment()
+    // and should be accurate.
     env.storage()
         .instance()
         .get(&DataKey::PaymentCount)
@@ -115,53 +124,21 @@ fn clear_history_index(env: &Env) {
 
 /// Collects all payment records from persistent storage.
 ///
-/// This function iterates through payment records using both legacy and V1 keys.
-/// It handles mixed deployment states where some records are under V0 keys
-/// and others under V1 keys.
+/// Soroban has no key enumeration, so records are found via the `PaymentLog`
+/// write-order index (invoice ID keyed by `PaymentCount` index), which is
+/// maintained independently of `PaymentHistory` and therefore survives even
+/// if the history index itself is cleared or corrupted. Each invoice ID is
+/// then resolved through `get_payment()`, which transparently handles both
+/// legacy V0 and current V1 storage keys.
 fn collect_all_payment_records(env: &Env) -> Result<Vec<PaymentRecord>, ContractError> {
     let mut records: Vec<PaymentRecord> = Vec::new(env);
 
-    // Get the payment count from instance storage
-    let count = get_payment_count(env);
-
-    // We need to find all payment keys. Since we can't enumerate keys directly,
-    // we use a different approach: iterate through potential invoice IDs.
-    //
-    // This is a limitation of Soroban's storage model - we can't enumerate
-    // keys. The recommended approach is to maintain a list of payment IDs
-    // or use the history index itself for enumeration.
-    //
-    // For migration, we'll use the PaymentHistory index if it exists, or
-    // we'll rely on the fact that record_payment() maintains PaymentCount
-    // and we can track invoice IDs separately.
-    //
-    // For this implementation, we assume the migration is called as part of
-    // upgrade_storage() and we can access the data through the legacy
-    // get_payment() function which handles both V0 and V1 keys.
-
-    // Since we can't enumerate easily, we'll use the PaymentHistory index
-    // if it has records, otherwise we'll need to rely on external tracking.
-    // For a production deployment, we'd maintain a list of invoice IDs
-    // in a separate storage entry.
-    //
-    // For this implementation, we'll use the get_payment() function with
-    // known invoice IDs from the history index, or we'll assume the
-    // migration is called before any records are added.
-    //
-    // A more robust approach would be to store invoice IDs in a set,
-    // but that would require changes to the core storage model.
-    //
-    // As a fallback, we return an empty vec and let the caller handle it.
-    // The index will be rebuilt when the first payment is recorded after
-    // migration, or we can provide a manual migration function that
-    // accepts a list of invoice IDs.
-
-    // For now, we'll use the history index entries as the source of truth.
-    let history_count = get_history_count(env);
-    for i in 0..history_count {
-        let key = DataKey::PaymentHistory(i);
-        if let Some(record) = env.storage().persistent().get::<DataKey, PaymentRecord>(&key) {
-            records.push_back(record);
+    let payment_count = get_payment_count(env);
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                records.push_back(record);
+            }
         }
     }
 
@@ -173,9 +150,9 @@ fn collect_all_payment_records(env: &Env) -> Result<Vec<PaymentRecord>, Contract
 /// Legacy records (timestamp = 0 or older) are placed first to maintain
 /// chronological order. Records with the same timestamp are ordered by
 /// their insertion order (stable sort).
-fn sort_records_by_timestamp(env: &Env, mut records: Vec<PaymentRecord>) -> Vec<PaymentRecord> {
-    // Convert to a mutable vector for sorting
-    let mut sorted: Vec<PaymentRecord> = records.to_vec();
+fn sort_records_by_timestamp(env: &Env, records: Vec<PaymentRecord>) -> Vec<PaymentRecord> {
+    // Convert to a heap-allocated vector for sorting
+    let mut sorted: alloc::vec::Vec<PaymentRecord> = records.iter().collect();
 
     // Sort by timestamp ascending, then by insertion order (stable)
     sorted.sort_by_key(|record| record.timestamp);
@@ -191,7 +168,7 @@ fn sort_records_by_timestamp(env: &Env, mut records: Vec<PaymentRecord>) -> Vec<
 
 /// Writes the sorted records to the history index.
 fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), ContractError> {
-    let count = records.len() as u32;
+    let count = records.len();
 
     // Clear existing index first
     clear_history_index(env);
@@ -201,9 +178,11 @@ fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), Con
         let key = DataKey::PaymentHistory(i as u32);
         env.storage().persistent().set(&key, &record);
         // Bump TTL
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, crate::storage::MIN_TTL, crate::storage::BUMP_TTL);
+        env.storage().persistent().extend_ttl(
+            &key,
+            crate::storage::MIN_TTL,
+            crate::storage::BUMP_TTL,
+        );
     }
 
     // Update history count
@@ -237,16 +216,14 @@ pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        storage::{PaymentRecord, set_payment},
-        InvoicePaymentContractClient, InvoicePaymentContract,
-    };
+    use crate::{InvoicePaymentContract, InvoicePaymentContractClient};
+    use alloc::format;
     use soroban_sdk::{
         testutils::{Address as _, Ledger as _},
         Address, Env, String,
     };
 
-    fn setup_test(env: &Env) -> (InvoicePaymentContractClient, Address) {
+    fn setup_test(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
         let admin = Address::generate(env);
         let contract_id = env.register(InvoicePaymentContract, ());
         let client = InvoicePaymentContractClient::new(env, &contract_id);
@@ -341,7 +318,7 @@ mod tests {
         client.set_allow_native(&true);
 
         // We can't directly set timestamps, but they'll be in insertion order
-        let invoice_ids = vec!["inv-a", "inv-b", "inv-c"];
+        let invoice_ids = ["inv-a", "inv-b", "inv-c"];
         for (i, id) in invoice_ids.iter().enumerate() {
             // Advance time between records
             let ts = env.ledger().timestamp();

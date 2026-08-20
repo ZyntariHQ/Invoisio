@@ -4,9 +4,8 @@
 //! migration. Since Soroban doesn't support key enumeration, we use a
 //! combination of tracking mechanisms.
 
-use soroban_sdk::{Address, Env, String};
+use soroban_sdk::{Env, Vec};
 
-use crate::errors::ContractError;
 use crate::storage::{DataKey, PaymentRecord};
 
 /// Iterator over payment records stored in the contract.
@@ -42,7 +41,7 @@ impl<'a> PaymentRecordIterator<'a> {
     ///
     /// This method attempts to retrieve records from the history index first,
     /// falling back to direct payment key lookup if the history index is incomplete.
-    pub fn next(&mut self) -> Option<PaymentRecord> {
+    pub fn next_record(&mut self) -> Option<PaymentRecord> {
         if self.exhausted {
             return None;
         }
@@ -72,7 +71,7 @@ impl<'a> PaymentRecordIterator<'a> {
     /// Collects all payment records into a vector.
     pub fn collect_all(&mut self) -> Vec<PaymentRecord> {
         let mut records = Vec::new(self.env);
-        while let Some(record) = self.next() {
+        while let Some(record) = self.next_record() {
             records.push_back(record);
         }
         records
@@ -124,16 +123,11 @@ pub fn collect_legacy_payments(env: &Env) -> Vec<PaymentRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        storage::{set_payment, PaymentRecord},
-        InvoicePaymentContractClient, InvoicePaymentContract,
-    };
-    use soroban_sdk::{
-        testutils::{Address as _, Ledger as _},
-        Address, Env, String,
-    };
+    use crate::{InvoicePaymentContract, InvoicePaymentContractClient};
+    use alloc::format;
+    use soroban_sdk::{testutils::Address as _, Address, Env, String};
 
-    fn setup_test(env: &Env) -> (InvoicePaymentContractClient, Address) {
+    fn setup_test(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
         let admin = Address::generate(env);
         let contract_id = env.register(InvoicePaymentContract, ());
         let client = InvoicePaymentContractClient::new(env, &contract_id);
@@ -146,8 +140,10 @@ mod tests {
         let env = Env::default();
         let (client, _admin) = setup_test(&env);
 
-        let mut iterator = PaymentRecordIterator::new(&env);
-        let records = iterator.collect_all();
+        let records = env.as_contract(&client.address, || {
+            let mut iterator = PaymentRecordIterator::new(&env);
+            iterator.collect_all()
+        });
         assert_eq!(records.len(), 0);
     }
 
@@ -172,8 +168,10 @@ mod tests {
             );
         }
 
-        let mut iterator = PaymentRecordIterator::new(&env);
-        let records = iterator.collect_all();
+        let records = env.as_contract(&client.address, || {
+            let mut iterator = PaymentRecordIterator::new(&env);
+            iterator.collect_all()
+        });
         assert_eq!(records.len(), 3);
     }
 
@@ -198,7 +196,7 @@ mod tests {
             );
         }
 
-        let records = collect_legacy_payments(&env);
+        let records = env.as_contract(&client.address, || collect_legacy_payments(&env));
         // Should find records in the history index
         assert_eq!(records.len(), 3);
     }

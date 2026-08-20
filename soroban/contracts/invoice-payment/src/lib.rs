@@ -4,9 +4,9 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 pub mod errors;
 pub mod events;
-pub mod storage;
 pub mod migration;
 pub mod migration_helpers;
+pub mod storage;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
@@ -21,11 +21,11 @@ use events::{
     emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, bump_count, bump_history_count, clear_pending_admin,
-    current_contract_meta, ensure_current_contract_meta, get_admin, get_contract_config, get_count,
-    get_payment, get_payment_history_page, get_pending_admin, get_pending_admin_opt,
-    get_state_contract_version, get_storage_schema_version, has_admin, has_payment,
-    has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
+    allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
+    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
+    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
     set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
 };
 
@@ -256,6 +256,10 @@ impl InvoicePaymentContract {
             settlement_ref: settlement_ref.clone(),
         };
         set_payment(&env, &record);
+
+        // Track the invoice ID in write order so migrations can enumerate
+        // every payment even if the history index is later corrupted.
+        append_payment_log(&env, &record.invoice_id);
 
         // 7. Increment running counter (also bumps instance TTL).
         bump_count(&env);

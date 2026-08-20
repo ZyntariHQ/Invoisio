@@ -1,15 +1,14 @@
+use crate::errors::ContractError;
 use crate::events;
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
-use crate::errors::ContractError;
-
 
 // TTL budget
 // At ~5-second ledger close times:
 //   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
 //   BUMP_TTL = 518 400 ledgers ≈ 30 days (target TTL after extension)
 
-const MIN_TTL: u32 = 17_280;
-const BUMP_TTL: u32 = 518_400;
+pub(crate) const MIN_TTL: u32 = 17_280;
+pub(crate) const BUMP_TTL: u32 = 518_400;
 
 // Versioning
 
@@ -111,6 +110,11 @@ pub enum DataKey {
     PaymentV1(String),
     /// Append-only history index used for deterministic paging.
     PaymentHistory(u32),
+    /// Append-only write-order log of invoice IDs, keyed by `PaymentCount`
+    /// index at write time. Kept independent of `PaymentHistory` so payment
+    /// records stay enumerable during index rebuilds even if the history
+    /// index itself is corrupted or cleared.
+    PaymentLog(u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -376,6 +380,34 @@ pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
+fn payment_log_key(index: u32) -> DataKey {
+    DataKey::PaymentLog(index)
+}
+
+/// Append `invoice_id` to the write-order log at the current `PaymentCount`
+/// index. This lets migrations enumerate every recorded payment even when
+/// `PaymentHistory` has been cleared or corrupted.
+pub fn append_payment_log(env: &Env, invoice_id: &String) {
+    let index = get_count(env);
+    let key = payment_log_key(index);
+    env.storage().persistent().set(&key, invoice_id);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Look up the invoice ID recorded at a given write-order index, if any.
+pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
+    let key = payment_log_key(index);
+    let entry: Option<String> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    entry
+}
+
 // Payment counter helpers (instance storage)
 
 /// Return the current payment count (0 if not yet set).
@@ -550,17 +582,6 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     Ok(())
 }
 
-/// Migration from schema version 0 (legacy) to version 1.
-///
-/// Schema V0: No ContractMeta, Payment keys only.
-/// Schema V1: ContractMeta + PaymentV1 keys (with lazy migration on read).
-fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
-    // The lazy migration path in get_payment() already handles data migration.
-    // We just need to ensure ContractMeta exists and is correct.
-    ensure_current_contract_meta(env);
-    Ok(())
-}
-
 /// Check if the current storage schema is compatible with this contract version.
 ///
 /// Returns true if the schema version is <= the version expected by the contract.
@@ -609,9 +630,7 @@ pub fn get_payment_count(env: &Env) -> u32 {
 
 /// Sets the payment count in instance storage.
 pub fn set_payment_count(env: &Env, count: u32) {
-    env.storage()
-        .instance()
-        .set(&DataKey::PaymentCount, &count);
+    env.storage().instance().set(&DataKey::PaymentCount, &count);
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
@@ -626,9 +645,5 @@ pub fn is_history_index_consistent(env: &Env) -> bool {
 pub fn get_missing_history_count(env: &Env) -> u32 {
     let history_count = get_history_count(env);
     let payment_count = get_payment_count(env);
-    if payment_count > history_count {
-        payment_count - history_count
-    } else {
-        0
-    }
+    payment_count.saturating_sub(history_count)
 }
