@@ -1,7 +1,7 @@
-use soroban_sdk::{contracttype, Address, Env, String, Vec};
-
-use crate::errors::ContractError;
 use crate::events;
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
+use crate::errors::ContractError;
+
 
 // TTL budget
 // At ~5-second ledger close times:
@@ -509,6 +509,12 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     let current = get_storage_schema_version(env);
 
     if current == target_version {
+        // Even if schema is current, ensure history index is complete
+        // This catches cases where migration was interrupted
+        if !is_history_index_consistent(env) {
+            // Rebuild the index if it's incomplete
+            crate::migration::rebuild_payment_history_index(env)?;
+        }
         return Ok(());
     }
 
@@ -520,7 +526,10 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     let mut version = current;
     while version < target_version {
         match version {
-            0 => migrate_schema_v0_to_v1(env)?,
+            0 => {
+                // Use the migration module for V0 → V1
+                crate::migration::migrate_schema_v0_to_v1(env)?;
+            }
             // Future migrations:
             // 1 => migrate_schema_v1_to_v2(env)?,
             // 2 => migrate_schema_v2_to_v3(env)?,
@@ -580,4 +589,46 @@ pub fn is_paused(env: &Env) -> bool {
 pub fn set_paused(env: &Env, paused: bool) {
     env.storage().instance().set(&DataKey::Paused, &paused);
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Sets the history count in instance storage.
+pub fn set_history_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Gets the total number of payment records from instance storage.
+pub fn get_payment_count(env: &Env) -> u32 {
+    env.storage()
+        .instance()
+        .get(&DataKey::PaymentCount)
+        .unwrap_or(0u32)
+}
+
+/// Sets the payment count in instance storage.
+pub fn set_payment_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Checks if the history index is consistent with the payment count.
+pub fn is_history_index_consistent(env: &Env) -> bool {
+    let history_count = get_history_count(env);
+    let payment_count = get_payment_count(env);
+    history_count == payment_count
+}
+
+/// Returns the number of history entries that are missing from the index.
+pub fn get_missing_history_count(env: &Env) -> u32 {
+    let history_count = get_history_count(env);
+    let payment_count = get_payment_count(env);
+    if payment_count > history_count {
+        payment_count - history_count
+    } else {
+        0
+    }
 }

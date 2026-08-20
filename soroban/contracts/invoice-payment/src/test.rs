@@ -3710,3 +3710,186 @@ fn test_regression_legacy_record_fields_preserved_after_upgrade() {
     assert_eq!(loaded.timestamp, legacy_record.timestamp);
     assert_eq!(loaded.settlement_ref, legacy_record.settlement_ref);
 }
+
+// ─── Migration Tests ───────────────────────────────────────────────────────────
+
+#[test]
+fn test_upgrade_storage_rebuilds_history_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Add some payments
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    for i in 0..5u32 {
+        let invoice_id = String::from_str(&env, &format!("migrate-{:02}", i));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((i as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-{:02}", i)),
+        );
+    }
+
+    // Verify initial history
+    let history = client.payment_history(&0u32, &10u32);
+    assert_eq!(history.records.len(), 5);
+
+    // Simulate a legacy deployment by clearing metadata
+    env.as_contract(&client.address, || {
+        env.storage().instance().remove(&DataKey::ContractMeta);
+        // Clear history index to simulate incomplete migration
+        for i in 0..5u32 {
+            let key = DataKey::PaymentHistory(i);
+            env.storage().persistent().remove(&key);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &0u32);
+    });
+
+    // History should now be empty
+    let empty = client.payment_history(&0u32, &10u32);
+    assert_eq!(empty.records.len(), 0);
+
+    // Upgrade storage - should rebuild index
+    let result = client.try_upgrade_storage(&admin);
+    assert!(result.is_ok());
+
+    // History should be restored
+    let rebuilt = client.payment_history(&0u32, &10u32);
+    assert_eq!(rebuilt.records.len(), 5);
+    assert_eq!(rebuilt.next_cursor, 5);
+    assert!(!rebuilt.has_more);
+}
+
+#[test]
+fn test_rebuild_history_index_manual() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Add some payments
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    for i in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("manual-{:02}", i));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((i as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-{:02}", i)),
+        );
+    }
+
+    // Clear history index
+    env.as_contract(&client.address, || {
+        for i in 0..3u32 {
+            let key = DataKey::PaymentHistory(i);
+            env.storage().persistent().remove(&key);
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &0u32);
+    });
+
+    // Verify history is empty
+    let empty = client.payment_history(&0u32, &10u32);
+    assert_eq!(empty.records.len(), 0);
+
+    // Manually rebuild
+    let result = client.try_rebuild_history_index(&admin);
+    assert!(result.is_ok());
+
+    // History should be restored
+    let rebuilt = client.payment_history(&0u32, &10u32);
+    assert_eq!(rebuilt.records.len(), 3);
+}
+
+#[test]
+fn test_history_index_status() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Check initial status
+    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    assert_eq!(history_count, 0);
+    assert_eq!(payment_count, 0);
+    assert!(is_consistent);
+
+    // Add payments
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    for i in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("status-{:02}", i));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((i as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-{:02}", i)),
+        );
+    }
+
+    // Status should show consistency
+    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    assert_eq!(history_count, 3);
+    assert_eq!(payment_count, 3);
+    assert!(is_consistent);
+
+    // Corrupt the index
+    env.as_contract(&client.address, || {
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &1u32);
+    });
+
+    // Status should show inconsistency
+    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    assert_eq!(history_count, 1);
+    assert_eq!(payment_count, 3);
+    assert!(!is_consistent);
+
+    // Rebuild to fix
+    let result = client.try_rebuild_history_index(&admin);
+    assert!(result.is_ok());
+
+    // Status should show consistency again
+    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    assert_eq!(history_count, 3);
+    assert_eq!(payment_count, 3);
+    assert!(is_consistent);
+}
+
+#[test]
+fn test_rebuild_history_index_unauthorized() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    // Attacker tries to rebuild
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &attacker,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "rebuild_history_index",
+            args: (attacker.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_rebuild_history_index(&attacker);
+    assert!(result.is_err());
+
+    // Admin can rebuild
+    env.mock_all_auths();
+    let result = client.try_rebuild_history_index(&_admin);
+    assert!(result.is_ok());
+}

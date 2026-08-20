@@ -5,6 +5,8 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String};
 pub mod errors;
 pub mod events;
 pub mod storage;
+pub mod migration;
+pub mod migration_helpers;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
@@ -546,6 +548,50 @@ impl InvoicePaymentContract {
     /// Return `true` if the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    /// Rebuild the payment history index from existing records.
+    ///
+    /// This is a maintenance function that can be called by the admin to
+    /// rebuild the history index if it becomes corrupted or incomplete.
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    ///
+    /// ## When to use
+    /// - After a storage upgrade that didn't properly rebuild indexes
+    /// - If the history index becomes inconsistent with the payment records
+    /// - As a recovery mechanism if the index is corrupted
+    ///
+    /// ## Errors
+    /// - `NotInitialized` if contract not initialized
+    /// - `Unauthorized` if caller is not admin
+    /// - `HistoryIndexRebuildFailed` if rebuild fails
+    pub fn rebuild_history_index(env: Env, admin: Address) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        // Ensure schema is current
+        if !crate::storage::is_schema_compatible(&env) {
+            return Err(ContractError::MigrationRequired);
+        }
+
+        // Rebuild the index
+        crate::migration::rebuild_payment_history_index(&env)
+    }
+
+    /// Get the consistency status of the history index.
+    ///
+    /// Returns a tuple (history_count, payment_count, is_consistent).
+    /// This is a diagnostic function for ops tooling.
+    pub fn history_index_status(env: Env) -> (u32, u32, bool) {
+        let history_count = crate::storage::get_history_count(&env);
+        let payment_count = crate::storage::get_payment_count(&env);
+        let is_consistent = history_count == payment_count;
+        (history_count, payment_count, is_consistent)
     }
 }
 
