@@ -1,7 +1,6 @@
-use soroban_sdk::{contracttype, Address, Env, String, Vec};
-
 use crate::errors::ContractError;
 use crate::events;
+use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 // ============================================================================
 // TTL Policy
@@ -56,8 +55,8 @@ use crate::events;
 //   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
 //   BUMP_TTL = 518 400 ledgers ≈ 30 days (target TTL after extension)
 
-const MIN_TTL: u32 = 17_280;
-const BUMP_TTL: u32 = 518_400;
+pub(crate) const MIN_TTL: u32 = 17_280;
+pub(crate) const BUMP_TTL: u32 = 518_400;
 
 // Versioning
 
@@ -159,6 +158,11 @@ pub enum DataKey {
     PaymentV1(String),
     /// Append-only history index used for deterministic paging.
     PaymentHistory(u32),
+    /// Append-only write-order log of invoice IDs, keyed by `PaymentCount`
+    /// index at write time. Kept independent of `PaymentHistory` so payment
+    /// records stay enumerable during index rebuilds even if the history
+    /// index itself is corrupted or cleared.
+    PaymentLog(u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -483,6 +487,34 @@ pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
 
+fn payment_log_key(index: u32) -> DataKey {
+    DataKey::PaymentLog(index)
+}
+
+/// Append `invoice_id` to the write-order log at the current `PaymentCount`
+/// index. This lets migrations enumerate every recorded payment even when
+/// `PaymentHistory` has been cleared or corrupted.
+pub fn append_payment_log(env: &Env, invoice_id: &String) {
+    let index = get_count(env);
+    let key = payment_log_key(index);
+    env.storage().persistent().set(&key, invoice_id);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Look up the invoice ID recorded at a given write-order index, if any.
+pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
+    let key = payment_log_key(index);
+    let entry: Option<String> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    entry
+}
+
 /// Get a history record by index. Extends TTL if record exists.
 fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
     let key = payment_history_key(index);
@@ -703,6 +735,12 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     let current = get_storage_schema_version(env);
 
     if current == target_version {
+        // Even if schema is current, ensure history index is complete
+        // This catches cases where migration was interrupted
+        if !is_history_index_consistent(env) {
+            // Rebuild the index if it's incomplete
+            crate::migration::rebuild_payment_history_index(env)?;
+        }
         return Ok(());
     }
 
@@ -714,7 +752,10 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     let mut version = current;
     while version < target_version {
         match version {
-            0 => migrate_schema_v0_to_v1(env)?,
+            0 => {
+                // Use the migration module for V0 → V1
+                crate::migration::migrate_schema_v0_to_v1(env)?;
+            }
             // Future migrations:
             // 1 => migrate_schema_v1_to_v2(env)?,
             // 2 => migrate_schema_v2_to_v3(env)?,
@@ -732,16 +773,5 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     // Emit upgrade event
     events::emit_storage_schema_upgraded(env, old_version, target_version);
 
-    Ok(())
-}
-
-/// Migration from schema version 0 (legacy) to version 1.
-///
-/// Schema V0: No ContractMeta, Payment keys only.
-/// Schema V1: ContractMeta + PaymentV1 keys (with lazy migration on read).
-fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
-    // The lazy migration path in get_payment() already handles data migration.
-    // We just need to ensure ContractMeta exists and is correct.
-    ensure_current_contract_meta(env);
     Ok(())
 }
