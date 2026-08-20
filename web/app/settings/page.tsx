@@ -7,7 +7,10 @@ import {
   MerchantService,
   type MerchantProfile,
 } from '@/lib/merchant-service';
-import { UserService } from '@/lib/user-service';
+import {
+  UserService,
+  type NotificationPreferences,
+} from '@/lib/user-service';
 
 const STELLAR_KEY_RE = /^G[A-Z2-7]{55}$/;
 const ASSETS = ['USDC', 'EURC', 'XLM', 'USD'] as const;
@@ -278,33 +281,41 @@ function AssetSection({ profile, onSaved }: SectionProps) {
   );
 }
 
-function NotificationsSection({ profile, onSaved }: SectionProps) {
+interface NotificationsSectionProps extends SectionProps {
+  initialPreferences: NotificationPreferences | null;
+  isLoadingPreferences: boolean;
+  preferencesError: string | null;
+  onPreferencesSaved: (updated: NotificationPreferences) => void;
+}
+
+function NotificationsSection({
+  profile,
+  onSaved,
+  initialPreferences,
+  isLoadingPreferences,
+  preferencesError,
+  onPreferencesSaved,
+}: NotificationsSectionProps) {
   const [webhookUrl, setWebhookUrl] = useState(profile.webhookUrl ?? '');
-  const [pushEnabled, setPushEnabled] = useState(true);
+  const [pushEnabled, setPushEnabled] = useState(
+    initialPreferences?.pushNotificationsEnabled ?? true,
+  );
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   useEffect(() => {
-    UserService.getNotificationPreferences()
-      .then((prefs) => {
-        setPushEnabled(prefs.pushNotificationsEnabled);
-      })
-      .catch((err) => {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Failed to load notification settings.',
-        );
-      });
-  }, []);
+    if (initialPreferences) {
+      setPushEnabled(initialPreferences.pushNotificationsEnabled);
+    }
+  }, [initialPreferences]);
 
   const trimmedWebhook = webhookUrl.trim();
   const isWebhookValid =
     trimmedWebhook.length === 0 || /^https?:\/\/\S+$/.test(trimmedWebhook);
 
   const handleSave = async () => {
-    if (isSaving || !isWebhookValid) return;
+    if (isSaving || !isWebhookValid || isLoadingPreferences) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
@@ -316,6 +327,13 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
         pushNotificationsEnabled: pushEnabled,
       });
       onSaved(updated);
+      onPreferencesSaved({
+        pushNotificationsEnabled: pushEnabled,
+        registeredPushTokensCount:
+          initialPreferences?.registeredPushTokensCount ?? 0,
+        preferenceExplicit: true,
+        contractVersion: initialPreferences?.contractVersion ?? '1.0.0',
+      });
       setSuccess('Notification settings saved.');
     } catch (err) {
       setError(
@@ -327,6 +345,8 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
       setIsSaving(false);
     }
   };
+
+  const displayError = error || preferencesError;
 
   return (
     <SectionCard
@@ -362,29 +382,37 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
             paid or becomes overdue.
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={pushEnabled}
-          onClick={() => setPushEnabled((v) => !v)}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-            pushEnabled ? 'bg-blue-600' : 'bg-gray-300'
-          }`}
-        >
-          <span className="sr-only">Toggle push notifications</span>
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              pushEnabled ? 'translate-x-6' : 'translate-x-1'
-            }`}
+        {isLoadingPreferences && !initialPreferences ? (
+          <div
+            className="h-6 w-11 animate-pulse rounded-full bg-gray-200"
+            aria-label="Loading notification preferences"
           />
-        </button>
+        ) : (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pushEnabled}
+            disabled={isSaving || isLoadingPreferences}
+            onClick={() => setPushEnabled((v: boolean) => !v)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+              pushEnabled ? 'bg-blue-600' : 'bg-gray-300'
+            } ${isSaving || isLoadingPreferences ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+          >
+            <span className="sr-only">Toggle push notifications</span>
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                pushEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        )}
       </div>
 
-      <SaveFeedback error={error} success={success} />
+      <SaveFeedback error={displayError} success={success} />
       <SaveButton
         onClick={handleSave}
         isSaving={isSaving}
-        disabled={!isWebhookValid}
+        disabled={!isWebhookValid || isLoadingPreferences}
       />
     </SectionCard>
   );
@@ -394,9 +422,14 @@ function SettingsContent() {
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [notificationPrefs, setNotificationPrefs] =
+    useState<NotificationPreferences | null>(null);
+  const [isLoadingPrefs, setIsLoadingPrefs] = useState<boolean>(true);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
+
     MerchantService.getProfile()
       .then((data) => {
         if (!cancelled) setProfile(data);
@@ -408,6 +441,25 @@ function SettingsContent() {
           );
         }
       });
+
+    UserService.getNotificationPreferences()
+      .then((prefs) => {
+        if (!cancelled) {
+          setNotificationPrefs(prefs);
+          setIsLoadingPrefs(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setPrefsError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to load notification settings.',
+          );
+          setIsLoadingPrefs(false);
+        }
+      });
+
     return () => {
       cancelled = true;
     };
@@ -487,7 +539,14 @@ function SettingsContent() {
           <AssetSection profile={profile} onSaved={setProfile} />
         )}
         {activeTab === 'notifications' && (
-          <NotificationsSection profile={profile} onSaved={setProfile} />
+          <NotificationsSection
+            profile={profile}
+            onSaved={setProfile}
+            initialPreferences={notificationPrefs}
+            isLoadingPreferences={isLoadingPrefs}
+            preferencesError={prefsError}
+            onPreferencesSaved={setNotificationPrefs}
+          />
         )}
       </div>
     </div>
