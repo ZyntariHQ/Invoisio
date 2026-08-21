@@ -6,6 +6,7 @@ import {
   navigateToDeepLink,
   getInitialUrl,
 } from "../lib/deep-links";
+import { deepLinkRequiresAuth } from "../lib/auth-routes";
 import { useAuthStore } from "./use-auth-store";
 
 /**
@@ -36,9 +37,7 @@ export function useDeepLinks() {
       // Wait for auth if needed
       // Payment and receipt entry points are intentionally public so payers do
       // not need a merchant account. Merchant-only links resume after sign-in.
-      const requiresAuth =
-        data.type === "invoice" || data.type === "create-invoice";
-      if (!isAuthenticated && requiresAuth) {
+      if (!isAuthenticated && deepLinkRequiresAuth(data.type)) {
         setPendingDeepLink(url);
         return;
       }
