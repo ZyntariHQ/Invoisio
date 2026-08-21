@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SorobanContractError = exports.getContractErrorCode = exports.getContractError = exports.CONTRACT_ERROR_MANIFEST = exports.CONTRACT_ERROR_CODES = exports.decodeSorobanEvent = exports.decodeEventStream = exports.EVENT_SCHEMA_VERSION = exports.SorobanInvoiceClient = void 0;
+exports.SorobanContractError = exports.getContractErrorCode = exports.getContractError = exports.CONTRACT_ERROR_MANIFEST = exports.CONTRACT_ERROR_CODES = exports.decodeSorobanEvent = exports.decodeEventStream = exports.EVENT_SCHEMA_VERSION = exports.parseContractError = exports.SorobanInvoiceClient = void 0;
 var soroban_invoice_client_1 = require("./soroban-invoice-client");
 Object.defineProperty(exports, "SorobanInvoiceClient", { enumerable: true, get: function () { return soroban_invoice_client_1.SorobanInvoiceClient; } });
+var codec_1 = require("./codec");
+Object.defineProperty(exports, "parseContractError", { enumerable: true, get: function () { return codec_1.parseContractError; } });
 var events_1 = require("./events");
 Object.defineProperty(exports, "EVENT_SCHEMA_VERSION", { enumerable: true, get: function () { return events_1.EVENT_SCHEMA_VERSION; } });
 Object.defineProperty(exports, "decodeEventStream", { enumerable: true, get: function () { return events_1.decodeEventStream; } });

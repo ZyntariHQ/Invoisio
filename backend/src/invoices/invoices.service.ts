@@ -723,6 +723,32 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Record that a Soroban anchoring attempt failed, so reconciliation flows
+   * can find and act on it without grepping logs. `sorobanTxHash`/
+   * `sorobanContractId` are left untouched — they only ever reflect a
+   * successful anchor via {@link updateSorobanMetadata}.
+   *
+   * @param kind - "permanent" for a deterministic contract-level rejection
+   *   (e.g. duplicate payment, invalid settlement ref) that will not
+   *   resolve by retrying; "transient" for a transport/RPC failure that
+   *   exhausted its retries and may succeed on a later attempt.
+   */
+  async recordAnchoringFailure(
+    id: string,
+    kind: "permanent" | "transient",
+  ): Promise<void> {
+    await this.prisma.invoiceStatusHistory.create({
+      data: {
+        invoiceId: id,
+        status:
+          kind === "permanent"
+            ? "anchoring_failed_permanent"
+            : "anchoring_failed_transient",
+      },
+    });
+  }
+
+  /**
    * Find invoice by memo (for payment matching)
    * @param memo - Stellar memo ID string
    * @returns Invoice or undefined if not found

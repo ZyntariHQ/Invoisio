@@ -40,6 +40,31 @@ export class SorobanContractError extends Error {
   }
 }
 
+/**
+ * Minimal stand-in for the real package's `parseContractError`. Recognizes
+ * only the codes backend tests actually exercise — extend as needed rather
+ * than trying to fully mirror `soroban/client/src/error-manifest.ts` here.
+ */
+const KNOWN_CONTRACT_ERROR_CODES: Record<number, string> = {
+  3: "PaymentAlreadyRecorded",
+  9: "Unauthorized",
+  12: "ContractPaused",
+  13: "InvalidSettlementRef",
+};
+
+const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)|contractError\((\d+)\)/;
+
+export function parseContractError(errorString: string): SorobanContractError {
+  const match = CONTRACT_ERROR_RE.exec(errorString);
+  const numericCode = match ? parseInt(match[1] ?? match[2], 10) : -1;
+  const code = KNOWN_CONTRACT_ERROR_CODES[numericCode] ?? "Unknown";
+  return new SorobanContractError(
+    code,
+    numericCode,
+    `Soroban contract error: ${code} (code=${numericCode})`,
+  );
+}
+
 export class SorobanInvoiceClient {
   constructor(_config: unknown) {}
 

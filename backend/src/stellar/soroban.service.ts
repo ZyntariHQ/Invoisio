@@ -8,6 +8,11 @@ import {
   Keypair,
   xdr,
 } from "@stellar/stellar-sdk";
+import {
+  parseContractError,
+  SorobanContractError,
+} from "@invoisio/soroban-client";
+import { SorobanRpcException } from "./exceptions/stellar.exceptions";
 
 export interface RecordPaymentParams {
   invoiceId: string;
@@ -82,6 +87,23 @@ export class SorobanService {
     }
   }
 
+  /**
+   * Anchor a confirmed Horizon payment to the Soroban contract.
+   *
+   * @returns `null` only when Soroban anchoring is not configured for this
+   *   deployment (no contract ID / secret key) — an intentional no-op, not a
+   *   failure. Any anchoring *attempt* that fails, whether a permanent
+   *   contract-level rejection or a transient transport error that
+   *   exhausted its retries, throws rather than returning `null`, so
+   *   callers can never mistake a swallowed failure for a disabled feature.
+   * @throws {SorobanContractError} the contract rejected the write
+   *   deterministically (e.g. `PaymentAlreadyRecorded`, `InvalidSettlementRef`,
+   *   `ContractPaused`) — retrying the same call will fail identically, so
+   *   this is thrown immediately without consuming retry attempts.
+   * @throws {SorobanRpcException} a transient transport/RPC failure
+   *   (network error, timeout, malformed response) persisted through
+   *   `SOROBAN_MAX_RETRIES` attempts.
+   */
   async recordPayment(
     params: RecordPaymentParams,
   ): Promise<SorobanMetadata | null> {
@@ -163,20 +185,37 @@ export class SorobanService {
     };
   }
 
-  private async withRetry<T>(
-    fn: () => Promise<T>,
-    attempt = 1,
-  ): Promise<T | null> {
+  /**
+   * Runs `fn` with exponential-backoff retry, but only for transient
+   * transport failures. A permanent, deterministic contract-level rejection
+   * (decodable via `parseContractError`) is thrown immediately — retrying
+   * the exact same call would just fail identically every time, so burning
+   * retry attempts (and the caller's time) on it would be pure waste and
+   * would delay surfacing an error that needs a data fix, not a retry.
+   */
+  private async withRetry<T>(fn: () => Promise<T>, attempt = 1): Promise<T> {
     try {
       return await fn();
     } catch (error) {
-      const errMsg = (error as Error).message;
+      const errMsg = error instanceof Error ? error.message : String(error);
+      const contractError: SorobanContractError = parseContractError(errMsg);
+
+      if (contractError.code !== "Unknown") {
+        this.logger.error(
+          `Soroban record_payment rejected by contract [${contractError.code}] (code=${contractError.numericCode}): ${errMsg}`,
+        );
+        throw contractError;
+      }
 
       if (attempt >= this.maxRetries) {
         this.logger.error(
           `Soroban invocation failed after ${this.maxRetries} attempts: ${errMsg}`,
         );
-        return null;
+        throw new SorobanRpcException(
+          `Soroban record_payment failed after ${this.maxRetries} attempts: ${errMsg}`,
+          undefined,
+          error,
+        );
       }
 
       const delay = this.baseDelayMs * Math.pow(2, attempt - 1);
