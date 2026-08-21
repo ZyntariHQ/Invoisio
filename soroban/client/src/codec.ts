@@ -34,7 +34,7 @@ export function encodeU32(value: number): xdr.ScVal {
 }
 
 export function encodeBool(value: boolean): xdr.ScVal {
-  return nativeToScVal(value, { type: 'bool' });
+  return nativeToScVal(value);
 }
 
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
@@ -81,9 +81,9 @@ function decodePaymentRecordFromNative(raw: Record<string, unknown>): PaymentRec
     invoiceId: String(raw['invoice_id']),
     payer: String(raw['payer']),
     asset: decodeAsset(raw['asset']),
+    settlementRef: String(raw['settlement_ref']),
     amount: BigInt(raw['amount'] as bigint | number | string),
     timestamp: BigInt(raw['timestamp'] as bigint | number | string),
-    settlementRef: String(raw['settlement_ref']),
   };
 }
 

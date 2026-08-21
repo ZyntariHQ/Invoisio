@@ -96,7 +96,7 @@ describe('decodeSorobanEvent', () => {
   it('decodes native_allow_changed with its boolean payload', () => {
     const event: SorobanEventInput = {
       topics: [topic('native_allow_changed')],
-      data: vecPayload(nativeToScVal(true, { type: 'bool' })),
+      data: vecPayload(nativeToScVal(true)),
     };
     expect(decodeSorobanEvent(event)).toEqual({ type: 'native_allow_changed', allowed: true });
   });
@@ -123,7 +123,7 @@ describe('decodeSorobanEvent', () => {
       decodeSorobanEvent({
         topics: [topic('contract_paused')],
         data: vecPayload(
-          nativeToScVal(paused, { type: 'bool' }),
+          nativeToScVal(paused),
           nativeToScVal(G_ADMIN, { type: 'address' }),
           nativeToScVal(1_786_000_001, { type: 'u64' }),
         ),
@@ -185,7 +185,7 @@ describe('decodeSorobanEvent', () => {
   it('accepts the base64 XDR strings the RPC getEvents endpoint returns', () => {
     const event: SorobanEventInput = {
       topics: [topic('native_allow_changed').toXDR('base64')],
-      data: vecPayload(nativeToScVal(false, { type: 'bool' })).toXDR('base64'),
+      data: vecPayload(nativeToScVal(false)).toXDR('base64'),
     };
     expect(decodeSorobanEvent(event)).toEqual({ type: 'native_allow_changed', allowed: false });
   });
@@ -238,7 +238,7 @@ describe('decodeSorobanEvent', () => {
   it('handles missing or empty event topics gracefully without throwing', () => {
     const event: SorobanEventInput = {
       topics: [],
-      data: vecPayload(nativeToScVal(true, { type: 'bool' })),
+      data: vecPayload(nativeToScVal(true)),
     };
     expect(decodeSorobanEvent(event)).toEqual({
       type: 'unknown',
@@ -252,7 +252,7 @@ describe('decodeEventStream', () => {
     const events: SorobanEventInput[] = [
       {
         topics: [topic('native_allow_changed')],
-        data: vecPayload(nativeToScVal(true, { type: 'bool' })),
+        data: vecPayload(nativeToScVal(true)),
       },
       {
         topics: [topic('mystery_event')],

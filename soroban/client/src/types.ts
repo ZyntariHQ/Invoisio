@@ -63,6 +63,8 @@ export interface PaymentRecord {
   /** Stellar account (G...) that made the payment */
   readonly payer: string;
   readonly asset: Asset;
+  /** Normalised settlement reference for backend deduplication and auditing */
+  readonly settlementRef: string;
   /**
    * Amount in smallest denomination.
    * - XLM: stroops — 1 XLM = 10_000_000 stroops
@@ -71,12 +73,6 @@ export interface PaymentRecord {
   readonly amount: bigint;
   /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
-  /**
-   * Normalised settlement reference (hash or reconciliation ID) used for
-   * backend deduplication and idempotent settlement reconciliation.
-   * Stores the value passed to `record_payment`.
-   */
-  readonly settlementRef: string;
 }
 
 /** Bounded page of payment history returned by the contract. */
