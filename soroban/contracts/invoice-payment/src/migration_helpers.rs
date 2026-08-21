@@ -39,32 +39,29 @@ impl<'a> PaymentRecordIterator<'a> {
 
     /// Returns the next payment record, if any.
     ///
-    /// This method attempts to retrieve records from the history index first,
-    /// falling back to direct payment key lookup if the history index is incomplete.
+    /// Skips missing slots (a corrupted or partially-rebuilt index) instead
+    /// of stopping at the first one, so a single hole can't cut off every
+    /// record after it — the scan only ends once every index up to
+    /// `total_count` has been visited.
     pub fn next_record(&mut self) -> Option<PaymentRecord> {
-        if self.exhausted {
-            return None;
-        }
+        while !self.exhausted {
+            let history_key = DataKey::PaymentHistory(self.current_index);
+            let found = self
+                .env
+                .storage()
+                .persistent()
+                .get::<DataKey, PaymentRecord>(&history_key);
 
-        // Try history index first
-        let history_key = DataKey::PaymentHistory(self.current_index);
-        if let Some(record) = self
-            .env
-            .storage()
-            .persistent()
-            .get::<DataKey, PaymentRecord>(&history_key)
-        {
             self.current_index += 1;
             if self.current_index >= self.total_count {
                 self.exhausted = true;
             }
-            return Some(record);
-        }
 
-        // Fallback: try direct payment key lookup
-        // We can't enumerate keys directly, so we need to know the invoice IDs.
-        // This is why we maintain the history index - it's the only reliable way.
-        self.exhausted = true;
+            if found.is_some() {
+                return found;
+            }
+            // Missing slot: keep scanning instead of stopping here.
+        }
         None
     }
 
@@ -173,6 +170,40 @@ mod tests {
             iterator.collect_all()
         });
         assert_eq!(records.len(), 3);
+    }
+
+    #[test]
+    fn test_payment_record_iterator_skips_missing_slot() {
+        let env = Env::default();
+        let (client, _admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("iter-gap-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("settle-{:02}", i)),
+            );
+        }
+
+        // Remove the middle slot, leaving a hole below `total_count`.
+        env.as_contract(&client.address, || {
+            env.storage().persistent().remove(&DataKey::PaymentHistory(1));
+        });
+
+        let records = env.as_contract(&client.address, || {
+            let mut iterator = PaymentRecordIterator::new(&env);
+            iterator.collect_all()
+        });
+        // Before the fix, the iterator stopped permanently at the first
+        // missing slot and would have returned only the record at index 0.
+        assert_eq!(records.len(), 2);
     }
 
     #[test]
