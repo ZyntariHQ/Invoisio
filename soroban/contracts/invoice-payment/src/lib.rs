@@ -461,6 +461,13 @@ impl InvoicePaymentContract {
     /// - `cursor` — zero-based index to start from (pass `0` for the first page).
     /// - `limit` — maximum records to return (capped internally at 25).
     ///
+    /// A missing history-index slot (corrupted or partially-rebuilt index)
+    /// is skipped, never treated as the end of the index: `next_cursor`
+    /// always advances past a hole, so callers looping on `has_more` cannot
+    /// get stuck repeating the same cursor. `PaymentHistoryPage.gaps_skipped`
+    /// reports how many slots were skipped this way, so recovery tooling can
+    /// detect corruption directly from a normal read.
+    ///
     /// Permissionless read — no auth required.
     pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
@@ -471,6 +478,9 @@ impl InvoicePaymentContract {
     /// Scans the deterministic history index and filters by payer address.
     /// - `cursor` — history index to start scanning from.
     /// - `limit` — maximum records to return (capped at 25).
+    ///
+    /// A missing history-index slot is skipped like in `payment_history`;
+    /// see `PaymentHistoryPage.gaps_skipped`.
     ///
     /// Permissionless read — no auth required.
     pub fn payments_by_payer(
@@ -487,15 +497,18 @@ impl InvoicePaymentContract {
         let mut records = soroban_sdk::Vec::new(&env);
         let mut index = start;
         let mut collected: u32 = 0;
+        let mut gaps_skipped: u32 = 0;
 
         while index < total && collected < capped_limit {
             let key = DataKey::PaymentHistory(index);
             let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-            if let Some(rec) = record {
-                if rec.payer == payer {
+            match record {
+                Some(rec) if rec.payer == payer => {
                     records.push_back(rec);
                     collected += 1;
                 }
+                Some(_) => {}
+                None => gaps_skipped += 1,
             }
             index += 1;
         }
@@ -504,6 +517,7 @@ impl InvoicePaymentContract {
             records,
             next_cursor: index,
             has_more: index < total,
+            gaps_skipped,
         }
     }
 

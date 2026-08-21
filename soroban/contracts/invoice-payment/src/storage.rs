@@ -241,6 +241,12 @@ pub struct PaymentHistoryPage {
     pub next_cursor: u32,
     /// True when more entries are available after `next_cursor`.
     pub has_more: bool,
+    /// Number of history-index slots in `[cursor, next_cursor)` that were
+    /// expected to hold a record but did not (e.g. a corrupted or
+    /// partially-rebuilt index). Always `0` for a healthy index. Off-chain
+    /// tooling can use this to detect index corruption without inferring it
+    /// from record counts.
+    pub gaps_skipped: u32,
 }
 
 // ─── Version Helpers (Instance Storage) ──────────────────────────────────────
@@ -528,19 +534,34 @@ fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
 }
 
 /// Read a bounded page of history starting at `cursor`.
+///
+/// A missing slot (a hole left by a corrupted or partially-rebuilt index)
+/// is skipped rather than treated as the end of the index: `index` always
+/// advances by at least one slot per iteration, so `next_cursor` can never
+/// repeat a `cursor` the caller already passed in, and `has_more` reflects
+/// whether any slot at or after `next_cursor` remains to be scanned — never
+/// a stalled hole. The page keeps scanning past holes (bounded by `total`)
+/// until it collects `capped_limit` records or exhausts the index, so a
+/// sparse index still fills pages as densely as the data allows.
+///
 /// Extends instance TTL for history count and persistent TTL for records.
 pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
     let total = get_history_count(env);
     let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
     let start = core::cmp::min(cursor, total);
-    let end = start.saturating_add(capped_limit).min(total);
 
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut index = start;
-    while index < end {
+    let mut collected: u32 = 0;
+    let mut gaps_skipped: u32 = 0;
+
+    while index < total && collected < capped_limit {
         match get_history_record(env, index) {
-            Some(record) => records.push_back(record),
-            None => break,
+            Some(record) => {
+                records.push_back(record);
+                collected += 1;
+            }
+            None => gaps_skipped += 1,
         }
         index += 1;
     }
@@ -549,6 +570,7 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
         records,
         next_cursor: index,
         has_more: index < total,
+        gaps_skipped,
     }
 }
 

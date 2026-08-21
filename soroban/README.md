@@ -365,7 +365,10 @@ Retrieves a bounded page of payment history.
 ./invoke-payment-history.sh <cursor> [limit]
 ```
 
-**Returns:** a page of payment records with `next_cursor` and `has_more`
+**Returns:** a page of payment records with `next_cursor`, `has_more`, and
+`gaps_skipped` (count of missing history-index slots skipped while building
+this page — always `0` for a healthy index; see "Contract error codes" for
+the maintenance errors that indicate a corrupted index).
 
 ---
 
@@ -470,7 +473,7 @@ Contract v1 (C1) live
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
-| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. |
+| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |

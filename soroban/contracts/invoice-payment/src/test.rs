@@ -296,6 +296,185 @@ fn test_payment_history_page_size_is_capped() {
     assert!(!second_page.has_more);
 }
 
+/// Regression test for #418: a missing history-index slot must be skipped,
+/// not treated as the end of the page — the page should still return every
+/// other record it can reach and report the hole via `gaps_skipped`.
+#[test]
+fn test_payment_history_skips_missing_slot_mid_page() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..5u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-gap-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-gap-{idx:02}")),
+        );
+    }
+
+    // Corrupt slot 2 only, leaving the count untouched — a hole in the
+    // middle of an otherwise-dense index, e.g. from an expired TTL entry.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(2));
+    });
+
+    let page = client.payment_history(&0u32, &10u32);
+    assert_eq!(page.records.len(), 4);
+    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.next_cursor, 5);
+    assert!(!page.has_more);
+    let returned_ids: alloc::vec::Vec<_> = page.records.iter().map(|r| r.invoice_id).collect();
+    assert_eq!(
+        returned_ids,
+        alloc::vec![
+            String::from_str(&env, "invoisio-gap-00"),
+            String::from_str(&env, "invoisio-gap-01"),
+            String::from_str(&env, "invoisio-gap-03"),
+            String::from_str(&env, "invoisio-gap-04"),
+        ]
+    );
+}
+
+/// Regression test for #418: before the fix, a page that hit a hole
+/// returned `next_cursor` unchanged from the caller's `cursor` while still
+/// reporting `has_more = true`, so a client looping on `has_more` would call
+/// with the exact same cursor forever. Simulate that loop with a bounded
+/// iteration count and assert it actually terminates.
+#[test]
+fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+
+    for idx in 0..6u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-loop-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-loop-{idx:02}")),
+        );
+    }
+
+    // Corrupt the very first slot a paginating client will land on.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(0));
+    });
+
+    let mut cursor = 0u32;
+    let mut total_records = 0u32;
+    let mut total_gaps = 0u32;
+    let mut iterations = 0u32;
+    loop {
+        iterations += 1;
+        assert!(iterations <= 10, "pagination loop did not terminate");
+
+        let page = client.payment_history(&cursor, &2u32);
+        // The cursor must always make forward progress — a repeated cursor
+        // is exactly the deadlock this test guards against.
+        assert!(page.next_cursor > cursor || !page.has_more);
+
+        total_records += page.records.len() as u32;
+        total_gaps += page.gaps_skipped;
+        cursor = page.next_cursor;
+
+        if !page.has_more {
+            break;
+        }
+    }
+
+    assert_eq!(total_records, 5);
+    assert_eq!(total_gaps, 1);
+    assert_eq!(cursor, 6);
+}
+
+/// Regression test for #418: `payments_by_payer` must skip a missing slot
+/// the same way `payment_history` does, distinguishing a real gap from a
+/// slot that simply belongs to a different payer.
+#[test]
+fn test_payments_by_payer_skips_missing_slot() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    let other_payer = Address::generate(&env);
+
+    record_xlm(&env, &client, "invoisio-mine-00", &payer, 10_000_000);
+    record_xlm(&env, &client, "invoisio-theirs", &other_payer, 20_000_000);
+    record_xlm(&env, &client, "invoisio-mine-01", &payer, 30_000_000);
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(1));
+    });
+
+    let page = client.payments_by_payer(&payer, &0u32, &10u32);
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.next_cursor, 3);
+    assert!(!page.has_more);
+}
+
+/// Regression test for #418: once a corrupted index has been repaired via
+/// `rebuild_history_index`, pagination must report zero gaps again.
+#[test]
+fn test_payment_history_has_no_gaps_after_rebuild() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    for idx in 0..4u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-rebuild-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-rebuild-{idx:02}")),
+        );
+    }
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(1));
+    });
+
+    let corrupted = client.payment_history(&0u32, &10u32);
+    assert_eq!(corrupted.gaps_skipped, 1);
+    assert_eq!(corrupted.records.len(), 3);
+
+    client.rebuild_history_index(&admin);
+
+    let rebuilt = client.payment_history(&0u32, &10u32);
+    assert_eq!(rebuilt.gaps_skipped, 0);
+    assert_eq!(rebuilt.records.len(), 4);
+    assert!(!rebuilt.has_more);
+}
+
 #[test]
 fn test_duplicate_invoice_id_returns_error() {
     let env = Env::default();
