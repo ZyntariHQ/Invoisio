@@ -1,6 +1,6 @@
 import axios, { AxiosError } from 'axios';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 let accessToken: string | null = null;
 
@@ -28,6 +28,10 @@ apiClient.interceptors.request.use((config) => {
 
 export function setApiAccessToken(token: string | null): void {
   accessToken = token;
+}
+
+export function getApiAccessToken(): string | null {
+  return accessToken;
 }
 
 export function extractApiErrorMessage(error: unknown): string {

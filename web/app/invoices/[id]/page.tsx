@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback, useMemo } from 'react';
 import { Copy } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
-import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
+import { useInvoiceLiveStatus } from '@/hooks/use-invoice-live-status';
 import { apiClient } from '@/lib/api-client';
 import { RequireAuth } from '@/components/require-auth';
 import WalletFallbackSheet from '@/components/wallet-fallback-sheet';
@@ -75,17 +75,22 @@ function InvoiceDetailContent() {
     });
   }, []);
 
-  // Fetch invoice function for polling
+  // Fetch invoice function for live status updates
   const fetchInvoice = useCallback(async (id: string) => {
     const response = await apiClient.get<Invoice>(`/invoices/${id}`);
     return response.data;
   }, []);
 
-  // Use polling hook for status updates
-  const { invoice, isLoading, error: pollError, lastUpdated, refreshStatus } = usePollInvoiceStatus(
-    invoiceId,
-    fetchInvoice,
-  );
+  // Realtime-first status updates via the backend SSE stream, with
+  // interval polling as a fallback for degraded connectivity.
+  const {
+    invoice,
+    isLoading,
+    error: pollError,
+    lastUpdated,
+    refreshStatus,
+    isLive,
+  } = useInvoiceLiveStatus<Invoice>(invoiceId, fetchInvoice);
 
   const statusTimeline = useMemo<TimelineStep[]>(() => {
     if (!invoice) return [] as TimelineStep[];
@@ -456,8 +461,16 @@ function InvoiceDetailContent() {
             <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
-                <span className="text-xs text-slate-500">
-                  {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  <span
+                    aria-hidden="true"
+                    className={`h-2 w-2 rounded-full ${isLive ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'}`}
+                  />
+                  {isLive
+                    ? 'Live updates active'
+                    : lastUpdated
+                      ? `Last refreshed ${formatDateTime(lastUpdated)}`
+                      : 'Connecting to live updates…'}
                 </span>
               </div>
               <div className="space-y-4">
