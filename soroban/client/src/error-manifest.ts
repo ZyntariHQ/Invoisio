@@ -136,6 +136,22 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'propose_admin() was called with an invalid proposed admin, e.g. the current admin re-proposing themselves.',
   },
+  {
+    code: 17,
+    name: 'HistoryIndexRebuildFailed',
+    meaning: 'rebuild_history_index() failed to rebuild the payment history index; check storage consistency.',
+  },
+  {
+    code: 18,
+    name: 'MigrationRequired',
+    meaning:
+      'rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first.',
+  },
+  {
+    code: 19,
+    name: 'HistoryIndexIncomplete',
+    meaning: 'The payment history index is incomplete and must be rebuilt via rebuild_history_index().',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
