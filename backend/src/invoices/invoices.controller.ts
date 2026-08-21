@@ -77,7 +77,7 @@ export class InvoicesController {
    * Search invoices by client name, email, or memo for the authenticated merchant
    * @returns Array of matching invoices ordered by relevance
    */
- @Auth()
+  @Auth()
   @Get("search")
   async search(
     @CurrentUser() user: User,
