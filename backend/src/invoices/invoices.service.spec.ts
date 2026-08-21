@@ -524,5 +524,26 @@ describe("InvoicesService", () => {
       );
       expect(updated.statusHistory!.map((h) => h.status)).toContain("anchored");
     });
+
+    it("appends a permanent-failure status history entry", async () => {
+      await service.recordAnchoringFailure("invoice-a-1", "permanent");
+
+      const detail = await service.findOne("invoice-a-1", MERCHANT_A);
+      expect(detail.statusHistory!.map((h) => h.status)).toContain(
+        "anchoring_failed_permanent",
+      );
+    });
+
+    it("appends a transient-failure status history entry distinct from a permanent one", async () => {
+      await service.recordAnchoringFailure("invoice-a-1", "transient");
+
+      const detail = await service.findOne("invoice-a-1", MERCHANT_A);
+      expect(detail.statusHistory!.map((h) => h.status)).toContain(
+        "anchoring_failed_transient",
+      );
+      expect(detail.statusHistory!.map((h) => h.status)).not.toContain(
+        "anchoring_failed_permanent",
+      );
+    });
   });
 });

@@ -1,5 +1,7 @@
 export { SorobanInvoiceClient } from './soroban-invoice-client';
 
+export { parseContractError } from './codec';
+
 export {
   EVENT_SCHEMA_VERSION,
   decodeEventStream,

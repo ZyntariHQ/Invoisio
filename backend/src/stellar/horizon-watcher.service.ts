@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { Subject } from "rxjs";
+import { SorobanContractError } from "@invoisio/soroban-client";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { InvoicePaidEvent } from "./events/invoice-paid.event";
@@ -173,13 +174,48 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
             assetCode: record.asset_code ?? "XLM",
           });
 
-          this.anchorToSoroban(invoice, record, txHash).catch((err) =>
-            this.logger.error("horizon.soroban_anchor.failed", {
-              domain: "horizon",
-              invoiceId: invoice.id,
-              txHash,
-              error: err.message,
-            }),
+          this.anchorToSoroban(invoice, record, txHash).catch(
+            async (err: unknown) => {
+              const message = err instanceof Error ? err.message : String(err);
+              const permanent = err instanceof SorobanContractError;
+
+              // A silent anchoring failure leaves an invoice permanently
+              // unanchored with no trace — persist it so reconciliation
+              // tooling can find and act on it without grepping logs.
+              await this.invoicesService
+                .recordAnchoringFailure(
+                  invoice.id,
+                  permanent ? "permanent" : "transient",
+                )
+                .catch((persistErr: unknown) =>
+                  this.logger.error(
+                    "horizon.soroban_anchor.failure_record_failed",
+                    {
+                      domain: "horizon",
+                      invoiceId: invoice.id,
+                      txHash,
+                      error:
+                        persistErr instanceof Error
+                          ? persistErr.message
+                          : String(persistErr),
+                    },
+                  ),
+                );
+
+              this.logger.error("horizon.soroban_anchor.failed", {
+                domain: "horizon",
+                invoiceId: invoice.id,
+                txHash,
+                permanent,
+                ...(err instanceof SorobanContractError
+                  ? {
+                      contractErrorCode: err.code,
+                      contractErrorNumericCode: err.numericCode,
+                    }
+                  : {}),
+                error: message,
+              });
+            },
           );
         } catch (err) {
           this.logger.warn("horizon.payment.process_failed", {
@@ -232,6 +268,16 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
         invoiceId: invoice.id,
         sorobanTxHash: metadata.txHash,
         contractId: metadata.contractId,
+      });
+    } else {
+      // Soroban anchoring is not configured for this deployment — an
+      // intentional no-op, distinct from an anchoring attempt failing
+      // (which now throws and is handled by the caller's .catch()).
+      this.logger.debug("horizon.soroban_anchor.skipped", {
+        domain: "horizon",
+        invoiceId: invoice.id,
+        txHash,
+        reason: "soroban_not_configured",
       });
     }
   }
