@@ -5,7 +5,8 @@ export type DeepLinkType =
   | "payment"
   | "receipt"
   | "dashboard"
-  | "create-invoice";
+  | "create-invoice"
+  | "drafts";
 
 export interface DeepLinkData {
   type: DeepLinkType;
@@ -23,6 +24,7 @@ const LINK_TYPES = new Set<DeepLinkType>([
   ...ID_LINK_TYPES,
   "dashboard",
   "create-invoice",
+  "drafts",
 ]);
 
 function normaliseType(value: string): DeepLinkType | null {
@@ -93,6 +95,9 @@ export function navigateToDeepLink(
       return true;
     case "create-invoice":
       router.push("/create-invoice");
+      return true;
+    case "drafts":
+      router.push("/drafts");
       return true;
   }
 }

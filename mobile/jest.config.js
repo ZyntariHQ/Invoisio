@@ -12,5 +12,6 @@ module.exports = {
   ],
   moduleNameMapper: {
     "^@env$": "<rootDir>/__mocks__/env.ts",
+    "^react-native$": "<rootDir>/__mocks__/react-native.ts",
   },
 };
