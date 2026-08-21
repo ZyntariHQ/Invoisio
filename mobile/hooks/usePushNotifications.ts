@@ -3,17 +3,20 @@ import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
-import { useRouter } from "expo-router";
-import { parseDeepLink, navigateToDeepLink } from "../lib/deep-links";
+import { getNotificationDeepLink } from "../lib/notification-deep-links";
 
 export interface PushNotificationState {
   expoPushToken?: Notifications.ExpoPushToken | undefined;
   notification?: Notifications.Notification | undefined;
 }
 
-export const usePushNotifications = (): PushNotificationState => {
-  const router = useRouter();
+interface UsePushNotificationsOptions {
+  onDeepLink: (url: string) => void;
+}
 
+export const usePushNotifications = ({
+  onDeepLink,
+}: UsePushNotificationsOptions): PushNotificationState => {
   Notifications.setNotificationHandler({
     handleNotification: () =>
       Promise.resolve({
@@ -35,6 +38,8 @@ export const usePushNotifications = (): PushNotificationState => {
   const notificationListener =
     useRef<Notifications.EventSubscription>(undefined);
   const responseListener = useRef<Notifications.EventSubscription>(undefined);
+  const onDeepLinkRef = useRef(onDeepLink);
+  onDeepLinkRef.current = onDeepLink;
 
   async function registerForPushNotificationsAsync() {
     let token;
@@ -94,31 +99,19 @@ export const usePushNotifications = (): PushNotificationState => {
     return token;
   }
 
-  // Handle notification response and navigate
-  const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
-    const data = response.notification.request.content.data as Record<string, unknown>;
-    
-    // Check if notification contains a deep link - using bracket notation for index signature
-    const deepLinkUrl = (data?.["deepLink"] || data?.["url"] || data?.["link"]) as string | undefined;
-    
-    if (deepLinkUrl && typeof deepLinkUrl === "string") {
+  const handleNotificationResponse = (
+    response: Notifications.NotificationResponse,
+  ) => {
+    const data = response.notification.request.content.data as Record<
+      string,
+      unknown
+    >;
+    const deepLinkUrl = getNotificationDeepLink(data);
+
+    if (deepLinkUrl) {
       console.log("Notification deep link:", deepLinkUrl);
-      const parsedData = parseDeepLink(deepLinkUrl);
-      if (parsedData) {
-        // If not authenticated, the deep link handler will queue it
-        navigateToDeepLink(parsedData, router);
-        return;
-      }
+      onDeepLinkRef.current(deepLinkUrl);
     }
-    
-    // Fallback: check for invoice ID in notification data - using bracket notation for index signature
-    const invoiceId = (data?.["invoiceId"] || data?.["invoice_id"]) as string | undefined;
-    if (invoiceId && typeof invoiceId === "string") {
-      router.push(`/invoices/${invoiceId}`);
-      return;
-    }
-    
-    console.log("Notification response:", response);
   };
 
   useEffect(() => {
@@ -131,11 +124,16 @@ export const usePushNotifications = (): PushNotificationState => {
         setNotification(n);
       });
 
-    // Updated: Navigate on notification response
     responseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
         handleNotificationResponse(response);
       });
+
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) {
+        handleNotificationResponse(response);
+      }
+    });
 
     return () => {
       if (notificationListener.current) {

@@ -118,6 +118,7 @@ export function useDeepLinks() {
 
   return {
     pendingDeepLink,
+    handleDeepLink,
     clearPending: () => {
       setPendingDeepLink(null);
     },
