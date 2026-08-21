@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
   FlatList,
   KeyboardAvoidingView,
@@ -29,8 +29,12 @@ const paymentTerms = ['Net 7', 'Net 14', 'Net 30'];
 
 export default function CreateInvoiceScreen() {
   const router = useRouter();
+  const localSearchParams = useLocalSearchParams();
   const { accessToken } = useAuthStore();
   useConnectivity();
+
+  // Extract draftId from URL params if resuming a draft
+  const draftId = typeof localSearchParams.draftId === 'string' ? localSearchParams.draftId : undefined;
 
   // Form state
   const [company, setCompany] = useState('');
@@ -65,7 +69,7 @@ export default function CreateInvoiceScreen() {
     discardDraft,
     isComplete,
     completionPercentage,
-  } = useDraftAutosave(undefined, {
+  } = useDraftAutosave(draftId, {
     autosaveDelay: 3000,
     minAutosaveInterval: 5000,
     onSave: () => {
