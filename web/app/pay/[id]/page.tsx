@@ -11,6 +11,7 @@ import {
 } from "@/lib/sep0007";
 import { PublicInvoiceService } from "@/lib/public-invoice-service";
 import { usePollInvoiceStatus } from "@/hooks/use-poll-invoice-status";
+import WalletFallbackSheet from "@/components/wallet-fallback-sheet";
 
 interface WalletInfo {
   hasWallet: boolean;
@@ -26,7 +27,7 @@ export default function PublicPayerPage() {
 
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const fetchInvoice = useCallback(async (id: string) => {
@@ -75,30 +76,32 @@ export default function PublicPayerPage() {
     });
   }, []);
 
+  // Single source of truth for the SEP-0007 payment URI: used for direct
+  // wallet handoff, the QR code and the wallet fallback share sheet.
+  const paymentUri = useMemo(() => {
+    if (!invoice) return "";
+    return generatePaymentUri({
+      destination: invoice.destination_address,
+      amount: invoice.amount.toString(),
+      assetCode: invoice.asset_code,
+      assetIssuer: invoice.asset_issuer,
+      memo: invoice.memo,
+      memoType: "id",
+    });
+  }, [invoice]);
+
   const handlePayClick = useCallback(async () => {
     if (!invoice || paymentInProgress) return;
 
     try {
       setPaymentInProgress(true);
-      setPaymentError(null);
-
-      const paymentUri = generatePaymentUri({
-        destination: invoice.destination_address,
-        amount: invoice.amount.toString(),
-        assetCode: invoice.asset_code,
-        assetIssuer: invoice.asset_issuer,
-        memo: invoice.memo,
-        memoType: "id",
-      });
-
       await openPaymentWallet(paymentUri);
-      setPaymentInProgress(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setPaymentError(message);
+    } catch {
+      // Direct handoff failed; offer share/copy so the journey can continue.
       setPaymentInProgress(false);
+      setFallbackOpen(true);
     }
-  }, [invoice, paymentInProgress]);
+  }, [invoice, paymentInProgress, paymentUri]);
 
   const statusConfig = useMemo(() => {
     if (!invoice) return { color: "gray", badge: "Unknown", icon: Clock };
@@ -118,18 +121,6 @@ export default function PublicPayerPage() {
   }, [invoice]);
 
   const StatusIcon = statusConfig.icon;
-
-  const qrCodeValue = useMemo(() => {
-    if (!invoice) return "";
-    return generatePaymentUri({
-      destination: invoice.destination_address,
-      amount: invoice.amount.toString(),
-      assetCode: invoice.asset_code,
-      assetIssuer: invoice.asset_issuer,
-      memo: invoice.memo,
-      memoType: "id",
-    });
-  }, [invoice]);
 
   if (isLoading && !invoice) {
     return (
@@ -273,6 +264,13 @@ export default function PublicPayerPage() {
                 <p className="text-sm font-medium text-blue-900">
                   ⏳ Waiting for payment... Check your wallet for confirmation.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 text-sm font-medium text-blue-700 underline hover:text-blue-900"
+                >
+                  Wallet didn&apos;t open? Share or copy the payment request
+                </button>
               </div>
             )}
 
@@ -295,18 +293,6 @@ export default function PublicPayerPage() {
               </div>
             )}
 
-            {paymentError && (
-              <div
-                className="mb-6 rounded-md bg-red-50 p-4"
-                role="alert"
-                aria-live="assertive"
-              >
-                <p className="text-sm font-medium text-red-900">
-                  Error: {paymentError}
-                </p>
-              </div>
-            )}
-
             {!walletInfo?.hasWallet && isPending && (
               <div
                 className="mb-6 rounded-md bg-amber-50 p-4"
@@ -316,18 +302,25 @@ export default function PublicPayerPage() {
                 <p className="text-sm font-medium text-amber-900">
                   ⚠️ {walletInfo?.message || "No wallet detected"}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 w-full rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Pay another way
+                </button>
               </div>
             )}
 
             {/* QR Code for Payment */}
-            {isPending && qrCodeValue && (
+            {isPending && paymentUri && (
               <div className="mb-8 flex flex-col items-center">
                 <p className="mb-4 text-sm font-medium uppercase text-gray-500">
                   Scan to Pay
                 </p>
                 <div className="rounded-lg border-4 border-white bg-white p-4 shadow-lg">
                   <QRCodeSVG
-                    value={qrCodeValue}
+                    value={paymentUri}
                     size={200}
                     level="M"
                     includeMargin={true}
@@ -465,6 +458,18 @@ export default function PublicPayerPage() {
           <p className="mt-4 text-xs text-gray-500">Powered by Invoisio</p>
         </div>
       </div>
+
+      <WalletFallbackSheet
+        open={fallbackOpen}
+        onClose={() => setFallbackOpen(false)}
+        paymentUri={paymentUri}
+        invoiceNumber={invoice.invoiceNumber}
+        amountLabel={`${invoice.amount} ${invoice.asset_code}`}
+        onRetry={() => {
+          setFallbackOpen(false);
+          void handlePayClick();
+        }}
+      />
     </div>
   );
 }

@@ -8,6 +8,7 @@ import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0
 import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
 import { apiClient } from '@/lib/api-client';
 import { RequireAuth } from '@/components/require-auth';
+import WalletFallbackSheet from '@/components/wallet-fallback-sheet';
 
 interface Invoice {
   id: string;
@@ -48,7 +49,7 @@ function InvoiceDetailContent() {
 
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const handleCopyToClipboard = useCallback(async (text: string, field: string) => {
@@ -134,34 +135,32 @@ function InvoiceDetailContent() {
     return timeline;
   }, [invoice, lastUpdated]);
 
+  // Single source of truth for the SEP-0007 payment URI: used for direct
+  // wallet handoff and the wallet fallback share sheet.
+  const paymentUri = useMemo(() => {
+    if (!invoice) return '';
+    return generatePaymentUri({
+      destination: invoice.destination_address,
+      amount: invoice.amount.toString(),
+      assetCode: invoice.asset,
+      assetIssuer: invoice.asset_issuer,
+      memo: invoice.memo,
+      memoType: 'id',
+    });
+  }, [invoice]);
+
   const handlePayClick = useCallback(async () => {
     if (!invoice || paymentInProgress) return;
 
     try {
       setPaymentInProgress(true);
-      setPaymentError(null);
-
-      // Generate SEP-0007 payment URI
-      const paymentUri = generatePaymentUri({
-        destination: invoice.destination_address,
-        amount: invoice.amount.toString(),
-        assetCode: invoice.asset,
-        assetIssuer: invoice.asset_issuer,
-        memo: invoice.memo,
-        memoType: 'id',
-      });
-
-      // Open wallet
       await openPaymentWallet(paymentUri);
-
-      // UI feedback that payment is in progress
-      setPaymentInProgress(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setPaymentError(message);
+    } catch {
+      // Direct handoff failed; offer share/copy so the journey can continue.
       setPaymentInProgress(false);
+      setFallbackOpen(true);
     }
-  }, [invoice, paymentInProgress]);
+  }, [invoice, paymentInProgress, paymentUri]);
 
   const handleDuplicateInvoice = async () => {
     try {
@@ -294,6 +293,13 @@ function InvoiceDetailContent() {
                 <p className="text-sm font-medium text-blue-900">
                   ⏳ Waiting for payment... Check your wallet for confirmation.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 text-sm font-medium text-blue-700 underline hover:text-blue-900"
+                >
+                  Wallet didn&apos;t open? Share or copy the payment request
+                </button>
               </div>
             )}
 
@@ -311,18 +317,6 @@ function InvoiceDetailContent() {
                     Transaction: <code className="font-mono">{invoice.tx_hash}</code>
                   </p>
                 )}
-              </div>
-            )}
-
-            {paymentError && (
-              <div 
-                className="mb-6 rounded-md bg-red-50 p-4"
-                role="alert"
-                aria-live="assertive"
-              >
-                <p className="text-sm font-medium text-red-900">
-                  Error: {paymentError}
-                </p>
               </div>
             )}
 
@@ -347,6 +341,13 @@ function InvoiceDetailContent() {
                 <p className="text-sm font-medium text-amber-900">
                   ⚠️ {walletInfo?.message || 'No wallet detected'}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 w-full rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Pay another way
+                </button>
               </div>
             )}
 
@@ -556,6 +557,18 @@ function InvoiceDetailContent() {
           </p>
         </div>
       </div>
+
+      <WalletFallbackSheet
+        open={fallbackOpen}
+        onClose={() => setFallbackOpen(false)}
+        paymentUri={paymentUri}
+        invoiceNumber={invoice.invoiceNumber}
+        amountLabel={`${invoice.amount} ${invoice.asset}`}
+        onRetry={() => {
+          setFallbackOpen(false);
+          void handlePayClick();
+        }}
+      />
     </div>
   );
 }
