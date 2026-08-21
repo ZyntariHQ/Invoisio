@@ -132,6 +132,7 @@ function decodeContractConfig(scVal) {
             nativeAllowed: Boolean(allowlistMode['native_allowed']),
             requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
         },
+        paused: Boolean(raw['paused']),
     };
 }
 // ─── Error parsing ────────────────────────────────────────────────────────────

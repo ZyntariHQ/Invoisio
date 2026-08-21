@@ -29,13 +29,14 @@ fn record_xlm(
     stroops: i128,
 ) {
     client.set_allow_native(&true);
+    let settle = format!("settle-{}", invoice_id);
     client.record_payment(
         &String::from_str(env, invoice_id),
         payer,
         &String::from_str(env, "XLM"),
         &String::from_str(env, ""), // no issuer for native asset
         &stroops,
-        &String::from_str(env, "settle-xlm-default"),
+        &String::from_str(env, &settle),
     );
 }
 
@@ -3682,6 +3683,7 @@ fn test_regression_legacy_record_fields_preserved_after_upgrade() {
     assert_eq!(loaded.settlement_ref, legacy_record.settlement_ref);
 }
 
+<<<<<<< HEAD
 // ─── Migration Tests ───────────────────────────────────────────────────────────
 
 #[test]
@@ -3863,4 +3865,75 @@ fn test_rebuild_history_index_unauthorized() {
     env.mock_all_auths();
     let result = client.try_rebuild_history_index(&_admin);
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_record_payment_prevents_duplicate_settlement_ref_across_invoices() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+
+    client.set_allow_native(&true);
+
+    let inv1 = String::from_str(&env, "invoice-101");
+    let inv2 = String::from_str(&env, "invoice-102");
+    let shared_settlement = String::from_str(&env, "settlement-shared-xyz789");
+
+    // 1. Record payment for invoice 1
+    client.record_payment(
+        &inv1,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000,
+        &shared_settlement,
+    );
+
+    assert!(client.has_settlement(&shared_settlement));
+    assert_eq!(client.get_invoice_by_settlement(&shared_settlement), inv1);
+
+    // 2. Attempt to record payment for invoice 2 with the identical settlement reference
+    let err = client.try_record_payment(
+        &inv2,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000,
+        &shared_settlement,
+    );
+
+    assert_eq!(err, Err(Ok(ContractError::DuplicateSettlementRef)));
+
+    // Invoice 2 should not exist
+    assert!(!client.has_payment(&inv2));
+}
+
+#[test]
+fn test_settlement_ref_query_methods() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+
+    client.set_allow_native(&true);
+
+    let inv = String::from_str(&env, "invoice-202");
+    let settle = String::from_str(&env, "settle-unique-456");
+
+    assert!(!client.has_settlement(&settle));
+    assert_eq!(
+        client.try_get_invoice_by_settlement(&settle),
+        Err(Ok(ContractError::PaymentNotFound))
+    );
+
+    client.record_payment(
+        &inv,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &15_000_000,
+        &settle,
+    );
+
+    assert!(client.has_settlement(&settle));
+    assert_eq!(client.get_invoice_by_settlement(&settle), inv);
 }
