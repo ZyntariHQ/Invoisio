@@ -151,7 +151,7 @@ export class InvoicesService implements OnModuleInit {
    * @param rawTerm - Query string from user input
    * @param limit - Max results (1-50)
    */
-   /**
+  /**
    * Search invoices by merchant-scoped term using full-text and trigram similarity.
    * Scoped to the merchant account, not the invoice creator — any authorized
    * teammate under the same merchant can find invoices created by any other

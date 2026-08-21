@@ -80,10 +80,11 @@ export class MerchantService {
           name: dto.name,
           // Stamp the configuration timestamp so checklist knows this was
           // an intentional update, not an auto-generated placeholder.
-          nameConfiguredAt: now,
+          // If name is emptied, revoke the configuration timestamp.
+          nameConfiguredAt: dto.name.trim().length > 0 ? now : null,
         }),
         ...(dto.payoutPublicKey !== undefined && {
-          payoutWallet: dto.payoutPublicKey,
+          payoutWallet: dto.payoutPublicKey || null,
         }),
         ...(dto.preferredAsset !== undefined && {
           preferredAsset: dto.preferredAsset,
@@ -172,6 +173,16 @@ export class MerchantService {
       });
     }
 
+    if (!allCompleted && updated.isCompleted) {
+      return this.prisma.merchantActivationChecklist.update({
+        where: { merchantId },
+        data: {
+          isCompleted: false,
+          completedAt: null,
+        },
+      });
+    }
+
     return updated;
   }
 
@@ -179,12 +190,16 @@ export class MerchantService {
    * Auto-update checklist based on merchant state.
    *
    * Completion rules (intentional-configuration-only):
-   *  - profileCompleted:          nameConfiguredAt is NOT NULL
+   *  - profileCompleted:          nameConfiguredAt is NOT NULL and name is non-empty
    *                               (name was explicitly saved, not the auto-generated placeholder)
    *  - assetPreferenceCompleted:  assetConfiguredAt is NOT NULL
    *                               (asset was explicitly chosen, not left at the schema default "XLM")
-   *  - payoutKeyCompleted:        payoutWallet is NOT NULL
+   *  - payoutKeyCompleted:        payoutWallet is NOT NULL and non-empty
    *  - firstInvoiceCompleted:     at least one invoice exists
+   *
+   * Reopening / Regression:
+   *  - If previously completed steps become invalid/undone, completion is revoked:
+   *    isCompleted is set to false and completedAt is cleared (null).
    */
   async syncChecklist(merchantId: string) {
     const merchant = await this.prisma.merchant.findUnique({
@@ -198,6 +213,15 @@ export class MerchantService {
 
     const checklist = await this.getChecklist(merchantId);
 
+    const targetProfileCompleted =
+      merchant.nameConfiguredAt !== null &&
+      merchant.name !== null &&
+      merchant.name.trim().length > 0;
+    const targetPayoutKeyCompleted =
+      merchant.payoutWallet !== null && merchant.payoutWallet.trim().length > 0;
+    const targetAssetPreferenceCompleted = merchant.assetConfiguredAt !== null;
+    const targetFirstInvoiceCompleted = merchant.invoices.length > 0;
+
     const updates: Partial<{
       profileCompleted: boolean;
       payoutKeyCompleted: boolean;
@@ -205,30 +229,33 @@ export class MerchantService {
       firstInvoiceCompleted: boolean;
     }> = {};
 
-    // Profile step: only complete when the merchant has explicitly saved a name.
-    // The auto-generated placeholder ("Merchant GXXXXX") does NOT count.
-    if (merchant.nameConfiguredAt !== null) {
-      updates.profileCompleted = true;
+    if (checklist.profileCompleted !== targetProfileCompleted) {
+      updates.profileCompleted = targetProfileCompleted;
     }
 
-    // Payout key step: non-null means it was intentionally set (null by default).
-    if (merchant.payoutWallet !== null) {
-      updates.payoutKeyCompleted = true;
+    if (checklist.payoutKeyCompleted !== targetPayoutKeyCompleted) {
+      updates.payoutKeyCompleted = targetPayoutKeyCompleted;
     }
 
-    // Asset preference step: only complete when the merchant has explicitly
-    // chosen an asset. The schema default ("XLM") does NOT count.
-    if (merchant.assetConfiguredAt !== null) {
-      updates.assetPreferenceCompleted = true;
+    if (checklist.assetPreferenceCompleted !== targetAssetPreferenceCompleted) {
+      updates.assetPreferenceCompleted = targetAssetPreferenceCompleted;
     }
 
-    // First invoice step: at least one invoice must exist.
-    if (merchant.invoices.length > 0) {
-      updates.firstInvoiceCompleted = true;
+    if (checklist.firstInvoiceCompleted !== targetFirstInvoiceCompleted) {
+      updates.firstInvoiceCompleted = targetFirstInvoiceCompleted;
     }
 
-    // Only write to the DB when there are actual changes.
-    if (Object.keys(updates).length > 0) {
+    const allCompleted =
+      targetProfileCompleted &&
+      targetPayoutKeyCompleted &&
+      targetAssetPreferenceCompleted &&
+      targetFirstInvoiceCompleted;
+
+    // Only write to the DB when there are actual step changes or overall completion status is out of sync.
+    if (
+      Object.keys(updates).length > 0 ||
+      checklist.isCompleted !== allCompleted
+    ) {
       return this.updateChecklist(merchantId, updates);
     }
 
