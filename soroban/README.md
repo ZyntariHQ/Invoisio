@@ -502,6 +502,9 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 14 | NoPendingAdmin | `accept_admin()` was called but no admin transfer proposal is pending. |
 | 15 | PendingAdminExists | `propose_admin()` was called while an admin transfer proposal is already pending. |
 | 16 | InvalidProposedAdmin | `propose_admin()` was called with the current admin (or another invalid address). |
+| 17 | HistoryIndexRebuildFailed | `rebuild_history_index()` failed to rebuild the payment history index; check storage consistency. |
+| 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
+| 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
 
 #### Typed error manifest (off-chain reference)
 

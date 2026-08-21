@@ -32,6 +32,9 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 14, name: 'NoPendingAdmin' },
   { code: 15, name: 'PendingAdminExists' },
   { code: 16, name: 'InvalidProposedAdmin' },
+  { code: 17, name: 'HistoryIndexRebuildFailed' },
+  { code: 18, name: 'MigrationRequired' },
+  { code: 19, name: 'HistoryIndexIncomplete' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {
@@ -152,6 +155,25 @@ describe('representative contract failure scenarios', () => {
     expect(err.code).toBe('InvalidSettlementRef');
     expect(err.numericCode).toBe(13);
     expect(getContractError(13)?.name).toBe('InvalidSettlementRef');
+  });
+
+  it('maps a rebuild_history_index() failure on a stale schema to MigrationRequired', () => {
+    const err = parseContractError(
+      'simulation failed: rebuild_history_index: Error(Contract, #18)',
+    );
+    expect(err.code).toBe('MigrationRequired');
+    expect(err.numericCode).toBe(18);
+    expect(getContractError(18)?.meaning).toContain('upgrade_storage()');
+  });
+
+  it('maps history-index maintenance failures to their typed codes', () => {
+    const rebuildFailed = parseContractError('Error(Contract, #17)');
+    expect(rebuildFailed.code).toBe('HistoryIndexRebuildFailed');
+    expect(rebuildFailed.numericCode).toBe(17);
+
+    const incomplete = parseContractError('Error(Contract, #19)');
+    expect(incomplete.code).toBe('HistoryIndexIncomplete');
+    expect(incomplete.numericCode).toBe(19);
   });
 
   it('falls back cleanly, without throwing, for a code the manifest does not know yet', () => {

@@ -78,6 +78,18 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 16;
     readonly name: "InvalidProposedAdmin";
     readonly meaning: "propose_admin() was called with an invalid proposed admin, e.g. the current admin re-proposing themselves.";
+}, {
+    readonly code: 17;
+    readonly name: "HistoryIndexRebuildFailed";
+    readonly meaning: "rebuild_history_index() failed to rebuild the payment history index; check storage consistency.";
+}, {
+    readonly code: 18;
+    readonly name: "MigrationRequired";
+    readonly meaning: "rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first.";
+}, {
+    readonly code: 19;
+    readonly name: "HistoryIndexIncomplete";
+    readonly meaning: "The payment history index is incomplete and must be rebuilt via rebuild_history_index().";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];
