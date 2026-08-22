@@ -380,6 +380,29 @@ function NewInvoiceContent() {
     },
   });
 
+  const customerIdFromUrl = searchParams.get("customerId") || undefined;
+  const hasLoadedCustomerRef = useRef(false);
+
+  useEffect(() => {
+    if (draft && !draftIdFromUrl && customerIdFromUrl && !hasLoadedCustomerRef.current) {
+      hasLoadedCustomerRef.current = true;
+      CustomerService.get(customerIdFromUrl)
+        .then((customer) => {
+          setSelectedCustomer(customer);
+          setClientName(customer.name);
+          setClientEmail(customer.email || "");
+          updateDraft({
+            clientName: customer.name,
+            clientEmail: customer.email || undefined,
+            customer_id: customer.id,
+          });
+        })
+        .catch((err) => {
+          console.error("Failed to load customer from URL parameter:", err);
+        });
+    }
+  }, [draft, draftIdFromUrl, customerIdFromUrl, updateDraft]);
+
   const [prevDraft, setPrevDraft] = useState<DraftInvoice | null>(null);
   if (draft && draft !== prevDraft) {
     setPrevDraft(draft);
@@ -393,8 +416,10 @@ function NewInvoiceContent() {
     );
 
     // If draft has customer ID, load customer
-    if (draft.customerId) {
-      // CustomerService.getCustomer(draft.customerId).then(setSelectedCustomer);
+    if (draft.customerId && draft.customerId !== prevDraft?.customerId) {
+      CustomerService.get(draft.customerId)
+        .then(setSelectedCustomer)
+        .catch(err => console.error("Failed to load draft customer", err));
     }
   }
 

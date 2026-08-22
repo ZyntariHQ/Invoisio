@@ -580,6 +580,18 @@ function InvoicesContent() {
           <div className="flex items-center gap-3 self-start sm:self-center">
             <WalletAuthControls />
             <Link
+              href="/dashboard"
+              className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/customers"
+              className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
+            >
+              Customers
+            </Link>
+            <Link
               href="/analytics"
               className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
             >
