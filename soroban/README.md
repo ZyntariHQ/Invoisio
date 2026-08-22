@@ -15,11 +15,16 @@ soroban/
 ├── deploy.sh                       # Deploy to testnet + initialize
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
-├── invoke-config.sh                # Query high-level contract config
+├── invoke-config.sh                # Query high-level contract config (raw)
 ├── invoke-has-payment.sh           # Check payment existence
 ├── invoke-payment-history.sh       # Page through payment history
 ├── invoke-propose-admin.sh         # Step 1 of admin handoff: propose next admin
 ├── invoke-accept-admin.sh          # Step 2 of admin handoff: accept and become admin
+│
+│   ── Read-only operational inspection ──
+├── invoke-inspect-config.sh        # [READ-ONLY] Inspect full contract config (human-readable)
+├── invoke-inspect-allowlist.sh     # [READ-ONLY] Inspect allowlist policy and settings
+├── invoke-is-paused.sh             # [READ-ONLY] Check if contract is currently paused
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -369,6 +374,143 @@ Retrieves a bounded page of payment history.
 `gaps_skipped` (count of missing history-index slots skipped while building
 this page — always `0` for a healthy index; see "Contract error codes" for
 the maintenance errors that indicate a corrupted index).
+
+---
+
+## Read-Only Operational Inspection Scripts
+
+These three scripts are **safe, permissionless read helpers** for maintainers who need to check contract status without writing raw RPC calls. They all call existing read-only contract views (`config()`, `is_paused()`) and never submit any on-chain write transaction.
+
+### `./invoke-inspect-config.sh`
+
+Displays a human-readable operational dashboard of the full contract configuration in a single call.
+
+**Usage:**
+```bash
+./invoke-inspect-config.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-inspect-config.sh
+
+# Override contract ID
+CONTRACT_ID=CXXXXXXXXX... ./invoke-inspect-config.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**What it shows:**
+- Initialization status (🟢 Initialized / 🔴 Uninitialized)
+- Current admin address
+- Pending admin address (if a two-step handoff is in flight)
+- Contract pause state (✅ ACTIVE / ⚠️ PAUSED)
+- Contract code version and storage schema version
+
+**Example output:**
+```
+=========================================
+Inspecting Contract Configuration
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+On-Chain Operational Status:
+-----------------------------------------
+Status:          🟢 Initialized
+Current Admin:   GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+Pending Admin:   None
+Contract State:  ✅ ACTIVE
+
+Contract Metadata:
+-----------------------------------------
+Contract Code Version: 1000000
+Storage Schema Version: 1
+```
+
+---
+
+### `./invoke-inspect-allowlist.sh`
+
+Displays the allowlist policy — whether native XLM is accepted and whether Stellar tokens must be explicitly allowlisted — with actionable next-step guidance.
+
+**Usage:**
+```bash
+./invoke-inspect-allowlist.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-inspect-allowlist.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**What it shows:**
+- Native XLM permission status with guidance to enable/disable
+- Token allowlist mode (`requires_token_allowlist`)
+- Pointers to `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
+
+**Example output:**
+```
+=========================================
+Inspecting Allowlist Settings
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+Allowlist Configuration Status:
+-----------------------------------------
+❌ Native XLM: Denied
+   (To enable, run ./invoke-set-allow-native.sh true)
+🔒 Token Allowlist: Enabled (requires_token_allowlist=true)
+   (Stellar tokens must be explicitly allowlisted before record_payment accepts them)
+
+Operations Guidance:
+  - To list all configured assets, run: ./invoke-list-assets.sh
+  - To allow a token, run:            ./invoke-allow-asset.sh <code> <issuer>
+  - To revoke a token, run:           ./invoke-revoke-asset.sh <code> <issuer>
+```
+
+---
+
+### `./invoke-is-paused.sh`
+
+Quickly checks whether the contract is paused. When paused, all `record_payment` calls are rejected by the contract; read views remain accessible.
+
+**Usage:**
+```bash
+./invoke-is-paused.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-is-paused.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**Returns:**
+- `✅ Contract is currently ACTIVE (not paused)` — writes are open
+- `⚠️ Contract is currently PAUSED` — writes are blocked; links to `./invoke-unpause.sh`
+
+**Example output (active):**
+```
+=========================================
+Checking Contract Pause State
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+Raw Result: false
+
+✅ Contract is currently ACTIVE (not paused).
+Write operations are enabled.
+To pause, run: ./invoke-pause.sh
+```
 
 ---
 
