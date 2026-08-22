@@ -229,26 +229,32 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 3. Amount guard: must be strictly positive and within i64::MAX.
+        // 4. Amount guard: must be strictly positive and within i64::MAX.
         if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
 
-        // 5. Idempotency guard.
+        // 5. Idempotency guard: check invoice_id uniqueness.
         if has_payment(&env, &invoice_id) {
             return Err(ContractError::PaymentAlreadyRecorded);
         }
 
-        // 6. Build the asset enum based on parameters.
+        // 6. Settlement reference uniqueness guard.
+        //    The same settlement_ref cannot be used for multiple invoices.
+        if storage::is_settlement_ref_used(&env, &settlement_ref) {
+            return Err(ContractError::SettlementRefAlreadyUsed);
+        }
+
+        // 7. Build the asset enum based on parameters.
         let asset = if is_xlm {
             Asset::Native
         } else {
             Asset::Token(asset_code.clone(), asset_issuer.clone())
         };
 
-        // 7. Build and persist the record (also bumps persistent TTL).
+        // 8. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
-            invoice_id,
+            invoice_id: invoice_id.clone(),
             payer,
             asset,
             amount,
@@ -261,14 +267,17 @@ impl InvoicePaymentContract {
         // every payment even if the history index is later corrupted.
         append_payment_log(&env, &record.invoice_id);
 
-        // 7. Increment running counter (also bumps instance TTL).
+        // 9. Record the settlement reference as used (global uniqueness).
+        storage::record_settlement_ref(&env, &settlement_ref);
+
+        // 10. Increment running counter (also bumps instance TTL).
         bump_count(&env);
 
-        // 8. Append to deterministic history index for paged reads.
+        // 11. Append to deterministic history index for paged reads.
         append_payment_history(&env, &record);
         bump_history_count(&env);
 
-        // 9. Emit Soroban event — off-chain indexers subscribe to these topics.
+        // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
             record.invoice_id,

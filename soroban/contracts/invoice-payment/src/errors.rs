@@ -69,10 +69,17 @@ pub enum ContractError {
     /// example, the current admin re-proposing themselves. A transfer must
     /// hand the role to a different address.
     InvalidProposedAdmin = 16,
+
     /// History index rebuild failed - check storage consistency
     HistoryIndexRebuildFailed = 17,
+
     /// Migration required before rebuilding history index
     MigrationRequired = 18,
+
     /// History index is incomplete - rebuild required
     HistoryIndexIncomplete = 19,
+
+    /// The settlement reference has already been used for a different invoice.
+    /// Each settlement reference must be globally unique across all payments.
+    SettlementRefAlreadyUsed = 20,
 }

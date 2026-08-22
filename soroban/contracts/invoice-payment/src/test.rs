@@ -4043,3 +4043,299 @@ fn test_rebuild_history_index_unauthorized() {
     let result = client.try_rebuild_history_index(&_admin);
     assert!(result.is_ok());
 }
+
+
+// ─── Settlement Reference Uniqueness Tests ────────────────────────────────
+
+/// Test that the same settlement_ref cannot be used for two different invoices.
+#[test]
+fn test_settlement_ref_cannot_be_reused_for_different_invoice() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    let payer1 = Address::generate(&env);
+    let payer2 = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "unique-settle-001");
+
+    // First payment with settlement_ref succeeds
+    let invoice_id_1 = String::from_str(&env, "inv-001");
+    client.record_payment(
+        &invoice_id_1,
+        &payer1,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Second payment with the SAME settlement_ref but different invoice_id fails
+    let invoice_id_2 = String::from_str(&env, "inv-002");
+    let result = client.try_record_payment(
+        &invoice_id_2,
+        &payer2,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
+
+    // Verify only first payment was recorded
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.has_payment(&invoice_id_1));
+    assert!(!client.has_payment(&invoice_id_2));
+}
+
+/// Test that the same settlement_ref cannot be used with a different asset.
+#[test]
+fn test_settlement_ref_cannot_be_reused_with_different_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let usdc_issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+    client.allow_asset(&String::from_str(&env, "USDC"), &usdc_issuer);
+
+    let payer = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "settle-cross-asset");
+
+    // First payment with XLM succeeds
+    let invoice_id_1 = String::from_str(&env, "inv-xlm");
+    client.record_payment(
+        &invoice_id_1,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Second payment with USDC but same settlement_ref fails
+    let invoice_id_2 = String::from_str(&env, "inv-usdc");
+    let result = client.try_record_payment(
+        &invoice_id_2,
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &usdc_issuer,
+        &50_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
+
+    // Verify only first payment was recorded
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.has_payment(&invoice_id_1));
+    assert!(!client.has_payment(&invoice_id_2));
+}
+
+/// Test that a unique settlement_ref can be used for each invoice.
+#[test]
+fn test_unique_settlement_refs_for_different_invoices_succeed() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    let payer = Address::generate(&env);
+
+    // First payment with unique ref
+    let invoice_id_1 = String::from_str(&env, "inv-001");
+    let ref_1 = String::from_str(&env, "settle-001");
+    client.record_payment(
+        &invoice_id_1,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &ref_1,
+    );
+
+    // Second payment with different ref
+    let invoice_id_2 = String::from_str(&env, "inv-002");
+    let ref_2 = String::from_str(&env, "settle-002");
+    client.record_payment(
+        &invoice_id_2,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &ref_2,
+    );
+
+    // Both payments should succeed
+    assert_eq!(client.payment_count(), 2);
+    assert!(client.has_payment(&invoice_id_1));
+    assert!(client.has_payment(&invoice_id_2));
+
+    // Verify settlement refs are stored correctly
+    let record1 = client.get_payment(&invoice_id_1);
+    assert_eq!(record1.settlement_ref, ref_1);
+
+    let record2 = client.get_payment(&invoice_id_2);
+    assert_eq!(record2.settlement_ref, ref_2);
+}
+
+/// Test that settlement_ref uniqueness is enforced even when invoice_id is different.
+#[test]
+fn test_settlement_ref_reuse_fails_even_with_different_payer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    let payer1 = Address::generate(&env);
+    let payer2 = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "shared-settle");
+
+    // First payment succeeds
+    let invoice_id_1 = String::from_str(&env, "inv-payer1");
+    client.record_payment(
+        &invoice_id_1,
+        &payer1,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Second payment with different payer but same ref fails
+    let invoice_id_2 = String::from_str(&env, "inv-payer2");
+    let result = client.try_record_payment(
+        &invoice_id_2,
+        &payer2,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
+
+    // Verify only first payment was recorded
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.has_payment(&invoice_id_1));
+    assert!(!client.has_payment(&invoice_id_2));
+}
+
+/// Test that settlement_ref uniqueness check occurs after invoice_id check
+/// (both are enforced, but order doesn't matter for correctness).
+#[test]
+fn test_settlement_ref_check_happens_after_invoice_id_check() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    let payer = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "settle-unique");
+
+    // First payment succeeds
+    let invoice_id = String::from_str(&env, "inv-001");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Attempt duplicate invoice_id with different settlement_ref
+    // Should fail with PaymentAlreadyRecorded (invoice_id check fires first)
+    let new_ref = String::from_str(&env, "settle-different");
+    let result = client.try_record_payment(
+        &invoice_id, // same invoice_id
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &new_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::PaymentAlreadyRecorded)));
+
+    // Attempt same settlement_ref with different invoice_id
+    // Should fail with SettlementRefAlreadyUsed
+    let new_invoice = String::from_str(&env, "inv-002");
+    let result2 = client.try_record_payment(
+        &new_invoice,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(result2, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
+
+    // Verify only one payment was recorded
+    assert_eq!(client.payment_count(), 1);
+}
+
+/// Test that empty settlement_ref is rejected (existing test, but verify error code).
+#[test]
+fn test_empty_settlement_ref_still_rejected() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-empty-ref-test"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, ""), // empty settlement_ref
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+/// Test that settlement_ref uniqueness survives after a failed transaction.
+#[test]
+fn test_settlement_ref_not_consumed_on_failed_transaction() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+
+    let payer = Address::generate(&env);
+    let settlement_ref = String::from_str(&env, "settle-fail-test");
+
+    // Attempt payment with invalid amount (should fail)
+    let invoice_id = String::from_str(&env, "inv-fail");
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &0i128, // invalid amount
+        &settlement_ref,
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+
+    // Settlement_ref should NOT be consumed because transaction failed
+    // Now try again with valid amount
+    let invoice_id_2 = String::from_str(&env, "inv-success");
+    client.record_payment(
+        &invoice_id_2,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Verify payment succeeded
+    assert_eq!(client.payment_count(), 1);
+    assert!(client.has_payment(&invoice_id_2));
+}

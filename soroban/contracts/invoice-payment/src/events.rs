@@ -178,3 +178,21 @@ pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
     };
     payload.publish(env);
 }
+
+
+/// Event emitted when settlement references are migrated during upgrade.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettlementRefsMigrated {
+    pub count: u32,
+    pub migrated_at: u64,
+}
+
+/// Emit settlement references migrated event.
+pub fn emit_settlement_refs_migrated(env: &Env, count: u32) {
+    let payload = SettlementRefsMigrated {
+        count,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
