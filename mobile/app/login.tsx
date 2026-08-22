@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -13,6 +13,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import invoisioLogo from "../assets/invoisio-logo.png";
 import { useWalletAuth } from "../hooks/use-wallet-auth";
+import { usePushNotifications } from "../hooks/usePushNotifications";
+import authService from "../lib/auth-service";
+import { useAuthStore } from "../hooks/use-auth-store";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -25,6 +28,12 @@ export default function LoginScreen() {
     disconnectWallet,
   } = useWalletAuth();
 
+  const { expoPushToken } = usePushNotifications({
+    onDeepLink: (url) => {
+      router.push(url);
+    },
+  });
+
   // Redirect to dashboard if already connected
   useEffect(() => {
     if (isConnected && publicKey) {
@@ -32,11 +41,26 @@ export default function LoginScreen() {
     }
   }, [isConnected, publicKey, router]);
 
+  // Sync push token to backend after wallet connection
+  useEffect(() => {
+    if (isConnected && publicKey && expoPushToken) {
+      void (async () => {
+        try {
+          const { accessToken } = useAuthStore();
+          if (accessToken) {
+            await authService.registerPushToken(accessToken, expoPushToken);
+          }
+        } catch (e) {
+          console.warn("Failed to register push token after login:", e);
+        }
+      })();
+    }
+  }, [isConnected, publicKey, expoPushToken]);
+
   const handleConnectWallet = async () => {
     try {
       await connectWallet();
     } catch (err) {
-      // Error is handled by the hook
       console.error("Connection error:", err);
     }
   };

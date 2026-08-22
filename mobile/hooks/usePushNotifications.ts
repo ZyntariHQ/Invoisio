@@ -36,8 +36,8 @@ export const usePushNotifications = ({
   >();
 
   const notificationListener =
-    useRef<Notifications.EventSubscription>(undefined);
-  const responseListener = useRef<Notifications.EventSubscription>(undefined);
+    useRef<Notifications.EventSubscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const onDeepLinkRef = useRef(onDeepLink);
   onDeepLinkRef.current = onDeepLink;
 

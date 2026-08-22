@@ -10,10 +10,11 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter } from "expo.router";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { authService } from "../lib/auth-service";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   MerchantService,
   isValidStellarPublicKey,
@@ -29,6 +30,17 @@ export default function SettingsScreen() {
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(true);
   const [pushLoading, setPushLoading] = useState(false);
+
+  // Initialize push notification token
+  const { expoPushToken } = usePushNotifications({
+    onDeepLink: (url) => {
+      router.push(url);
+    },
+  });
+
+  // Merchant profile / settings state
+
+  // Merchant profile / settings state
 
   // Merchant profile / settings state
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
@@ -146,6 +158,10 @@ export default function SettingsScreen() {
     try {
       await authService.updatePushPreferences(accessToken, value);
       setPushEnabled(value);
+      // Also sync the expo push token to backend
+      if (expoPushToken) {
+        await authService.registerPushToken(accessToken, expoPushToken);
+      }
     } catch {
       Alert.alert("Error", "Failed to update push preferences.");
     } finally {
