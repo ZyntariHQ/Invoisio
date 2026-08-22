@@ -179,7 +179,6 @@ pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
     payload.publish(env);
 }
 
-
 /// Event emitted when settlement references are migrated during upgrade.
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]

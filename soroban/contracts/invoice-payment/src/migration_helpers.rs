@@ -194,7 +194,9 @@ mod tests {
 
         // Remove the middle slot, leaving a hole below `total_count`.
         env.as_contract(&client.address, || {
-            env.storage().persistent().remove(&DataKey::PaymentHistory(1));
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PaymentHistory(1));
         });
 
         let records = env.as_contract(&client.address, || {

@@ -802,7 +802,6 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     Ok(())
 }
 
-
 // ─── Settlement Reference Helpers ──────────────────────────────────────────
 
 /// Key for tracking used settlement references in persistent storage.

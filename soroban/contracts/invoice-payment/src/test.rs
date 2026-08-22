@@ -35,7 +35,10 @@ fn record_xlm(
         &String::from_str(env, "XLM"),
         &String::from_str(env, ""), // no issuer for native asset
         &stroops,
-        &String::from_str(env, "settle-xlm-default"),
+        // Derived from invoice_id so repeated calls within a test (each
+        // using a distinct invoice_id) don't collide under global
+        // settlement reference uniqueness.
+        &String::from_str(env, &format!("settle-xlm-default-{invoice_id}")),
     );
 }
 
@@ -4043,7 +4046,6 @@ fn test_rebuild_history_index_unauthorized() {
     let result = client.try_rebuild_history_index(&_admin);
     assert!(result.is_ok());
 }
-
 
 // ─── Settlement Reference Uniqueness Tests ────────────────────────────────
 

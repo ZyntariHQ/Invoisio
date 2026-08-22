@@ -89,7 +89,7 @@
                   "i128": "7000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-xlm-default-invoisio-new-admin"
                 }
               ]
             }
@@ -191,7 +191,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-new-admin"
                     }
                   },
                   {
@@ -298,7 +298,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-new-admin"
                     }
                   },
                   {
@@ -311,6 +311,31 @@
                   }
                 ]
               }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "settle-xlm-default-invoisio-new-admin"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
             }
           },
           "ext": "v0"

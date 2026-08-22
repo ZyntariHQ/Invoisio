@@ -10,8 +10,9 @@ use soroban_sdk::{Env, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    get_history_count, get_payment, get_payment_log_entry, get_storage_schema_version,
-    set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
+    current_contract_meta, ensure_current_contract_meta, get_contract_meta, get_history_count,
+    get_payment, get_payment_log_entry, get_storage_schema_version, record_settlement_ref,
+    set_contract_meta, set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
