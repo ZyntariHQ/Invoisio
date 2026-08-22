@@ -7,7 +7,6 @@
   "auth": [
     [],
     [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -34,10 +33,32 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "allow_asset",
+              "args": [
+                {
+                  "string": "USDC"
+                },
+                {
+                  "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-legacy-deploy"
+                  "string": "inv-xlm"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -52,7 +73,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-legacy-deploy"
+                  "string": "settle-cross-asset"
                 }
               ]
             }
@@ -61,6 +82,9 @@
         }
       ]
     ],
+    [],
+    [],
+    [],
     []
   ],
   "ledger": {
@@ -102,6 +126,26 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
+                  "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
                 }
               },
@@ -112,6 +156,34 @@
           "ext": "v0"
         },
         "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowList"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "string": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
       },
       {
         "entry": {
@@ -158,7 +230,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-legacy-deploy"
+                      "string": "inv-xlm"
                     }
                   },
                   {
@@ -174,7 +246,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-legacy-deploy"
+                      "string": "settle-cross-asset"
                     }
                   },
                   {
@@ -212,7 +284,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-legacy-deploy"
+                "string": "inv-xlm"
               }
             }
           },
@@ -233,7 +305,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-legacy-deploy"
+                    "string": "inv-xlm"
                   }
                 ]
               },
@@ -265,7 +337,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-legacy-deploy"
+                      "string": "inv-xlm"
                     }
                   },
                   {
@@ -281,7 +353,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-legacy-deploy"
+                      "string": "settle-cross-asset"
                     }
                   },
                   {
@@ -313,7 +385,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-legacy-deploy"
+                    "string": "settle-cross-asset"
                   }
                 ]
               },

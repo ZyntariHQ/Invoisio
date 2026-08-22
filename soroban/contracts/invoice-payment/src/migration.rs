@@ -10,8 +10,9 @@ use soroban_sdk::{Env, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    get_history_count, get_payment, get_payment_log_entry, get_storage_schema_version,
-    set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
+    current_contract_meta, ensure_current_contract_meta, get_contract_meta, get_history_count,
+    get_payment, get_payment_log_entry, get_storage_schema_version, record_settlement_ref,
+    set_contract_meta, set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -193,26 +194,59 @@ fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), Con
 
 /// Migration from schema version 0 (legacy) to version 1.
 ///
-/// This migration:
-/// 1. Ensures ContractMeta exists
-/// 2. Rebuilds payment history index from existing records
-/// 3. Updates the storage schema version
+/// Schema V0: No ContractMeta, Payment keys only.
+/// Schema V1: ContractMeta + PaymentV1 keys (with lazy migration on read).
+///
+/// This migration also:
+/// - Rebuilds payment history index
+/// - Records all settlement references for global uniqueness
 pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
     // Step 1: Ensure ContractMeta exists
-    crate::storage::ensure_current_contract_meta(env);
+    ensure_current_contract_meta(env);
 
     // Step 2: Rebuild payment history index
     rebuild_payment_history_index(env)?;
 
-    // Step 3: Update the storage schema version in metadata
-    let mut meta = crate::storage::get_contract_meta(env)
-        .unwrap_or_else(crate::storage::current_contract_meta);
+    // Step 3: Record all existing settlement references for uniqueness
+    migrate_settlement_refs(env)?;
+
+    // Step 4: Update the storage schema version in metadata
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
-    crate::storage::set_contract_meta(env, &meta);
+    set_contract_meta(env, &meta);
 
     Ok(())
 }
 
+/// Migrates existing settlement references to the global uniqueness index.
+///
+/// This function scans all payment records and records their settlement_ref
+/// values in the `SettlementRef` index. This ensures that after an upgrade,
+/// existing settlement references are protected from being reused.
+pub fn migrate_settlement_refs(env: &Env) -> Result<(), ContractError> {
+    // Use the payment log to enumerate all invoice IDs
+    let payment_count = get_payment_count(env);
+    let mut migrated_count = 0u32;
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                // Record the settlement reference as used
+                if !record.settlement_ref.is_empty() {
+                    record_settlement_ref(env, &record.settlement_ref);
+                    migrated_count += 1;
+                }
+            }
+        }
+    }
+
+    // Emit event for settlement reference migration
+    if migrated_count > 0 {
+        events::emit_settlement_refs_migrated(env, migrated_count);
+    }
+
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

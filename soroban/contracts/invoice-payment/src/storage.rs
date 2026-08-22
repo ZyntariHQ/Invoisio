@@ -173,6 +173,10 @@ pub enum DataKey {
     /// Address proposed as the next admin by `propose_admin()` in **instance**
     /// storage. Read by `accept_admin()` to complete the two-step handoff.
     PendingAdmin,
+    // Add to DataKey enum
+    /// Global index tracking used settlement references.
+    /// Key: SettlementRef(String) -> unit value (exists = used)
+    SettlementRef(String),
 }
 
 // Data structures
@@ -796,4 +800,42 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     events::emit_storage_schema_upgraded(env, old_version, target_version);
 
     Ok(())
+}
+
+// ─── Settlement Reference Helpers ──────────────────────────────────────────
+
+/// Key for tracking used settlement references in persistent storage.
+fn settlement_ref_key(ref_str: &String) -> DataKey {
+    DataKey::SettlementRef(ref_str.clone())
+}
+
+/// Checks if a settlement reference has already been used.
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `ref_str` - The settlement reference to check
+///
+/// # Returns
+/// * `true` if the reference has been used
+/// * `false` otherwise
+pub fn is_settlement_ref_used(env: &Env, ref_str: &String) -> bool {
+    let key = settlement_ref_key(ref_str);
+    env.storage().persistent().has(&key)
+}
+
+/// Records a settlement reference as used and extends its TTL.
+///
+/// # Arguments
+/// * `env` - The Soroban environment
+/// * `ref_str` - The settlement reference to record
+///
+/// # Panics
+/// * If the reference is already used (caller should check first)
+pub fn record_settlement_ref(env: &Env, ref_str: &String) {
+    let key = settlement_ref_key(ref_str);
+    // Store a unit value since we only care about existence
+    env.storage().persistent().set(&key, &());
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }

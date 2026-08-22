@@ -51,7 +51,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-xlm-default-invoisio-001"
                 }
               ]
             }
@@ -104,7 +104,7 @@
                   "i128": "20000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-xlm-default-invoisio-002"
                 }
               ]
             }
@@ -157,7 +157,7 @@
                   "i128": "30000000"
                 },
                 {
-                  "string": "settle-xlm-default"
+                  "string": "settle-xlm-default-invoisio-003"
                 }
               ]
             }
@@ -359,7 +359,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-001"
                     }
                   },
                   {
@@ -439,7 +439,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-002"
                     }
                   },
                   {
@@ -519,7 +519,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-003"
                     }
                   },
                   {
@@ -680,7 +680,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-001"
                     }
                   },
                   {
@@ -760,7 +760,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-002"
                     }
                   },
                   {
@@ -840,7 +840,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default"
+                      "string": "settle-xlm-default-invoisio-003"
                     }
                   },
                   {
@@ -853,6 +853,81 @@
                   }
                 ]
               }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "settle-xlm-default-invoisio-001"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "settle-xlm-default-invoisio-002"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "settle-xlm-default-invoisio-003"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": "void"
             }
           },
           "ext": "v0"
