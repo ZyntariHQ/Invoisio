@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Copy } from "lucide-react";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, extractApiErrorMessage } from "@/lib/api-client";
 import { WalletAuthControls } from "@/components/wallet-auth-controls";
 import { RequireAuth } from "@/components/require-auth";
 
@@ -138,6 +138,8 @@ function InvoicesContent() {
 
   const [customQueries, setCustomQueries] = useState<SavedQuery[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [saveName, setSaveName] = useState("");
 
   const pageSize = 20;
@@ -340,6 +342,61 @@ function InvoicesContent() {
     localStorage.setItem("invoisio_saved_queries", JSON.stringify(updated));
   };
 
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (assetFilter !== "all") params.set("asset", assetFilter);
+      if (dueDateFilter !== "all") params.set("dueDate", dueDateFilter);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+
+      const response = await apiClient.get(
+        `/invoices/export${params.toString() ? `?${params.toString()}` : ""}`,
+        { responseType: "blob" },
+      );
+
+      const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      let message = extractApiErrorMessage(error);
+
+      if (
+        error &&
+        typeof error === "object" &&
+        "response" in error &&
+        (error as { response?: { data?: unknown } }).response?.data instanceof
+          Blob
+      ) {
+        try {
+          const blob = (error as { response: { data: Blob } }).response.data;
+          const text = await blob.text();
+          const parsed = JSON.parse(text) as { message?: string | string[] };
+          if (Array.isArray(parsed.message)) {
+            message = parsed.message.join(", ");
+          } else if (typeof parsed.message === "string") {
+            message = parsed.message;
+          }
+        } catch {
+          // Keep the generic API error when the response is not JSON.
+        }
+      }
+
+      setExportError(message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleDuplicateInvoice = async (
     invoiceId: string,
     e: React.MouseEvent,
@@ -400,6 +457,15 @@ function InvoicesContent() {
               className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors"
             >
               Refresh
+            </button>
+            <button
+              type="button"
+              onClick={handleExport}
+              disabled={isExporting}
+              aria-busy={isExporting}
+              className="inline-flex items-center rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+            >
+              {isExporting ? "Exporting..." : "Export CSV"}
             </button>
             <Link
               href="/invoices/new"
@@ -668,6 +734,18 @@ function InvoicesContent() {
             </div>
           </div>
         </div>
+
+        {exportError && (
+          <div
+            className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4"
+            role="alert"
+            aria-live="assertive"
+          >
+            <p className="text-sm font-medium text-amber-950">
+              CSV export failed: {exportError}
+            </p>
+          </div>
+        )}
 
         {/* Error State */}
         {error && (

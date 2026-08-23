@@ -268,6 +268,66 @@ describe("InvoicesService", () => {
     });
   });
 
+  describe("exportCsv", () => {
+    it("exports the requested invoice fields as CSV for the merchant", async () => {
+      const prisma = (service as any).prisma;
+      prisma.invoice.count.mockResolvedValue(1);
+      prisma.invoice.findMany.mockResolvedValue([
+        {
+          id: "invoice-a-1",
+          merchantId: MERCHANT_A,
+          invoiceNumber: "INV-A-001",
+          clientName: "Acme Corp",
+          amount: 100,
+          assetCode: "XLM",
+          status: "pending",
+          dueDate: new Date("2026-08-30T00:00:00.000Z"),
+        },
+      ]);
+
+      const result = await service.exportCsv(MERCHANT_A, {
+        status: "pending",
+        asset: "XLM",
+        q: "Acme",
+      });
+
+      const csv = result.buffer.toString("utf8");
+      expect(csv).toContain(
+        "Invoice Number,Customer,Amount,Asset,Status,Due Date",
+      );
+      expect(csv).toContain(
+        '"INV-A-001","Acme Corp","100","XLM","pending","2026-08-30"',
+      );
+      expect(result.count).toBe(1);
+      expect(prisma.invoice.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            merchantId: MERCHANT_A,
+            status: "pending",
+            assetCode: { equals: "XLM", mode: "insensitive" },
+          }),
+          orderBy: { createdAt: "desc" },
+        }),
+      );
+    });
+
+    it("rejects unsupported due-date filters", async () => {
+      await expect(
+        service.exportCsv(MERCHANT_A, { dueDate: "tomorrow" }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it("rejects exports larger than the safety limit", async () => {
+      const prisma = (service as any).prisma;
+      prisma.invoice.count.mockResolvedValue(10001);
+
+      await expect(service.exportCsv(MERCHANT_A, {})).rejects.toThrow(
+        /exports are limited to 10000 rows/,
+      );
+      expect(prisma.invoice.findMany).not.toHaveBeenCalled();
+    });
+  });
+
   describe("searchInvoices", () => {
     it("should return invoices scoped to the user", async () => {
       const results = await service.searchInvoices(USER_A, "Acme", 25);

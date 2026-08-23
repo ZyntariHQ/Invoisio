@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  Res,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { memoryStorage } from "multer";
@@ -20,6 +21,7 @@ import { ImportSummaryDto } from "./dto/import-result.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { InvoiceStatus } from "@prisma/client";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
+import { Response } from "express";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -63,6 +65,43 @@ export class InvoicesController {
       this.invoicesService.findAll(user.merchantId, p, l, search, status),
     );
     return result.items;
+  }
+
+  /**
+   * Export the current filtered invoice working set as CSV.
+   * The filters intentionally mirror the web invoice list.
+   */
+  @Auth()
+  @Get("export")
+  async exportCsv(
+    @CurrentUser() user: User,
+    @Res({ passthrough: true }) response: Response,
+    @Query("status") status?: string,
+    @Query("asset") asset?: string,
+    @Query("dueDate") dueDate?: string,
+    @Query("q") q?: string,
+  ): Promise<Buffer> {
+    const result = await this.prisma.runWithMerchantScope(
+      user.merchantId,
+      () =>
+        this.invoicesService.exportCsv(user.merchantId, {
+          status,
+          asset,
+          dueDate,
+          q,
+        }),
+    );
+
+    const date = new Date().toISOString().slice(0, 10);
+    response.setHeader("Content-Type", "text/csv; charset=utf-8");
+    response.setHeader(
+      "Content-Disposition",
+      `attachment; filename="invoices-${date}.csv"`,
+    );
+    response.setHeader("Content-Length", result.buffer.length);
+    response.setHeader("X-Exported-Rows", String(result.count));
+
+    return result.buffer;
   }
 
   /**

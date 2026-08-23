@@ -140,6 +140,155 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Export the merchant's filtered invoice working set as CSV.
+   *
+   * The export intentionally applies the same filters as the web invoice
+   * list on the server so pagination does not truncate the downloaded set.
+   * A hard row limit prevents an unbounded in-memory response.
+   */
+  async exportCsv(
+    merchantId: string,
+    filters: {
+      status?: string;
+      asset?: string;
+      dueDate?: string;
+      q?: string;
+    },
+  ): Promise<{ buffer: Buffer; count: number }> {
+    const where: Record<string, unknown> = { merchantId };
+    const search = filters.q?.trim();
+
+    if (search) {
+      where["AND"] = [
+        {
+          OR: [
+            { invoiceNumber: { contains: search, mode: "insensitive" } },
+            { clientName: { contains: search, mode: "insensitive" } },
+            { clientEmail: { contains: search, mode: "insensitive" } },
+            { id: { contains: search, mode: "insensitive" } },
+          ],
+        },
+      ];
+    }
+
+    const status = filters.status?.trim();
+    if (status && status !== "all") {
+      where["status"] = status;
+    }
+
+    const asset = filters.asset?.trim();
+    if (asset && asset !== "all") {
+      where["assetCode"] = { equals: asset, mode: "insensitive" };
+    }
+
+    const dueDate = filters.dueDate?.trim();
+    if (dueDate && dueDate !== "all") {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      switch (dueDate) {
+        case "no_due_date":
+          where["dueDate"] = null;
+          break;
+        case "has_due_date":
+          where["dueDate"] = { not: null };
+          break;
+        case "today": {
+          const tomorrow = new Date(today);
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          where["dueDate"] = { gte: today, lt: tomorrow };
+          break;
+        }
+        case "this_week": {
+          const endOfWeek = new Date(today);
+          endOfWeek.setDate(endOfWeek.getDate() + 7);
+          where["dueDate"] = { gte: today, lte: endOfWeek };
+          break;
+        }
+        case "this_month": {
+          const endOfMonth = new Date(today);
+          endOfMonth.setDate(endOfMonth.getDate() + 30);
+          where["dueDate"] = { gte: today, lte: endOfMonth };
+          break;
+        }
+        case "overdue": {
+          const andFilters = (where["AND"] as unknown[]) ?? [];
+          andFilters.push({
+            OR: [
+              { status: "overdue" },
+              {
+                dueDate: { lt: today },
+                status: { notIn: ["paid", "cancelled"] },
+              },
+            ],
+          });
+          where["AND"] = andFilters;
+          break;
+        }
+        default:
+          throw new BadRequestException(
+            `Unsupported dueDate filter: ${dueDate}`,
+          );
+      }
+    }
+
+    const MAX_EXPORT_ROWS = 10000;
+    const count = await this.prisma.invoice.count({ where });
+
+    if (count > MAX_EXPORT_ROWS) {
+      throw new BadRequestException(
+        `This export contains ${count} invoices, but exports are limited to ${MAX_EXPORT_ROWS} rows. Narrow the filters and try again.`,
+      );
+    }
+
+    const invoices = await this.prisma.invoice.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+      take: MAX_EXPORT_ROWS,
+    });
+
+    const headers = [
+      "Invoice Number",
+      "Customer",
+      "Amount",
+      "Asset",
+      "Status",
+      "Due Date",
+    ];
+
+    const escapeCsv = (value: unknown): string => {
+      const text = value == null ? "" : String(value);
+      // Prevent spreadsheet formula injection while retaining readable values.
+      const safeText =
+        typeof value === "string" && /^[=+\-@]/.test(text)
+          ? `'${text}`
+          : text;
+      return `"${safeText.replace(/"/g, '""')}"`;
+    };
+
+    const rows = invoices.map((invoice) =>
+      [
+        invoice.invoiceNumber,
+        invoice.clientName,
+        invoice.amount,
+        invoice.assetCode,
+        invoice.status,
+        invoice.dueDate?.toISOString().slice(0, 10),
+      ]
+        .map(escapeCsv)
+        .join(","),
+    );
+
+    const csv =
+      [headers.join(","), ...rows].join("\r\n") + "\r\n";
+
+    return {
+      buffer: Buffer.from(`\uFEFF${csv}`, "utf8"),
+      count: invoices.length,
+    };
+  }
+
+  /**
    * Search invoices by merchant-scoped term using full-text and trigram similarity
    * @param userId - Authenticated merchant id
    * @param rawTerm - Query string from user input
