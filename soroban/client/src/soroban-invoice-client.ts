@@ -191,6 +191,33 @@ export class SorobanInvoiceClient {
   }
 
   /**
+   * Cancel a pending admin transfer proposal (recovery path for the two-step
+   * handoff).
+   *
+   * The **current admin** keypair must be provided via `signerSecretKey` in
+   * the config. After a successful cancellation `pendingAdmin()` reads `null`
+   * again, the previously proposed address can no longer claim the role, and
+   * `proposeAdmin()` can be used for a fresh proposal.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   */
+  async cancelAdminTransfer(): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(this.contract.call('cancel_admin_transfer'))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
    * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
    *
    * Only assets that have been allowlisted are accepted by `recordPayment`.

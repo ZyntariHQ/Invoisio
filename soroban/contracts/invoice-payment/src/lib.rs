@@ -17,8 +17,8 @@ pub use storage::{
 };
 
 use events::{
-    emit_admin_transfer_accepted, emit_admin_transfer_proposed, emit_asset_allowlisted,
-    emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+    emit_admin_transfer_accepted, emit_admin_transfer_cancelled, emit_admin_transfer_proposed,
+    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
     allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
@@ -412,6 +412,36 @@ impl InvoicePaymentContract {
         set_admin(&env, &pending);
         clear_pending_admin(&env);
         emit_admin_transfer_accepted(&env, previous, pending);
+        Ok(())
+    }
+
+    /// Cancel a pending admin transfer proposal (recovery path for the
+    /// two-step handoff).
+    ///
+    /// The **current admin** must authorise this call. On success the pending
+    /// proposal is cleared, `pending_admin()` reads `None` again, the proposed
+    /// address can no longer claim the role via [`accept_admin`], and a new
+    /// proposal to a different address no longer fails with
+    /// [`ContractError::PendingAdminExists`].
+    ///
+    /// Overwriting a pending proposal directly from [`propose_admin`] is
+    /// deliberately not supported: cancellation must always be explicit so a
+    /// mistyped address cannot silently become an immediate irreversible
+    /// transfer.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
+    pub fn cancel_admin_transfer(env: Env) -> Result<(), ContractError> {
+        let current = get_admin(&env)?;
+        current.require_auth();
+
+        let pending = get_pending_admin(&env)?;
+
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
+        clear_pending_admin(&env);
+        emit_admin_transfer_cancelled(&env, current, pending);
         Ok(())
     }
 
