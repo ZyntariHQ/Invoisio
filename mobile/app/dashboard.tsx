@@ -163,6 +163,20 @@ export default function DashboardScreen() {
               <View className="flex-row gap-2">
                 <Pressable
                   className="rounded-2xl border border-white/20 px-3 py-2"
+                  accessibilityLabel="Open customers"
+                  onPress={() => {
+                    router.push("/customers");
+                  }}
+                >
+                  <Text
+                    className="text-sm text-white"
+                    style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                  >
+                    👥
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="rounded-2xl border border-white/20 px-3 py-2"
                   onPress={() => {
                     router.push("/settings");
                   }}

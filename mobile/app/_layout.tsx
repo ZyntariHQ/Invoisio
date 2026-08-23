@@ -112,6 +112,13 @@ export default function RootLayout() {
                   headerShown: true,
                 }}
               />
+              <Stack.Screen
+                name="customers"
+                options={{
+                  title: "Customers",
+                  headerShown: false,
+                }}
+              />
             </Stack>
           </AuthGuard>
           <DeepLinkHandler />
