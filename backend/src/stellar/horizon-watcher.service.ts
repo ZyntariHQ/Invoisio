@@ -150,10 +150,16 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
           const memoId = this.resolveMemoId(rawMemo, memoPrefix);
           if (!memoId) return;
 
-          const invoice = await this.invoicesService.findByMemo(memoId);
-          if (!invoice || invoice.status === "paid") return;
-
-          await this.invoicesService.markAsPaid(invoice.id, txHash);
+          const { invoice } = await this.invoicesService.applyHorizonPayment({
+            txHash,
+            memo: memoId,
+            payer: record.from,
+            amount: record.amount ?? "0",
+            asset_code: record.asset_code ?? "XLM",
+            asset_issuer: record.asset_issuer ?? "",
+            pagingToken: record.paging_token,
+          });
+          if (!invoice || invoice.status !== "paid") return;
 
           const event = new InvoicePaidEvent(
             invoice.id,
