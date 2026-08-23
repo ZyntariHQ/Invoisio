@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,6 +16,7 @@ import { RequireAuth } from "@/components/require-auth";
 import { MerchantService } from "@/lib/merchant-service";
 import { checklistQueryKey } from "@/hooks/use-merchant-checklist";
 import { CustomerService, Customer } from "@/lib/customer-service";
+import { formatTimeAgo } from "@/lib/format-time-ago";
 
 // Stellar mainnet USDC issuer — override via NEXT_PUBLIC_USDC_ISSUER for testnet
 const USDC_ISSUER =
@@ -25,9 +32,63 @@ interface Invoice {
   memo: string;
   destination_address: string;
   status: string;
+  clientName?: string;
+  createdAt?: string;
 }
 
 type Asset = "XLM" | "USDC";
+
+const CASHIER_MODE_STORAGE_KEY = "invoisio.pos.cashierMode";
+const RECENT_SALES_LIMIT = 8;
+
+/**
+ * Cashier mode is a per-device preference for shared in-store terminals —
+ * it never carries customer or sale data, so it's safe to persist in
+ * localStorage across sessions on the same device. Backed by
+ * useSyncExternalStore rather than useState+useEffect so the toggle stays
+ * false during SSR/hydration (no window) and picks up the persisted value
+ * in the same commit once mounted, with no extra render-then-patch step.
+ */
+let cashierModeListeners: Array<() => void> = [];
+
+function getCashierModeSnapshot(): boolean {
+  try {
+    return window.localStorage.getItem(CASHIER_MODE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function getCashierModeServerSnapshot(): boolean {
+  return false;
+}
+
+function subscribeCashierMode(onStoreChange: () => void): () => void {
+  cashierModeListeners.push(onStoreChange);
+  return () => {
+    cashierModeListeners = cashierModeListeners.filter(
+      (l) => l !== onStoreChange,
+    );
+  };
+}
+
+function persistCashierMode(next: boolean) {
+  try {
+    window.localStorage.setItem(CASHIER_MODE_STORAGE_KEY, next ? "1" : "0");
+  } catch {
+    // Best-effort persistence only.
+  }
+  for (const listener of cashierModeListeners) listener();
+}
+
+function useCashierMode(): [boolean, (next: boolean) => void] {
+  const cashierMode = useSyncExternalStore(
+    subscribeCashierMode,
+    getCashierModeSnapshot,
+    getCashierModeServerSnapshot,
+  );
+  return [cashierMode, persistCashierMode];
+}
 
 function CustomerSearch({
   onCustomerSelect,
@@ -157,7 +218,161 @@ function CustomerSearch({
   );
 }
 
-function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
+const STATUS_STYLES: Record<string, string> = {
+  paid: "bg-green-100 text-green-800",
+  pending: "bg-amber-100 text-amber-800",
+  overdue: "bg-red-100 text-red-800",
+  cancelled: "bg-gray-100 text-gray-600",
+};
+
+/**
+ * Recent sales/payment requests for this merchant, visible on the same
+ * screen as the POS form. Selecting one re-opens its QR code instead of
+ * creating a duplicate invoice — handy when a customer's wallet missed the
+ * first scan.
+ */
+function RecentSalesPanel({
+  sales,
+  isLoading,
+  error,
+  onRetry,
+  onSelect,
+  compact = false,
+}: {
+  sales: Invoice[];
+  isLoading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onSelect: (invoice: Invoice) => void;
+  compact?: boolean;
+}) {
+  return (
+    <div
+      className={
+        compact
+          ? "rounded-lg bg-white shadow"
+          : "rounded-lg bg-white shadow lg:sticky lg:top-12"
+      }
+    >
+      <div className="px-5 py-4">
+        <h2 className="text-sm font-semibold text-gray-900">Recent sales</h2>
+        <p className="mt-0.5 text-xs text-gray-500">
+          Tap a sale to show its QR code again.
+        </p>
+
+        {isLoading && (
+          <ul className="mt-3 space-y-2" aria-hidden="true">
+            {[0, 1, 2].map((i) => (
+              <li key={i} className="h-12 animate-pulse rounded-md bg-gray-100" />
+            ))}
+          </ul>
+        )}
+
+        {!isLoading && error && (
+          <div
+            className="mt-3 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-900"
+            role="alert"
+          >
+            <span>{error}</span>
+            <button
+              type="button"
+              onClick={onRetry}
+              className="shrink-0 font-semibold underline hover:no-underline"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!isLoading && !error && sales.length === 0 && (
+          <p className="mt-3 text-sm text-gray-400">No sales yet.</p>
+        )}
+
+        {!isLoading && !error && sales.length > 0 && (
+          <ul className="mt-3 divide-y divide-gray-100">
+            {sales.map((sale) => (
+              <li key={sale.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(sale)}
+                  className="flex w-full items-center justify-between gap-2 py-2.5 text-left hover:bg-gray-50 rounded-md px-1.5 -mx-1.5 transition-colors"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-gray-900">
+                      {sale.amount.toLocaleString("en-US", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 7,
+                      })}{" "}
+                      {sale.asset}
+                    </span>
+                    <span className="block truncate text-xs text-gray-500">
+                      {sale.clientName || "Walk-in Customer"}
+                      {sale.createdAt
+                        ? ` · ${formatTimeAgo(sale.createdAt)}`
+                        : ""}
+                    </span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      STATUS_STYLES[sale.status] ?? "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {sale.status}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CustomerNameField({
+  selectedCustomer,
+  customerName,
+  setCustomerName,
+  setSelectedCustomer,
+}: {
+  selectedCustomer: Customer | null;
+  customerName: string;
+  setCustomerName: (name: string) => void;
+  setSelectedCustomer: (customer: Customer | null) => void;
+}) {
+  return (
+    <div>
+      <label
+        htmlFor="pos-customer"
+        className="block text-sm font-medium text-gray-700"
+      >
+        Customer Name{" "}
+        <span className="font-normal text-gray-400">(optional)</span>
+      </label>
+      <div className="mt-1">
+        <input
+          id="pos-customer"
+          type="text"
+          value={selectedCustomer ? selectedCustomer.name : customerName}
+          onChange={(e) => {
+            setCustomerName(e.target.value);
+            if (selectedCustomer) setSelectedCustomer(null);
+          }}
+          placeholder="Walk-in Customer"
+          className="block w-full rounded-md border-0 py-2 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600"
+        />
+      </div>
+    </div>
+  );
+}
+
+function FormView({
+  onSuccess,
+  cashierMode,
+}: {
+  onSuccess: (invoice: Invoice) => void;
+  cashierMode: boolean;
+}) {
   const [amount, setAmount] = useState("");
   const [asset, setAsset] = useState<Asset>("XLM");
   const [memo, setMemo] = useState("");
@@ -167,9 +382,39 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const amountInputRef = useRef<HTMLInputElement>(null);
 
   const amountNum = parseFloat(amount);
   const isAmountValid = !isNaN(amountNum) && amountNum > 0;
+
+  // Cashier mode: land straight in the amount field so a cashier can type
+  // the next sale's total without reaching for the mouse.
+  useEffect(() => {
+    if (cashierMode) amountInputRef.current?.focus();
+  }, [cashierMode]);
+
+  // Alt-modified shortcuts are safe to keep active everywhere — they never
+  // collide with typing a digit into the amount field. Matched on e.code
+  // (the physical key) rather than e.key: Alt/Option remaps e.key on macOS
+  // (Alt+1 -> "¡", Alt+A -> "å"), which would otherwise silently break
+  // these shortcuts for Mac cashiers.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.code === "KeyA") {
+        e.preventDefault();
+        amountInputRef.current?.focus();
+      } else if (e.code === "Digit1") {
+        e.preventDefault();
+        setAsset("XLM");
+      } else if (e.code === "Digit2") {
+        e.preventDefault();
+        setAsset("USDC");
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -241,6 +486,7 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
             </label>
             <div className="mt-1">
               <input
+                ref={amountInputRef}
                 id="pos-amount"
                 type="number"
                 inputMode="decimal"
@@ -284,6 +530,8 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
                 type="button"
                 onClick={() => setAsset("XLM")}
                 aria-pressed={asset === "XLM"}
+                aria-keyshortcuts="Alt+1"
+                title="Shortcut: Alt+1"
                 className={`flex-1 rounded-l-md border px-4 py-3 text-sm font-semibold transition-colors ${
                   asset === "XLM"
                     ? "bg-blue-600 text-white border-blue-600"
@@ -296,6 +544,8 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
                 type="button"
                 onClick={() => setAsset("USDC")}
                 aria-pressed={asset === "USDC"}
+                aria-keyshortcuts="Alt+2"
+                title="Shortcut: Alt+2"
                 className={`flex-1 rounded-r-md border-t border-b border-r px-4 py-3 text-sm font-semibold transition-colors ${
                   asset === "USDC"
                     ? "bg-blue-600 text-white border-blue-600"
@@ -328,32 +578,40 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
             </div>
           </div>
 
-          {/* Customer Name */}
-          <div>
-            <label
-              htmlFor="pos-customer"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Customer Name{" "}
-              <span className="font-normal text-gray-400">(optional)</span>
-            </label>
-            <div className="mt-1">
-              <input
-                id="pos-customer"
-                type="text"
-                value={selectedCustomer ? selectedCustomer.name : customerName}
-                onChange={(e) => {
-                  setCustomerName(e.target.value);
-                  if (selectedCustomer) setSelectedCustomer(null);
-                }}
-                placeholder="Walk-in Customer"
-                className="block w-full rounded-md border-0 py-2 px-3 text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600"
+          {/* Customer Name + Saved Client Search. In cashier mode these are
+              tucked behind a disclosure — most walk-in sales don't need
+              them, and skipping straight to Generate is the common path. */}
+          {cashierMode ? (
+            <details className="group rounded-md border border-gray-200 open:border-gray-300">
+              <summary className="cursor-pointer select-none list-none px-3 py-2.5 text-sm font-medium text-gray-700 marker:content-none">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="transition-transform group-open:rotate-90">
+                    ▸
+                  </span>
+                  Add customer details (optional)
+                </span>
+              </summary>
+              <div className="space-y-6 px-3 pb-3 pt-1">
+                <CustomerNameField
+                  selectedCustomer={selectedCustomer}
+                  customerName={customerName}
+                  setCustomerName={setCustomerName}
+                  setSelectedCustomer={setSelectedCustomer}
+                />
+                <CustomerSearch onCustomerSelect={setSelectedCustomer} />
+              </div>
+            </details>
+          ) : (
+            <>
+              <CustomerNameField
+                selectedCustomer={selectedCustomer}
+                customerName={customerName}
+                setCustomerName={setCustomerName}
+                setSelectedCustomer={setSelectedCustomer}
               />
-            </div>
-          </div>
-
-          {/* Saved Client Search */}
-          <CustomerSearch onCustomerSelect={setSelectedCustomer} />
+              <CustomerSearch onCustomerSelect={setSelectedCustomer} />
+            </>
+          )}
 
           {error && (
             <div
@@ -373,6 +631,11 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
           >
             {isSubmitting ? "Generating..." : "Generate QR Code"}
           </button>
+          <p className="text-center text-xs text-gray-400">
+            Shortcuts: <kbd className="rounded border px-1">Alt+A</kbd> focus
+            amount · <kbd className="rounded border px-1">Alt+1</kbd> XLM ·{" "}
+            <kbd className="rounded border px-1">Alt+2</kbd> USDC
+          </p>
         </form>
       </div>
     </div>
@@ -382,9 +645,11 @@ function FormView({ onSuccess }: { onSuccess: (invoice: Invoice) => void }) {
 function PaymentView({
   invoice,
   onNewSale,
+  cashierMode,
 }: {
   invoice: Invoice;
   onNewSale: () => void;
+  cashierMode: boolean;
 }) {
   const router = useRouter();
 
@@ -397,9 +662,37 @@ function PaymentView({
     memoType: "id",
   });
 
+  // This screen has no text inputs, so plain (unmodified) key accelerators
+  // are safe here — a cashier can clear the QR and move on without
+  // touching the mouse. The same actions stay available as regular buttons
+  // below, so nothing on this screen is keyboard-only.
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "n" || e.key === "N" || e.key === "Enter" || e.key === "Escape") {
+        e.preventDefault();
+        onNewSale();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onNewSale]);
+
+  const isReopenedNonPending =
+    invoice.status !== "pending" && invoice.status !== "draft";
+
   return (
     <div className="overflow-hidden rounded-lg bg-white shadow">
       <div className="px-6 py-8 sm:px-8">
+        {isReopenedNonPending && (
+          <div
+            className="mb-6 rounded-md border border-amber-200 bg-amber-50 p-3 text-center text-sm text-amber-900"
+            role="alert"
+          >
+            This sale is already <strong>{invoice.status}</strong> — this QR
+            is shown for reference only, not a new payment request.
+          </div>
+        )}
         <div className="text-center">
           <p className="text-sm font-medium uppercase tracking-wide text-green-600">
             Payment Request Ready
@@ -448,6 +741,8 @@ function PaymentView({
           <button
             type="button"
             onClick={onNewSale}
+            aria-keyshortcuts="N Enter Escape"
+            title="Shortcut: N, Enter, or Escape"
             className="w-full rounded-md bg-blue-600 px-4 py-3 text-center font-semibold text-white hover:bg-blue-700 transition-colors"
           >
             New Sale
@@ -460,6 +755,14 @@ function PaymentView({
             View Invoice
           </button>
         </div>
+        {cashierMode && (
+          <p className="mt-4 text-center text-xs text-gray-400">
+            Press <kbd className="rounded border px-1">N</kbd>,{" "}
+            <kbd className="rounded border px-1">Enter</kbd>, or{" "}
+            <kbd className="rounded border px-1">Esc</kbd> to start the next
+            sale
+          </p>
+        )}
       </div>
     </div>
   );
@@ -469,10 +772,55 @@ function POSContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
+  const [cashierMode, setCashierMode] = useCashierMode();
+
+  const [recentSales, setRecentSales] = useState<Invoice[]>([]);
+  const [isLoadingSales, setIsLoadingSales] = useState(true);
+  const [salesLoadError, setSalesLoadError] = useState<string | null>(null);
+  // Tracks the cancel function for whichever fetch is currently in flight,
+  // so a retry can supersede a still-pending mount fetch (or vice versa)
+  // without a stale response's setState calls landing after the component
+  // (or the request itself) has moved on.
+  const cancelPendingFetchRef = useRef<() => void>(() => {});
+
+  // Assumes the caller already put the panel into a loading state; only
+  // sets state from the async response, so it's safe to call directly from
+  // an effect body.
+  const fetchRecentSales = useCallback(() => {
+    cancelPendingFetchRef.current();
+    let cancelled = false;
+    cancelPendingFetchRef.current = () => {
+      cancelled = true;
+    };
+    apiClient
+      .get<Invoice[]>(`/invoices?page=1&limit=${RECENT_SALES_LIMIT}`)
+      .then((response) => {
+        if (!cancelled) setRecentSales(response.data);
+      })
+      .catch((err) => {
+        if (!cancelled) setSalesLoadError(extractApiErrorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingSales(false);
+      });
+    return () => cancelPendingFetchRef.current();
+  }, []);
+
+  useEffect(() => fetchRecentSales(), [fetchRecentSales]);
+
+  const retryLoadRecentSales = useCallback(() => {
+    setIsLoadingSales(true);
+    setSalesLoadError(null);
+    fetchRecentSales();
+  }, [fetchRecentSales]);
 
   const handleSuccess = useCallback(
     (created: Invoice) => {
       setInvoice(created);
+      setRecentSales((prev) => [
+        created,
+        ...prev.filter((s) => s.id !== created.id),
+      ].slice(0, RECENT_SALES_LIMIT));
       // Mark the first-invoice step and refresh the activation checklist
       // so the dashboard reflects completion after the user navigates back.
       void MerchantService.syncChecklist()
@@ -488,22 +836,83 @@ function POSContent() {
     setInvoice(null);
   }, []);
 
+  const handleSelectRecentSale = useCallback((sale: Invoice) => {
+    setInvoice(sale);
+  }, []);
+
+  const recentSalesPanel = (
+    <RecentSalesPanel
+      sales={recentSales}
+      isLoading={isLoadingSales}
+      error={salesLoadError}
+      onRetry={retryLoadRecentSales}
+      onSelect={handleSelectRecentSale}
+      compact={!cashierMode}
+    />
+  );
+
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-md">
+      <div className={cashierMode ? "mx-auto max-w-5xl" : "mx-auto max-w-md"}>
         {/* Nav */}
-        <button
-          type="button"
-          onClick={() => router.push("/invoices")}
-          className="mb-8 text-sm font-medium text-blue-600 hover:text-blue-700"
-        >
-          ← Back to Invoices
-        </button>
+        <div className="mb-8 flex items-center justify-between gap-4">
+          <button
+            type="button"
+            onClick={() => router.push("/invoices")}
+            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+          >
+            ← Back to Invoices
+          </button>
 
-        {invoice ? (
-          <PaymentView invoice={invoice} onNewSale={handleNewSale} />
+          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium text-gray-700">
+            Cashier mode
+            <button
+              type="button"
+              role="switch"
+              aria-checked={cashierMode}
+              onClick={() => setCashierMode(!cashierMode)}
+              className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                cashierMode ? "bg-blue-600" : "bg-gray-300"
+              }`}
+            >
+              <span className="sr-only">Toggle cashier mode</span>
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  cashierMode ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </label>
+        </div>
+
+        {cashierMode ? (
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_320px]">
+            <div>
+              {invoice ? (
+                <PaymentView
+                  invoice={invoice}
+                  onNewSale={handleNewSale}
+                  cashierMode={cashierMode}
+                />
+              ) : (
+                <FormView onSuccess={handleSuccess} cashierMode={cashierMode} />
+              )}
+            </div>
+            {recentSalesPanel}
+          </div>
         ) : (
-          <FormView onSuccess={handleSuccess} />
+          <div className="space-y-6">
+            {invoice ? (
+              <PaymentView
+                invoice={invoice}
+                onNewSale={handleNewSale}
+                cashierMode={cashierMode}
+              />
+            ) : (
+              <FormView onSuccess={handleSuccess} cashierMode={cashierMode} />
+            )}
+            {recentSalesPanel}
+          </div>
         )}
       </div>
     </div>
