@@ -10,6 +10,7 @@ import {
   jwtAuthProviders,
   signUserToken,
 } from "../auth/guard/auth-testing.util";
+import { AdminGuard } from "../auth/guard/admin.guard";
 
 describe("BackfillController", () => {
   let controller: BackfillController;
@@ -254,6 +255,7 @@ describe("BackfillController (auth enforcement)", () => {
             getHistory: jest.fn().mockResolvedValue([]),
           },
         },
+        AdminGuard,
         ...jwtAuthProviders,
       ],
     }).compile();
@@ -273,11 +275,27 @@ describe("BackfillController (auth enforcement)", () => {
       .expect(401);
   });
 
-  it("POST /backfill/reconcile should allow authenticated users", async () => {
+  it("POST /backfill/reconcile should reject non-admin authenticated users", async () => {
     const token = signUserToken(module as any, {
       id: "user-1",
       merchantId: "merchant-1",
       role: "owner" as any,
+      isAdmin: false,
+    });
+
+    await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startLedger: 1000 })
+      .expect(403);
+  });
+
+  it("POST /backfill/reconcile should allow admin users", async () => {
+    const token = signUserToken(module as any, {
+      id: "admin-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: true,
     });
 
     const res = await request(app.getHttpServer())
@@ -293,11 +311,26 @@ describe("BackfillController (auth enforcement)", () => {
     await request(app.getHttpServer()).get("/backfill/history").expect(401);
   });
 
-  it("GET /backfill/history should allow authenticated users", async () => {
+  it("GET /backfill/history should reject non-admin authenticated users", async () => {
     const token = signUserToken(module as any, {
       id: "user-1",
       merchantId: "merchant-1",
       role: "owner" as any,
+      isAdmin: false,
+    });
+
+    await request(app.getHttpServer())
+      .get("/backfill/history")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(403);
+  });
+
+  it("GET /backfill/history should allow admin users", async () => {
+    const token = signUserToken(module as any, {
+      id: "admin-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: true,
     });
 
     const res = await request(app.getHttpServer())

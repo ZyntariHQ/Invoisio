@@ -8,14 +8,15 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  UseGuards,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from "@nestjs/swagger";
 import { BackfillService } from "./backfill.service";
 import type { BackfillOptions, CancelRunOptions } from "./backfill.service";
-import { Auth } from "../auth/guard/auth.guard";
+import { AdminGuard } from "../auth/guard/admin.guard";
 
 @ApiTags("backfill")
-@Auth()
+@UseGuards(AdminGuard)
 @Controller("backfill")
 export class BackfillController {
   constructor(private readonly backfillService: BackfillService) {}
