@@ -103,6 +103,91 @@ describe("InvoicesService", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
+      // Draft invoice — must not be accessible via the public endpoint
+      {
+        id: "invoice-draft-1",
+        merchantId: MERCHANT_A,
+        userId: USER_A,
+        invoiceNumber: "INV-DRAFT-001",
+        clientName: "Draft Client",
+        clientEmail: "draft@example.com",
+        description: "Draft",
+        amount: 50,
+        assetCode: "XLM",
+        assetIssuer: null,
+        memo: "3001",
+        memoType: "ID",
+        status: "draft",
+        isDraft: true,
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        merchant: { name: "Merchant A" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      // Cancelled invoice — must not be accessible via the public endpoint
+      {
+        id: "invoice-cancelled-1",
+        merchantId: MERCHANT_A,
+        userId: USER_A,
+        invoiceNumber: "INV-CANCELLED-001",
+        clientName: "Cancelled Client",
+        clientEmail: "cancelled@example.com",
+        description: "Cancelled",
+        amount: 75,
+        assetCode: "XLM",
+        assetIssuer: null,
+        memo: "3002",
+        memoType: "ID",
+        status: "cancelled",
+        isDraft: false,
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        merchant: { name: "Merchant A" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      // Paid invoice — must be accessible via the public endpoint
+      {
+        id: "invoice-paid-1",
+        merchantId: MERCHANT_A,
+        userId: USER_A,
+        invoiceNumber: "INV-PAID-001",
+        clientName: "Paid Client",
+        clientEmail: "paid@example.com",
+        description: "Paid",
+        amount: 300,
+        assetCode: "USDC",
+        assetIssuer: "GASDF",
+        memo: "3003",
+        memoType: "ID",
+        status: "paid",
+        isDraft: false,
+        txHash: "tx-abc123",
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        merchant: { name: "Merchant A" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      // Overdue invoice — must be accessible via the public endpoint
+      {
+        id: "invoice-overdue-1",
+        merchantId: MERCHANT_A,
+        userId: USER_A,
+        invoiceNumber: "INV-OVERDUE-001",
+        clientName: "Overdue Client",
+        clientEmail: "overdue@example.com",
+        description: "Overdue",
+        amount: 120,
+        assetCode: "XLM",
+        assetIssuer: null,
+        memo: "3004",
+        memoType: "ID",
+        status: "overdue",
+        isDraft: false,
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        merchant: { name: "Merchant A" },
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     ];
 
     const statusHistories: any[] = [
@@ -544,6 +629,73 @@ describe("InvoicesService", () => {
       expect(detail.statusHistory!.map((h) => h.status)).not.toContain(
         "anchoring_failed_permanent",
       );
+    });
+  });
+
+  describe("findPublicInvoice — public access state enforcement", () => {
+    it("returns null (not found) for a draft invoice", async () => {
+      const result = await service.findPublicInvoice("invoice-draft-1");
+      expect(result).toBeNull();
+    });
+
+    it("returns null (not found) for a cancelled invoice", async () => {
+      const result = await service.findPublicInvoice("invoice-cancelled-1");
+      expect(result).toBeNull();
+    });
+
+    it("returns public data for a pending invoice", async () => {
+      const result = await service.findPublicInvoice("invoice-a-1");
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe("pending");
+      expect(result).toHaveProperty("id", "invoice-a-1");
+      expect(result).toHaveProperty("amount");
+      expect(result).toHaveProperty("memo");
+      expect(result).toHaveProperty("destination_address");
+    });
+
+    it("returns public data for a paid invoice", async () => {
+      const result = await service.findPublicInvoice("invoice-paid-1");
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe("paid");
+      expect(result!.tx_hash).toBe("tx-abc123");
+    });
+
+    it("returns public data for an overdue invoice", async () => {
+      const result = await service.findPublicInvoice("invoice-overdue-1");
+      expect(result).not.toBeNull();
+      expect(result!.status).toBe("overdue");
+    });
+
+    it("returns null for a non-existent invoice ID", async () => {
+      const result = await service.findPublicInvoice("no-such-uuid");
+      expect(result).toBeNull();
+    });
+
+    it("does not expose isDraft flag or internal draft fields in the response", async () => {
+      const result = await service.findPublicInvoice("invoice-a-1");
+      expect(result).not.toBeNull();
+      expect(result).not.toHaveProperty("isDraft");
+      expect(result).not.toHaveProperty("draftData");
+      expect(result).not.toHaveProperty("draftVersion");
+      expect(result).not.toHaveProperty("lastAutoSavedAt");
+    });
+
+    it("does not expose internal merchant fields (merchantId, userId) in the response", async () => {
+      const result = await service.findPublicInvoice("invoice-a-1");
+      expect(result).not.toBeNull();
+      expect(result).not.toHaveProperty("merchantId");
+      expect(result).not.toHaveProperty("userId");
+    });
+
+    it("PUBLIC_ALLOWED_STATUSES contains exactly the expected payer-safe states", () => {
+      const allowed = InvoicesService.PUBLIC_ALLOWED_STATUSES;
+      expect(allowed.has("pending")).toBe(true);
+      expect(allowed.has("partially_paid")).toBe(true);
+      expect(allowed.has("paid")).toBe(true);
+      expect(allowed.has("overdue")).toBe(true);
+      // Non-public states must not be in the set
+      expect(allowed.has("draft")).toBe(false);
+      expect(allowed.has("cancelled")).toBe(false);
     });
   });
 });

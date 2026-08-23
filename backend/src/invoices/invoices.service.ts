@@ -764,10 +764,30 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
-   * Find invoice by ID for public payer view (no auth required)
-   * Returns only payer-safe fields with merchant branding
+   * Invoice statuses that are safe to expose through the public (unauthenticated)
+   * payer-facing endpoint. Draft and cancelled invoices must never be resolved
+   * here — draft because the merchant has not yet published the invoice, and
+   * cancelled because payers should not attempt to pay a voided invoice.
+   */
+  static readonly PUBLIC_ALLOWED_STATUSES: ReadonlySet<string> = new Set([
+    "pending",
+    "partially_paid",
+    "paid",
+    "overdue",
+  ]);
+
+  /**
+   * Find invoice by ID for public payer view (no auth required).
+   * Returns only payer-safe fields with merchant branding.
+   *
+   * Only invoices in an explicitly payer-safe state are returned.
+   * Draft invoices (not yet published by the merchant) and cancelled
+   * invoices are treated as not found so that a leaked UUID cannot be
+   * used to confirm the existence of, or read details from, an unpublished
+   * or voided invoice.
+   *
    * @param id - Invoice UUID
-   * @returns Public invoice data or null if not found
+   * @returns Public invoice data or null if not found / not publicly accessible
    */
   async findPublicInvoice(id: string): Promise<{
     id: string;
@@ -795,6 +815,16 @@ export class InvoicesService implements OnModuleInit {
     });
 
     if (!invoice) return null;
+
+    // Reject any status that has not been explicitly allow-listed for public
+    // access. This includes 'draft' (unpublished) and 'cancelled' (voided),
+    // and any future status that has not been reviewed for payer safety.
+    // Returning null — rather than throwing — lets the controller surface a
+    // uniform 404, preventing callers from distinguishing "does not exist"
+    // from "exists but is not public".
+    if (!InvoicesService.PUBLIC_ALLOWED_STATUSES.has(invoice.status)) {
+      return null;
+    }
 
     const normalized = this.normalizeInvoice(invoice);
 

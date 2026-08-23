@@ -9,6 +9,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  NotFoundException,
   Delete,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
@@ -109,8 +110,14 @@ export class InvoicesController {
   }
 
   /**
-   * Get public invoice view for payers (no authentication required)
-   * Returns only payer-safe fields with merchant branding
+   * Get public invoice view for payers (no authentication required).
+   * Returns only payer-safe fields with merchant branding.
+   *
+   * Draft and cancelled invoices are not accessible from this endpoint —
+   * they are treated identically to a non-existent invoice so that a leaked
+   * draft UUID cannot be used to confirm invoice details before the merchant
+   * has published the invoice.
+   *
    * @param id - Invoice UUID
    * @returns Public invoice data
    */
@@ -119,7 +126,7 @@ export class InvoicesController {
   async findPublicInvoice(@Param("id") id: string) {
     const invoice = await this.invoicesService.findPublicInvoice(id);
     if (!invoice) {
-      throw new BadRequestException("Invoice not found");
+      throw new NotFoundException("Invoice not found");
     }
     return invoice;
   }
