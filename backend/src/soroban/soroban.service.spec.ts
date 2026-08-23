@@ -1,5 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
+import { SorobanInvoiceClient } from "@invoisio/soroban-client";
 import { SorobanService } from "./soroban.service";
 import { RecordPaymentDto } from "./dto/soroban-payment.dto";
 
@@ -9,6 +10,11 @@ const mockClient = {
   hasPayment: jest.fn(),
 };
 
+// `jest.mock` is hoisted above the static import by ts-jest, so the binding
+// imported below resolves to the mocked `jest.fn()` constructor at runtime.
+// Accessing it through a static import (instead of `require()`) keeps the
+// `@typescript-eslint/no-require-imports` rule happy and gives us full type
+// information in this file.
 jest.mock("@invoisio/soroban-client", () => {
   const actual = jest.requireActual("@invoisio/soroban-client");
   return {
@@ -25,9 +31,7 @@ const validStellarConfig = {
   merchantPublicKey: "",
 };
 
-const buildService = async (
-  stellarConfig: any,
-): Promise<SorobanService> => {
+const buildService = async (stellarConfig: any): Promise<SorobanService> => {
   const module: TestingModule = await Test.createTestingModule({
     providers: [
       SorobanService,
@@ -64,9 +68,7 @@ describe("SorobanService — defensive boot", () => {
     it("initializes the client when admin secret key and contract id are set", async () => {
       const service = await buildService(validStellarConfig);
       service.onModuleInit();
-      expect(
-        require("@invoisio/soroban-client").SorobanInvoiceClient,
-      ).toHaveBeenCalledWith(
+      expect(SorobanInvoiceClient).toHaveBeenCalledWith(
         expect.objectContaining({ contractId: validStellarConfig.contractId }),
       );
     });
@@ -79,9 +81,7 @@ describe("SorobanService — defensive boot", () => {
           "GA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2",
       });
       service.onModuleInit();
-      expect(
-        require("@invoisio/soroban-client").SorobanInvoiceClient,
-      ).toHaveBeenCalled();
+      expect(SorobanInvoiceClient).toHaveBeenCalled();
     });
 
     it("stays dormant when neither admin secret key nor merchant public key is set", async () => {
@@ -91,9 +91,7 @@ describe("SorobanService — defensive boot", () => {
         merchantPublicKey: "",
       });
       service.onModuleInit();
-      expect(
-        require("@invoisio/soroban-client").SorobanInvoiceClient,
-      ).not.toHaveBeenCalled();
+      expect(SorobanInvoiceClient).not.toHaveBeenCalled();
     });
 
     it("stays dormant when contract id is missing even with a key configured", async () => {
@@ -102,13 +100,10 @@ describe("SorobanService — defensive boot", () => {
         contractId: "",
       });
       service.onModuleInit();
-      expect(
-        require("@invoisio/soroban-client").SorobanInvoiceClient,
-      ).not.toHaveBeenCalled();
+      expect(SorobanInvoiceClient).not.toHaveBeenCalled();
     });
 
     it("catches construction errors and stays dormant", async () => {
-      const { SorobanInvoiceClient } = require("@invoisio/soroban-client");
       (SorobanInvoiceClient as jest.Mock).mockImplementationOnce(() => {
         throw new Error("boom");
       });

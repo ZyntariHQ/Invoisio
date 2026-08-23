@@ -130,9 +130,7 @@ export class SorobanService implements OnModuleInit {
    */
   async getInvoicePayment(invoiceId: string): Promise<PaymentRecord | null> {
     if (!this.client) {
-      this.logger.debug(
-        "Soroban not configured — skipping getInvoicePayment",
-      );
+      this.logger.debug("Soroban not configured — skipping getInvoicePayment");
       return null;
     }
     return this.client.getPayment(invoiceId);

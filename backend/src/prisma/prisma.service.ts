@@ -60,9 +60,7 @@ export async function prismaExtensionCallback(
   if (durationMs >= deps.slowThresholdMs) {
     deps.structuredLogger.warn("db.query.slow", {
       category: "database",
-      operation: ctx.model
-        ? `${ctx.model}.${ctx.operation}`
-        : ctx.operation,
+      operation: ctx.model ? `${ctx.model}.${ctx.operation}` : ctx.operation,
       durationMs,
       slow: true,
     });

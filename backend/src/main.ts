@@ -46,7 +46,8 @@ async function bootstrap() {
   );
 
   // OpenAPI / Swagger — serve only outside production
-  const nodeEnv = configService.get<string>("app.nodeEnv") ?? process.env.NODE_ENV;
+  const nodeEnv =
+    configService.get<string>("app.nodeEnv") ?? process.env.NODE_ENV;
   if (nodeEnv !== "production") {
     const config = new DocumentBuilder()
       .setTitle("Invoisio API")
