@@ -1249,19 +1249,37 @@ export class InvoicesService implements OnModuleInit {
           amount: newAmountPaid.toString(),
           settlementRef,
         });
-        txHash = result.hash;
-        ledger = result.ledger;
-        this.logger.log(
-          `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
-        );
+        if (result) {
+          txHash = result.hash;
+          ledger = result.ledger;
+          this.logger.log(
+            `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
+          );
+        } else {
+          // Soroban is dormant (missing keys or contract id). Keep the
+          // existing "pending_full_payment" defaults and log so the gap
+          // is visible in observability without blocking the DB update.
+          this.logger.warn(
+            `Invoice ${invoiceId} — Soroban disabled, skipping on-chain anchor`,
+          );
+        }
       } else {
         this.logger.log(
           `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
         );
         // Retrieve confirmed details for the return value.
         const record = await this.sorobanService.getInvoicePayment(invoiceId);
-        txHash = `on-chain@ledger`;
-        ledger = Number(record.timestamp);
+        if (record) {
+          txHash = `on-chain@ledger`;
+          ledger = Number(record.timestamp);
+        } else {
+          // Race / drift: hasInvoicePayment said true but getInvoicePayment
+          // returned null. Either Soroban just went dormant or the record
+          // is genuinely missing on-chain. Keep defaults and warn loudly.
+          this.logger.warn(
+            `Invoice ${invoiceId} flagged as on-chain but getInvoicePayment returned null`,
+          );
+        }
       }
     }
 
