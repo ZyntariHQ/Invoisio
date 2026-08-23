@@ -198,13 +198,15 @@ export default function CustomersScreen() {
             <View className="flex-row items-center justify-between">
               <Pressable
                 accessibilityLabel="Go back"
+                accessibilityRole="button"
                 onPress={() => router.back()}
-                className="rounded-full bg-slate-800 p-2"
+                className="rounded-full bg-slate-800 p-3"
               >
                 <Text className="text-lg text-white">←</Text>
               </Pressable>
               <Pressable
                 accessibilityLabel="Add customer"
+                accessibilityRole="button"
                 onPress={openCreate}
                 className="rounded-2xl bg-[#2663FF] px-4 py-3"
               >
@@ -237,6 +239,7 @@ export default function CustomersScreen() {
               {search.length > 0 && (
                 <Pressable
                   accessibilityLabel="Clear search"
+                  accessibilityRole="button"
                   onPress={() => handleSearchChange("")}
                 >
                   <Text className="text-base text-slate-400">✕</Text>
@@ -244,10 +247,17 @@ export default function CustomersScreen() {
               )}
             </View>
             {error && (
-              <View className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+              <View
+                accessible
+                accessibilityRole="alert"
+                accessibilityLabel={error}
+                accessibilityLiveRegion="assertive"
+                className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 p-4"
+              >
                 <Text className="text-sm text-red-200">{error}</Text>
                 <Pressable
                   className="mt-2 self-start"
+                  accessibilityRole="button"
                   onPress={() => void loadCustomers(search)}
                 >
                   <Text className="text-sm text-red-300">Try again</Text>
@@ -265,6 +275,7 @@ export default function CustomersScreen() {
         renderItem={({ item }) => (
           <Pressable
             accessibilityLabel={`Edit ${item.name}`}
+            accessibilityRole="button"
             onPress={() => openEdit(item)}
             className="mt-3 rounded-2xl border border-white/10 bg-white/5 p-4"
           >
@@ -278,7 +289,7 @@ export default function CustomersScreen() {
                 </Text>
                 {item.notes ? (
                   <Text
-                    className="mt-2 text-xs text-slate-500"
+                    className="mt-2 text-xs text-slate-400"
                     numberOfLines={2}
                   >
                     {item.notes}
@@ -307,6 +318,7 @@ export default function CustomersScreen() {
               </Text>
               {!isSearching && (
                 <Pressable
+                  accessibilityRole="button"
                   onPress={openCreate}
                   className="mt-5 rounded-2xl bg-[#2663FF] px-5 py-3"
                 >
@@ -324,14 +336,21 @@ export default function CustomersScreen() {
         transparent
         onRequestClose={closeForm}
       >
-        <View className="flex-1 justify-end bg-black/70">
-          <View className="rounded-t-3xl border border-white/10 bg-[#0f172a] p-6">
+        <View
+          importantForAccessibility="no-hide-descendants"
+          className="flex-1 justify-end bg-black/70"
+        >
+          <View
+            accessibilityViewIsModal
+            className="rounded-t-3xl border border-white/10 bg-[#0f172a] p-6"
+          >
             <View className="flex-row items-center justify-between">
               <Text className="text-2xl text-white">
                 {editingCustomer ? "Edit customer" : "New customer"}
               </Text>
               <Pressable
                 accessibilityLabel="Close customer form"
+                accessibilityRole="button"
                 onPress={closeForm}
                 disabled={saving}
               >
@@ -340,6 +359,7 @@ export default function CustomersScreen() {
             </View>
             <Text className="mt-5 text-sm text-slate-300">Name</Text>
             <TextInput
+              accessibilityLabel="Customer name, required"
               value={name}
               onChangeText={setName}
               placeholder="Customer name"
@@ -349,6 +369,7 @@ export default function CustomersScreen() {
             />
             <Text className="mt-4 text-sm text-slate-300">Email</Text>
             <TextInput
+              accessibilityLabel="Customer email"
               value={email}
               onChangeText={setEmail}
               placeholder="name@example.com"
@@ -360,6 +381,7 @@ export default function CustomersScreen() {
             />
             <Text className="mt-4 text-sm text-slate-300">Notes</Text>
             <TextInput
+              accessibilityLabel="Customer notes"
               value={notes}
               onChangeText={setNotes}
               placeholder="Optional notes"
@@ -371,6 +393,8 @@ export default function CustomersScreen() {
             <Pressable
               onPress={() => void saveCustomer()}
               disabled={saving}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: saving }}
               className="mt-6 items-center rounded-2xl bg-[#2663FF] px-5 py-4"
             >
               {saving ? (
@@ -383,6 +407,7 @@ export default function CustomersScreen() {
               <Pressable
                 onPress={() => confirmDelete(editingCustomer)}
                 disabled={saving || deletingId === editingCustomer.id}
+                accessibilityRole="button"
                 className="mt-3 items-center rounded-2xl border border-red-500/40 px-5 py-4"
               >
                 {deletingId === editingCustomer.id ? (

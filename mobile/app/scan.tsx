@@ -2,6 +2,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Linking,
@@ -64,6 +65,7 @@ export default function ScanScreen() {
         {blocked ? (
           <Pressable
             className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            accessibilityRole="button"
             onPress={() => void Linking.openSettings()}
           >
             <Text
@@ -76,6 +78,7 @@ export default function ScanScreen() {
         ) : (
           <Pressable
             className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            accessibilityRole="button"
             onPress={() => void requestPermission()}
           >
             <Text
@@ -88,6 +91,7 @@ export default function ScanScreen() {
         )}
         <Pressable
           className="mt-4 px-4 py-3"
+          accessibilityRole="button"
           onPress={() => {
             router.back();
           }}
@@ -140,6 +144,7 @@ export default function ScanScreen() {
 
     setPayment(result);
     setScanned(true);
+    AccessibilityInfo.announceForAccessibility("Payment QR code scanned");
   };
 
   const sharePaymentLink = async (payment: ParsedPayment) => {
@@ -221,6 +226,8 @@ export default function ScanScreen() {
       <View className="flex-row items-center px-6 py-4">
         <Pressable
           className="mr-4 rounded-xl border border-white/20 px-4 py-2"
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
           onPress={() => {
             router.back();
           }}
@@ -269,10 +276,21 @@ export default function ScanScreen() {
         visible={!!payment}
         transparent
         animationType="slide"
+        onShow={() => {
+          AccessibilityInfo.announceForAccessibility(
+            "Confirm payment dialog opened",
+          );
+        }}
         onRequestClose={handleDismiss}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="rounded-t-3xl bg-[#0D1526] px-6 pt-6 pb-10">
+        <View
+          importantForAccessibility="no-hide-descendants"
+          className="flex-1 justify-end bg-black/60"
+        >
+          <View
+            accessibilityViewIsModal
+            className="rounded-t-3xl bg-[#0D1526] px-6 pt-6 pb-10"
+          >
             <Text
               className="text-xl text-white"
               style={{ fontFamily: "SpaceGrotesk_700Bold" }}
@@ -311,6 +329,8 @@ export default function ScanScreen() {
 
             <Pressable
               className="mt-5 rounded-2xl bg-[#2663FF] py-4 items-center"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: launching }}
               disabled={launching}
               onPress={() => void handleConfirmPayment()}
             >
@@ -328,6 +348,7 @@ export default function ScanScreen() {
 
             <Pressable
               className="mt-3 rounded-2xl border border-white/20 py-4 items-center"
+              accessibilityRole="button"
               onPress={handleDismiss}
             >
               <Text

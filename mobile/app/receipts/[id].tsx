@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Pressable,
@@ -9,7 +10,7 @@ import {
   View,
 } from "react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { API_URL } from "@env";
 import { useAuthStore } from "../../hooks/use-auth-store";
@@ -159,6 +160,22 @@ export default function ReceiptScreen() {
     },
   });
 
+  // Announce settlement transitions (e.g. payment received -> paid) instead
+  // of relying on the status chip/colour change alone.
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = data?.status;
+    if (current !== undefined && prevStatusRef.current !== current) {
+      const previous = prevStatusRef.current;
+      prevStatusRef.current = current;
+      if (previous !== undefined) {
+        AccessibilityInfo.announceForAccessibility(
+          `Payment status: ${current.replace(/_/g, " ")}`,
+        );
+      }
+    }
+  }, [data?.status]);
+
   const invoice = data;
   const assetCode = invoice ? getInvoiceAsset(invoice) : "XLM";
   const destination = invoice ? getInvoiceDestination(invoice) : undefined;
@@ -223,6 +240,7 @@ export default function ReceiptScreen() {
           <View className="mb-4 flex-row gap-3">
             <Pressable
               className="flex-1 rounded-2xl border border-white/20 px-4 py-3"
+              accessibilityRole="button"
               onPress={() => {
                 router.back();
               }}
@@ -237,6 +255,7 @@ export default function ReceiptScreen() {
             {invoice ? (
               <Pressable
                 className="flex-1 rounded-2xl bg-[#2663FF] px-4 py-3"
+                accessibilityRole="button"
                 onPress={() => {
                   router.push(`/invoices/${invoice.id}`);
                 }}

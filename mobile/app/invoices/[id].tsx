@@ -1,6 +1,7 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  AccessibilityInfo,
   Alert,
   Pressable,
   RefreshControl,
@@ -9,7 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import axios from "axios";
 import { API_URL } from "@env";
@@ -71,6 +72,22 @@ export default function InvoiceDetailScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only re-run when a new event arrives
   }, [lastEventAt]);
+
+  // Announce meaningful status transitions (e.g. a payment moving to paid)
+  // instead of relying on the badge/colour change alone.
+  const prevStatusRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = data?.status;
+    if (current !== undefined && prevStatusRef.current !== current) {
+      const previous = prevStatusRef.current;
+      prevStatusRef.current = current;
+      if (previous !== undefined) {
+        AccessibilityInfo.announceForAccessibility(
+          `Invoice status: ${current.replace(/_/g, " ")}`,
+        );
+      }
+    }
+  }, [data?.status]);
 
   const invoice = data;
   const created = invoice
@@ -137,6 +154,7 @@ export default function InvoiceDetailScreen() {
           <View className="mb-4 flex-row gap-3">
             <Pressable
               className="flex-1 rounded-2xl border border-white/20 px-4 py-3"
+              accessibilityRole="button"
               onPress={() => {
                 router.back();
               }}
@@ -150,6 +168,8 @@ export default function InvoiceDetailScreen() {
             </Pressable>
             <Pressable
               className="flex-1 rounded-2xl bg-[#2663FF] px-4 py-3"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !invoice }}
               disabled={!invoice}
               onPress={() => {
                 void handleShare();
@@ -170,6 +190,8 @@ export default function InvoiceDetailScreen() {
             />
             <Pressable
               className="rounded-full border border-white/15 px-3 py-1.5"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isFetching }}
               disabled={isFetching}
               onPress={() => {
                 void refetch();
@@ -186,6 +208,7 @@ export default function InvoiceDetailScreen() {
           {invoice &&
           (invoice.status === "paid" || invoice.status === "partially_paid") ? (
             <Pressable
+              accessibilityRole="button"
               className="mb-4 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3"
               onPress={() => {
                 router.push(`/receipts/${invoice.id}`);
