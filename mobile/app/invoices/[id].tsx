@@ -27,10 +27,11 @@ import {
 } from "../../lib/payment-link";
 import { generateDeepLink, generateWebUrl } from "../../lib/share-links";
 import { InvoiceLiveStatusBadge } from "../../components/InvoiceLiveStatusBadge";
+import { withScreenBoundary } from "../../components/CrashBoundary";
 
 const POLL_FALLBACK_INTERVAL_MS = 15000;
 
-export default function InvoiceDetailScreen() {
+function InvoiceDetailScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
@@ -385,6 +386,10 @@ export default function InvoiceDetailScreen() {
     </SafeAreaView>
   );
 }
+
+export default withScreenBoundary(InvoiceDetailScreen, {
+  label: "screen:invoice-details",
+});
 
 function DetailRow({
   label,
