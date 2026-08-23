@@ -21,6 +21,7 @@ import {
   shareReceiptAsText,
 } from "../../lib/receipt-export";
 import type { ExportError } from "../../lib/receipt-export";
+import { withScreenBoundary } from "../../components/CrashBoundary";
 
 /** How often to re-check the invoice while settlement is still in flight. */
 const SETTLEMENT_POLL_MS = 5000;
@@ -125,7 +126,7 @@ function exportErrorAlert(error: ExportError): void {
   Alert.alert(title, message, [{ text: "OK" }]);
 }
 
-export default function ReceiptScreen() {
+function ReceiptScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const id = typeof params.id === "string" ? params.id : "";
   const router = useRouter();
@@ -526,6 +527,10 @@ export default function ReceiptScreen() {
     </SafeAreaView>
   );
 }
+
+export default withScreenBoundary(ReceiptScreen, {
+  label: "screen:receipt",
+});
 
 function ReceiptRow({
   label,

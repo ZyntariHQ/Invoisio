@@ -18,6 +18,7 @@ import {
   type ParseQrErrorCode,
   type ParsedPayment,
 } from "../lib/parse-qr";
+import { withScreenBoundary } from "../components/CrashBoundary";
 
 const QR_ERROR_TITLES: Record<ParseQrErrorCode, string> = {
   "unsupported-format": "Unsupported QR code",
@@ -25,7 +26,7 @@ const QR_ERROR_TITLES: Record<ParseQrErrorCode, string> = {
   "invalid-destination": "Invalid destination",
 };
 
-export default function ScanScreen() {
+function ScanScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -364,6 +365,8 @@ export default function ScanScreen() {
     </SafeAreaView>
   );
 }
+
+export default withScreenBoundary(ScanScreen, { label: "screen:scan" });
 
 function ConfirmRow({
   label,
