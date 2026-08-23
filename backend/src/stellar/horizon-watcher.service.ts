@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import { Subject } from "rxjs";
 import { SorobanContractError } from "@invoisio/soroban-client";
 import { StellarService } from "./stellar.service";
@@ -288,12 +289,17 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private convertToStroops(amount: string, assetCode: string): string {
-    const num = parseFloat(amount);
-    if (assetCode === "XLM") {
-      return String(Math.round(num * 10_000_000));
-    }
-    return String(Math.round(num * 10_000_000));
+  /**
+   * Convert an amount string to integer stroops (1 unit = 10^7 stroops).
+   * Stellar network assets (native XLM and issued tokens) standardly use 7 decimal places
+   * of precision on-chain.
+   *
+   * Uses exact decimal arithmetic to avoid IEEE-754 binary floating-point errors.
+   * Explicit rounding mode: ROUND_HALF_UP is applied if sub-stroop precision is present.
+   */
+  convertToStroops(amount: string, _assetCode?: string): string {
+    const dec = new Prisma.Decimal(amount || "0");
+    return dec.times(10_000_000).toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
   }
 
   private resolveMemoId(rawMemo: string, memoPrefix: string): string | null {

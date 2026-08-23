@@ -110,7 +110,7 @@ export class DraftResponseDto {
   clientName?: string;
   clientEmail?: string;
   description?: string;
-  amount?: number;
+  amount?: string | number;
   assetCode?: string;
   assetIssuer?: string;
   customerId?: string;

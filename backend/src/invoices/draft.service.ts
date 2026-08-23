@@ -57,9 +57,9 @@ export class DraftService {
         clientName: dto.clientName || "Untitled Client",
         clientEmail: dto.clientEmail || "",
         description: dto.description || null,
-        amount: dto.amount || 0,
-        amountPaid: 0,
-        amountDue: dto.amount || 0,
+        amount: new Prisma.Decimal(dto.amount || 0),
+        amountPaid: new Prisma.Decimal(0),
+        amountDue: new Prisma.Decimal(dto.amount || 0),
         assetCode: dto.asset_code?.toUpperCase() || "XLM",
         assetIssuer: dto.asset_issuer || null,
         memo: memo,
@@ -160,8 +160,8 @@ export class DraftService {
       updateData.description = dto.description || null;
     }
     if (dto.amount !== undefined) {
-      updateData.amount = dto.amount;
-      updateData.amountDue = dto.amount;
+      updateData.amount = new Prisma.Decimal(dto.amount);
+      updateData.amountDue = new Prisma.Decimal(dto.amount);
     }
     if (dto.asset_code !== undefined) {
       updateData.assetCode = dto.asset_code.toUpperCase();
@@ -364,9 +364,10 @@ export class DraftService {
       clientName: converted.clientName,
       clientEmail: converted.clientEmail,
       description: converted.description,
-      amount: converted.amount.toNumber(),
-      amountPaid: converted.amountPaid.toNumber(),
-      amountDue: converted.amountDue.toNumber(),
+      // Serialize as exact string to preserve full Decimal(18,7) precision
+      amount: converted.amount?.toString() ?? "0",
+      amountPaid: converted.amountPaid?.toString() ?? "0",
+      amountDue: converted.amountDue?.toString() ?? "0",
       asset_code: converted.assetCode,
       asset_issuer: converted.assetIssuer,
       memo: converted.memo,
@@ -665,9 +666,8 @@ export class DraftService {
       clientName: invoice.clientName,
       clientEmail: invoice.clientEmail,
       description: invoice.description,
-      amount: invoice.amount?.toNumber
-        ? invoice.amount.toNumber()
-        : Number(invoice.amount),
+      // Serialize as exact string to preserve full Decimal(18,7) precision
+      amount: invoice.amount?.toString?.() ?? String(invoice.amount ?? 0),
       assetCode: invoice.assetCode,
       assetIssuer: invoice.assetIssuer,
       customerId: invoice.customerId,
@@ -681,6 +681,29 @@ export class DraftService {
       hasRequiredFields,
       completionPercentage,
     };
+  }
+
+  /**
+   * Coerce a Prisma Decimal (or plain value) into a string for JSON output preserving exact precision.
+   * Mirrors InvoicesService.toDecimalString — kept private here to avoid a circular dependency.
+   */
+  /**
+   * Coerce a Prisma Decimal (or plain value) into a string normalised to
+   * 7 decimal places, matching the Decimal(18, 7) schema and Stellar
+   * stroop precision.  Trailing zeros are preserved for consistent API output.
+   */
+  private toDecimalString(value: unknown): string {
+    if (value === undefined || value === null) return "0";
+    try {
+      const dec =
+        value instanceof Prisma.Decimal
+          ? value
+          : new Prisma.Decimal(value as any);
+      return dec.toFixed(7);
+    } catch {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      return String(value);
+    }
   }
 
   /**
