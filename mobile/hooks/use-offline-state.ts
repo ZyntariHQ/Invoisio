@@ -16,10 +16,10 @@ export function useOfflineState() {
   const processQueue = async () => {
     setIsProcessing(true);
     try {
-      await offlineQueue.processQueue(
-        () => console.log("Request processed"),
-        (request, error) => console.error(`Failed: ${request.id}`, error)
-      );
+      await offlineQueue.processQueue({
+        onSuccess: () => console.log("Request processed"),
+        onFailure: (request, error) => console.error(`Failed: ${request.id}`, error),
+      });
     } finally {
       setIsProcessing(false);
     }

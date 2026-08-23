@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
@@ -14,7 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import invoisioLogo from "../assets/invoisio-logo.png";
 import { useWalletAuth } from "../hooks/use-wallet-auth";
 import { usePushNotifications } from "../hooks/usePushNotifications";
-import authService from "../lib/auth-service";
+import { authService } from "../lib/auth-service";
 import { useAuthStore } from "../hooks/use-auth-store";
 
 export default function LoginScreen() {
@@ -47,8 +47,8 @@ export default function LoginScreen() {
       void (async () => {
         try {
           const { accessToken } = useAuthStore();
-          if (accessToken) {
-            await authService.registerPushToken(accessToken, expoPushToken);
+          if (accessToken && expoPushToken?.data) {
+            await authService.registerPushToken(accessToken, expoPushToken.data);
           }
         } catch (e) {
           console.warn("Failed to register push token after login:", e);

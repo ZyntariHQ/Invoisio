@@ -5,7 +5,7 @@ import React, {
   useEffect,
   useRef,
 } from "react";
-import { AppState, AppStateStatus } from "react-native";
+import { AppState } from "react-native";
 import { useConnectivity } from "../hooks/use-connectivity";
 import { offlineQueue } from "../lib/offline-queue";
 import { authService } from "../lib/auth-service";
@@ -38,7 +38,7 @@ export function ConnectivityProvider({
   const { isOffline, isDegraded } = useConnectivity();
   const [queueSize, setQueueSize] = React.useState(0);
   const [syncStatus, setSyncStatus] = React.useState(syncCoordinator.getStatus());
-  const appState = useRef(AppState.currentState);
+  const appState = useRef<string>(AppState.currentState);
 
   const processQueue = useCallback(async () => {
     if (isOffline) return;
@@ -57,14 +57,14 @@ export function ConnectivityProvider({
         }
       }
 
-      await offlineQueue.processQueue(
-        (request) => {
+      await offlineQueue.processQueue({
+        onSuccess: (request) => {
           console.log(`Request ${request.id} processed successfully`);
         },
-        (request, error) => {
+        onFailure: (request, error) => {
           console.error(`Request ${request.id} failed after retries:`, error);
         },
-      );
+      });
 
       setQueueSize(offlineQueue.getQueueSize());
     } catch (error) {
@@ -106,7 +106,7 @@ export function ConnectivityProvider({
   useEffect(() => {
     const subscription = AppState.addEventListener(
       "change",
-      (nextAppState: AppStateStatus) => {
+      (nextAppState: string) => {
         if (
           appState.current.match(/inactive|background/) &&
           nextAppState === "active" &&

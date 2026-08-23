@@ -25,11 +25,12 @@ describe("useOfflineMutation React Native Descriptor Logic", () => {
     expect(queueId).toBeDefined();
     const queued = offlineQueue.getQueue();
     expect(queued).toHaveLength(1);
-    expect(queued[0].url).toBe("https://api.invoisio.com/v1/invoices");
-    expect(queued[0].method).toBe("POST");
-    expect(queued[0].data).toEqual({ title: "Web Design", amount: 1500 });
-    expect(queued[0].headers).toEqual({ "X-App": "InvoisioMobile" });
-    expect(queued[0].descriptorTag).toBe("invoice-create");
+    const firstQueued = queued[0]!;
+    expect(firstQueued.url).toBe("https://api.invoisio.com/v1/invoices");
+    expect(firstQueued.method).toBe("POST");
+    expect(firstQueued.data).toEqual({ title: "Web Design", amount: 1500 });
+    expect(firstQueued.headers).toEqual({ "X-App": "InvoisioMobile" });
+    expect(firstQueued.descriptorTag).toBe("invoice-create");
   });
 
   test("resolves dynamic URL and dynamic headers from variables", async () => {
@@ -56,7 +57,9 @@ describe("useOfflineMutation React Native Descriptor Logic", () => {
 
     expect(queueId).toBeDefined();
     const queued = offlineQueue.getQueue();
-    expect(queued[0].url).toBe("https://api.invoisio.com/v1/invoices/inv_456/void");
-    expect(queued[0].headers).toEqual({ "X-Target-Resource": "inv_456" });
+    expect(queued).toHaveLength(1);
+    const queuedItem = queued[0]!;
+    expect(queuedItem.url).toBe("https://api.invoisio.com/v1/invoices/inv_456/void");
+    expect(queuedItem.headers).toEqual({ "X-Target-Resource": "inv_456" });
   });
 });
