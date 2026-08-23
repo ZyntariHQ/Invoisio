@@ -16,6 +16,7 @@ import { RequireAuth } from "@/components/require-auth";
 import { MerchantService } from "@/lib/merchant-service";
 import { checklistQueryKey } from "@/hooks/use-merchant-checklist";
 import { CustomerService, Customer } from "@/lib/customer-service";
+import { formatTimeAgo } from "@/lib/format-time-ago";
 
 // Stellar mainnet USDC issuer — override via NEXT_PUBLIC_USDC_ISSUER for testnet
 const USDC_ISSUER =
@@ -39,20 +40,6 @@ type Asset = "XLM" | "USDC";
 
 const CASHIER_MODE_STORAGE_KEY = "invoisio.pos.cashierMode";
 const RECENT_SALES_LIMIT = 8;
-
-/** Terse "3m ago" / "just now" style relative time for a recent-sales list. */
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const diffSeconds = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (diffSeconds < 45) return "just now";
-  const diffMinutes = Math.floor(diffSeconds / 60);
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
-}
 
 /**
  * Cashier mode is a per-device preference for shared in-store terminals —
@@ -321,7 +308,7 @@ function RecentSalesPanel({
                     <span className="block truncate text-xs text-gray-500">
                       {sale.clientName || "Walk-in Customer"}
                       {sale.createdAt
-                        ? ` · ${formatRelativeTime(sale.createdAt)}`
+                        ? ` · ${formatTimeAgo(sale.createdAt)}`
                         : ""}
                     </span>
                   </span>
@@ -407,17 +394,20 @@ function FormView({
   }, [cashierMode]);
 
   // Alt-modified shortcuts are safe to keep active everywhere — they never
-  // collide with typing a digit into the amount field.
+  // collide with typing a digit into the amount field. Matched on e.code
+  // (the physical key) rather than e.key: Alt/Option remaps e.key on macOS
+  // (Alt+1 -> "¡", Alt+A -> "å"), which would otherwise silently break
+  // these shortcuts for Mac cashiers.
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.key === "a" || e.key === "A") {
+      if (e.code === "KeyA") {
         e.preventDefault();
         amountInputRef.current?.focus();
-      } else if (e.key === "1") {
+      } else if (e.code === "Digit1") {
         e.preventDefault();
         setAsset("XLM");
-      } else if (e.key === "2") {
+      } else if (e.code === "Digit2") {
         e.preventDefault();
         setAsset("USDC");
       }
@@ -787,12 +777,21 @@ function POSContent() {
   const [recentSales, setRecentSales] = useState<Invoice[]>([]);
   const [isLoadingSales, setIsLoadingSales] = useState(true);
   const [salesLoadError, setSalesLoadError] = useState<string | null>(null);
+  // Tracks the cancel function for whichever fetch is currently in flight,
+  // so a retry can supersede a still-pending mount fetch (or vice versa)
+  // without a stale response's setState calls landing after the component
+  // (or the request itself) has moved on.
+  const cancelPendingFetchRef = useRef<() => void>(() => {});
 
   // Assumes the caller already put the panel into a loading state; only
   // sets state from the async response, so it's safe to call directly from
   // an effect body.
   const fetchRecentSales = useCallback(() => {
+    cancelPendingFetchRef.current();
     let cancelled = false;
+    cancelPendingFetchRef.current = () => {
+      cancelled = true;
+    };
     apiClient
       .get<Invoice[]>(`/invoices?page=1&limit=${RECENT_SALES_LIMIT}`)
       .then((response) => {
@@ -804,9 +803,7 @@ function POSContent() {
       .finally(() => {
         if (!cancelled) setIsLoadingSales(false);
       });
-    return () => {
-      cancelled = true;
-    };
+    return () => cancelPendingFetchRef.current();
   }, []);
 
   useEffect(() => fetchRecentSales(), [fetchRecentSales]);
