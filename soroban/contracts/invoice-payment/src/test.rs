@@ -1005,6 +1005,132 @@ fn test_propose_admin_rejects_current_admin() {
 }
 
 #[test]
+fn test_cancel_admin_transfer_clears_pending_and_allows_repropose() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let first = Address::generate(&env);
+    client.propose_admin(&first);
+    assert_eq!(client.pending_admin(), Some(first.clone()));
+
+    // Current admin cancels the pending proposal.
+    client.cancel_admin_transfer();
+
+    // The pending entry is gone.
+    assert_eq!(client.pending_admin(), None);
+    assert_eq!(client.config().pending_admin, None);
+
+    // Admin is unchanged.
+    assert_eq!(client.admin(), admin);
+
+    // A fresh proposal to a different address no longer hits PendingAdminExists.
+    let second = Address::generate(&env);
+    client.propose_admin(&second);
+    assert_eq!(client.pending_admin(), Some(second));
+}
+
+#[test]
+fn test_cancelled_proposal_cannot_be_accepted() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let proposed = Address::generate(&env);
+    client.propose_admin(&proposed);
+    client.cancel_admin_transfer();
+
+    // The previously proposed address must not be able to claim the role.
+    let result = client.try_accept_admin(&proposed);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NoPendingAdmin)),
+        "a cancelled proposal must no longer be acceptable"
+    );
+
+    // And the admin role never moved.
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_cancel_admin_transfer_rejects_without_admin_auth() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+
+    let proposed = Address::generate(&env);
+
+    // Stage the admin's authorisation so the proposal itself can be created.
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "propose_admin",
+            args: (proposed.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+    client.propose_admin(&proposed);
+    assert_eq!(client.pending_admin(), Some(proposed.clone()));
+
+    // Now only the PROPOSED address authorises the cancellation; the admin
+    // (the only address allowed to cancel) does NOT.
+    env.mock_auths(&[MockAuth {
+        address: &proposed,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "cancel_admin_transfer",
+            args: ().into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    // The host must reject because the required admin address never authorises.
+    let result = client.try_cancel_admin_transfer();
+    assert!(result.is_err());
+
+    // The proposal is untouched.
+    assert_eq!(client.pending_admin(), Some(proposed));
+}
+
+#[test]
+fn test_cancel_admin_transfer_without_pending_returns_no_pending_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let result = client.try_cancel_admin_transfer();
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::NoPendingAdmin)),
+        "cancel_admin_transfer with no pending proposal must return NoPendingAdmin"
+    );
+}
+
+#[test]
+fn test_cancel_then_accept_flow_recovers_admin_wedge() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    // Mistyped proposal staged.
+    let mistyped = Address::generate(&env);
+    client.propose_admin(&mistyped);
+
+    // Re-propose is blocked until the explicit cancel happens.
+    let intended = Address::generate(&env);
+    let result = client.try_propose_admin(&intended);
+    assert_eq!(result, Err(Ok(ContractError::PendingAdminExists)));
+
+    // Cancel, then complete the handoff to the intended successor.
+    client.cancel_admin_transfer();
+    client.propose_admin(&intended);
+    client.accept_admin(&intended);
+
+    assert_eq!(client.admin(), intended);
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
 fn test_accept_admin_rejects_non_pending_caller() {
     let env = Env::default();
     env.mock_all_auths();

@@ -162,6 +162,27 @@ pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admi
     payload.publish(env);
 }
 
+/// Event emitted when the current admin revokes a pending admin transfer
+/// proposal via `cancel_admin_transfer()`.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferCancelled {
+    /// Admin that cancelled the pending handoff.
+    pub current_admin: Address,
+    /// Address that had been proposed and is no longer in line for the role.
+    pub cancelled_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_cancelled(env: &Env, current_admin: Address, cancelled_admin: Address) {
+    let payload = AdminTransferCancelled {
+        current_admin,
+        cancelled_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
 /// Event emitted when the history index is rebuilt.
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
