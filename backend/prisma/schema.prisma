@@ -423,7 +423,7 @@ model PaymentReview {
   assetIssuer     String?  @map("asset_issuer")
   payer           String?
   originalMemo    String?  @map("original_memo")
-  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid'
+  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid', 'asset_mismatch'
   status          String   @default("pending") // 'pending', 'resolved', 'ignored'
   resolutionNote  String?  @map("resolution_note")
   resolvedAt      DateTime? @map("resolved_at")
