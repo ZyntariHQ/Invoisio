@@ -90,6 +90,10 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 19;
     readonly name: "HistoryIndexIncomplete";
     readonly meaning: "The payment history index is incomplete and must be rebuilt via rebuild_history_index().";
+}, {
+    readonly code: 20;
+    readonly name: "SettlementRefAlreadyUsed";
+    readonly meaning: "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

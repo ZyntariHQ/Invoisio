@@ -35,6 +35,7 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 17, name: 'HistoryIndexRebuildFailed' },
   { code: 18, name: 'MigrationRequired' },
   { code: 19, name: 'HistoryIndexIncomplete' },
+  { code: 20, name: 'SettlementRefAlreadyUsed' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {
@@ -174,6 +175,15 @@ describe('representative contract failure scenarios', () => {
     const incomplete = parseContractError('Error(Contract, #19)');
     expect(incomplete.code).toBe('HistoryIndexIncomplete');
     expect(incomplete.numericCode).toBe(19);
+  });
+
+  it('maps a duplicate settlement reference on record_payment() to SettlementRefAlreadyUsed', () => {
+    const err = parseContractError(
+      'simulation failed: record_payment: Error(Contract, #20)',
+    );
+    expect(err.code).toBe('SettlementRefAlreadyUsed');
+    expect(err.numericCode).toBe(20);
+    expect(getContractError(20)?.meaning).toContain('globally unique');
   });
 
   it('falls back cleanly, without throwing, for a code the manifest does not know yet', () => {
