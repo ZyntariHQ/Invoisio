@@ -10,7 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo.router";
+import { useRouter } from "expo-router";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { authService } from "../lib/auth-service";
@@ -159,8 +159,8 @@ export default function SettingsScreen() {
       await authService.updatePushPreferences(accessToken, value);
       setPushEnabled(value);
       // Also sync the expo push token to backend
-      if (expoPushToken) {
-        await authService.registerPushToken(accessToken, expoPushToken);
+      if (expoPushToken?.data) {
+        await authService.registerPushToken(accessToken, expoPushToken.data);
       }
     } catch {
       Alert.alert("Error", "Failed to update push preferences.");

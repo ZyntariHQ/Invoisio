@@ -117,7 +117,7 @@ export class OfflineQueueManager {
       timestamp: Date.now(),
       retryCount: 0,
       maxRetries: MAX_RETRIES,
-      descriptorTag,
+      ...(descriptorTag !== undefined ? { descriptorTag } : {}),
     };
 
     this.queue.push(request);
@@ -165,11 +165,21 @@ export class OfflineQueueManager {
   /**
    * Process the queue - replay all queued requests with updated auth context
    */
-  async processQueue(options: ProcessQueueOptions = {}): Promise<void> {
+  async processQueue(
+    optionsOrOnSuccess?:
+      | ProcessQueueOptions
+      | ((request: QueuedRequest, response?: any) => void),
+    onFailure?: (request: QueuedRequest, error: any) => void,
+  ): Promise<void> {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
 
-    const { onSuccess, onFailure, getAuthToken } = options;
+    const options: ProcessQueueOptions =
+      typeof optionsOrOnSuccess === "function"
+        ? { onSuccess: optionsOrOnSuccess, onFailure: onFailure ?? (() => undefined) }
+        : optionsOrOnSuccess ?? {};
+
+    const { onSuccess, onFailure: failureHandler, getAuthToken } = options;
 
     let dynamicToken: string | null = null;
     if (getAuthToken) {
@@ -201,7 +211,7 @@ export class OfflineQueueManager {
       } catch (err) {
         request.retryCount += 1;
         const error = err as Error;
-        
+
         request.lastError = {
           message: error.message || "Unknown replay network error",
           status: (error as any).status,
@@ -209,6 +219,7 @@ export class OfflineQueueManager {
         };
 
         if (request.retryCount >= request.maxRetries) {
+          failureHandler?.(request, error);
           onFailure?.(request, error);
           await this.dequeue(request.id);
         } else {

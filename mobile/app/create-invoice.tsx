@@ -1,8 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
+  ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -10,39 +13,102 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Alert,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuthStore } from '../hooks/use-auth-store';
-import { MerchantService } from '../lib/merchant-service';
-import { CustomerService, Customer } from '../lib/customer-service';
-import { useOfflineMutation } from '../hooks/use-offline-mutation';
-import { useDraftAutosave } from '../hooks/use-draft-autosave';
-import { useConnectivity } from '../hooks/use-connectivity';
 import axios from 'axios';
 import { API_URL } from '@env';
+import { useAuthStore } from '../hooks/use-auth-store';
+import { useDraftAutosave } from '../hooks/use-draft-autosave';
+import { useOfflineMutation } from '../hooks/use-offline-mutation';
+import { MerchantService } from '../lib/merchant-service';
+import { CustomerService, type Customer } from '../lib/customer-service';
 import type { UpdateDraftDto } from '../types/draft.types';
 
 const currencies = ['USDC', 'EURC', 'USD'];
 const paymentTerms = ['Net 7', 'Net 14', 'Net 30'];
 
+interface SavedCustomer {
+  id: string;
+  name: string;
+  email?: string;
+}
+
 export default function CreateInvoiceScreen() {
   const router = useRouter();
   const localSearchParams = useLocalSearchParams();
   const { accessToken } = useAuthStore();
-  useConnectivity();
 
-  // Extract draftId from URL params if resuming a draft
-  const draftId = typeof localSearchParams.draftId === 'string' ? localSearchParams.draftId : undefined;
+  const draftId =
+    typeof localSearchParams['draftId'] === 'string'
+      ? localSearchParams['draftId']
+      : undefined;
 
-  // Form state
   const [company, setCompany] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [amount, setAmount] = useState('');
   const [currency, setCurrency] = useState('USDC');
   const [terms, setTerms] = useState('Net 14');
   const [memo, setMemo] = useState('');
   const [payoutKey, setPayoutKey] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerQuery, setPickerQuery] = useState("");
+  const [savedCustomers, setSavedCustomers] = useState<SavedCustomer[]>([]);
+  const [isLoadingCustomers, setIsLoadingCustomers] = useState(false);
+  const [customerError, setCustomerError] = useState<string | null>(null);
+
+  const filteredCustomers = useMemo(() => {
+    const term = pickerQuery.trim().toLowerCase();
+    if (!term) return savedCustomers;
+
+    return savedCustomers.filter((customer) => {
+      const combined = `${customer.name} ${customer.email ?? ""}`.toLowerCase();
+      return combined.includes(term);
+    });
+  }, [pickerQuery, savedCustomers]);
+
+  const loadSavedCustomers = async () => {
+    if (!accessToken) {
+      setSavedCustomers([]);
+      setCustomerError("Sign in to reuse your merchant’s saved customers.");
+      return;
+    }
+
+    setIsLoadingCustomers(true);
+    setCustomerError(null);
+
+    try {
+      const response = await axios.get(`${API_URL}/invoices?limit=50`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      const rawItems = Array.isArray(response.data)
+        ? response.data
+        : Array.isArray(response.data?.items)
+          ? response.data.items
+          : [];
+
+      const customers = new Map<string, SavedCustomer>();
+
+      for (const item of rawItems) {
+        const name = typeof item?.clientName === "string" ? item.clientName.trim() : "";
+        const email = typeof item?.clientEmail === "string" ? item.clientEmail.trim() : "";
+        if (!name) continue;
+
+        const key = `${name.toLowerCase()}::${email.toLowerCase()}`;
+        if (!customers.has(key)) {
+          customers.set(key, { id: key, name, ...(email ? { email } : {}) });
+        }
+      }
+
+      setSavedCustomers(Array.from(customers.values()).sort((a, b) => a.name.localeCompare(b.name)));
+    } catch (error) {
+      console.error("Failed to load saved customers:", error);
+      setSavedCustomers([]);
+      setCustomerError("Couldn’t load saved customers. Try again or create a new one.");
+    } finally {
+      setIsLoadingCustomers(false);
+    }
+  };
 
   // Customer search state
   const [customerQuery, setCustomerQuery] = useState('');
@@ -51,7 +117,82 @@ export default function CreateInvoiceScreen() {
     null,
   );
   const [showCustomerResults, setShowCustomerResults] = useState(false);
-  const searchDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const handleCustomerSearch = (query: string) => {
+    setCustomerQuery(query);
+    if (!accessToken) {
+      setCustomerResults([]);
+      setShowCustomerResults(false);
+      return;
+    }
+
+    const normalized = query.trim();
+    if (!normalized) {
+      setCustomerResults([]);
+      setShowCustomerResults(false);
+      return;
+    }
+
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+
+    searchDebounceRef.current = setTimeout(async () => {
+      try {
+        const results = await CustomerService.search(accessToken, normalized, 8);
+        setCustomerResults(results);
+        setShowCustomerResults(results.length > 0);
+      } catch (error) {
+        console.error('Failed to search customers:', error);
+        setCustomerResults([]);
+        setShowCustomerResults(false);
+      }
+    }, 250);
+  };
+
+  const chooseCustomer = (customer: SavedCustomer | Customer) => {
+    const normalizedCustomer: Customer = {
+      id: customer.id,
+      merchantId: '',
+      name: customer.name,
+      email: 'email' in customer ? customer.email : customer.email ?? null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setSelectedCustomer(normalizedCustomer);
+    setCustomerQuery(`${customer.name}${customer.email ? ` (${customer.email})` : ''}`);
+    setCompany(customer.name);
+    setCustomerEmail(customer.email ?? '');
+    setShowCustomerResults(false);
+    updateDraft({
+      clientName: customer.name,
+      clientEmail: customer.email || undefined,
+      customer_id: customer.id,
+    } as UpdateDraftDto);
+  };
+
+  const createCustomerFromPicker = () => {
+    const name = pickerQuery.trim();
+    if (!name) {
+      setCompany('');
+      setCustomerEmail('');
+      setShowCustomerResults(false);
+      setPickerOpen(false);
+      return;
+    }
+
+    const candidate: SavedCustomer = { id: `picker-${name.toLowerCase()}`, name };
+    if (customerEmail.trim()) {
+      candidate.email = customerEmail.trim();
+    }
+
+    chooseCustomer(candidate);
+    setPickerOpen(false);
+    setPickerQuery('');
+  };
 
   /**
    * Draft autosave hook integration
@@ -90,7 +231,6 @@ export default function CreateInvoiceScreen() {
         const profile = await MerchantService.getProfile(accessToken);
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- cancelled may be mutated by cleanup
         if (!cancelled) {
-          // Pre-select the merchant's preferred asset if it's in the currency list
           if (currencies.includes(profile.preferredAsset)) {
             setCurrency(profile.preferredAsset);
           }
@@ -105,35 +245,41 @@ export default function CreateInvoiceScreen() {
     };
   }, [accessToken]);
 
-  // Load draft data into form when loaded
   useEffect(() => {
     if (draft) {
       setCompany(draft.clientName || '');
+      setCustomerEmail(draft.clientEmail || '');
       setAmount(draft.amount ? String(draft.amount) : '');
       setCurrency(draft.assetCode || 'USDC');
       setMemo(draft.description || '');
+
       if (draft.dueDate) {
-        // Parse due date for terms calculation
         const dueDate = new Date(draft.dueDate);
         const now = new Date();
-        const diffDays = Math.ceil((dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const diffDays = Math.ceil(
+          (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+        );
+
         if (diffDays === 7) setTerms('Net 7');
         else if (diffDays === 14) setTerms('Net 14');
         else if (diffDays === 30) setTerms('Net 30');
       }
-      // If draft has customer ID, load customer
-      if (draft.customerId) {
-        // CustomerService.getCustomer(draft.customerId).then(setSelectedCustomer);
-      }
     }
   }, [draft]);
 
-  // Handle form field changes with autosave
+  useEffect(() => {
+    if (pickerOpen) {
+      void loadSavedCustomers();
+    }
+  }, [pickerOpen, accessToken]);
+
   const handleFieldChange = (field: string, value: string) => {
-    // Update local state
     switch (field) {
       case 'company':
         setCompany(value);
+        break;
+      case 'customerEmail':
+        setCustomerEmail(value);
         break;
       case 'amount':
         setAmount(value);
@@ -147,17 +293,21 @@ export default function CreateInvoiceScreen() {
       case 'memo':
         setMemo(value);
         break;
+      default:
+        break;
     }
 
-    // Build update payload
     const updates: Partial<UpdateDraftDto> = {};
     switch (field) {
       case 'company':
         updates.clientName = value || undefined;
         break;
+      case 'customerEmail':
+        updates.clientEmail = value || undefined;
+        break;
       case 'amount': {
-        const parsedAmount = parseFloat(value.replace(/,/g, ''));
-        updates.amount = isNaN(parsedAmount) ? undefined : parsedAmount;
+        const parsedAmount = Number.parseFloat(value.replace(/,/g, ''));
+        updates.amount = Number.isNaN(parsedAmount) ? undefined : parsedAmount;
         break;
       }
       case 'currency':
@@ -167,56 +317,26 @@ export default function CreateInvoiceScreen() {
         updates.description = value || undefined;
         break;
       case 'terms': {
-        // Calculate due date based on terms
-        const days = parseInt(value.split(' ')[1] || '30');
+        const days = Number.parseInt(value.split(' ')[1] || '30', 10);
         const dueDate = new Date();
         dueDate.setDate(dueDate.getDate() + days);
         updates.due_date = dueDate.toISOString();
         break;
       }
+      default:
+        break;
     }
 
-    // Trigger autosave
     updateDraft(updates as UpdateDraftDto);
   };
-
-  // Debounced customer search
-  useEffect(() => {
-    if (!accessToken) return;
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    if (!customerQuery.trim()) {
-      setCustomerResults([]);
-      setShowCustomerResults(false);
-      return;
-    }
-    searchDebounceRef.current = setTimeout(() => {
-      void (async () => {
-        try {
-          const results = await CustomerService.search(
-            accessToken,
-            customerQuery.trim(),
-            8,
-          );
-          setCustomerResults(results);
-          setShowCustomerResults(results.length > 0);
-        } catch {
-          setCustomerResults([]);
-        }
-      })();
-    }, 300);
-    return () => {
-      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    };
-  }, [customerQuery, accessToken]);
 
   const selectCustomer = (customer: Customer) => {
     setSelectedCustomer(customer);
     setCompany(customer.name);
-    setCustomerQuery(
-      `${customer.name}${customer.email ? ` (${customer.email})` : ''}`,
-    );
+    setCustomerEmail(customer.email ?? '');
+    setCustomerQuery(`${customer.name}${customer.email ? ` (${customer.email})` : ''}`);
     setShowCustomerResults(false);
-    // Update draft with customer info
+
     updateDraft({
       clientName: customer.name,
       clientEmail: customer.email || undefined,
@@ -228,28 +348,38 @@ export default function CreateInvoiceScreen() {
     setSelectedCustomer(null);
     setCustomerQuery('');
     setCompany('');
+    setCustomerEmail('');
     updateDraft({
       customer_id: undefined,
     } as UpdateDraftDto);
   };
 
-  // Offline mutation for creating invoices
   const createInvoiceMutation = useOfflineMutation(
     async (data: unknown) => {
+      if (!accessToken) {
+        throw new Error('Authentication required');
+      }
+
       const response = await axios.post(`${API_URL}/invoices`, data, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       });
-      return response.data;
+      return response.data as { id: string };
     },
     {
+      descriptor: {
+        url: `${API_URL}/invoices`,
+        method: 'POST',
+        headers: () => ({
+          Authorization: accessToken ? `Bearer ${accessToken}` : '',
+        }),
+        tag: 'create-invoice',
+      },
       onSuccess: (data) => {
-        // Navigate to invoice details on success
         router.push(`/invoices/${data.id}`);
       },
       onError: (error) => {
-        // Handle error
         console.error('Invoice creation failed:', error);
         Alert.alert(
           'Error',
@@ -258,7 +388,6 @@ export default function CreateInvoiceScreen() {
         );
       },
       onQueue: () => {
-        // Show user that the request is queued
         Alert.alert(
           'Request Queued',
           'You are currently offline. Your invoice will be created automatically when you reconnect.',
@@ -269,9 +398,9 @@ export default function CreateInvoiceScreen() {
   );
 
   const confirmInvoice = async () => {
-    // Parse amount string (remove commas)
-    const parsedAmount = parseFloat(amount.replace(/,/g, ''));
-    if (isNaN(parsedAmount) || parsedAmount <= 0) {
+    const parsedAmount = Number.parseFloat(amount.replace(/,/g, ''));
+
+    if (Number.isNaN(parsedAmount) || parsedAmount <= 0) {
       Alert.alert(
         'Invalid Amount',
         'Please enter a valid positive amount.',
@@ -280,7 +409,15 @@ export default function CreateInvoiceScreen() {
       return;
     }
 
-    // Check if draft is complete
+    if (!company.trim() || !customerEmail.trim()) {
+      Alert.alert(
+        'Missing client details',
+        'Please provide a client name and email before creating the invoice.',
+        [{ text: 'OK' }],
+      );
+      return;
+    }
+
     if (!isComplete) {
       Alert.alert(
         'Draft Incomplete',
@@ -291,13 +428,8 @@ export default function CreateInvoiceScreen() {
     }
 
     try {
-      // First, save all pending changes
       await saveDraft();
-
-      // Convert draft to invoice
       const invoice = await convertToInvoice();
-
-      // Navigate to invoice detail
       router.push(`/invoices/${(invoice as { id: string }).id}`);
     } catch (err) {
       Alert.alert(
@@ -324,7 +456,7 @@ export default function CreateInvoiceScreen() {
             } catch (err) {
               Alert.alert(
                 'Error',
-                'Failed to discard draft',
+                err instanceof Error ? err.message : 'Failed to discard draft',
                 [{ text: 'OK' }],
               );
             }
@@ -443,7 +575,6 @@ export default function CreateInvoiceScreen() {
           )}
 
           <View className="mt-6 gap-6">
-            {/* Saved Client Search */}
             <View>
               <Text
                 className="text-sm text-slate-300"
@@ -454,7 +585,7 @@ export default function CreateInvoiceScreen() {
               <TextInput
                 value={customerQuery}
                 onChangeText={(text: string) => {
-                  setCustomerQuery(text);
+                  handleCustomerSearch(text);
                   if (selectedCustomer) {
                     setSelectedCustomer(null);
                   }
@@ -525,16 +656,51 @@ export default function CreateInvoiceScreen() {
             </View>
 
             <View>
-              <Text
-                className="text-sm text-slate-300"
-                style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
-              >
-                Counterparty name
-              </Text>
+              <View className="mb-3 flex-row items-center justify-between">
+                <Text
+                  className="text-sm text-slate-300"
+                  style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
+                >
+                  Counterparty name
+                </Text>
+                <Pressable
+                  onPress={() => setPickerOpen(true)}
+                  className="rounded-full border border-[#7dd3fc]/40 bg-[#7dd3fc]/10 px-3 py-1.5"
+                >
+                  <Text
+                    className="text-xs text-[#7dd3fc]"
+                    style={{ fontFamily: 'SpaceGrotesk_600SemiBold' }}
+                  >
+                    Saved customers
+                  </Text>
+                </Pressable>
+              </View>
+
               <TextInput
                 value={company}
                 onChangeText={(text) => handleFieldChange('company', text)}
                 placeholder="Vendor or client"
+                placeholderTextColor="#475569"
+                className="rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-white"
+                style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
+                editable={!isLoading}
+              />
+            </View>
+
+            <View>
+              <Text
+                className="text-sm text-slate-300"
+                style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
+              >
+                Client email
+              </Text>
+              <TextInput
+                value={customerEmail}
+                onChangeText={(text) => handleFieldChange('customerEmail', text)}
+                placeholder="billing@company.com"
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
                 placeholderTextColor="#475569"
                 className="mt-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-white"
                 style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
@@ -716,6 +882,123 @@ export default function CreateInvoiceScreen() {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={pickerOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setPickerOpen(false);
+          setPickerQuery("");
+        }}
+      >
+        <View className="flex-1 justify-end bg-[#020817]/70">
+          <View className="rounded-t-[28px] border border-white/10 bg-[#0B1220] p-5">
+            <View className="mb-4 flex-row items-center justify-between">
+              <Text
+                className="text-lg text-white"
+                style={{ fontFamily: "SpaceGrotesk_700Bold" }}
+              >
+                Select customer
+              </Text>
+              <Pressable onPress={() => setPickerOpen(false)}>
+                <Text
+                  className="text-base text-slate-300"
+                  style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                >
+                  Close
+                </Text>
+              </Pressable>
+            </View>
+
+            <TextInput
+              value={pickerQuery}
+              onChangeText={setPickerQuery}
+              placeholder="Search saved customers"
+              placeholderTextColor="#64748b"
+              autoCapitalize="none"
+              autoCorrect={false}
+              className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white"
+              style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+            />
+
+            {customerError ? (
+              <Text
+                className="mt-3 text-sm text-red-300"
+                style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+              >
+                {customerError}
+              </Text>
+            ) : null}
+
+            {isLoadingCustomers ? (
+              <View className="mt-5 items-center py-5">
+                <ActivityIndicator color="#7dd3fc" />
+                <Text
+                  className="mt-3 text-sm text-slate-300"
+                  style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                >
+                  Loading saved customers...
+                </Text>
+              </View>
+            ) : filteredCustomers.length > 0 ? (
+              <ScrollView className="mt-4 max-h-72" showsVerticalScrollIndicator={false}>
+                {filteredCustomers.map((customer) => (
+                  <Pressable
+                    key={customer.id}
+                    onPress={() => chooseCustomer(customer)}
+                    className="mt-2 rounded-2xl border border-white/10 bg-white/5 p-3"
+                  >
+                    <Text
+                      className="text-base text-white"
+                      style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                    >
+                      {customer.name}
+                    </Text>
+                    {customer.email ? (
+                      <Text
+                        className="mt-1 text-xs text-slate-300"
+                        style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                      >
+                        {customer.email}
+                      </Text>
+                    ) : null}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            ) : (
+              <View className="mt-5 rounded-2xl border border-dashed border-white/10 bg-white/5 p-4">
+                <Text
+                  className="text-sm text-slate-300"
+                  style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+                >
+                  No saved customers match this search.
+                </Text>
+                <Text
+                  className="mt-2 text-xs text-slate-400"
+                  style={{ fontFamily: "SpaceGrotesk_400Regular" }}
+                >
+                  Create a new customer inline without leaving the invoice flow.
+                </Text>
+              </View>
+            )}
+
+            <Pressable
+              onPress={createCustomerFromPicker}
+              className="mt-5 rounded-2xl bg-[#2663FF] px-4 py-3"
+            >
+              <Text
+                className="text-center text-base text-white"
+                style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+              >
+                {pickerQuery.trim()
+                  ? `Use "${pickerQuery.trim()}" as customer`
+                  : "Use current customer details"}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

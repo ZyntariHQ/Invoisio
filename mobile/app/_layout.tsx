@@ -9,9 +9,6 @@ import { SyncStatusBanner } from "../components/SyncStatusBanner";
 import { AuthGuard } from "../components/auth-guard";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { DeepLinkHandler } from "../components/DeepLinkHandler";
-import * as Notifications from "expo-notifications";
-import authService from "../lib/auth-service";
-import { usePushNotifications } from "../hooks/usePushNotifications";
 
 const queryClient = new QueryClient();
 

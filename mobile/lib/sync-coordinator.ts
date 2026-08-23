@@ -299,8 +299,8 @@ class SyncCoordinator {
     let processed = 0;
     let failed = 0;
 
-    await offlineQueue.processQueue(
-      () => {
+    await offlineQueue.processQueue({
+      onSuccess: () => {
         processed++;
         this.updateOperation(operationId, {
           details: {
@@ -310,7 +310,7 @@ class SyncCoordinator {
           },
         });
       },
-      () => {
+      onFailure: () => {
         failed++;
         this.updateOperation(operationId, {
           details: {
@@ -319,8 +319,8 @@ class SyncCoordinator {
             failedItems: failed,
           },
         });
-      }
-    );
+      },
+    });
   }
 
   /**

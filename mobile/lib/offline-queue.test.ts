@@ -31,7 +31,8 @@ describe("OfflineQueueManager", () => {
     expect(manager.getQueueSize()).toBe(1);
 
     const queue = manager.getQueue();
-    expect(queue[0]).toMatchObject({
+    expect(queue).toHaveLength(1);
+    expect(queue[0]!).toMatchObject({
       id,
       url: "https://api.invoisio.com/v1/invoices",
       method: "POST",
@@ -60,8 +61,9 @@ describe("OfflineQueueManager", () => {
     const processedRequests: QueuedRequest[] = [];
     const originalFetch = global.fetch;
 
-    global.fetch = async (url: any, opts: any) => {
-      expect(opts.headers["Authorization"]).toBe("Bearer fresh_jwt_token_123");
+    global.fetch = async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const headers = (init?.headers as Record<string, string> | undefined) ?? {};
+      expect(headers["Authorization"]).toBe("Bearer fresh_jwt_token_123");
       return {
         ok: true,
         status: 200,
@@ -106,10 +108,11 @@ describe("OfflineQueueManager", () => {
 
       const queue = manager.getQueue();
       expect(queue).toHaveLength(1);
-      expect(queue[0].retryCount).toBe(1);
-      expect(queue[0].lastError).toBeDefined();
-      expect(queue[0].lastError?.status).toBe(500);
-      expect(queue[0].lastError?.message).toContain("HTTP 500");
+      const failedRequest = queue[0]!;
+      expect(failedRequest.retryCount).toBe(1);
+      expect(failedRequest.lastError).toBeDefined();
+      expect(failedRequest.lastError?.status).toBe(500);
+      expect(failedRequest.lastError?.message).toContain("HTTP 500");
     } finally {
       global.fetch = originalFetch;
     }
