@@ -232,46 +232,81 @@
         "timestamp": { "type": "integer", "description": "Ledger timestamp when the transfer completed." }
       },
       "required": ["previous_admin", "new_admin", "timestamp"]
+    },
+    "AdminTransferCancelled": {
+      "description": "Emitted by cancel_admin_transfer(). Signals a pending admin handoff was revoked before acceptance.",
+      "topic": "admin_transfer_cancelled",
+      "fields": {
+        "current_admin": { "type": "string", "description": "Admin that cancelled the pending handoff." },
+        "cancelled_admin": { "type": "string", "description": "Address that had been proposed and is no longer in line for the role." },
+        "timestamp": { "type": "integer", "description": "Ledger timestamp when the cancellation occurred." }
+      },
+      "required": ["current_admin", "cancelled_admin", "timestamp"]
+    },
+    "HistoryIndexRebuilt": {
+      "description": "Emitted by rebuild_history_index(). Signals the payment history index was successfully rebuilt.",
+      "topic": "history_index_rebuilt",
+      "fields": {
+        "record_count": { "type": "integer", "description": "Number of records in the rebuilt index.", "minimum": 0 },
+        "rebuilt_at": { "type": "integer", "description": "Ledger timestamp when the rebuild completed." }
+      },
+      "required": ["record_count", "rebuilt_at"]
+    },
+    "SettlementRefsMigrated": {
+      "description": "Emitted during a storage upgrade when settlement references are backfilled/migrated.",
+      "topic": "settlement_refs_migrated",
+      "fields": {
+        "count": { "type": "integer", "description": "Number of settlement references migrated.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["count", "migrated_at"]
     }
   },
   "errors": {
     "AlreadyInitialized":   { "code": 1, "description": "initialize() called on an already-initialised contract." },
-    "NotInitialized":       { "code": 2, "description": "Admin-gated method called before initialize()." },
-    "PaymentAlreadyRecorded": { "code": 3, "description": "record_payment() called with an invoice_id that was already recorded." },
-    "PaymentNotFound":      { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
-    "InvalidAmount":        { "code": 5, "description": "amount was zero or negative." },
-    "InvalidInvoiceId":     { "code": 6, "description": "invoice_id was an empty string." },
-    "InvalidAsset":         { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
-    "AssetNotAllowed":      { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
-    "Unauthorized":         { "code": 9, "description": "Caller is not authorized." },
-    "StorageSchemaTooNew":  { "code": 10, "description": "Contract code is too old for the current storage schema." },
-    "StorageSchemaTooOld":  { "code": 11, "description": "Storage schema is too old and requires migration." },
-    "ContractPaused":       { "code": 12, "description": "The contract is paused and write operations are disabled." },
-    "InvalidSettlementRef": { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." },
-    "NoPendingAdmin":       { "code": 14, "description": "accept_admin() called but no admin transfer proposal is pending." },
+    "NotInitialized":   { "code": 2, "description": "Admin-gated method called before initialize()." },
+    "PaymentAlreadyRecorded":   { "code": 3, "description": "record_payment() called with an invoice_id that was already recorded." },
+    "PaymentNotFound":   { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
+    "InvalidAmount":   { "code": 5, "description": "amount was zero or negative." },
+    "InvalidInvoiceId":   { "code": 6, "description": "invoice_id was an empty string." },
+    "InvalidAsset":   { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
+    "AssetNotAllowed":   { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
+    "Unauthorized":   { "code": 9, "description": "Caller is not authorized." },
+    "StorageSchemaTooNew":   { "code": 10, "description": "Contract code is too old for the current storage schema." },
+    "StorageSchemaTooOld":   { "code": 11, "description": "Storage schema is too old and requires migration." },
+    "ContractPaused":   { "code": 12, "description": "The contract is paused and write operations are disabled." },
+    "InvalidSettlementRef":   { "code": 13, "description": "settlement_ref was empty or exceeded the 128-character maximum." },
+    "NoPendingAdmin":   { "code": 14, "description": "accept_admin() called but no admin transfer proposal is pending." },
     "PendingAdminExists":   { "code": 15, "description": "propose_admin() called while an admin transfer proposal is already pending." },
-    "InvalidProposedAdmin": { "code": 16, "description": "propose_admin() called with the current admin (or other invalid address)." }
+    "InvalidProposedAdmin":   { "code": 16, "description": "propose_admin() called with the current admin (or other invalid address)." },
+    "HistoryIndexRebuildFailed":   { "code": 17, "description": "rebuild_history_index() failed to rebuild the payment history index; check storage consistency." },
+    "MigrationRequired":   { "code": 18, "description": "rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first." },
+    "HistoryIndexIncomplete":   { "code": 19, "description": "The payment history index is incomplete and must be rebuilt via rebuild_history_index()." },
+    "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." }
   },
   "methods": {
-    "initialize":        { "auth": "none",  "description": "One-time setup; sets the admin." },
-    "record_payment":    { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
-    "get_payment":       { "auth": "none",  "description": "Return PaymentRecord for invoice_id." },
-    "has_payment":       { "auth": "none",  "description": "Return true if a payment exists for invoice_id." },
-    "payment_count":     { "auth": "none",  "description": "Return total recorded payment count." },
-    "payment_history":   { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
-    "payments_by_payer": { "auth": "none",  "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
-    "config":            { "auth": "none",  "description": "Return ContractConfig snapshot." },
-    "contract_version":  { "auth": "none",  "description": "Return packed semver as u32." },
-    "version_info":      { "auth": "none",  "description": "Return on-chain ContractMeta." },
-    "admin":             { "auth": "none",  "description": "Return current admin address." },
-    "pending_admin":     { "auth": "none",  "description": "Return the address proposed as next admin, if any." },
-    "propose_admin":     { "auth": "admin", "description": "Step 1 of two-step handoff: propose the next admin." },
-    "accept_admin":      { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
-    "allow_asset":       { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
-    "revoke_asset":      { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
-    "set_allow_native":  { "auth": "admin", "description": "Toggle native XLM acceptance." },
-    "upgrade_storage":   { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
-    "set_paused":        { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
-    "is_paused":         { "auth": "none",  "description": "Return true if the contract is currently paused." }
+    "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
+    "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
+    "get_payment": { "auth": "none", "description": "Return PaymentRecord for invoice_id." },
+    "has_payment": { "auth": "none", "description": "Return true if a payment exists for invoice_id." },
+    "payment_count": { "auth": "none", "description": "Return total recorded payment count." },
+    "contract_version": { "auth": "none", "description": "Return packed semver as u32." },
+    "version_info": { "auth": "none", "description": "Return on-chain ContractMeta." },
+    "admin": { "auth": "none", "description": "Return current admin address." },
+    "pending_admin": { "auth": "none", "description": "Return the address proposed as next admin, if any." },
+    "propose_admin": { "auth": "admin", "description": "Step 1 of two-step handoff: propose the next admin." },
+    "accept_admin": { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
+    "cancel_admin_transfer": { "auth": "admin", "description": "Cancel a pending admin transfer proposed via propose_admin()." },
+    "allow_asset": { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
+    "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
+    "set_allow_native": { "auth": "admin", "description": "Toggle native XLM acceptance." },
+    "config": { "auth": "none", "description": "Return ContractConfig snapshot." },
+    "payment_history": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
+    "payments_by_payer": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
+    "upgrade_storage": { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
+    "set_paused": { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
+    "is_paused": { "auth": "none", "description": "Return true if the contract is currently paused." },
+    "rebuild_history_index": { "auth": "admin", "description": "Rebuild the payment history index from existing records after a corruption or incomplete migration." },
+    "history_index_status": { "auth": "none", "description": "Return (history_count, payment_count, is_consistent) diagnostic status for the history index." }
   }
 }

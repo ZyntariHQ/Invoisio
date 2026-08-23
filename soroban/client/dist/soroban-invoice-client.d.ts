@@ -73,6 +73,19 @@ export declare class SorobanInvoiceClient {
      */
     acceptAdmin(): Promise<TransactionResult>;
     /**
+     * Cancel a pending admin transfer proposal (recovery path for the two-step
+     * handoff).
+     *
+     * The **current admin** keypair must be provided via `signerSecretKey` in
+     * the config. After a successful cancellation `pendingAdmin()` reads `null`
+     * again, the previously proposed address can no longer claim the role, and
+     * `proposeAdmin()` can be used for a fresh proposal.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+     */
+    cancelAdminTransfer(): Promise<TransactionResult>;
+    /**
      * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
      *
      * Only assets that have been allowlisted are accepted by `recordPayment`.

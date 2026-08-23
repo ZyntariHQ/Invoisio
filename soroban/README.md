@@ -650,6 +650,7 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 17 | HistoryIndexRebuildFailed | `rebuild_history_index()` failed to rebuild the payment history index; check storage consistency. |
 | 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
 | 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
+| 20 | SettlementRefAlreadyUsed | The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments. |
 
 #### Typed error manifest (off-chain reference)
 
@@ -689,6 +690,47 @@ Soroban error is introduced:
    so the new code is covered by the `parseContractError` mapping tests.
 4. Update this table, then rebuild the client (`cd soroban/client && npm run build`)
    so the committed `dist/` ships the new codes to downstream consumers.
+
+### ABI drift CI check
+
+`schema.json` (`soroban/contracts/invoice-payment/schema.json`) is a
+machine-readable snapshot of the contract's public interface — its errors,
+methods, and events — generated from the Rust source by `generate-schema.sh`.
+The `abi-drift` job in `.github/workflows/soroban.yml` fails a pull request
+whenever the contract, the schema, and the TypeScript client fall out of
+sync, in two steps:
+
+1. **Contract ⇄ schema.json.** It re-runs `generate-schema.sh` and diffs the
+   result against the committed `schema.json`. The script itself fails if a
+   new error variant (`src/errors.rs`), public method (`src/lib.rs`), or
+   `#[contractevent]` struct (`src/events.rs`) doesn't have a matching
+   hand-authored description in the script — so a contract change without a
+   schema update is caught either way, whether the schema file was never
+   regenerated or the script wasn't updated to describe the new member.
+2. **schema.json ⇄ TS client.** `soroban/scripts/check-client-drift.mjs`
+   compares `client/src/error-manifest.ts` against `schema.json`'s `errors`
+   (same codes and names on both sides) and checks that every contract
+   method name the client actually calls (`contract.call(...)` /
+   `simulateView(...)` in `client/src/soroban-invoice-client.ts`) still
+   exists in `schema.json`'s `methods`.
+
+Both checks are plain scripts with no network access or deployed contract
+required, so they reproduce identically in CI and locally:
+
+```sh
+# 1. Regenerate schema.json and check it's unchanged
+cd soroban/contracts/invoice-payment
+./generate-schema.sh          # or: make schema
+git diff --exit-code -- schema.json
+
+# 2. Check the TS client against schema.json
+cd ../..
+node scripts/check-client-drift.mjs
+```
+
+A failure names exactly what drifted and which file to fix — regenerate
+`schema.json` when the contract changed, or update `client/src/` (and its
+tests) when the client's understanding of the ABI is what's stale.
 
 ### `PaymentRecord` struct
 

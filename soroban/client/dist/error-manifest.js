@@ -135,6 +135,11 @@ exports.CONTRACT_ERROR_MANIFEST = [
         name: 'HistoryIndexIncomplete',
         meaning: 'The payment history index is incomplete and must be rebuilt via rebuild_history_index().',
     },
+    {
+        code: 20,
+        name: 'SettlementRefAlreadyUsed',
+        meaning: 'The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.',
+    },
 ];
 /**
  * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.
