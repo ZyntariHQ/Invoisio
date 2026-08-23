@@ -172,6 +172,7 @@ export default function DraftsScreen() {
           <View className="flex-row gap-2 ml-4">
             <Pressable
               className="rounded-lg bg-[#2663FF] px-3 py-2"
+              accessibilityRole="button"
               onPress={() => handleResume(item.id)}
             >
               <Text
@@ -182,7 +183,9 @@ export default function DraftsScreen() {
               </Text>
             </Pressable>
             <Pressable
-              className="rounded-lg border border-red-500/30 px-3 py-2"
+              className="rounded-lg border border-red-500/30 px-3 py-3"
+              accessibilityLabel="Discard draft"
+              accessibilityRole="button"
               onPress={() => handleDiscard(item)}
             >
               <Text
@@ -224,7 +227,13 @@ export default function DraftsScreen() {
       </View>
 
       {error && (
-        <View className="mx-6 mb-4 rounded-xl bg-red-500/20 p-4 border border-red-500/50">
+        <View
+          accessible
+          accessibilityRole="alert"
+          accessibilityLabel={error}
+          accessibilityLiveRegion="assertive"
+          className="mx-6 mb-4 rounded-xl bg-red-500/20 p-4 border border-red-500/50"
+        >
           <Text
             className="text-center text-sm text-red-300"
             style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
@@ -249,6 +258,7 @@ export default function DraftsScreen() {
             Start creating an invoice and it will be automatically saved as a draft.
           </Text>
           <Pressable
+            accessibilityRole="button"
             className="mt-6 rounded-xl bg-[#00D6B9] px-6 py-3"
             onPress={() => router.push('/create-invoice')}
           >

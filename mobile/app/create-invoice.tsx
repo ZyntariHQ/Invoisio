@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -109,6 +110,13 @@ export default function CreateInvoiceScreen() {
       setIsLoadingCustomers(false);
     }
   };
+
+  // Announce customer-load errors to screen readers as they surface.
+  useEffect(() => {
+    if (customerError) {
+      AccessibilityInfo.announceForAccessibility(customerError);
+    }
+  }, [customerError]);
 
   // Customer search state
   const [customerQuery, setCustomerQuery] = useState('');
@@ -478,7 +486,13 @@ export default function CreateInvoiceScreen() {
         <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 64 }}>
           {/* Queued status indicator */}
           {isQueued && (
-            <View className="mb-4 rounded-xl bg-blue-500/20 p-4 border border-blue-500/50">
+            <View
+              accessible
+              accessibilityRole="alert"
+              accessibilityLabel="Invoice is queued and will be created when online"
+              accessibilityLiveRegion="polite"
+              className="mb-4 rounded-xl bg-blue-500/20 p-4 border border-blue-500/50"
+            >
               <Text
                 className="text-center text-sm text-blue-300"
                 style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
@@ -523,6 +537,7 @@ export default function CreateInvoiceScreen() {
           {draft && (
             <TouchableOpacity
               onPress={handleDiscardDraft}
+              accessibilityRole="button"
               className="mb-4 self-end"
             >
               <Text
@@ -583,6 +598,7 @@ export default function CreateInvoiceScreen() {
                 Saved client
               </Text>
               <TextInput
+                accessibilityLabel="Search saved clients"
                 value={customerQuery}
                 onChangeText={(text: string) => {
                   handleCustomerSearch(text);
@@ -615,7 +631,12 @@ export default function CreateInvoiceScreen() {
                       </Text>
                     )}
                   </View>
-                  <TouchableOpacity onPress={clearSelectedCustomer}>
+                  <TouchableOpacity
+                    onPress={clearSelectedCustomer}
+                    accessibilityLabel="Clear selected customer"
+                    accessibilityRole="button"
+                    className="p-2"
+                  >
                     <Text className="text-sm text-slate-400">✕</Text>
                   </TouchableOpacity>
                 </View>
@@ -630,6 +651,7 @@ export default function CreateInvoiceScreen() {
                     renderItem={({ item }: { item: Customer }) => (
                       <Pressable
                         className="border-b border-white/5 px-4 py-3"
+                        accessibilityRole="button"
                         onPress={() => {
                           selectCustomer(item);
                         }}
@@ -665,6 +687,7 @@ export default function CreateInvoiceScreen() {
                 </Text>
                 <Pressable
                   onPress={() => setPickerOpen(true)}
+                  accessibilityRole="button"
                   className="rounded-full border border-[#7dd3fc]/40 bg-[#7dd3fc]/10 px-3 py-1.5"
                 >
                   <Text
@@ -677,6 +700,7 @@ export default function CreateInvoiceScreen() {
               </View>
 
               <TextInput
+                accessibilityLabel="Counterparty name, required"
                 value={company}
                 onChangeText={(text) => handleFieldChange('company', text)}
                 placeholder="Vendor or client"
@@ -695,6 +719,7 @@ export default function CreateInvoiceScreen() {
                 Client email
               </Text>
               <TextInput
+                accessibilityLabel="Client email, required"
                 value={customerEmail}
                 onChangeText={(text) => handleFieldChange('customerEmail', text)}
                 placeholder="billing@company.com"
@@ -717,6 +742,7 @@ export default function CreateInvoiceScreen() {
                   Amount
                 </Text>
                 <TextInput
+                  accessibilityLabel="Amount, required"
                   value={amount}
                   onChangeText={(text) => handleFieldChange('amount', text)}
                   keyboardType="numeric"
@@ -742,6 +768,11 @@ export default function CreateInvoiceScreen() {
                       className={`flex-1 items-center justify-center rounded-2xl py-3 ${
                         currency === option ? 'bg-white' : ''
                       }`}
+                      accessibilityRole="button"
+                      accessibilityState={{
+                        selected: currency === option,
+                        disabled: isLoading,
+                      }}
                       onPress={() => {
                         if (!isLoading) handleFieldChange('currency', option);
                       }}
@@ -773,6 +804,11 @@ export default function CreateInvoiceScreen() {
                     className={`flex-1 items-center justify-center rounded-2xl py-3 ${
                       terms === option ? 'bg-[#2663FF]' : ''
                     }`}
+                    accessibilityRole="button"
+                    accessibilityState={{
+                      selected: terms === option,
+                      disabled: isLoading,
+                    }}
                     onPress={() => {
                       if (!isLoading) handleFieldChange('terms', option);
                     }}
@@ -797,6 +833,7 @@ export default function CreateInvoiceScreen() {
                 Memo / Scope
               </Text>
               <TextInput
+                accessibilityLabel="Memo or scope"
                 value={memo}
                 onChangeText={(text) => handleFieldChange('memo', text)}
                 multiline
@@ -857,6 +894,8 @@ export default function CreateInvoiceScreen() {
             className={`mt-8 rounded-2xl py-4 shadow-lg shadow-[#00D6B9]/50 ${
               isLoading ? 'bg-[#00D6B9]/50' : 'bg-[#00D6B9]'
             }`}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isLoading }}
             onPress={confirmInvoice}
             disabled={isLoading}
           >
@@ -871,7 +910,13 @@ export default function CreateInvoiceScreen() {
           </Pressable>
 
           {draftError && (
-            <View className="mt-4 rounded-xl bg-amber-500/20 p-4 border border-amber-500/50">
+            <View
+              accessible
+              accessibilityRole="alert"
+              accessibilityLabel={`Autosave temporarily unavailable: ${draftError}`}
+              accessibilityLiveRegion="assertive"
+              className="mt-4 rounded-xl bg-amber-500/20 p-4 border border-amber-500/50"
+            >
               <Text
                 className="text-center text-sm text-amber-300"
                 style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
@@ -887,13 +932,24 @@ export default function CreateInvoiceScreen() {
         visible={pickerOpen}
         animationType="slide"
         transparent
+        onShow={() => {
+          AccessibilityInfo.announceForAccessibility(
+            "Select customer dialog opened",
+          );
+        }}
         onRequestClose={() => {
           setPickerOpen(false);
           setPickerQuery("");
         }}
       >
-        <View className="flex-1 justify-end bg-[#020817]/70">
-          <View className="rounded-t-[28px] border border-white/10 bg-[#0B1220] p-5">
+        <View
+          importantForAccessibility="no-hide-descendants"
+          className="flex-1 justify-end bg-[#020817]/70"
+        >
+          <View
+            accessibilityViewIsModal
+            className="rounded-t-[28px] border border-white/10 bg-[#0B1220] p-5"
+          >
             <View className="mb-4 flex-row items-center justify-between">
               <Text
                 className="text-lg text-white"
@@ -901,7 +957,10 @@ export default function CreateInvoiceScreen() {
               >
                 Select customer
               </Text>
-              <Pressable onPress={() => setPickerOpen(false)}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setPickerOpen(false)}
+              >
                 <Text
                   className="text-base text-slate-300"
                   style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
@@ -912,18 +971,22 @@ export default function CreateInvoiceScreen() {
             </View>
 
             <TextInput
+              accessibilityLabel="Search saved customers"
               value={pickerQuery}
               onChangeText={setPickerQuery}
               placeholder="Search saved customers"
               placeholderTextColor="#64748b"
               autoCapitalize="none"
               autoCorrect={false}
+              autoFocus
               className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white"
               style={{ fontFamily: "SpaceGrotesk_500Medium" }}
             />
 
             {customerError ? (
               <Text
+                accessibilityRole="alert"
+                accessibilityLiveRegion="assertive"
                 className="mt-3 text-sm text-red-300"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}
               >
@@ -947,6 +1010,7 @@ export default function CreateInvoiceScreen() {
                   <Pressable
                     key={customer.id}
                     onPress={() => chooseCustomer(customer)}
+                    accessibilityRole="button"
                     className="mt-2 rounded-2xl border border-white/10 bg-white/5 p-3"
                   >
                     <Text
@@ -985,6 +1049,7 @@ export default function CreateInvoiceScreen() {
 
             <Pressable
               onPress={createCustomerFromPicker}
+              accessibilityRole="button"
               className="mt-5 rounded-2xl bg-[#2663FF] px-4 py-3"
             >
               <Text

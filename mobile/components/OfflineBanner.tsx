@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Animated,
   Platform,
+  AccessibilityInfo,
 } from "react-native";
 import { useConnectivity } from "../hooks/use-connectivity";
 import { offlineQueue } from "../lib/offline-queue";
@@ -86,6 +87,30 @@ export function OfflineBanner({ onRetry, onDismiss }: OfflineBannerProps) {
   };
 
   const shouldShow = isOffline || isDegraded || queueSize > 0;
+
+  // Announce the banner when it appears / its message changes. The message
+  // is computed inline so every referenced value is covered by the deps list.
+  const prevMessageRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!shouldShow) {
+      prevMessageRef.current = null;
+      return;
+    }
+    const message = isOffline
+      ? queueSize > 0
+        ? `You're offline. ${String(queueSize)} request(s) queued.`
+        : "You're offline. Reconnect to continue."
+      : isDegraded
+        ? "Network is slow or unstable. Some operations may fail."
+        : queueSize > 0
+          ? `${String(queueSize)} request(s) waiting to sync.`
+          : "";
+    if (prevMessageRef.current !== message) {
+      prevMessageRef.current = message;
+      AccessibilityInfo.announceForAccessibility(message);
+    }
+  }, [shouldShow, queueSize, isOffline, isDegraded]);
+
   if (!shouldShow) return null;
 
   const bannerType = getBannerType();
@@ -98,6 +123,10 @@ export function OfflineBanner({ onRetry, onDismiss }: OfflineBannerProps) {
 
   return (
     <Animated.View
+      accessible
+      accessibilityRole="alert"
+      accessibilityLabel={getMessage()}
+      accessibilityLiveRegion="assertive"
       style={[
         styles.container,
         {
@@ -109,7 +138,12 @@ export function OfflineBanner({ onRetry, onDismiss }: OfflineBannerProps) {
     >
       <View style={styles.content}>
         <Text style={styles.message}>{getMessage()}</Text>
-        <TouchableOpacity style={styles.actionButton} onPress={handleAction}>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={getActionText()}
+          style={styles.actionButton}
+          onPress={handleAction}
+        >
           <Text style={styles.actionText}>{getActionText()}</Text>
         </TouchableOpacity>
       </View>
