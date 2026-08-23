@@ -72,6 +72,27 @@ class FakePrisma {
       return row;
     },
   };
+  paymentReview = {
+    _store: [] as any[],
+    create: async ({ data }: any) => {
+      const dup = (FakePrisma as any).instance.paymentReview._store.find(
+        (review: any) => review.txHash === data.txHash,
+      );
+      if (dup) {
+        const err: any = new Error("Unique constraint failed");
+        err.code = "P2002";
+        throw err;
+      }
+      const row = {
+        id: `review-${(FakePrisma as any).instance.paymentReview._store.length}`,
+        ...data,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      (FakePrisma as any).instance.paymentReview._store.push(row);
+      return row;
+    },
+  };
   processedEvent = {
     _store: new Map<string, any>(),
     findUnique: async ({ where: { txHash_invoiceId_contractId } }: any) => {
@@ -116,6 +137,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
   const notificationsStub = {
     notifyInvoicePaid: async () => {},
     notifyInvoiceOverdue: async () => {},
+    notifyPaymentReviewFlagged: async () => {},
   } as unknown as NotificationsService;
 
   const structuredLoggerStub =
@@ -239,7 +261,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
     expect(replayed?.status).toBe("partially_paid");
     expect(Number((replayed as any).amountPaid)).toBe(300);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Skipped replayed Soroban payment event"),
+      expect.stringContaining("Skipped replayed soroban payment"),
     );
 
     warnSpy.mockRestore();
