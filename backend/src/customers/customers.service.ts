@@ -14,7 +14,9 @@ import {
 import { Prisma } from "@prisma/client";
 
 /**
- * Customers service — manages client profiles for repeat invoicing.
+ * Customers service — manages the merchant's saved-customer directory:
+ * full profile CRUD, search/typeahead for reuse during invoice creation
+ * (e.g. the mobile customer picker), and a business-metrics summary.
  */
 @Injectable()
 export class CustomersService {
@@ -88,7 +90,11 @@ export class CustomersService {
   /**
    * Update a customer profile.
    */
-  async update(merchantId: string, customerId: string, dto: UpdateCustomerDto) {
+  async update(
+    merchantId: string,
+    customerId: string,
+    dto: UpdateCustomerDto,
+  ) {
     // Ensure customer exists and belongs to merchant
     await this.findOne(merchantId, customerId);
 

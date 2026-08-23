@@ -51,6 +51,11 @@ export default function CreateInvoiceScreen() {
     null,
   );
   const [showCustomerResults, setShowCustomerResults] = useState(false);
+  const [isSearchingCustomers, setIsSearchingCustomers] = useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
+  const [customerActionError, setCustomerActionError] = useState<
+    string | null
+  >(null);
   const searchDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   /**
@@ -187,8 +192,10 @@ export default function CreateInvoiceScreen() {
     if (!customerQuery.trim()) {
       setCustomerResults([]);
       setShowCustomerResults(false);
+      setCustomerActionError(null);
       return;
     }
+    setIsSearchingCustomers(true);
     searchDebounceRef.current = setTimeout(() => {
       void (async () => {
         try {
@@ -198,9 +205,14 @@ export default function CreateInvoiceScreen() {
             8,
           );
           setCustomerResults(results);
-          setShowCustomerResults(results.length > 0);
-        } catch {
+          setCustomerActionError(null);
+        } catch (err) {
+          console.error('Customer search failed:', err);
           setCustomerResults([]);
+          setCustomerActionError("Couldn't search customers. Try again.");
+        } finally {
+          setIsSearchingCustomers(false);
+          setShowCustomerResults(true);
         }
       })();
     }, 300);
@@ -216,6 +228,7 @@ export default function CreateInvoiceScreen() {
       `${customer.name}${customer.email ? ` (${customer.email})` : ''}`,
     );
     setShowCustomerResults(false);
+    setCustomerActionError(null);
     // Update draft with customer info
     updateDraft({
       clientName: customer.name,
@@ -231,6 +244,23 @@ export default function CreateInvoiceScreen() {
     updateDraft({
       customer_id: undefined,
     } as UpdateDraftDto);
+  };
+
+  const handleAddNewCustomer = async () => {
+    if (!accessToken) return;
+    const name = customerQuery.trim();
+    if (!name) return;
+    setIsCreatingCustomer(true);
+    setCustomerActionError(null);
+    try {
+      const created = await CustomerService.create(accessToken, { name });
+      selectCustomer(created);
+    } catch (err) {
+      console.error('Failed to create customer:', err);
+      setCustomerActionError("Couldn't add this customer. Try again.");
+    } finally {
+      setIsCreatingCustomer(false);
+    }
   };
 
   // Offline mutation for creating invoices
@@ -489,37 +519,99 @@ export default function CreateInvoiceScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {showCustomerResults && customerResults.length > 0 && (
+              {showCustomerResults && (
                 <View className="mt-2 rounded-2xl border border-white/10 bg-[#0d1525]">
-                  <FlatList
-                    data={customerResults}
-                    keyExtractor={(item: Customer) => item.id}
-                    nestedScrollEnabled
-                    style={{ maxHeight: 200 }}
-                    renderItem={({ item }: { item: Customer }) => (
-                      <Pressable
-                        className="border-b border-white/5 px-4 py-3"
-                        onPress={() => {
-                          selectCustomer(item);
-                        }}
+                  {isSearchingCustomers ? (
+                    <View className="items-center justify-center px-4 py-5">
+                      <ActivityIndicator size="small" color="#7dd3fc" />
+                    </View>
+                  ) : customerActionError ? (
+                    <View className="px-4 py-4">
+                      <Text
+                        className="text-sm text-red-400"
+                        style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
                       >
-                        <Text
-                          className="text-sm text-white"
-                          style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
+                        {customerActionError}
+                      </Text>
+                    </View>
+                  ) : customerResults.length > 0 ? (
+                    <FlatList
+                      data={customerResults}
+                      keyExtractor={(item: Customer) => item.id}
+                      nestedScrollEnabled
+                      style={{ maxHeight: 200 }}
+                      renderItem={({ item }: { item: Customer }) => (
+                        <Pressable
+                          className="border-b border-white/5 px-4 py-3"
+                          onPress={() => {
+                            selectCustomer(item);
+                          }}
                         >
-                          {item.name}
-                        </Text>
-                        {item.email && (
                           <Text
-                            className="text-xs text-slate-400"
-                            style={{ fontFamily: 'SpaceGrotesk_400Regular' }}
+                            className="text-sm text-white"
+                            style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
                           >
-                            {item.email}
+                            {item.name}
+                          </Text>
+                          {item.email && (
+                            <Text
+                              className="text-xs text-slate-400"
+                              style={{ fontFamily: 'SpaceGrotesk_400Regular' }}
+                            >
+                              {item.email}
+                            </Text>
+                          )}
+                        </Pressable>
+                      )}
+                      ListFooterComponent={
+                        <Pressable
+                          className="px-4 py-3"
+                          onPress={() => {
+                            void handleAddNewCustomer();
+                          }}
+                          disabled={isCreatingCustomer}
+                        >
+                          {isCreatingCustomer ? (
+                            <ActivityIndicator size="small" color="#00D6B9" />
+                          ) : (
+                            <Text
+                              className="text-sm text-[#00D6B9]"
+                              style={{ fontFamily: 'SpaceGrotesk_600SemiBold' }}
+                            >
+                              + Add "{customerQuery.trim()}" as a new customer
+                            </Text>
+                          )}
+                        </Pressable>
+                      }
+                    />
+                  ) : (
+                    <View className="px-4 py-4">
+                      <Text
+                        className="text-sm text-slate-400"
+                        style={{ fontFamily: 'SpaceGrotesk_400Regular' }}
+                      >
+                        No saved customers match "{customerQuery.trim()}"
+                      </Text>
+                      <Pressable
+                        className="mt-3 self-start"
+                        onPress={() => {
+                          void handleAddNewCustomer();
+                        }}
+                        disabled={isCreatingCustomer}
+                      >
+                        {isCreatingCustomer ? (
+                          <ActivityIndicator size="small" color="#00D6B9" />
+                        ) : (
+                          <Text
+                            className="text-sm text-[#00D6B9]"
+                            style={{ fontFamily: 'SpaceGrotesk_600SemiBold' }}
+                          >
+                            + Add as a new customer
                           </Text>
                         )}
                       </Pressable>
-                    )}
-                  />
+                    </View>
+                  )}
                 </View>
               )}
             </View>
@@ -529,7 +621,7 @@ export default function CreateInvoiceScreen() {
                 className="text-sm text-slate-300"
                 style={{ fontFamily: 'SpaceGrotesk_500Medium' }}
               >
-                Counterparty name
+                Client
               </Text>
               <TextInput
                 value={company}

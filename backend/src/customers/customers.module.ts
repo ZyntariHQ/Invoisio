@@ -6,7 +6,9 @@ import { AuthModule } from "../auth/auth.module";
 
 /**
  * Customers module
- * Provides client profile management for repeat invoicing.
+ * Provides the merchant's saved-customer directory: profile CRUD,
+ * search/typeahead for reuse during invoice creation (e.g. the mobile
+ * customer picker), and a business-metrics summary.
  */
 @Module({
   imports: [PrismaModule, AuthModule],

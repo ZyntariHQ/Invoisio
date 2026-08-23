@@ -8,7 +8,7 @@ type LoggerLike = {
   error: (message: string) => void;
 };
 
-const TENANT_SCOPED_MODELS = new Set(["Invoice", "User"]);
+const TENANT_SCOPED_MODELS = new Set(["Invoice", "User", "Customer"]);
 
 export function applyMerchantScope(
   params: PrismaQueryParams,

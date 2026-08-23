@@ -18,7 +18,9 @@ import { PrismaService } from "../prisma/prisma.service";
 
 /**
  * Customers controller
- * Manages client profiles for repeat invoicing.
+ * Manages the merchant's saved-customer directory: profile CRUD,
+ * search/typeahead for reuse during invoice creation (e.g. the mobile
+ * customer picker), and a business-metrics summary.
  */
 @Controller("customers")
 export class CustomersController {
