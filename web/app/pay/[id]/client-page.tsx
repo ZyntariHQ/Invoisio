@@ -12,6 +12,7 @@ import {
 import { PublicInvoiceService } from "@/lib/public-invoice-service";
 import { usePollInvoiceStatus } from "@/hooks/use-poll-invoice-status";
 import WalletFallbackSheet from "@/components/wallet-fallback-sheet";
+import type { PublicInvoice } from "@/lib/public-invoice-service";
 
 interface WalletInfo {
   hasWallet: boolean;
@@ -20,10 +21,14 @@ interface WalletInfo {
   message: string;
 }
 
-export default function PublicPayerPage() {
-  const params = useParams<{ id: string }>();
+export default function PublicPayerPage({
+  invoiceId,
+  initialInvoice,
+}: {
+  invoiceId: string;
+  initialInvoice: PublicInvoice | null;
+}) {
   const router = useRouter();
-  const invoiceId = params?.id as string;
 
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
@@ -40,7 +45,7 @@ export default function PublicPayerPage() {
     error: pollError,
     lastUpdated,
     refreshStatus,
-  } = usePollInvoiceStatus(invoiceId, fetchInvoice);
+  } = usePollInvoiceStatus(invoiceId, fetchInvoice, {}, initialInvoice);
 
   const handleCopyToClipboard = useCallback(
     async (text: string, field: string) => {
