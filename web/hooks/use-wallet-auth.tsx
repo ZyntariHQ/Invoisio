@@ -21,6 +21,7 @@ type WalletStatus = 'disconnected' | 'connected' | 'signed-in';
 
 type StoredAuth = {
   accessToken: string | null;
+  refreshToken: string | null;
   publicKey: string | null;
 };
 
@@ -44,22 +45,23 @@ const WalletAuthContext = createContext<WalletAuthContextValue | null>(null);
 
 function readStoredAuth(): StoredAuth {
   if (typeof window === 'undefined') {
-    return { accessToken: null, publicKey: null };
+    return { accessToken: null, refreshToken: null, publicKey: null };
   }
 
   const raw = window.localStorage.getItem(AUTH_STORAGE_KEY);
   if (raw == null || raw.length === 0) {
-    return { accessToken: null, publicKey: null };
+    return { accessToken: null, refreshToken: null, publicKey: null };
   }
 
   try {
     const parsed = JSON.parse(raw) as Partial<StoredAuth>;
     return {
       accessToken: typeof parsed.accessToken === 'string' ? parsed.accessToken : null,
+      refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : null,
       publicKey: typeof parsed.publicKey === 'string' ? parsed.publicKey : null,
     };
   } catch {
-    return { accessToken: null, publicKey: null };
+    return { accessToken: null, refreshToken: null, publicKey: null };
   }
 }
 
@@ -148,6 +150,10 @@ export function WalletAuthProvider({ children }: { children: ReactNode }) {
     if (initialAuth.accessToken) {
       setApiAccessToken(initialAuth.accessToken);
     }
+    const stored = readStoredAuth();
+    if (stored.refreshToken) {
+      import('@/lib/api-client').then(({ setApiRefreshToken }) => setApiRefreshToken(stored.refreshToken));
+    }
   }, [initialAuth.accessToken]);
 
   useEffect(() => {
@@ -159,9 +165,13 @@ export function WalletAuthProvider({ children }: { children: ReactNode }) {
 
       try {
         setApiAccessToken(stored.accessToken);
+        if (stored.refreshToken) {
+          import('@/lib/api-client').then(({ setApiRefreshToken }) => setApiRefreshToken(stored.refreshToken));
+        }
         await AuthService.getMe();
       } catch {
         setApiAccessToken(null);
+        import('@/lib/api-client').then(({ setApiRefreshToken }) => setApiRefreshToken(null));
         clearStoredAuth();
         setPublicKey(null);
         setStatus('disconnected');
@@ -188,7 +198,7 @@ export function WalletAuthProvider({ children }: { children: ReactNode }) {
       const key = await requestFreighterPublicKey();
       setPublicKey(key);
       setStatus('connected');
-      persistAuth({ accessToken: null, publicKey: key });
+      persistAuth({ accessToken: null, refreshToken: null, publicKey: key });
       setMessage(`Wallet connected: ${key.slice(0, 6)}...${key.slice(-4)}`);
     } catch (err) {
       const normalized = normalizeAuthError(err);
@@ -214,10 +224,11 @@ export function WalletAuthProvider({ children }: { children: ReactNode }) {
 
       const { nonce } = await AuthService.requestChallenge(key);
       const signedNonce = await signChallengeWithFreighter(nonce);
-      const { accessToken } = await AuthService.verifySignature(key, signedNonce);
+      const { accessToken, refreshToken } = await AuthService.verifySignature(key, signedNonce);
 
       setApiAccessToken(accessToken);
-      persistAuth({ accessToken, publicKey: key });
+      import('@/lib/api-client').then(({ setApiRefreshToken }) => setApiRefreshToken(refreshToken));
+      persistAuth({ accessToken, refreshToken, publicKey: key });
       setPublicKey(key);
       setStatus('signed-in');
 
@@ -236,6 +247,7 @@ export function WalletAuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     setApiAccessToken(null);
+    import('@/lib/api-client').then(({ setApiRefreshToken }) => setApiRefreshToken(null));
     clearStoredAuth();
     setPublicKey(null);
     setStatus('disconnected');

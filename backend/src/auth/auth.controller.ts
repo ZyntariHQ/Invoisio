@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
-import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
+import { NonceRequestDto, VerifyRequestDto, RefreshRequestDto } from "./dtos/auth.dto";
 import { Auth, CurrentUser } from "./guard/auth.guard";
 import { User } from "../users/user.entity";
 
@@ -36,6 +36,17 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async verify(@Body() dto: VerifyRequestDto) {
     return this.authService.verify(dto);
+  }
+
+  /**
+   * POST /auth/refresh
+   * Exchanges a valid refresh token for a new access token and refresh token.
+   */
+  @Post("refresh")
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  @HttpCode(HttpStatus.OK)
+  async refresh(@Body() dto: RefreshRequestDto) {
+    return this.authService.refresh(dto.refreshToken);
   }
 
   /**

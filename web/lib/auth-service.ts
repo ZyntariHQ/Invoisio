@@ -7,6 +7,7 @@ export interface NonceResponse {
 
 export interface VerifyResponse {
   accessToken: string;
+  refreshToken: string;
 }
 
 export interface MeResponse {
@@ -35,6 +36,17 @@ export const AuthService = {
       const response = await apiClient.post<VerifyResponse>('/auth/verify', {
         publicKey,
         signedNonce,
+      });
+      return response.data;
+    } catch (error) {
+      throw new Error(extractApiErrorMessage(error));
+    }
+  },
+
+  async refreshSession(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+    try {
+      const response = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/refresh', {
+        refreshToken,
       });
       return response.data;
     } catch (error) {

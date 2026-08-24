@@ -18,3 +18,9 @@ export class VerifyRequestDto {
   @IsString()
   signedNonce: string;
 }
+
+export class RefreshRequestDto {
+  @IsString()
+  refreshToken: string;
+}
+

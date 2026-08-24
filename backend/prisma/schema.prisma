@@ -106,6 +106,7 @@ model User {
   webhookDeadLetters  WebhookDeadLetter[]
   recurringSchedules  RecurringSchedule[]
   pushNotifications PushNotification[]
+  refreshSessions   RefreshSession[]
 
   @@index([merchantId])
   @@map("users")
@@ -527,3 +528,21 @@ model PushNotification {
   @@index([status, receiptFetchedAt])
   @@map("push_notifications")
 }
+
+model RefreshSession {
+  id                 String   @id @default(uuid())
+  userId             String   @map("user_id")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token              String   @unique
+  familyId           String   @map("family_id")
+  isRevoked          Boolean  @default(false) @map("is_revoked")
+  expiresAt          DateTime @map("expires_at")
+  absoluteExpiresAt  DateTime @map("absolute_expires_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([token])
+  @@index([familyId])
+  @@map("refresh_sessions")
+}
+

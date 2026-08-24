@@ -17,6 +17,13 @@ const mockPrisma = () => ({
     create: jest.fn(),
     update: jest.fn(),
   },
+  refreshSession: {
+    create: jest.fn(),
+    findUnique: jest.fn(),
+    update: jest.fn(),
+    updateMany: jest.fn(),
+  },
+  $transaction: jest.fn((promises) => Promise.all(promises)),
 });
 
 describe("AuthService", () => {
@@ -235,8 +242,11 @@ describe("AuthService", () => {
   });
 
   describe("logout", () => {
-    it("increments the user's tokenVersion to revoke active tokens", async () => {
-      prisma.user.update.mockResolvedValue({});
+    it("increments the user's tokenVersion and revokes refresh sessions", async () => {
+      prisma.$transaction.mockImplementation(async (promises) => {
+        // Just resolve them
+        return Promise.all(promises as any);
+      });
 
       await service.logout("user-id");
 
@@ -244,9 +254,84 @@ describe("AuthService", () => {
         where: { id: "user-id" },
         data: expect.any(Object),
       });
+      expect(prisma.refreshSession.updateMany).toHaveBeenCalledWith({
+        where: { userId: "user-id" },
+        data: { isRevoked: true },
+      });
+    });
+  });
 
-      const call = prisma.user.update.mock.calls[0]?.[0];
-      expect(call.data).toEqual({ tokenVersion: { increment: 1 } });
+  describe("refresh", () => {
+    it("returns new tokens on valid refresh", async () => {
+      const session = {
+        id: "session-id",
+        userId: "user-id",
+        token: "refresh-token",
+        familyId: "family-id",
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 100000),
+        absoluteExpiresAt: new Date(Date.now() + 1000000),
+        user: { id: "user-id", publicKey, merchantId: "merchant-id", tokenVersion: 0 },
+      };
+      prisma.refreshSession.findUnique.mockResolvedValue(session);
+      prisma.refreshSession.update.mockResolvedValue({});
+      prisma.refreshSession.create.mockResolvedValue({});
+
+      const result = await service.refresh("refresh-token");
+      expect(result.accessToken).toBe("jwt-token");
+      expect(result.refreshToken).toBeDefined();
+      expect(prisma.refreshSession.update).toHaveBeenCalledWith({ where: { id: "session-id" }, data: { isRevoked: true } });
+      expect(prisma.refreshSession.create).toHaveBeenCalled();
+    });
+
+    it("throws when refresh token is reused and invalidates family", async () => {
+      const session = {
+        id: "session-id",
+        userId: "user-id",
+        token: "refresh-token",
+        familyId: "family-id",
+        isRevoked: true, // Reused!
+        expiresAt: new Date(Date.now() + 100000),
+        absoluteExpiresAt: new Date(Date.now() + 1000000),
+        user: { id: "user-id", publicKey, merchantId: "merchant-id", tokenVersion: 0 },
+      };
+      prisma.refreshSession.findUnique.mockResolvedValue(session);
+
+      await expect(service.refresh("refresh-token")).rejects.toThrow(UnauthorizedException);
+      expect(prisma.refreshSession.updateMany).toHaveBeenCalledWith({ where: { familyId: "family-id" }, data: { isRevoked: true } });
+      expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "user-id" }, data: expect.any(Object) });
+    });
+    it("throws when idle timeout has elapsed", async () => {
+      const session = {
+        id: "session-id",
+        userId: "user-id",
+        token: "refresh-token",
+        familyId: "family-id",
+        isRevoked: false,
+        expiresAt: new Date(Date.now() - 100000), // Expired!
+        absoluteExpiresAt: new Date(Date.now() + 1000000),
+        user: { id: "user-id", publicKey, merchantId: "merchant-id", tokenVersion: 0 },
+      };
+      prisma.refreshSession.findUnique.mockResolvedValue(session);
+
+      await expect(service.refresh("refresh-token")).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("throws when absolute timeout has elapsed", async () => {
+      const session = {
+        id: "session-id",
+        userId: "user-id",
+        token: "refresh-token",
+        familyId: "family-id",
+        isRevoked: false,
+        expiresAt: new Date(Date.now() + 100000),
+        absoluteExpiresAt: new Date(Date.now() - 100000), // Expired!
+        user: { id: "user-id", publicKey, merchantId: "merchant-id", tokenVersion: 0 },
+      };
+      prisma.refreshSession.findUnique.mockResolvedValue(session);
+
+      await expect(service.refresh("refresh-token")).rejects.toThrow(UnauthorizedException);
     });
   });
 });
+

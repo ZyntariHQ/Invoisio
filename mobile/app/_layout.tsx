@@ -11,6 +11,7 @@ import { RecoverableBoundary } from "../components/CrashBoundary";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { DeepLinkHandler } from "../components/DeepLinkHandler";
 import { installGlobalErrorHandlers } from "../lib/error-reporting";
+import "../lib/axios-setup";
 
 const queryClient = new QueryClient();
 

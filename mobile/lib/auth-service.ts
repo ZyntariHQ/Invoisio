@@ -11,7 +11,7 @@ interface NonceResponse {
 
 interface VerifyResponse {
   accessToken: string;
-  refreshToken?: string;
+  refreshToken: string;
   user: {
     id: string;
     email?: string;
@@ -88,6 +88,25 @@ class AuthService {
       }
       console.error("Error verifying signature:", error);
       throw new Error("Signature verification failed");
+    }
+  }
+
+  /**
+   * Exchange a refresh token for new credentials
+   */
+  async refreshSession(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    try {
+      const response = await axios.post(`${API_URL}/auth/refresh`, {
+        refreshToken,
+      });
+      return response.data as { accessToken: string; refreshToken: string };
+    } catch (error) {
+      if (axios.isAxiosError(error) && !error.response) {
+        throw new Error("Network error during refresh.");
+      }
+      throw new Error("Session expired or compromised.");
     }
   }
 

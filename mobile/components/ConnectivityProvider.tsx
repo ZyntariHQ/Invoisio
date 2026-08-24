@@ -48,7 +48,7 @@ export function ConnectivityProvider({
       if (loginResult) {
         await useAuthStore
           .getState()
-          .setAuth(loginResult.response.accessToken, loginResult.publicKey);
+          .setAuth(loginResult.response.accessToken, loginResult.response.refreshToken, loginResult.publicKey);
       } else {
         const { accessToken, clearAuth } = useAuthStore.getState();
         if (accessToken) {
