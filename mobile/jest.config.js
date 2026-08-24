@@ -29,15 +29,13 @@ module.exports = {
       },
     ],
   },
-  // sync-coordinator.test.ts is a manual dev script (console.assert, no jest
-  // APIs) that imports native RN modules — running it needs the full
-  // jest-expo/RN preset, which is out of scope here.
-  testPathIgnorePatterns: [
-    "<rootDir>/node_modules/",
-    "<rootDir>/lib/sync-coordinator.test.ts",
-  ],
+  testPathIgnorePatterns: ["<rootDir>/node_modules/"],
   moduleNameMapper: {
     "^@env$": "<rootDir>/__mocks__/env.ts",
     "^react-native$": "<rootDir>/__mocks__/react-native.ts",
+    // Native expo modules pulled in by lib/ modules (auth-service,
+    // use-auth-store) are replaced with in-memory mocks so sync-coordinator
+    // and friends can be unit-tested without the jest-expo/RN preset.
+    "^expo-secure-store$": "<rootDir>/__mocks__/expo-secure-store.ts",
   },
 };
