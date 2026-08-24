@@ -2,6 +2,21 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { SorobanService } from "./soroban.service";
 
+// Mock the SorobanInvoiceClient
+jest.mock("@invoisio/soroban-client", () => ({
+  SorobanInvoiceClient: jest.fn().mockImplementation(() => ({
+    recordPayment: jest.fn().mockResolvedValue({
+      txHash: "soroban-tx-hash-123",
+      contractId: "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    }),
+    getPayment: jest.fn().mockResolvedValue({
+      invoiceId: "test-123",
+      payer: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      amount: "100",
+    }),
+  })),
+}));
+
 describe("SorobanService", () => {
   let service: SorobanService;
   let configService: ConfigService;
@@ -49,5 +64,21 @@ describe("SorobanService", () => {
         settlementRef: "ref-123",
       })
     ).rejects.toThrow("SorobanService not initialized");
+  });
+
+  it("should handle hasInvoicePayment when not initialized", async () => {
+    const result = await service.hasInvoicePayment("test-123");
+    expect(result).toBe(false);
+  });
+
+  it("should handle getInvoicePayment when not initialized", async () => {
+    const result = await service.getInvoicePayment("test-123");
+    expect(result).toBe(null);
+  });
+
+  it("should handle checkRpc when not initialized", async () => {
+    const result = await service.checkRpc();
+    expect(result.reachable).toBe(false);
+    expect(result.error).toBe("Soroban service not initialized");
   });
 });
