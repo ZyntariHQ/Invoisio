@@ -2,18 +2,31 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useRouter } from "expo-router";
 import { useRef, useState } from "react";
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Linking,
   Modal,
   Pressable,
+  Share,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { parseQrCode, type ParsedPayment } from "../lib/parse-qr";
+import {
+  parseQrCode,
+  type ParseQrErrorCode,
+  type ParsedPayment,
+} from "../lib/parse-qr";
+import { withScreenBoundary } from "../components/CrashBoundary";
 
-export default function ScanScreen() {
+const QR_ERROR_TITLES: Record<ParseQrErrorCode, string> = {
+  "unsupported-format": "Unsupported QR code",
+  "missing-destination": "Incomplete QR code",
+  "invalid-destination": "Invalid destination",
+};
+
+function ScanScreen() {
   const router = useRouter();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
@@ -32,6 +45,8 @@ export default function ScanScreen() {
   }
 
   if (!permission.granted) {
+    const blocked = !permission.canAskAgain;
+
     return (
       <SafeAreaView className="flex-1 items-center justify-center bg-[#050914] px-8">
         <Text
@@ -44,21 +59,40 @@ export default function ScanScreen() {
           className="mt-3 text-center text-base text-slate-400"
           style={{ fontFamily: "SpaceGrotesk_400Regular" }}
         >
-          Allow camera access to scan Stellar payment QR codes.
+          {blocked
+            ? "Camera access is blocked. Open your device settings to allow Invoisio to use the camera for scanning Stellar payment QR codes."
+            : "Allow camera access to scan Stellar payment QR codes."}
         </Text>
-        <Pressable
-          className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
-          onPress={() => void requestPermission()}
-        >
-          <Text
-            className="text-white"
-            style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+        {blocked ? (
+          <Pressable
+            className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            accessibilityRole="button"
+            onPress={() => void Linking.openSettings()}
           >
-            Grant permission
-          </Text>
-        </Pressable>
+            <Text
+              className="text-white"
+              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+            >
+              Open Settings
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            className="mt-6 rounded-2xl bg-[#2663FF] px-8 py-4"
+            accessibilityRole="button"
+            onPress={() => void requestPermission()}
+          >
+            <Text
+              className="text-white"
+              style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+            >
+              Grant permission
+            </Text>
+          </Pressable>
+        )}
         <Pressable
           className="mt-4 px-4 py-3"
+          accessibilityRole="button"
           onPress={() => {
             router.back();
           }}
@@ -82,21 +116,74 @@ export default function ScanScreen() {
 
     const result = parseQrCode(data);
 
-    if (typeof result === "string") {
-      // error message
-      Alert.alert("Invalid QR code", result, [
-        {
-          text: "Try again",
-          onPress: () => {
-            processingRef.current = false;
+    if ("code" in result) {
+      // cancelable:false guarantees the user picks an action, so the scanner
+      // can never be left silently disabled by an outside-tap dismissal.
+      Alert.alert(
+        QR_ERROR_TITLES[result.code],
+        result.message,
+        [
+          {
+            text: "Try again",
+            onPress: () => {
+              processingRef.current = false;
+            },
           },
-        },
-      ]);
+          {
+            text: "Stop scanning",
+            style: "cancel",
+            onPress: () => {
+              processingRef.current = false;
+              router.back();
+            },
+          },
+        ],
+        { cancelable: false },
+      );
       return;
     }
 
     setPayment(result);
     setScanned(true);
+    AccessibilityInfo.announceForAccessibility("Payment QR code scanned");
+  };
+
+  const sharePaymentLink = async (payment: ParsedPayment) => {
+    try {
+      await Share.share({
+        message: payment.sep0007Uri,
+        title: "Stellar payment",
+      });
+    } catch {
+      Alert.alert(
+        "Unable to share",
+        "The payment link could not be shared. Please try again.",
+        [{ text: "OK" }],
+      );
+    }
+  };
+
+  const openWallet = async (payment: ParsedPayment) => {
+    const canOpen = await Linking.canOpenURL(payment.sep0007Uri);
+    if (!canOpen) {
+      Alert.alert(
+        "No wallet found",
+        "No Stellar wallet app (e.g. LOBSTR) is installed that can handle this payment link. Share the link to open it in a wallet or browser, or install a Stellar wallet and try again.",
+        [
+          {
+            text: "Share link",
+            onPress: () => void sharePaymentLink(payment),
+          },
+          {
+            text: "Try again",
+            onPress: () => void openWallet(payment),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
+      return;
+    }
+    await Linking.openURL(payment.sep0007Uri);
   };
 
   const handleConfirmPayment = async () => {
@@ -104,18 +191,23 @@ export default function ScanScreen() {
     setLaunching(true);
 
     try {
-      const canOpen = await Linking.canOpenURL(payment.sep0007Uri);
-      if (canOpen) {
-        await Linking.openURL(payment.sep0007Uri);
-      } else {
-        Alert.alert(
-          "No wallet found",
-          "No Stellar wallet app (e.g. LOBSTR) is installed that can handle this payment link.",
-          [{ text: "OK" }],
-        );
-      }
+      await openWallet(payment);
     } catch {
-      Alert.alert("Error", "Failed to open wallet app. Please try again.");
+      Alert.alert(
+        "Couldn't open wallet",
+        "The wallet app could not be opened. Try again, or share the payment link to open it elsewhere.",
+        [
+          {
+            text: "Try again",
+            onPress: () => void handleConfirmPayment(),
+          },
+          {
+            text: "Share link",
+            onPress: () => void sharePaymentLink(payment),
+          },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
     } finally {
       setLaunching(false);
     }
@@ -135,6 +227,8 @@ export default function ScanScreen() {
       <View className="flex-row items-center px-6 py-4">
         <Pressable
           className="mr-4 rounded-xl border border-white/20 px-4 py-2"
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
           onPress={() => {
             router.back();
           }}
@@ -183,10 +277,21 @@ export default function ScanScreen() {
         visible={!!payment}
         transparent
         animationType="slide"
+        onShow={() => {
+          AccessibilityInfo.announceForAccessibility(
+            "Confirm payment dialog opened",
+          );
+        }}
         onRequestClose={handleDismiss}
       >
-        <View className="flex-1 justify-end bg-black/60">
-          <View className="rounded-t-3xl bg-[#0D1526] px-6 pt-6 pb-10">
+        <View
+          importantForAccessibility="no-hide-descendants"
+          className="flex-1 justify-end bg-black/60"
+        >
+          <View
+            accessibilityViewIsModal
+            className="rounded-t-3xl bg-[#0D1526] px-6 pt-6 pb-10"
+          >
             <Text
               className="text-xl text-white"
               style={{ fontFamily: "SpaceGrotesk_700Bold" }}
@@ -225,6 +330,8 @@ export default function ScanScreen() {
 
             <Pressable
               className="mt-5 rounded-2xl bg-[#2663FF] py-4 items-center"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: launching }}
               disabled={launching}
               onPress={() => void handleConfirmPayment()}
             >
@@ -242,6 +349,7 @@ export default function ScanScreen() {
 
             <Pressable
               className="mt-3 rounded-2xl border border-white/20 py-4 items-center"
+              accessibilityRole="button"
               onPress={handleDismiss}
             >
               <Text
@@ -257,6 +365,8 @@ export default function ScanScreen() {
     </SafeAreaView>
   );
 }
+
+export default withScreenBoundary(ScanScreen, { label: "screen:scan" });
 
 function ConfirmRow({
   label,

@@ -1,4 +1,3 @@
-import { Module } from "@nestjs/common";
 import * as Joi from "joi";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 
@@ -20,29 +19,24 @@ import { UsersModule } from "./users/user.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WebhooksModule } from "./webhooks/webhooks.module";
-import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { MerchantsModule } from "./merchants/merchants.module";
 import { BackfillModule } from "./backfill/backfill.module";
-import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
-import { NotificationsModule } from "./notifications/notifications.module";
-import { MerchantModule } from "./merchant/merchant.module";
-import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
 import { CustomersModule } from "./customers/customers.module";
+import { InvoiceEngagementModule } from "./invoice-engagement/invoice-engagement.module";
+import { RecurringBillingModule } from "./recurring-billing/recurring-billing.module";
+import { NotificationsModule } from "./notifications/notifications.module";
+import { AdminAnalyticsModule } from "./admin-analytics/admin-analytics.module";
+import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
+import { RealtimeModule } from "./realtime/realtime.module";
+import { CustomThrottlerModule } from "./throttler/throttler.module";
+import { PrismaService } from "./prisma/prisma.service";
+import { Module } from "@nestjs/common";
 
-/**
- * Root application module
- *
- * Configures:
- * - Global configuration with validation
- * - Health checks
- * - Invoice management
- * - Stellar integration (stubbed)
- */
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [".env", ".env.example"],
+      envFilePath: ".env",
       load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
@@ -63,7 +57,6 @@ import { CustomersModule } from "./customers/customers.module";
         SOROBAN_RPC_URL: Joi.string()
           .uri()
           .default("https://soroban-testnet.stellar.org"),
-        SOROBAN_CONTRACT_ID: Joi.string().optional().allow(""),
         SOROBAN_EVENT_TOPIC: Joi.string().default("InvoicePaymentRecorded"),
         DATABASE_URL: Joi.string().required().messages({
           "any.required":
@@ -93,6 +86,32 @@ import { CustomersModule } from "./customers/customers.module";
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
         SLOW_DB_THRESHOLD_MS: Joi.number().integer().min(1).default(200),
         SLOW_NETWORK_THRESHOLD_MS: Joi.number().integer().min(1).default(500),
+        // Soroban Anchoring Configuration - FAIL FAST when enabled
+        SOROBAN_ANCHORING_ENABLED: Joi.boolean().default(false),
+        SOROBAN_CONTRACT_ID: Joi.when("SOROBAN_ANCHORING_ENABLED", {
+          is: true,
+          then: Joi.string().min(56).required().messages({
+            "any.required":
+              "SOROBAN_CONTRACT_ID is required when SOROBAN_ANCHORING_ENABLED=true",
+            "string.min": "SOROBAN_CONTRACT_ID must be a valid Stellar contract ID (56+ characters)",
+            "string.empty":
+              "SOROBAN_CONTRACT_ID must not be empty when SOROBAN_ANCHORING_ENABLED=true",
+          }),
+          otherwise: Joi.string().optional().allow(""),
+        }),
+        ADMIN_SECRET_KEY: Joi.when("SOROBAN_ANCHORING_ENABLED", {
+          is: true,
+          then: Joi.string().min(56).required().messages({
+            "any.required":
+              "ADMIN_SECRET_KEY is required when SOROBAN_ANCHORING_ENABLED=true",
+            "string.min": "ADMIN_SECRET_KEY must be a valid Stellar secret key (56+ characters)",
+            "string.empty":
+              "ADMIN_SECRET_KEY must not be empty when SOROBAN_ANCHORING_ENABLED=true",
+          }),
+          otherwise: Joi.string().optional().allow(""),
+        }),
+        // SOROBAN_SECRET_KEY (deprecated - kept for backward compatibility)
+        SOROBAN_SECRET_KEY: Joi.string().optional().allow(""),
       }),
       validationOptions: {
         abortEarly: false,
@@ -113,11 +132,14 @@ import { CustomersModule } from "./customers/customers.module";
     MerchantsModule,
     WebhooksModule,
     BackfillModule,
-    AdminAnalyticsModule,
-    NotificationsModule,
-    MerchantModule,
-    ActivityFeedModule,
     CustomersModule,
+    InvoiceEngagementModule,
+    RecurringBillingModule,
+    NotificationsModule,
+    AdminAnalyticsModule,
+    ActivityFeedModule,
+    RealtimeModule,
   ],
+  providers: [PrismaService],
 })
 export class AppModule {}

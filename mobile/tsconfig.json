@@ -1,7 +1,12 @@
 {
-  "extends": "./node_modules/expo/tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
+    "ignoreDeprecations": "5.0",
+    "target": "es2020",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "strict": true,
     "noImplicitAny": true,
     "noImplicitReturns": true,
@@ -13,8 +18,10 @@
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
     "jsx": "react-native",
-    "types": ["nativewind/types"],
-    "typeRoots": ["./types", "./node_modules/@types"],
+    "lib": ["esnext"],
+    "types": ["react", "react-native", "jest", "node", "nativewind"],
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
     "paths": {
       "@/*": ["./*"]
     }

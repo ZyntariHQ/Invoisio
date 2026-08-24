@@ -2,6 +2,7 @@ import { Controller, Get, Param, Query } from "@nestjs/common";
 import { ActivityFeedService } from "./activity-feed.service";
 import {
   ActivityEventDto,
+  ActivityFeedQuery,
   PaginatedActivityEvents,
 } from "./dto/activity-event.dto";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
@@ -17,7 +18,12 @@ export class ActivityFeedController {
 
   /**
    * Get paginated activity events for the authenticated merchant.
-   * Ordered newest first. Supports optional type filtering.
+   * Ordered newest first.
+   *
+   * Query params:
+   * - Offset paging: `page`, `limit`
+   * - Cursor paging: `cursor`, `pageSize`, `before`
+   * - Filters: `type`, `startDate`, `endDate`, `invoiceId`
    */
   @Auth()
   @Get()
@@ -25,12 +31,27 @@ export class ActivityFeedController {
     @CurrentUser() user: User,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
+    @Query("pageSize") pageSize?: string,
+    @Query("cursor") cursor?: string,
+    @Query("before") before?: string,
     @Query("type") type?: string,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+    @Query("invoiceId") invoiceId?: string,
   ): Promise<PaginatedActivityEvents> {
-    const p = page ? parseInt(page, 10) : 1;
-    const l = limit ? parseInt(limit, 10) : 20;
+    const query: ActivityFeedQuery = {
+      page: page ? parseInt(page, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      pageSize: pageSize ? parseInt(pageSize, 10) : undefined,
+      cursor,
+      before: before === "true" || before === "1",
+      type,
+      startDate,
+      endDate,
+      invoiceId,
+    };
     return this.prisma.runWithMerchantScope(user.merchantId, () =>
-      this.activityFeedService.findAll(user.merchantId, p, l, type),
+      this.activityFeedService.findAll(user.merchantId, query),
     );
   }
 

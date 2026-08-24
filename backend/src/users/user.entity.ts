@@ -1,7 +1,11 @@
+import { MerchantRole } from "../common/enums/merchant-role.enum";
+
 export class User {
   id: string;
 
   merchantId: string;
+
+  role: MerchantRole;
 
   publicKey: string;
 
@@ -18,6 +22,8 @@ export class User {
   tokenVersion: number;
 
   isAdmin: boolean;
+
+  pushNotificationsEnabled: boolean;
 
   createdAt?: Date;
 

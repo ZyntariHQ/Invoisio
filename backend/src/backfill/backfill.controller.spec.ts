@@ -1,7 +1,16 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { INestApplication } from "@nestjs/common";
+import request from "supertest";
 import { BadRequestException } from "@nestjs/common";
 import { BackfillController } from "./backfill.controller";
 import { BackfillService, BackfillStats } from "./backfill.service";
+import { BackfillRunStatus } from "@prisma/client";
+import {
+  jwtAuthImports,
+  jwtAuthProviders,
+  signUserToken,
+} from "../auth/guard/auth-testing.util";
+import { AdminGuard } from "../auth/guard/admin.guard";
 
 describe("BackfillController", () => {
   let controller: BackfillController;
@@ -18,6 +27,8 @@ describe("BackfillController", () => {
             getHistory: jest.fn(),
             getReport: jest.fn(),
             getStats: jest.fn(),
+            cancelRun: jest.fn(),
+            getLatestCheckpoint: jest.fn(),
           },
         },
       ],
@@ -56,12 +67,12 @@ describe("BackfillController", () => {
         success: true,
         runId: 1,
         stats: mockStats,
-        message: "Backfill started successfully",
+        message: "Backfill completed",
       });
       expect(service.reconcile).toHaveBeenCalledWith(options);
     });
 
-    it("should throw error when startLedger and fromLast are both missing", async () => {
+    it("should throw error when startLedger, fromLast, and resumeFromRunId are all missing", async () => {
       const options = {
         startLedger: undefined,
         fromLast: false,
@@ -87,13 +98,63 @@ describe("BackfillController", () => {
       await controller.startBackfill(options);
       expect(service.reconcile).toHaveBeenCalledWith(options);
     });
+
+    it("should allow resumeFromRunId without startLedger", async () => {
+      const options = { resumeFromRunId: 5 };
+
+      service.reconcile.mockResolvedValue({
+        runId: 6,
+        stats: mockStats,
+      });
+
+      await controller.startBackfill(options);
+      expect(service.reconcile).toHaveBeenCalledWith(options);
+    });
+  });
+
+  describe("cancelRun", () => {
+    it("should cancel a run", async () => {
+      service.cancelRun.mockResolvedValue({
+        id: 3,
+        status: BackfillRunStatus.cancelled,
+      });
+
+      const result = await controller.cancelRun("3", {
+        runId: 3,
+        operator: "alice",
+        note: "manual stop",
+      });
+      expect(result).toEqual({
+        success: true,
+        id: 3,
+        status: BackfillRunStatus.cancelled,
+      });
+      expect(service.cancelRun).toHaveBeenCalledWith({
+        runId: 3,
+        operator: "alice",
+        note: "manual stop",
+      });
+    });
+  });
+
+  describe("getLatestCheckpoint", () => {
+    it("should delegate to service", async () => {
+      const payload = {
+        runId: 1,
+        status: BackfillRunStatus.failed,
+        checkpoint: null,
+      };
+      service.getLatestCheckpoint.mockResolvedValue(payload);
+      expect(await controller.getLatestCheckpoint("1")).toBe(payload);
+      expect(service.getLatestCheckpoint).toHaveBeenCalledWith(1);
+    });
   });
 
   describe("getHistory", () => {
     it("should return history with default limit", async () => {
       const mockHistory = [
-        { id: 1, status: "completed" },
-        { id: 2, status: "failed" },
+        { id: 1, status: BackfillRunStatus.completed },
+        { id: 2, status: BackfillRunStatus.failed },
       ];
 
       service.getHistory.mockResolvedValue(mockHistory);
@@ -104,7 +165,7 @@ describe("BackfillController", () => {
     });
 
     it("should return history with custom limit", async () => {
-      const mockHistory = [{ id: 1, status: "completed" }];
+      const mockHistory = [{ id: 1, status: BackfillRunStatus.completed }];
 
       service.getHistory.mockResolvedValue(mockHistory);
 
@@ -118,7 +179,7 @@ describe("BackfillController", () => {
     it("should return a specific backfill report", async () => {
       const mockReport = {
         id: 1,
-        status: "completed",
+        status: BackfillRunStatus.completed,
         eventsProcessed: 100,
         eventsMatched: 80,
         eventsSkipped: 15,
@@ -166,5 +227,117 @@ describe("BackfillController", () => {
       expect(result).toEqual(mockStats);
       expect(service.getStats).toHaveBeenCalledWith(contractId);
     });
+  });
+});
+
+describe("BackfillController (auth enforcement)", () => {
+  let app: INestApplication;
+  let module: TestingModule;
+
+  beforeAll(async () => {
+    module = await Test.createTestingModule({
+      controllers: [BackfillController],
+      imports: [...jwtAuthImports],
+      providers: [
+        {
+          provide: BackfillService,
+          useValue: {
+            reconcile: jest.fn().mockResolvedValue({
+              runId: 1,
+              stats: {
+                totalEvents: 1,
+                matched: 1,
+                skipped: 0,
+                failed: 0,
+                failedEvents: [],
+              },
+            }),
+            getHistory: jest.fn().mockResolvedValue([]),
+          },
+        },
+        AdminGuard,
+        ...jwtAuthProviders,
+      ],
+    }).compile();
+
+    app = module.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(async () => {
+    if (app) await app.close();
+  });
+
+  it("POST /backfill/reconcile should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .send({ startLedger: 1000 })
+      .expect(401);
+  });
+
+  it("POST /backfill/reconcile should reject non-admin authenticated users", async () => {
+    const token = signUserToken(module as any, {
+      id: "user-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: false,
+    });
+
+    await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startLedger: 1000 })
+      .expect(403);
+  });
+
+  it("POST /backfill/reconcile should allow admin users", async () => {
+    const token = signUserToken(module as any, {
+      id: "admin-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .post("/backfill/reconcile")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ startLedger: 1000 })
+      .expect(202);
+
+    expect(res.body).toMatchObject({ success: true, runId: 1 });
+  });
+
+  it("GET /backfill/history should reject unauthenticated requests", async () => {
+    await request(app.getHttpServer()).get("/backfill/history").expect(401);
+  });
+
+  it("GET /backfill/history should reject non-admin authenticated users", async () => {
+    const token = signUserToken(module as any, {
+      id: "user-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: false,
+    });
+
+    await request(app.getHttpServer())
+      .get("/backfill/history")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(403);
+  });
+
+  it("GET /backfill/history should allow admin users", async () => {
+    const token = signUserToken(module as any, {
+      id: "admin-1",
+      merchantId: "merchant-1",
+      role: "owner" as any,
+      isAdmin: true,
+    });
+
+    const res = await request(app.getHttpServer())
+      .get("/backfill/history")
+      .set("Authorization", `Bearer ${token}`)
+      .expect(200);
+
+    expect(res.body).toEqual([]);
   });
 });

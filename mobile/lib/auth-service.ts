@@ -2,6 +2,7 @@ import axios from "axios";
 import { API_URL } from "@env";
 import { offlineQueue } from "./offline-queue";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
 
 interface NonceResponse {
   nonce: string;
@@ -25,7 +26,9 @@ interface PendingAuthData {
   timestamp: number;
 }
 
-const AUTH_QUEUE_KEY = "@auth_queue";
+const AUTH_QUEUE_KEY = "@invoisio:pending_auth";
+const LEGACY_AUTH_QUEUE_KEY = "@auth_queue";
+const PENDING_AUTH_TTL_MS = 2 * 60 * 1000;
 
 /**
  * Authentication service for handling SIWS (Sign-In with Stellar) flow
@@ -36,7 +39,7 @@ class AuthService {
 
   /**
    * Request a nonce from the backend for a given Stellar public key
-   * Queues the request if offline
+   * Retains the public wallet identity if offline
    */
   async requestNonce(publicKey: string): Promise<NonceResponse> {
     try {
@@ -47,14 +50,12 @@ class AuthService {
     } catch (error) {
       // Queue if offline or network error
       if (axios.isAxiosError(error) && !error.response) {
-        const url = `${API_URL}/auth/nonce`;
-        await offlineQueue.enqueue(url, "POST", { publicKey });
-        // Store pending auth data with publicKey for later retry
-        await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
-          publicKey,
-          timestamp: Date.now(),
-        }));
-        throw new Error("You are offline. Nonce request will be retried when connection is restored.");
+        // A nonce request cannot complete without a fresh wallet signature.
+        // Retain only the public identity so the flow can be resumed safely.
+        await this.storePendingAuth(publicKey);
+        throw new Error(
+          "You are offline. Reconnect to restart wallet verification.",
+        );
       }
       console.error("Error requesting nonce:", error);
       throw new Error("Failed to get nonce from server");
@@ -63,7 +64,7 @@ class AuthService {
 
   /**
    * Verify the signed nonce with the backend and receive JWT
-   * Queues the request if offline
+   * Retains the minimum retry payload securely if offline
    */
   async verifySignature(
     publicKey: string,
@@ -74,19 +75,16 @@ class AuthService {
         publicKey,
         signedNonce,
       });
+      await this.clearPendingAuth();
       return response.data as VerifyResponse;
     } catch (error) {
       if (axios.isAxiosError(error) && !error.response) {
-        // Queue the verification for retry
-        const url = `${API_URL}/auth/verify`;
-        await offlineQueue.enqueue(url, "POST", { publicKey, signedNonce });
-        // Store pending auth data with publicKey and signedNonce for later retry
-        await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
-          publicKey,
-          signedNonce,
-          timestamp: Date.now(),
-        }));
-        throw new Error("You are offline. Verification will be retried when connection is restored.");
+        // This exact payload is required to finish the interrupted login. Keep
+        // it in encrypted storage and retry it once, outside the generic queue.
+        await this.storePendingAuth(publicKey, signedNonce);
+        throw new Error(
+          "You are offline. Verification will be retried when connection is restored.",
+        );
       }
       console.error("Error verifying signature:", error);
       throw new Error("Signature verification failed");
@@ -113,13 +111,8 @@ class AuthService {
           return "invalid";
         }
       }
-      // Network error - queue verification for later
-      if (axios.isAxiosError(error) && !error.response) {
-        const url = `${API_URL}/auth/me`;
-        await offlineQueue.enqueue(url, "GET", undefined, {
-          Authorization: `Bearer ${accessToken}`,
-        });
-      }
+      // A connectivity transition revalidates the restored token. Do not put
+      // bearer credentials in the AsyncStorage-backed generic request queue.
       return "unknown";
     }
   }
@@ -165,9 +158,14 @@ class AuthService {
       if (axios.isAxiosError(error) && !error.response) {
         // Queue push token registration
         const url = `${API_URL}/users/push-token`;
-        await offlineQueue.enqueue(url, "POST", { token }, {
-          Authorization: `Bearer ${accessToken}`,
-        });
+        await offlineQueue.enqueue(
+          url,
+          "POST",
+          { token },
+          {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        );
       } else {
         console.error("Error registering push token:", error);
       }
@@ -183,9 +181,14 @@ class AuthService {
     } catch (error) {
       if (axios.isAxiosError(error) && !error.response) {
         const url = `${API_URL}/users/push-token`;
-        await offlineQueue.enqueue(url, "DELETE", { token }, {
-          Authorization: `Bearer ${accessToken}`,
-        });
+        await offlineQueue.enqueue(
+          url,
+          "DELETE",
+          { token },
+          {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        );
       } else {
         console.error("Error unregistering push token:", error);
       }
@@ -207,9 +210,14 @@ class AuthService {
     } catch (error) {
       if (axios.isAxiosError(error) && !error.response) {
         const url = `${API_URL}/users/preferences`;
-        await offlineQueue.enqueue(url, "PATCH", { pushNotificationsEnabled: enabled }, {
-          Authorization: `Bearer ${accessToken}`,
-        });
+        await offlineQueue.enqueue(
+          url,
+          "PATCH",
+          { pushNotificationsEnabled: enabled },
+          {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        );
       } else {
         console.error("Error updating push preferences:", error);
       }
@@ -220,20 +228,36 @@ class AuthService {
    * Retry any pending login operations
    * Returns the response and the publicKey for auth state update
    */
-  async retryPendingOperation(): Promise<{ response: VerifyResponse; publicKey: string } | null> {
-    const pending = await AsyncStorage.getItem(AUTH_QUEUE_KEY);
+  async retryPendingOperation(): Promise<{
+    response: VerifyResponse;
+    publicKey: string;
+  } | null> {
+    const pending = await this.readPendingAuth();
     if (!pending) return null;
 
     try {
       const data = JSON.parse(pending) as PendingAuthData;
-      
+
+      if (
+        !this.isValidPublicKey(data.publicKey) ||
+        typeof data.timestamp !== "number" ||
+        Date.now() - data.timestamp >= PENDING_AUTH_TTL_MS
+      ) {
+        await this.clearPendingAuth();
+        return null;
+      }
+
       // If we have a signedNonce, try verification
       if (data.signedNonce) {
-        const response = await this.verifySignature(data.publicKey, data.signedNonce);
-        await AsyncStorage.removeItem(AUTH_QUEUE_KEY);
+        const result = await axios.post(`${API_URL}/auth/verify`, {
+          publicKey: data.publicKey,
+          signedNonce: data.signedNonce,
+        });
+        const response = result.data as VerifyResponse;
+        await this.clearPendingAuth();
         return { response, publicKey: data.publicKey };
       }
-      
+
       // If we only have publicKey (nonce request), just return it
       // The verification will be attempted separately
       console.log("Pending nonce request found. Waiting for signature...");
@@ -248,27 +272,67 @@ class AuthService {
   /**
    * Store pending auth data for later retry
    */
-  async storePendingAuth(publicKey: string, signedNonce?: string): Promise<void> {
-    await AsyncStorage.setItem(AUTH_QUEUE_KEY, JSON.stringify({
-      publicKey,
-      signedNonce,
-      timestamp: Date.now(),
-    }));
+  async storePendingAuth(
+    publicKey: string,
+    signedNonce?: string,
+  ): Promise<void> {
+    if (!this.isValidPublicKey(publicKey)) {
+      throw new Error("Cannot persist an invalid wallet public key");
+    }
+
+    await SecureStore.setItemAsync(
+      AUTH_QUEUE_KEY,
+      JSON.stringify({ publicKey, signedNonce, timestamp: Date.now() }),
+    );
   }
 
   /**
    * Clear pending auth data
    */
   async clearPendingAuth(): Promise<void> {
-    await AsyncStorage.removeItem(AUTH_QUEUE_KEY);
+    await Promise.all([
+      SecureStore.deleteItemAsync(AUTH_QUEUE_KEY),
+      AsyncStorage.removeItem(LEGACY_AUTH_QUEUE_KEY),
+    ]);
   }
 
   /**
    * Check if there is a pending auth operation
    */
   async hasPendingAuth(): Promise<boolean> {
-    const pending = await AsyncStorage.getItem(AUTH_QUEUE_KEY);
+    const pending = await this.readPendingAuth();
     return pending !== null;
+  }
+
+  private async readPendingAuth(): Promise<string | null> {
+    const securePending = await SecureStore.getItemAsync(AUTH_QUEUE_KEY);
+    if (securePending) return securePending;
+
+    // One-time migration from the previous unencrypted key.
+    const legacyPending = await AsyncStorage.getItem(LEGACY_AUTH_QUEUE_KEY);
+    if (!legacyPending) return null;
+
+    try {
+      const data = JSON.parse(legacyPending) as PendingAuthData;
+      if (this.isValidPublicKey(data.publicKey)) {
+        await SecureStore.setItemAsync(AUTH_QUEUE_KEY, legacyPending);
+        await AsyncStorage.removeItem(LEGACY_AUTH_QUEUE_KEY);
+        return legacyPending;
+      }
+    } catch {
+      // Invalid legacy state is discarded below.
+    }
+
+    await AsyncStorage.removeItem(LEGACY_AUTH_QUEUE_KEY);
+    return null;
+  }
+
+  private isValidPublicKey(publicKey: unknown): publicKey is string {
+    return (
+      typeof publicKey === "string" &&
+      publicKey.startsWith("G") &&
+      publicKey.length === 56
+    );
   }
 
   isAuthenticatingLogin(): boolean {

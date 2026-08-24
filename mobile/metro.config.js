@@ -4,7 +4,4 @@ const { withNativeWind } = require("nativewind/metro");
 
 const config = getDefaultConfig(__dirname);
 
-// Add cache configuration
-config.resolver = {
-  ...config.resolver,
-  // Increase timeout for better network handling
+module.exports = withNativeWind(config, { input: "./global.css" });

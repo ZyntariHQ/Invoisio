@@ -16,6 +16,26 @@ export interface CreateCustomerPayload {
   notes?: string;
 }
 
+export interface CustomerRecentInvoice {
+  id: string;
+  invoiceNumber: string | null;
+  amount: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface CustomerSummary {
+  id: string;
+  name: string;
+  email: string | null;
+  notes: string | null;
+  invoiceCount: number;
+  paidVolume: number;
+  outstandingBalance: number;
+  overdueBalance: number;
+  recentInvoices: CustomerRecentInvoice[];
+}
+
 export const CustomerService = {
   /**
    * Search customers for autocomplete/typeahead.
@@ -35,6 +55,22 @@ export const CustomerService = {
     const params = new URLSearchParams({ limit: String(limit) });
     if (search?.trim()) params.set("search", search.trim());
     const response = await apiClient.get<Customer[]>(`/customers?${params}`);
+    return response.data;
+  },
+
+  /**
+   * Fetch a single customer by ID.
+   */
+  async get(id: string): Promise<Customer> {
+    const response = await apiClient.get<Customer>(`/customers/${id}`);
+    return response.data;
+  },
+
+  /**
+   * Fetch a customer's business metrics and recent invoices.
+   */
+  async getSummary(id: string): Promise<CustomerSummary> {
+    const response = await apiClient.get<CustomerSummary>(`/customers/${id}/summary`);
     return response.data;
   },
 

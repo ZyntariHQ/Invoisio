@@ -39,3 +39,32 @@ jobs:
 
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
+
+  abi-drift:
+    name: ABI Drift Check (contract ⇄ schema.json ⇄ TS client)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./soroban
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Regenerate schema.json from the contract and fail on drift
+        run: |
+          cd contracts/invoice-payment
+          ./generate-schema.sh
+          if ! git diff --exit-code -- schema.json; then
+            echo "::error::soroban/contracts/invoice-payment/schema.json is out of date." \
+              "Run 'make schema' (or ./generate-schema.sh from contracts/invoice-payment/)" \
+              "and commit the result."
+            exit 1
+          fi
+
+      - name: Check TypeScript client against schema.json
+        run: node scripts/check-client-drift.mjs

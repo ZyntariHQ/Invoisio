@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
+  AccessibilityInfo,
   Image,
   Pressable,
   ScrollView,
@@ -13,6 +14,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import invoisioLogo from "../assets/invoisio-logo.png";
 import { useWalletAuth } from "../hooks/use-wallet-auth";
+import { usePushNotifications } from "../hooks/usePushNotifications";
+import { authService } from "../lib/auth-service";
+import { useAuthStore } from "../hooks/use-auth-store";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -25,6 +29,12 @@ export default function LoginScreen() {
     disconnectWallet,
   } = useWalletAuth();
 
+  const { expoPushToken } = usePushNotifications({
+    onDeepLink: (url) => {
+      router.push(url);
+    },
+  });
+
   // Redirect to dashboard if already connected
   useEffect(() => {
     if (isConnected && publicKey) {
@@ -32,11 +42,33 @@ export default function LoginScreen() {
     }
   }, [isConnected, publicKey, router]);
 
+  // Sync push token to backend after wallet connection
+  useEffect(() => {
+    if (isConnected && publicKey && expoPushToken) {
+      void (async () => {
+        try {
+          const { accessToken } = useAuthStore();
+          if (accessToken && expoPushToken?.data) {
+            await authService.registerPushToken(accessToken, expoPushToken.data);
+          }
+        } catch (e) {
+          console.warn("Failed to register push token after login:", e);
+        }
+      })();
+    }
+  }, [isConnected, publicKey, expoPushToken]);
+
+  // Announce connection errors to screen readers as they surface.
+  useEffect(() => {
+    if (error) {
+      AccessibilityInfo.announceForAccessibility(error);
+    }
+  }, [error]);
+
   const handleConnectWallet = async () => {
     try {
       await connectWallet();
     } catch (err) {
-      // Error is handled by the hook
       console.error("Connection error:", err);
     }
   };
@@ -127,6 +159,7 @@ export default function LoginScreen() {
 
               <Pressable
                 className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                accessibilityRole="button"
                 onPress={() => {
                   router.push("/dashboard");
                 }}
@@ -141,6 +174,7 @@ export default function LoginScreen() {
 
               <Pressable
                 className="rounded-2xl border border-red-500/30 py-4"
+                accessibilityRole="button"
                 onPress={handleDisconnect}
               >
                 <Text
@@ -155,6 +189,7 @@ export default function LoginScreen() {
             <>
               <Pressable
                 className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                accessibilityRole="button"
                 onPress={handleConnectWallet}
               >
                 <Text
@@ -177,7 +212,13 @@ export default function LoginScreen() {
           )}
 
           {error && (
-            <View className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+            <View
+              accessible
+              accessibilityRole="alert"
+              accessibilityLabel={error}
+              accessibilityLiveRegion="assertive"
+              className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4"
+            >
               <Text
                 className="text-center text-red-300"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -196,7 +237,10 @@ export default function LoginScreen() {
             New to Invoisio?
           </Text>
           <Link href="/create-invoice" asChild>
-            <Pressable className="rounded-2xl border border-white/15 px-6 py-3">
+            <Pressable
+              className="rounded-2xl border border-white/15 px-6 py-3"
+              accessibilityRole="button"
+            >
               <Text
                 className="text-white"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}

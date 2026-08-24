@@ -340,6 +340,33 @@ server.payments()
 └─────────────────────────────────────────┘
 ```
 
+## Anchoring Failure Handling
+
+`SorobanService.recordPayment()` (called from `HorizonWatcherService.anchorToSoroban()`
+after a Horizon payment is confirmed) never silently swallows a failed
+anchoring attempt:
+
+- `null` means Soroban anchoring is **not configured** for this deployment
+  (no `SOROBAN_CONTRACT_ID`/`SOROBAN_SECRET_KEY`) — an intentional no-op.
+- Any anchoring *attempt* that fails **throws**, classified into:
+  - **Permanent** — a `SorobanContractError` (decoded via
+    `@invoisio/soroban-client`'s `parseContractError`), meaning the contract
+    deterministically rejected the write (e.g. `PaymentAlreadyRecorded`,
+    `InvalidSettlementRef`, `ContractPaused`). These are thrown immediately,
+    without consuming a retry — retrying an identical call would fail
+    identically.
+  - **Transient** — a `SorobanRpcException`, thrown once a transport/RPC
+    failure (network error, timeout, malformed response) has exhausted
+    `SOROBAN_MAX_RETRIES` attempts with exponential backoff
+    (`SOROBAN_RETRY_DELAY_MS * 2^attempt`).
+
+`HorizonWatcherService` catches both, logs a structured
+`horizon.soroban_anchor.failed` event (with `permanent`/contract-error
+fields when applicable), and persists an `InvoiceStatusHistory` row —
+`anchoring_failed_permanent` or `anchoring_failed_transient` — via
+`InvoicesService.recordAnchoringFailure()`, so reconciliation tooling can
+query for unanchored-but-paid invoices instead of relying on logs alone.
+
 ## Extension Points
 
 ### Future Enhancements

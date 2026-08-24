@@ -3,9 +3,6 @@ import { ThrottlerModule } from "@nestjs/throttler";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service";
 
-const providers =
-  process.env.NODE_ENV === "test" ? [] : [ThrottlerStorageRedisService];
-
 @Module({
   imports: [
     ThrottlerModule.forRootAsync({
@@ -53,7 +50,5 @@ const providers =
       },
     }),
   ],
-  providers,
-  exports: providers,
 })
 export class CustomThrottlerModule {}

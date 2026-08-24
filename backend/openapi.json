@@ -1,0 +1,1674 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "HealthController_checkLiveness",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "HealthController_checkReadiness",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/invoices": {
+      "get": {
+        "operationId": "InvoicesController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      },
+      "post": {
+        "operationId": "InvoicesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/search": {
+      "get": {
+        "operationId": "InvoicesController_search",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/{id}": {
+      "get": {
+        "operationId": "InvoicesController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/public/{id}": {
+      "get": {
+        "operationId": "InvoicesController_findPublicInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/import": {
+      "post": {
+        "operationId": "InvoicesController_importCsv",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/{id}/status": {
+      "patch": {
+        "operationId": "InvoicesController_updateStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/{id}/cancel": {
+      "patch": {
+        "operationId": "InvoicesController_cancelInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/{id}/void": {
+      "patch": {
+        "operationId": "InvoicesController_voidInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/{id}/duplicate": {
+      "post": {
+        "operationId": "InvoicesController_duplicateInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/reviews/queue": {
+      "get": {
+        "operationId": "InvoicesController_getReviews",
+        "parameters": [
+          {
+            "name": "status",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/reviews/{id}/resolve": {
+      "post": {
+        "operationId": "InvoicesController_resolveReview",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReviewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/draft": {
+      "post": {
+        "operationId": "InvoicesController_createDraft",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDraftDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      },
+      "get": {
+        "operationId": "InvoicesController_getDrafts",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/draft/{id}": {
+      "get": {
+        "operationId": "InvoicesController_getDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      },
+      "patch": {
+        "operationId": "InvoicesController_updateDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDraftDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      },
+      "delete": {
+        "operationId": "InvoicesController_discardDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/draft/{id}/autosave": {
+      "patch": {
+        "operationId": "InvoicesController_autoSaveDraft",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDraftDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/invoices/draft/{id}/convert": {
+      "post": {
+        "operationId": "InvoicesController_convertDraftToInvoice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Invoices"
+        ]
+      }
+    },
+    "/webhooks/secret": {
+      "get": {
+        "operationId": "WebhooksController_getSecretMetadata",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/webhooks/secret/rotate": {
+      "post": {
+        "operationId": "WebhooksController_rotateSecret",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/webhooks/test": {
+      "post": {
+        "operationId": "WebhooksController_sendTestDelivery",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Webhooks"
+        ]
+      }
+    },
+    "/admin/webhooks/dead-letter": {
+      "get": {
+        "operationId": "AdminWebhooksController_listDeadLetters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminWebhooks"
+        ]
+      }
+    },
+    "/admin/webhooks/dead-letter/{id}": {
+      "get": {
+        "operationId": "AdminWebhooksController_getDeadLetter",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminWebhooks"
+        ]
+      }
+    },
+    "/admin/webhooks/dead-letter/{id}/retry": {
+      "post": {
+        "operationId": "AdminWebhooksController_retryDeadLetter",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminWebhooks"
+        ]
+      }
+    },
+    "/auth/nonce": {
+      "post": {
+        "operationId": "AuthController_nonce",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NonceRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/verify": {
+      "post": {
+        "operationId": "AuthController_verify",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "operationId": "AuthController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "operationId": "AuthController_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/notifications/preferences": {
+      "get": {
+        "description": "Returns a stable, typed contract for the current user's push-notification state, including whether push is enabled, how many Expo tokens are registered, whether an explicit preference was saved on the user row, and a semantic contractVersion clients can key on for parsing. Safe for settings prefetch and session bootstrap: missing or legacy user rows return a documented default instead of 404.",
+        "operationId": "NotificationsController_getPreferences",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Authenticated user's notification preference state. Always returns a contract (v1.0.0), even for missing or legacy records.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Read the authenticated user's notification preferences",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/realtime/invoices": {
+      "get": {
+        "operationId": "RealtimeController_streamInvoices",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Realtime"
+        ]
+      }
+    },
+    "/activity-feed": {
+      "get": {
+        "operationId": "ActivityFeedController_findAll",
+        "parameters": [
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pageSize",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "before",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "startDate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endDate",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ActivityFeed"
+        ]
+      }
+    },
+    "/activity-feed/{id}": {
+      "get": {
+        "operationId": "ActivityFeedController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "ActivityFeed"
+        ]
+      }
+    },
+    "/users/push-token": {
+      "post": {
+        "operationId": "UsersController_addPushToken",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "delete": {
+        "operationId": "UsersController_removePushToken",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/users/preferences": {
+      "patch": {
+        "operationId": "UsersController_updatePreferences",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePreferencesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "operationId": "UsersController_getPreferences",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/merchant/profile": {
+      "get": {
+        "operationId": "MerchantsController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchants"
+        ]
+      },
+      "put": {
+        "operationId": "MerchantsController_upsertProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertMerchantProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchants"
+        ]
+      },
+      "patch": {
+        "operationId": "MerchantsController_updateProfile",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMerchantProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchants"
+        ]
+      }
+    },
+    "/backfill/reconcile": {
+      "post": {
+        "operationId": "BackfillController_startBackfill",
+        "parameters": [],
+        "responses": {
+          "202": {
+            "description": "Backfill started"
+          },
+          "400": {
+            "description": "Invalid parameters"
+          },
+          "409": {
+            "description": "Overlapping run already active"
+          }
+        },
+        "summary": "Start a backfill reconciliation",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/backfill/cancel/{runId}": {
+      "post": {
+        "operationId": "BackfillController_cancelRun",
+        "parameters": [
+          {
+            "name": "runId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Run marked as cancelled"
+          },
+          "400": {
+            "description": "Invalid run or already completed"
+          }
+        },
+        "summary": "Cancel/stop a running or pending backfill run",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/backfill/checkpoint/{runId}": {
+      "get": {
+        "operationId": "BackfillController_getLatestCheckpoint",
+        "parameters": [
+          {
+            "name": "runId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Get latest checkpoint info for a run",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/backfill/history": {
+      "get": {
+        "operationId": "BackfillController_getHistory",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Get backfill run history",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/backfill/report/{runId}": {
+      "get": {
+        "operationId": "BackfillController_getReport",
+        "parameters": [
+          {
+            "name": "runId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Get a specific backfill run report",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/backfill/stats": {
+      "get": {
+        "operationId": "BackfillController_getStats",
+        "parameters": [
+          {
+            "name": "contractId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Get processed events statistics",
+        "tags": [
+          "backfill"
+        ]
+      }
+    },
+    "/admin/analytics/invoices": {
+      "get": {
+        "operationId": "AdminAnalyticsController_getInvoiceAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminAnalytics"
+        ]
+      }
+    },
+    "/admin/analytics/payments": {
+      "get": {
+        "operationId": "AdminAnalyticsController_getPaymentAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "AdminAnalytics"
+        ]
+      }
+    },
+    "/merchant/analytics/overview": {
+      "get": {
+        "operationId": "MerchantAnalyticsController_getMerchantAnalyticsOverview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "MerchantAnalytics"
+        ]
+      }
+    },
+    "/merchant/analytics/payments": {
+      "get": {
+        "operationId": "MerchantAnalyticsController_getMerchantAnalytics",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "MerchantAnalytics"
+        ]
+      }
+    },
+    "/merchants/profile": {
+      "get": {
+        "operationId": "MerchantController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchant"
+        ]
+      }
+    },
+    "/merchants/settings": {
+      "patch": {
+        "operationId": "MerchantController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMerchantSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchant"
+        ]
+      }
+    },
+    "/merchants/checklist": {
+      "get": {
+        "operationId": "MerchantController_getChecklist",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchant"
+        ]
+      },
+      "patch": {
+        "operationId": "MerchantController_updateChecklist",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateChecklistDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchant"
+        ]
+      }
+    },
+    "/merchants/checklist/sync": {
+      "patch": {
+        "operationId": "MerchantController_syncChecklist",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Merchant"
+        ]
+      }
+    },
+    "/customers": {
+      "get": {
+        "operationId": "CustomersController_findAll",
+        "parameters": [
+          {
+            "name": "search",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      },
+      "post": {
+        "operationId": "CustomersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      }
+    },
+    "/customers/search": {
+      "get": {
+        "operationId": "CustomersController_search",
+        "parameters": [
+          {
+            "name": "q",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      }
+    },
+    "/customers/{id}/summary": {
+      "get": {
+        "operationId": "CustomersController_getSummary",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      }
+    },
+    "/customers/{id}": {
+      "get": {
+        "operationId": "CustomersController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      },
+      "patch": {
+        "operationId": "CustomersController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      },
+      "delete": {
+        "operationId": "CustomersController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "Customers"
+        ]
+      }
+    },
+    "/recurring-schedules": {
+      "post": {
+        "operationId": "RecurringBillingController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScheduleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RecurringBilling"
+        ]
+      },
+      "get": {
+        "operationId": "RecurringBillingController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RecurringBilling"
+        ]
+      }
+    },
+    "/recurring-schedules/{id}": {
+      "delete": {
+        "operationId": "RecurringBillingController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "RecurringBilling"
+        ]
+      }
+    },
+    "/invoices/{invoiceId}/events": {
+      "post": {
+        "operationId": "InvoiceEngagementController_create",
+        "parameters": [
+          {
+            "name": "invoiceId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvoiceEngagementEventDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "InvoiceEngagement"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Invoisio API",
+    "description": "Invoisio backend API — invoices, payments, merchants, webhooks and notifications",
+    "version": "1.0",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "access-token": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "CreateInvoiceDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResolveReviewDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateDraftDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateDraftDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "NonceRequestDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "VerifyRequestDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "NotificationPreferencesDto": {
+        "type": "object",
+        "properties": {
+          "pushNotificationsEnabled": {
+            "type": "boolean",
+            "description": "Whether the authenticated user has opted in to receiving push notifications.",
+            "example": true
+          },
+          "registeredPushTokensCount": {
+            "type": "number",
+            "description": "Number of Expo push tokens currently registered for this user on any device. Zero means no device has registered a token yet; notifications will be skipped.",
+            "example": 2
+          },
+          "preferenceExplicit": {
+            "type": "boolean",
+            "description": "True when the backend was able to read an explicit saved preference. False when the user record was missing/legacy and this response falls back to the documented schema default. Consumers can use this flag to tell whether a first-run settings dialog should be shown.",
+            "example": true
+          },
+          "contractVersion": {
+            "type": "string",
+            "description": "Semantic contract version for this response shape. Clients may key parsing logic on this string.",
+            "example": "1.0.0"
+          }
+        },
+        "required": [
+          "pushNotificationsEnabled",
+          "registeredPushTokensCount",
+          "preferenceExplicit",
+          "contractVersion"
+        ]
+      },
+      "PushTokenDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdatePreferencesDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpsertMerchantProfileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateMerchantProfileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateMerchantSettingsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateChecklistDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateCustomerDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCustomerDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateScheduleDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInvoiceEngagementEventDto": {
+        "type": "object",
+        "properties": {}
+      }
+    }
+  }
+}

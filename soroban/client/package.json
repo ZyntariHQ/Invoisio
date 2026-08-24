@@ -7,7 +7,8 @@
   "files": ["dist", "src"],
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test": "vitest run",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",
     "example:query": "ts-node -r dotenv/config examples/query-payment.ts",
     "example:config": "ts-node -r dotenv/config examples/query-config.ts"
@@ -19,6 +20,7 @@
     "@types/node": "^22.0.0",
     "dotenv": "^16.0.0",
     "ts-node": "^10.9.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }

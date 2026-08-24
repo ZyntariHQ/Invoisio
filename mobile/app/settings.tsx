@@ -8,12 +8,14 @@ import {
   Pressable,
   ScrollView,
   ActivityIndicator,
+  AccessibilityInfo,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthStore } from "../hooks/use-auth-store";
 import { authService } from "../lib/auth-service";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import {
   MerchantService,
   isValidStellarPublicKey,
@@ -29,6 +31,17 @@ export default function SettingsScreen() {
   // Push notification state
   const [pushEnabled, setPushEnabled] = useState(true);
   const [pushLoading, setPushLoading] = useState(false);
+
+  // Initialize push notification token
+  const { expoPushToken } = usePushNotifications({
+    onDeepLink: (url) => {
+      router.push(url);
+    },
+  });
+
+  // Merchant profile / settings state
+
+  // Merchant profile / settings state
 
   // Merchant profile / settings state
   const [profile, setProfile] = useState<MerchantProfile | null>(null);
@@ -46,6 +59,19 @@ export default function SettingsScreen() {
 
   // Track whether user has touched the field (for inline feedback)
   const [payoutKeyTouched, setPayoutKeyTouched] = useState(false);
+
+  // Announce validation errors to screen readers as they surface.
+  useEffect(() => {
+    if (nameError) {
+      AccessibilityInfo.announceForAccessibility(nameError);
+    }
+  }, [nameError]);
+
+  useEffect(() => {
+    if (payoutKeyTouched && payoutKeyError) {
+      AccessibilityInfo.announceForAccessibility(payoutKeyError);
+    }
+  }, [payoutKeyError, payoutKeyTouched]);
 
   /** Load merchant profile on mount */
   const loadProfile = useCallback(async () => {
@@ -146,6 +172,10 @@ export default function SettingsScreen() {
     try {
       await authService.updatePushPreferences(accessToken, value);
       setPushEnabled(value);
+      // Also sync the expo push token to backend
+      if (expoPushToken?.data) {
+        await authService.registerPushToken(accessToken, expoPushToken.data);
+      }
     } catch {
       Alert.alert("Error", "Failed to update push preferences.");
     } finally {
@@ -176,7 +206,9 @@ export default function SettingsScreen() {
             onPress={() => {
               router.back();
             }}
-            className="mr-4 rounded-full bg-slate-800 p-2"
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+            className="mr-4 rounded-full bg-slate-800 p-3"
           >
             <Text className="text-lg text-white">{"\u2190"}</Text>
           </TouchableOpacity>
@@ -209,6 +241,7 @@ export default function SettingsScreen() {
             onChangeText={handleNameChange}
             placeholder="Your business name"
             placeholderTextColor="#475569"
+            accessibilityLabel="Merchant name, required"
             className={`mt-2 rounded-2xl border bg-white/5 px-4 py-4 text-white ${
               nameError ? "border-red-500/60" : "border-white/10"
             }`}
@@ -261,7 +294,7 @@ export default function SettingsScreen() {
             Payout public key
           </Text>
           <Text
-            className="mt-1 text-xs text-slate-500"
+            className="mt-1 text-xs text-slate-400"
             style={{ fontFamily: "SpaceGrotesk_400Regular" }}
           >
             Stellar G-address where payout disbursements are sent. Leave blank
@@ -272,6 +305,7 @@ export default function SettingsScreen() {
             onChangeText={handlePayoutKeyChange}
             placeholder="G..."
             placeholderTextColor="#475569"
+            accessibilityLabel="Payout public key"
             autoCapitalize="characters"
             autoCorrect={false}
             className={`mt-2 rounded-2xl border bg-white/5 px-4 py-4 text-white ${
@@ -311,7 +345,7 @@ export default function SettingsScreen() {
           Preferred asset
         </Text>
         <Text
-          className="mt-1 text-xs text-slate-500"
+          className="mt-1 text-xs text-slate-400"
           style={{ fontFamily: "SpaceGrotesk_400Regular" }}
         >
           Default asset pre-selected when creating new invoices.
@@ -323,6 +357,8 @@ export default function SettingsScreen() {
               className={`flex-1 items-center justify-center rounded-2xl py-3 ${
                 preferredAsset === option ? "bg-[#2663FF]" : ""
               }`}
+              accessibilityRole="button"
+              accessibilityState={{ selected: preferredAsset === option }}
               onPress={() => {
                 setPreferredAsset(option);
               }}
@@ -341,6 +377,7 @@ export default function SettingsScreen() {
 
         {/* ─── Save Button ─── */}
         <Pressable
+          accessibilityRole="button"
           className={`mt-8 rounded-2xl py-4 shadow-lg ${
             saving ? "bg-[#2663FF]/50" : "bg-[#2663FF] shadow-[#2663FF]/40"
           }`}
@@ -387,6 +424,8 @@ export default function SettingsScreen() {
               value={pushEnabled}
               onValueChange={togglePush}
               disabled={pushLoading}
+              accessibilityLabel="Push notifications"
+              accessibilityState={{ disabled: pushLoading }}
               trackColor={{ false: "#334155", true: "#3b82f6" }}
               thumbColor={pushEnabled ? "#ffffff" : "#94a3b8"}
             />

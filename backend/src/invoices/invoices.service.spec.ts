@@ -16,6 +16,7 @@ import { mockStructuredLogger } from "../observability/testing/observability.moc
 const MERCHANT_A = "merchant-a";
 const MERCHANT_B = "merchant-b";
 const USER_A = "user-a";
+const USER_A2 = "user-a2"; // second teammate under MERCHANT_A
 const USER_B = "user-b";
 
 describe("InvoicesService", () => {
@@ -53,6 +54,32 @@ describe("InvoicesService", () => {
         memo: "1001",
         memoType: "ID",
         status: "pending",
+        // Real rows always have a concrete isDraft value (schema default
+        // is `false`) — set it explicitly here so the mock matches
+        // production data instead of leaving it `undefined`.
+        isDraft: false,
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+      {
+        // Created by a *different* teammate (USER_A2) under the same
+        // merchant as invoice-a-1 — exercises the shared-merchant search
+        // scenario this fix is about.
+        id: "invoice-a-2",
+        merchantId: MERCHANT_A,
+        userId: USER_A2,
+        invoiceNumber: "INV-A-002",
+        clientName: "Acme Widgets",
+        clientEmail: "widgets@example.com",
+        description: "A2",
+        amount: 150,
+        assetCode: "XLM",
+        assetIssuer: null,
+        memo: "1002",
+        memoType: "ID",
+        status: "pending",
+        isDraft: false,
         destinationAddress: mockStellarService.getMerchantPublicKey(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -71,6 +98,7 @@ describe("InvoicesService", () => {
         memo: "2001",
         memoType: "ID",
         status: "pending",
+        isDraft: false,
         destinationAddress: mockStellarService.getMerchantPublicKey(),
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -81,6 +109,12 @@ describe("InvoicesService", () => {
       {
         id: "hist-a-1",
         invoiceId: "invoice-a-1",
+        status: "pending",
+        createdAt: new Date(Date.now() - 10000),
+      },
+      {
+        id: "hist-a-2",
+        invoiceId: "invoice-a-2",
         status: "pending",
         createdAt: new Date(Date.now() - 10000),
       },
@@ -103,22 +137,19 @@ describe("InvoicesService", () => {
       };
     };
 
+    // Mirrors real Prisma's `where` semantics: a key explicitly set to
+    // `undefined` (e.g. `{ isDraft: includeDrafts ? undefined : false }`)
+    // means "don't filter on this field", not "match rows where this
+    // field is undefined". Without this, the mock diverges from actual
+    // Prisma behavior and produces false negatives in tests.
     const filterByWhere = (where: any) =>
       invoices.filter((invoice) => {
         if (!where) return true;
         return Object.entries(where).every(([key, value]) => {
+          if (value === undefined) return true;
           return (invoice as any)[key] === value;
         });
       });
-
-    const queryRows = invoices
-      .filter((entry) => entry.userId === USER_A)
-      .map((entry) => ({
-        ...entry,
-        ft_match: true,
-        ft_rank: 0.9,
-        trigram_rank: 0.8,
-      }));
 
     return {
       invoiceStatusHistory: {
@@ -202,7 +233,21 @@ describe("InvoicesService", () => {
         }),
         createMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
-      $queryRaw: jest.fn().mockResolvedValue(queryRows.map(populateHistory)),
+      $queryRaw: jest.fn().mockImplementation((sql: any) => {
+        // sql.values[0] is the first interpolated param in the tagged
+        // template, i.e. merchantId — matches the service's
+        // `WHERE i."merchant_id" = ${merchantId}` binding.
+        const merchantId = sql?.values?.[0];
+        const rows = invoices
+          .filter((entry) => entry.merchantId === merchantId)
+          .map((entry) => ({
+            ...entry,
+            ft_match: true,
+            ft_rank: 0.9,
+            trigram_rank: 0.8,
+          }));
+        return Promise.resolve(rows.map(populateHistory));
+      }),
     };
   };
 
@@ -242,8 +287,13 @@ describe("InvoicesService", () => {
   describe("merchant isolation", () => {
     it("allows a merchant user to list only their own invoices", async () => {
       const resultA = await service.findAll(MERCHANT_A);
-      expect(resultA.items).toHaveLength(1);
-      expect(resultA.items[0].merchantId).toBe(MERCHANT_A);
+      // MERCHANT_A now has two invoices in the fixture (invoice-a-1,
+      // invoice-a-2 — created by different teammates), both of which
+      // must be visible to any MERCHANT_A caller.
+      expect(resultA.items).toHaveLength(2);
+      for (const item of resultA.items) {
+        expect(item.merchantId).toBe(MERCHANT_A);
+      }
 
       const resultB = await service.findAll(MERCHANT_B);
       expect(resultB.items).toHaveLength(1);
@@ -329,17 +379,35 @@ describe("InvoicesService", () => {
   });
 
   describe("searchInvoices", () => {
-    it("should return invoices scoped to the user", async () => {
-      const results = await service.searchInvoices(USER_A, "Acme", 25);
+    it("should return invoices scoped to the merchant", async () => {
+      const results = await service.searchInvoices(MERCHANT_A, "Acme", 25);
 
       expect(results.length).toBeGreaterThan(0);
       for (const invoice of results) {
         expect(invoice).toHaveProperty("clientName");
         expect(invoice).toHaveProperty("asset_code");
+        expect(invoice.merchantId).toBe(MERCHANT_A);
       }
     });
 
-    it("should throw when user context is missing", async () => {
+    it("allows a teammate to find invoices created by a different user in the same merchant", async () => {
+      // invoice-a-2 was created by USER_A2, not USER_A — a teammate
+      // searching under the shared MERCHANT_A account must still find it.
+      const results = await service.searchInvoices(MERCHANT_A, "Widgets", 25);
+
+      expect(results.length).toBeGreaterThan(0);
+      expect(results.some((inv) => inv.id === "invoice-a-2")).toBe(true);
+      expect(results.every((inv) => inv.merchantId === MERCHANT_A)).toBe(true);
+    });
+
+    it("does not leak invoices across merchants even with a matching search term", async () => {
+      // Search as MERCHANT_A for a term that only matches MERCHANT_B's data.
+      const results = await service.searchInvoices(MERCHANT_A, "Beta", 25);
+      expect(results.every((inv) => inv.merchantId !== MERCHANT_B)).toBe(true);
+      expect(results.find((inv) => inv.id === "invoice-b-1")).toBeUndefined();
+    });
+
+    it("should throw when merchant context is missing", async () => {
       await expect(
         service.searchInvoices(undefined as any, "Acme"),
       ).rejects.toBeInstanceOf(UnauthorizedException);
@@ -425,7 +493,14 @@ describe("InvoicesService", () => {
     it("throws BadRequestException when attempting to pay a cancelled invoice", async () => {
       await service.cancelInvoice("invoice-a-1", MERCHANT_A);
       await expect(
-        service.reconcilePayment("invoice-a-1", "GPAYER", "XLM", "", "1000000"),
+        service.reconcilePayment(
+          "invoice-a-1",
+          "GPAYER",
+          "XLM",
+          "",
+          "1000000",
+          "settle-invoice-a-1",
+        ),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -436,6 +511,7 @@ describe("InvoicesService", () => {
         "USDC",
         "GASDF",
         "200",
+        "settle-invoice-b-1",
       );
       expect(first.status).toBe("paid");
       mockSorobanService.recordInvoicePayment.mockClear();
@@ -446,6 +522,7 @@ describe("InvoicesService", () => {
         "USDC",
         "GASDF",
         "200",
+        "settle-invoice-b-1",
       );
 
       expect(replayed.status).toBe("paid");
@@ -506,6 +583,27 @@ describe("InvoicesService", () => {
         "contract-123",
       );
       expect(updated.statusHistory!.map((h) => h.status)).toContain("anchored");
+    });
+
+    it("appends a permanent-failure status history entry", async () => {
+      await service.recordAnchoringFailure("invoice-a-1", "permanent");
+
+      const detail = await service.findOne("invoice-a-1", MERCHANT_A);
+      expect(detail.statusHistory!.map((h) => h.status)).toContain(
+        "anchoring_failed_permanent",
+      );
+    });
+
+    it("appends a transient-failure status history entry distinct from a permanent one", async () => {
+      await service.recordAnchoringFailure("invoice-a-1", "transient");
+
+      const detail = await service.findOne("invoice-a-1", MERCHANT_A);
+      expect(detail.statusHistory!.map((h) => h.status)).toContain(
+        "anchoring_failed_transient",
+      );
+      expect(detail.statusHistory!.map((h) => h.status)).not.toContain(
+        "anchoring_failed_permanent",
+      );
     });
   });
 });

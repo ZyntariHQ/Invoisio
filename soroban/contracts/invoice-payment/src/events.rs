@@ -123,3 +123,96 @@ pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
     };
     payload.publish(env);
 }
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferProposed {
+    /// Admin that initiated the handoff.
+    pub current_admin: Address,
+    /// Address proposed to become the next admin.
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_proposed(env: &Env, current_admin: Address, new_admin: Address) {
+    let payload = AdminTransferProposed {
+        current_admin,
+        new_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferAccepted {
+    /// Admin that relinquished the role.
+    pub previous_admin: Address,
+    /// Address that accepted and is now the contract admin.
+    pub new_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admin: Address) {
+    let payload = AdminTransferAccepted {
+        previous_admin,
+        new_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+/// Event emitted when the current admin revokes a pending admin transfer
+/// proposal via `cancel_admin_transfer()`.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AdminTransferCancelled {
+    /// Admin that cancelled the pending handoff.
+    pub current_admin: Address,
+    /// Address that had been proposed and is no longer in line for the role.
+    pub cancelled_admin: Address,
+    pub timestamp: u64,
+}
+
+pub fn emit_admin_transfer_cancelled(env: &Env, current_admin: Address, cancelled_admin: Address) {
+    let payload = AdminTransferCancelled {
+        current_admin,
+        cancelled_admin,
+        timestamp: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+/// Event emitted when the history index is rebuilt.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct HistoryIndexRebuilt {
+    pub record_count: u32,
+    pub rebuilt_at: u64,
+}
+
+/// Emit a history index rebuilt event.
+pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
+    let payload = HistoryIndexRebuilt {
+        record_count,
+        rebuilt_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+/// Event emitted when settlement references are migrated during upgrade.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettlementRefsMigrated {
+    pub count: u32,
+    pub migrated_at: u64,
+}
+
+/// Emit settlement references migrated event.
+pub fn emit_settlement_refs_migrated(env: &Env, count: u32) {
+    let payload = SettlementRefsMigrated {
+        count,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
