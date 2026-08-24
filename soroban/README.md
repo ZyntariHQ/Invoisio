@@ -616,6 +616,7 @@ Contract v1 (C1) live
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
 | `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
+| `payments_by_payer(payer, cursor, limit) → PaymentHistoryPage` | — | Return a bounded page of payments made by one payer. Served from the per-payer index (schema V2) when present; otherwise a filtered scan of the shared history index capped at `MAX_PAYER_SCAN_SLOTS` slots examined per call — an empty page with `has_more: true` is expected mid-pagination on that fallback path. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |

@@ -3,7 +3,7 @@
   "title": "Invoisio Invoice Payment Contract Schema",
   "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
   "contract_version": "1.0.0",
-  "storage_schema_version": 1,
+  "storage_schema_version": 2,
   "types": {
     "Asset": {
       "description": "Asset type: native XLM or a Stellar-issued token.",

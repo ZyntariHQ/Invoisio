@@ -398,6 +398,42 @@ export class SorobanInvoiceClient {
   }
 
   /**
+   * Fetch a bounded page of payments made by a single payer.
+   *
+   * Two contract read paths are selected automatically per payer:
+   *
+   * - **Per-payer index (default).** Payments recorded after the index was
+   *   introduced (or backfilled by the schema V2 migration /
+   *   `rebuild_history_index`) are served with O(limit) direct reads. Here
+   *   `cursor` is an ordinal into that payer's payment list — start at `0`
+   *   and echo `next_cursor` afterwards.
+   *
+   * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
+   *   not yet migrated), the contract scans the shared history index with
+   *   the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
+   *   per call regardless of how few records match. On this path `cursor`
+   *   is a shared-history-index slot, and **an empty page with
+   *   `has_more: true` is expected** on sparse result sets — keep paging
+   *   from `next_cursor` until it flips to `false`.
+   *
+   * In both paths `limit` is capped by the contract (25), gaps are reported
+   * in `gaps_skipped`, and `has_more: false` terminates pagination.
+   */
+  async getPaymentsByPayer(
+    payer: string,
+    cursor = 0,
+    limit = 25,
+  ): Promise<PaymentHistoryPage> {
+    const retval = await this.simulateView(
+      'payments_by_payer',
+      encodeAddress(payer),
+      encodeU32(cursor),
+      encodeU32(limit),
+    );
+    return decodePaymentHistoryPage(retval);
+  }
+
+  /**
    * Return `true` if the contract is currently paused (writes disabled).
    * Permissionless read.
    */

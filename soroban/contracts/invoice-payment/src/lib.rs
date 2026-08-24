@@ -21,12 +21,13 @@ use events::{
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
-    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
-    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
-    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
+    allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
+    bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
+    get_admin, get_contract_config, get_count, get_history_count, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
+    is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
+    set_pending_admin,
 };
 
 // Contract
@@ -277,6 +278,11 @@ impl InvoicePaymentContract {
         append_payment_history(&env, &record);
         bump_history_count(&env);
 
+        // 11b. Index the payment by payer so `payments_by_payer` becomes
+        // direct reads instead of a filtered scan of the whole history
+        // (issue #445). The history slot just written is `history_count - 1`.
+        append_payer_entry(&env, &record.payer, get_history_count(&env) - 1);
+
         // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
@@ -514,12 +520,33 @@ impl InvoicePaymentContract {
 
     /// Return all payments made by `payer`, paginated.
     ///
-    /// Scans the deterministic history index and filters by payer address.
-    /// - `cursor` — history index to start scanning from.
-    /// - `limit` — maximum records to return (capped at 25).
+    /// Two read paths, selected automatically per payer:
     ///
-    /// A missing history-index slot is skipped like in `payment_history`;
-    /// see `PaymentHistoryPage.gaps_skipped`.
+    /// **Per-payer index (default).** Every payment written by
+    /// `record_payment` (and every record backfilled by the schema V2
+    /// migration or `rebuild_history_index`) is indexed by payer. When an
+    /// index exists for this payer, each page costs O(limit) direct reads.
+    /// Here `cursor` is an *ordinal* into that payer's payment list — pass
+    /// `0` for the first page and echo `next_cursor` afterwards.
+    ///
+    /// **Bounded scan (fallback).** For payers whose index has not been
+    /// built (pre-V2 data not yet migrated), the call scans the shared
+    /// history index with the filter applied. Because slots belonging to
+    /// other payers are consumed without contributing to the page, the scan
+    /// is capped at [`storage::MAX_PAYER_SCAN_SLOTS`] history slots examined
+    /// per invocation — independent of how many records match and of how
+    /// large the history grows. On this path a payer with no matching
+    /// records returns an *empty page promptly* instead of scanning the
+    /// whole index; **an empty page with `has_more: true` is expected** and
+    /// callers must keep paging from `next_cursor` until it flips to
+    /// `false`. Here `cursor` is a shared-history-index slot.
+    ///
+    /// In both paths:
+    /// - at most [`storage::MAX_PAYMENT_HISTORY_PAGE_SIZE`] records are
+    ///   returned per call (`limit` is capped internally),
+    /// - a missing backing slot is counted in `gaps_skipped` and skipped
+    ///   exactly like in `payment_history`,
+    /// - `has_more == false` terminates paging.
     ///
     /// Permissionless read — no auth required.
     pub fn payments_by_payer(
@@ -528,35 +555,14 @@ impl InvoicePaymentContract {
         cursor: u32,
         limit: u32,
     ) -> PaymentHistoryPage {
-        use storage::{get_history_count, MAX_PAYMENT_HISTORY_PAGE_SIZE};
-        let total = get_history_count(&env);
-        let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
-        let start = core::cmp::min(cursor, total);
+        use storage::{
+            get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
+        };
 
-        let mut records = soroban_sdk::Vec::new(&env);
-        let mut index = start;
-        let mut collected: u32 = 0;
-        let mut gaps_skipped: u32 = 0;
-
-        while index < total && collected < capped_limit {
-            let key = DataKey::PaymentHistory(index);
-            let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-            match record {
-                Some(rec) if rec.payer == payer => {
-                    records.push_back(rec);
-                    collected += 1;
-                }
-                Some(_) => {}
-                None => gaps_skipped += 1,
-            }
-            index += 1;
-        }
-
-        PaymentHistoryPage {
-            records,
-            next_cursor: index,
-            has_more: index < total,
-            gaps_skipped,
+        if get_payer_payment_count(&env, &payer).is_some() {
+            get_payer_history_page(&env, &payer, cursor, limit)
+        } else {
+            get_payments_by_payer_page(&env, &payer, cursor, limit)
         }
     }
 
