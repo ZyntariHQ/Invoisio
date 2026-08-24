@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
 
 pub mod errors;
 pub mod events;
@@ -18,7 +18,8 @@ pub use storage::{
 
 use events::{
     emit_admin_transfer_accepted, emit_admin_transfer_cancelled, emit_admin_transfer_proposed,
-    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+    emit_asset_allowlisted, emit_asset_revoked, emit_contract_upgraded, emit_native_allow_changed,
+    emit_payment_recorded,
 };
 use storage::{
     allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
@@ -564,6 +565,100 @@ impl InvoicePaymentContract {
         } else {
             get_payments_by_payer_page(&env, &payer, cursor, limit)
         }
+    }
+
+    /// Upgrade the deployed contract WASM in place.
+    ///
+    /// This is the *only* way to change the code running at this contract
+    /// address after deployment. Without it, [`upgrade_storage`] and the
+    /// migration logic in `migration.rs` are unreachable, and a live
+    /// deployment could never receive a bug fix without moving to a brand
+    /// new contract ID and migrating every payment record and every backend
+    /// reference off-chain.
+    ///
+    /// ## Authorization
+    /// Only the **contract admin** may call this.
+    ///
+    /// ## Required ordering (enforced on-chain) — pause for the duration
+    /// The contract **must already be paused** (`set_paused(true)`) before
+    /// calling `upgrade`; otherwise this returns
+    /// [`ContractError::MustBePausedForUpgrade`]. This is enforced, not just
+    /// documented, because every write path (`record_payment`,
+    /// `propose_admin`, ...) calls `ensure_current_contract_meta()`, which
+    /// *unconditionally* backfills `ContractMeta` to match whatever code is
+    /// currently running. If a write landed after `upgrade()` took effect
+    /// but before [`upgrade_storage`] actually ran its migration steps, it
+    /// would silently mark the new schema version as current *before* the
+    /// migration ran — masking the exact corruption `upgrade_storage` exists
+    /// to fix. Staying paused for the whole window closes that gap, and also
+    /// means any `record_payment` transaction submitted around the same time
+    /// as the upgrade ("in-flight") simply fails with
+    /// [`ContractError::ContractPaused`] instead of racing the migration.
+    ///
+    /// Full runbook: `soroban/docs/upgrade-runbook.md`. Summary:
+    /// 1. `set_paused(admin, true)`
+    /// 2. `upgrade(admin, new_wasm_hash, new_contract_version)`
+    /// 3. `upgrade_storage(admin)` — now runs under the **new** code
+    /// 4. Verify `config()` / `version_info()` / `payment_history()` look right
+    /// 5. `set_paused(admin, false)`
+    ///
+    /// ## Timing
+    /// Soroban only swaps the executing code for **subsequent**
+    /// invocations — this call itself finishes running the old code.
+    /// `contract_version()` keeps reporting the old version if called again
+    /// in the same transaction, and starts reporting the new version on the
+    /// next top-level invocation (e.g. the following `upgrade_storage` call).
+    ///
+    /// ## `new_contract_version`
+    /// A caller-supplied audit value (the packed semver of the WASM being
+    /// deployed) carried in the emitted event. It is **not** verified
+    /// against `new_wasm_hash` — the currently-running (old) code has no way
+    /// to introspect constants baked into a not-yet-live binary — so it is
+    /// the operator's responsibility to pass the value that actually matches
+    /// the WASM being deployed (the ops script derives it from the build
+    /// it's pushing, not from user input).
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — caller is not admin
+    /// - [`ContractError::MustBePausedForUpgrade`] — contract is not paused
+    ///
+    /// ## Events
+    /// Emits `ContractUpgraded { previous_version, new_version, new_wasm_hash,
+    /// upgraded_by, upgraded_at }` so off-chain indexers can detect the
+    /// transition without polling `contract_version()`.
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+        new_contract_version: u32,
+    ) -> Result<(), ContractError> {
+        // Verify caller is the current contract admin.
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        // The contract must stay paused for the whole upgrade -> migrate
+        // window — see the ordering rationale above.
+        if !storage::is_paused(&env) {
+            return Err(ContractError::MustBePausedForUpgrade);
+        }
+
+        let previous_version = CONTRACT_VERSION;
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        emit_contract_upgraded(
+            &env,
+            previous_version,
+            new_contract_version,
+            new_wasm_hash,
+            admin,
+        );
+
+        Ok(())
     }
 
     /// Migrate on-chain storage layout to the current schema version.
