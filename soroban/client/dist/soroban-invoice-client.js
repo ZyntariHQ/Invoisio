@@ -30,6 +30,7 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
  *
@@ -243,6 +244,41 @@ class SorobanInvoiceClient {
             .build();
         return this.submitWrite(tx);
     }
+    /**
+     * Upgrade the deployed contract WASM in place.
+     *
+     * The contract MUST already be paused via `setPaused(true)` — this is
+     * enforced on-chain and the call is rejected with
+     * `MustBePausedForUpgrade` otherwise. See
+     * `soroban/docs/upgrade-runbook.md` for the full
+     * pause → upgrade → upgrade_storage → verify → unpause sequence, and why
+     * the contract must stay paused for that whole window.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @param newWasmHash - hex-encoded 32-byte hash of the WASM already
+     *   installed on-chain (e.g. via `stellar contract upload`).
+     * @param newContractVersion - packed semver of the WASM being deployed
+     *   (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`), carried in the emitted
+     *   `contract_upgraded` event for off-chain indexers. Not verified
+     *   on-chain against `newWasmHash` — must match what was actually built.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `Unauthorized`, `MustBePausedForUpgrade`)
+     */
+    async upgrade(newWasmHash, newContractVersion) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('upgrade', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeBytes32)(newWasmHash), (0, codec_1.encodeU32)(newContractVersion)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
     // ─── Read operations (permissionless) ──────────────────────────────────────
     /**
      * Return the stable high-level contract configuration snapshot.
@@ -306,6 +342,32 @@ class SorobanInvoiceClient {
      */
     async getPaymentHistory(cursor = 0, limit = 25) {
         const retval = await this.simulateView('payment_history', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
+        return (0, codec_1.decodePaymentHistoryPage)(retval);
+    }
+    /**
+     * Fetch a bounded page of payments made by a single payer.
+     *
+     * Two contract read paths are selected automatically per payer:
+     *
+     * - **Per-payer index (default).** Payments recorded after the index was
+     *   introduced (or backfilled by the schema V2 migration /
+     *   `rebuild_history_index`) are served with O(limit) direct reads. Here
+     *   `cursor` is an ordinal into that payer's payment list — start at `0`
+     *   and echo `next_cursor` afterwards.
+     *
+     * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
+     *   not yet migrated), the contract scans the shared history index with
+     *   the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
+     *   per call regardless of how few records match. On this path `cursor`
+     *   is a shared-history-index slot, and **an empty page with
+     *   `has_more: true` is expected** on sparse result sets — keep paging
+     *   from `next_cursor` until it flips to `false`.
+     *
+     * In both paths `limit` is capped by the contract (25), gaps are reported
+     * in `gaps_skipped`, and `has_more: false` terminates pagination.
+     */
+    async getPaymentsByPayer(payer, cursor = 0, limit = 25) {
+        const retval = await this.simulateView('payments_by_payer', (0, codec_1.encodeAddress)(payer), (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
         return (0, codec_1.decodePaymentHistoryPage)(retval);
     }
     /**

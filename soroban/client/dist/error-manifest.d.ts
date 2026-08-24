@@ -94,6 +94,10 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 20;
     readonly name: "SettlementRefAlreadyUsed";
     readonly meaning: "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.";
+}, {
+    readonly code: 21;
+    readonly name: "MustBePausedForUpgrade";
+    readonly meaning: "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];
