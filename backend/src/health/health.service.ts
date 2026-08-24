@@ -10,11 +10,19 @@ export interface DependencyStatus {
   error?: string;
 }
 
+export interface AnchoringStatus {
+  enabled: boolean;
+  contractIdConfigured: boolean;
+  adminKeyConfigured: boolean;
+  message?: string;
+}
+
 export interface HealthReport {
   ok: boolean;
   version: string;
   network: string;
   timestamp: string;
+  anchoring: AnchoringStatus;
   checks: {
     postgres: DependencyStatus;
     horizon: DependencyStatus;
@@ -22,12 +30,6 @@ export interface HealthReport {
   };
 }
 
-/**
- * Health service — performs readiness checks for all backend dependencies.
- *
- * Each check is isolated so a single failing dependency does not crash the
- * process; it is reported as `{ status: "down" }` in the structured output.
- */
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
@@ -39,9 +41,6 @@ export class HealthService {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Run all dependency checks in parallel and return a structured report.
-   */
   async checkReadiness(): Promise<HealthReport> {
     const stellarConfig = this.configService.get("stellar");
     const appConfig = this.configService.get("app");
@@ -60,23 +59,24 @@ export class HealthService {
       horizon.status === "up" &&
       soroban_rpc.status === "up";
 
+    const anchoring = this.getAnchoringStatus();
+
     return {
       ok,
       version: appConfig?.version || "0.0.1",
       network,
       timestamp: new Date().toISOString(),
+      anchoring,
       checks: { postgres, horizon, soroban_rpc },
     };
   }
 
-  /**
-   * Lightweight liveness probe — no I/O, just confirms the process is running.
-   */
   checkLiveness(): {
     ok: boolean;
     version: string;
     network: string;
     timestamp: string;
+    anchoring: AnchoringStatus;
   } {
     const stellarConfig = this.configService.get("stellar");
     const appConfig = this.configService.get("app");
@@ -89,12 +89,40 @@ export class HealthService {
       version: appConfig?.version || "0.0.1",
       network,
       timestamp: new Date().toISOString(),
+      anchoring: this.getAnchoringStatus(),
     };
   }
 
-  /**
-   * Check Postgres connectivity via a trivial query.
-   */
+  private getAnchoringStatus(): AnchoringStatus {
+    const enabled = process.env.SOROBAN_ANCHORING_ENABLED === "true";
+    const contractId = process.env.SOROBAN_CONTRACT_ID || "";
+    const adminKey = process.env.ADMIN_SECRET_KEY || process.env.SOROBAN_SECRET_KEY || "";
+
+    const contractIdConfigured = contractId.length > 0;
+    const adminKeyConfigured = adminKey.length > 0;
+
+    let message: string | undefined;
+    if (enabled) {
+      if (!contractIdConfigured) {
+        message = "SOROBAN_CONTRACT_ID is required when anchoring is enabled";
+      } else if (!adminKeyConfigured) {
+        message = "ADMIN_SECRET_KEY or SOROBAN_SECRET_KEY is required when anchoring is enabled";
+      } else {
+        message = "Anchoring is fully configured and operational";
+      }
+    } else {
+      message =
+        "Anchoring is disabled. Set SOROBAN_ANCHORING_ENABLED=true to enable";
+    }
+
+    return {
+      enabled,
+      contractIdConfigured,
+      adminKeyConfigured,
+      message,
+    };
+  }
+
   private async checkPostgres(): Promise<DependencyStatus> {
     const start = Date.now();
     try {
@@ -112,9 +140,6 @@ export class HealthService {
     }
   }
 
-  /**
-   * Check Horizon reachability via the Stellar service probe.
-   */
   private async checkHorizon(): Promise<DependencyStatus> {
     try {
       const result = await this.stellarService.pingHorizon();
@@ -135,9 +160,6 @@ export class HealthService {
     }
   }
 
-  /**
-   * Check Soroban RPC reachability via the Soroban service probe.
-   */
   private async checkSorobanRpc(): Promise<DependencyStatus> {
     try {
       const result = await this.sorobanService.pingRpc();

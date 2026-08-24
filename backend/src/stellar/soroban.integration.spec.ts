@@ -1,7 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { SorobanContractError } from "@invoisio/soroban-client";
 import { HorizonWatcherService } from "./horizon-watcher.service";
-import { SorobanService } from "./soroban.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { SorobanRpcException } from "./exceptions/stellar.exceptions";

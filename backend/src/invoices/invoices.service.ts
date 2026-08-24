@@ -1709,4 +1709,12 @@ export class InvoicesService implements OnModuleInit {
       ],
     });
   }
+  async findByInvoiceId(invoiceId: string): Promise<any> {
+    return this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+    });
+  }
+
 }
+
+

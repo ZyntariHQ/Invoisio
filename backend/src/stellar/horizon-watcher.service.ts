@@ -5,7 +5,7 @@ import { SorobanContractError } from "@invoisio/soroban-client";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
 import { InvoicePaidEvent } from "./events/invoice-paid.event";
-import { SorobanService } from "./soroban.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { RequestContextService } from "../observability/request-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 import { traceAsync } from "../observability/tracing.util";
