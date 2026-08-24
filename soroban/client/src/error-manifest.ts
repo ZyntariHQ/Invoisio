@@ -158,6 +158,12 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.',
   },
+  {
+    code: 21,
+    name: 'MustBePausedForUpgrade',
+    meaning:
+      'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
