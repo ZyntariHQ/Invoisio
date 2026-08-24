@@ -644,7 +644,9 @@ pub fn append_payer_entry(env: &Env, payer: &Address, history_index: u32) {
         .persistent()
         .extend_ttl(&idx_key, MIN_TTL, BUMP_TTL);
 
-    env.storage().persistent().set(&count_key, &(ordinal + 1u32));
+    env.storage()
+        .persistent()
+        .set(&count_key, &(ordinal + 1u32));
     env.storage()
         .persistent()
         .extend_ttl(&count_key, MIN_TTL, BUMP_TTL);
@@ -691,7 +693,12 @@ pub(crate) fn clear_payer_indexes(env: &Env, owners: &[Address]) {
 /// mirroring the gap semantics of `payment_history`.
 ///
 /// Extends instance TTL for counts and persistent TTL for records/index.
-pub fn get_payer_history_page(env: &Env, payer: &Address, cursor: u32, limit: u32) -> PaymentHistoryPage {
+pub fn get_payer_history_page(
+    env: &Env,
+    payer: &Address,
+    cursor: u32,
+    limit: u32,
+) -> PaymentHistoryPage {
     let payer_total = get_payer_payment_count(env, payer).unwrap_or(0u32);
     let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
     let start = core::cmp::min(cursor, payer_total);

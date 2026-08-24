@@ -4511,7 +4511,12 @@ fn strip_payer_index(env: &Env, client: &InvoicePaymentContractClient, payer: &A
 /// `record_payment`. Lets read-path tests build histories larger than one
 /// scan cap cheaply (hundreds of slots), with no per-payer index entries so
 /// queries fall back to the bounded scan exactly like pre-V2 data.
-fn fabricate_history_slot(env: &Env, client: &InvoicePaymentContractClient, slot: u32, payer: &Address) {
+fn fabricate_history_slot(
+    env: &Env,
+    client: &InvoicePaymentContractClient,
+    slot: u32,
+    payer: &Address,
+) {
     env.as_contract(&client.address, || {
         let record = storage::PaymentRecord {
             invoice_id: String::from_str(env, &format!("fabricated-{slot:04}")),
@@ -4651,7 +4656,10 @@ fn test_payments_by_payer_bounded_scan_caps_work_per_call() {
         );
         assert!(pages <= 10, "paging did not terminate");
     }
-    assert_eq!(pages, 7, "520 slots / cap 80 should need ceil(520/80)=7 calls");
+    assert_eq!(
+        pages, 7,
+        "520 slots / cap 80 should need ceil(520/80)=7 calls"
+    );
 }
 
 /// Regression test for #445: a payer whose per-payer index exists but who
@@ -4914,8 +4922,8 @@ fn test_migration_v1_to_v2_backfills_payer_indexes() {
     // Roll storage metadata back to V1 and wipe payer indexes to simulate a
     // V1-era deployment.
     env.as_contract(&client.address, || {
-        let mut meta = storage::get_contract_meta(&env)
-            .unwrap_or_else(storage::current_contract_meta);
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
         meta.storage_schema_version = storage::STORAGE_SCHEMA_V1;
         storage::set_contract_meta(&env, &meta);
         for payer in [payer_a.clone(), payer_b.clone()] {

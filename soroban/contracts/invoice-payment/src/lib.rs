@@ -23,8 +23,8 @@ use events::{
 use storage::{
     allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
     bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
-    get_admin, get_contract_config, get_count, get_payment, get_payment_history_page,
-    get_history_count, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_admin, get_contract_config, get_count, get_history_count, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
     get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
     is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
     set_pending_admin,
@@ -281,11 +281,7 @@ impl InvoicePaymentContract {
         // 11b. Index the payment by payer so `payments_by_payer` becomes
         // direct reads instead of a filtered scan of the whole history
         // (issue #445). The history slot just written is `history_count - 1`.
-        append_payer_entry(
-            &env,
-            &record.payer,
-            get_history_count(&env) - 1,
-        );
+        append_payer_entry(&env, &record.payer, get_history_count(&env) - 1);
 
         // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
@@ -559,8 +555,9 @@ impl InvoicePaymentContract {
         cursor: u32,
         limit: u32,
     ) -> PaymentHistoryPage {
-        use storage::{get_payer_history_page, get_payer_payment_count,
-            get_payments_by_payer_page};
+        use storage::{
+            get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
+        };
 
         if get_payer_payment_count(&env, &payer).is_some() {
             get_payer_history_page(&env, &payer, cursor, limit)
