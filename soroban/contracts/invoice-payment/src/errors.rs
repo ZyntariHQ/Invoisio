@@ -82,4 +82,10 @@ pub enum ContractError {
     /// The settlement reference has already been used for a different invoice.
     /// Each settlement reference must be globally unique across all payments.
     SettlementRefAlreadyUsed = 20,
+
+    /// `upgrade()` was called while the contract is not paused. The contract
+    /// must stay paused for the entire `upgrade()` → `upgrade_storage()`
+    /// window so no write can land on the new code before storage has been
+    /// migrated — see the doc comment on `upgrade()` in `lib.rs`.
+    MustBePausedForUpgrade = 21,
 }
