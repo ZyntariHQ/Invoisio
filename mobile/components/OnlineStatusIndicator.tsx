@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, StyleSheet } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { View, Text, StyleSheet, AccessibilityInfo } from "react-native";
 import { useConnectivity } from "../hooks/use-connectivity";
 
 export function OnlineStatusIndicator() {
@@ -16,8 +16,25 @@ export function OnlineStatusIndicator() {
     statusText = "Degraded";
   }
 
+  // Announce connectivity changes instead of relying on colour alone.
+  const prevStatusRef = useRef(statusText);
+  useEffect(() => {
+    if (prevStatusRef.current !== statusText) {
+      prevStatusRef.current = statusText;
+      AccessibilityInfo.announceForAccessibility(
+        `Network status: ${statusText}`,
+      );
+    }
+  }, [statusText]);
+
   return (
-    <View style={[styles.container, { backgroundColor: statusColor }]}>
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={`Network status: ${statusText}`}
+      accessibilityLiveRegion="polite"
+      style={[styles.container, { backgroundColor: statusColor }]}
+    >
       <View style={styles.indicator} />
       <Text style={styles.text}>{statusText}</Text>
     </View>
