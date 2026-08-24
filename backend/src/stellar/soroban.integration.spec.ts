@@ -4,6 +4,7 @@ import { HorizonWatcherService } from "./horizon-watcher.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
+import { PrismaService } from "../prisma/prisma.service";
 import { SorobanRpcException } from "./exceptions/stellar.exceptions";
 import { ConfigService } from "@nestjs/config";
 import { RequestContextService } from "../observability/request-context.service";
@@ -90,6 +91,18 @@ describe("Soroban Integration", () => {
         {
           provide: StructuredLogger,
           useValue: mockStructuredLogger,
+        },
+        {
+          provide: PrismaService,
+          useValue: {
+            watcherCursor: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              upsert: jest.fn().mockResolvedValue({ updatedAt: new Date() }),
+            },
+            watcherDeadLetter: {
+              upsert: jest.fn().mockResolvedValue({}),
+            },
+          },
         },
       ],
     }).compile();
