@@ -156,6 +156,10 @@ Every `record_payment` emits a Soroban event carrying the full `PaymentRecord`, 
 
 See [`smart-contracts/README.md`](smart-contracts/README.md) for full build, deploy, and invocation instructions.
 
+## 📚 Documentation
+
+For complete project documentation, including implementation guides, walkthroughs, and setup instructions, please refer to the [Documentation Index](docs/INDEX.md).
+
 ## 📚 Development Scripts
 
 - Frontend:

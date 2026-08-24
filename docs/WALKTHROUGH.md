@@ -1,5 +1,8 @@
 # Walkthrough: Read-Only Operational Inspection Scripts for Invoisio Soroban Contract
 
+**Status:** Current
+**Last Reviewed:** 2026-08-24
+
 ## Why this matters
 
 Maintainers currently had no quick way to inspect contract status — checking the pause state, admin identity, or allowlist configuration required writing raw `stellar contract invoke` RPC calls from scratch each time. This PR adds three dedicated **read-only helper scripts** so any operator can run a single command to get a clear, actionable status snapshot.
