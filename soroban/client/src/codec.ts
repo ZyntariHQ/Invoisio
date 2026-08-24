@@ -112,6 +112,8 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
     records: records.map((record) => decodePaymentRecordFromNative(record)),
     nextCursor: Number(raw['next_cursor']),
     hasMore: Boolean(raw['has_more']),
+    archivedSkipped: Number(raw['archived_skipped']),
+    corruptSkipped: Number(raw['corrupt_skipped']),
   };
 }
 

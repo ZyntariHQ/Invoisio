@@ -604,10 +604,12 @@ impl InvoicePaymentContract {
         let mut records = soroban_sdk::Vec::new(&env);
         let mut index = start;
         let mut collected: u32 = 0;
-        let mut gaps_skipped: u32 = 0;
+        let mut archived_skipped: u32 = 0;
+        let mut corrupt_skipped: u32 = 0;
 
         while index < total && collected < capped_limit {
             let key = DataKey::PaymentHistory(index);
+            let has = env.storage().persistent().has(&key);
             let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
             match record {
                 Some(rec) if rec.payer == payer => {
@@ -615,7 +617,13 @@ impl InvoicePaymentContract {
                     collected += 1;
                 }
                 Some(_) => {}
-                None => gaps_skipped += 1,
+                None => {
+                    if has {
+                        archived_skipped += 1;
+                    } else {
+                        corrupt_skipped += 1;
+                    }
+                }
             }
             index += 1;
         }
@@ -624,7 +632,8 @@ impl InvoicePaymentContract {
             records,
             next_cursor: index,
             has_more: index < total,
-            gaps_skipped,
+            archived_skipped,
+            corrupt_skipped,
         }
     }
 
@@ -708,15 +717,56 @@ impl InvoicePaymentContract {
         crate::migration::rebuild_payment_history_index(&env)
     }
 
+    /// Admin-gated bulk TTL-extension entrypoint.
+    /// Walks a bounded range of the history index and extends TTLs for the
+    /// log entries, history records, and payment records.
+    pub fn extend_history_ttl(env: Env, admin: Address, start_index: u32, end_index: u32) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        let total = crate::storage::get_history_count(&env);
+        let end = core::cmp::min(end_index, total);
+
+        for i in start_index..end {
+            if let Some(invoice_id) = crate::storage::get_payment_log_entry(&env, i) {
+                // get_payment_log_entry already extended the log entry TTL
+                crate::storage::extend_history_ttl(&env, i);
+                crate::storage::extend_payment_ttl(&env, &invoice_id);
+            }
+        }
+        Ok(())
+    }
+
     /// Get the consistency status of the history index.
     ///
-    /// Returns a tuple (history_count, payment_count, is_consistent).
-    /// This is a diagnostic function for ops tooling.
-    pub fn history_index_status(env: Env) -> (u32, u32, bool) {
+    /// Returns a tuple (history_count, payment_count, archived_count, corrupt_count, is_consistent).
+    /// This is a diagnostic function for ops tooling. It scans the entire index
+    /// to accurately differentiate between intact, archived, and corrupt records.
+    pub fn history_index_status(env: Env) -> (u32, u32, u32, u32, bool) {
         let history_count = crate::storage::get_history_count(&env);
         let payment_count = crate::storage::get_payment_count(&env);
-        let is_consistent = history_count == payment_count;
-        (history_count, payment_count, is_consistent)
+        
+        let mut archived_count = 0;
+        let mut corrupt_count = 0;
+        
+        for i in 0..history_count {
+            let key = crate::storage::DataKey::PaymentHistory(i);
+            if env.storage().persistent().has(&key) {
+                if env.storage().persistent().get::<_, crate::PaymentRecord>(&key).is_none() {
+                    archived_count += 1;
+                }
+            } else {
+                corrupt_count += 1;
+            }
+        }
+        
+        // is_consistent indicates there are NO corrupt records and the counts match.
+        // Archived records do not make the index inconsistent.
+        let is_consistent = history_count == payment_count && corrupt_count == 0;
+        (history_count, payment_count, archived_count, corrupt_count, is_consistent)
     }
 }
 

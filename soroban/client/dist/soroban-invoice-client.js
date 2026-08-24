@@ -20,18 +20,21 @@ const TX_TIMEOUT_SECONDS = 30;
  * `Keypair` are initialised once in the constructor and reused across calls.
  *
  * ## Complexity
- * | Method           | Time                       | Space |
- * |------------------|----------------------------|-------|
- * | `recordPayment`  | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getPayment`     | O(1)                       | O(1) |
- * | `hasPayment`     | O(1)                       | O(1) |
- * | `getPaymentCount`| O(1)                       | O(1) |
- * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getAdmin`       | O(1)                       | O(1) |
- * | `isPaused`       | O(1)                       | O(1) |
+ * | Method                   | Time                       | Space |
+ * |--------------------------|----------------------------|-------|
+ * | `recordPayment`          | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getPayment`             | O(1)                       | O(1) |
+ * | `hasPayment`             | O(1)                       | O(1) |
+ * | `getPaymentCount`        | O(1)                       | O(1) |
+ * | `allowAsset`             | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`            | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative`         | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`              | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`               | O(1)                       | O(1) |
+ * | `isPaused`               | O(1)                       | O(1) |
+ * | `listAssets`             | O(1)                       | O(p) |
+ * | `getAllowlistCount`       | O(1)                       | O(1) |
+ * | `rebuildAllowlistIndex`  | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -183,9 +186,10 @@ class SorobanInvoiceClient {
      * Remove a `(code, issuer)` token pair from the allowlist.
      *
      * The **contract admin** keypair must be provided via `signerSecretKey`.
-     * Revoking an asset that was never allowlisted is a no-op on-chain.
      *
-     * @throws {SorobanContractError} on contract-level rejection
+     * @throws {SorobanContractError} with code `AssetNotFound` when the pair
+     *   was never in the allowlist — distinguishing a no-op from a real removal.
+     * @throws {SorobanContractError} on other contract-level rejections
      *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
      */
     async revokeAsset(code, issuer) {
@@ -239,6 +243,29 @@ class SorobanInvoiceClient {
             networkPassphrase: this.config.networkPassphrase,
         })
             .addOperation(this.contract.call('set_paused', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeBool)(paused)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Bulk extend the TTLs for the payment log, history index, and specific
+     * payment records within a given bounded range.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @param startIndex Zero-based start index (inclusive).
+     * @param endIndex Zero-based end index (exclusive).
+     * @throws {SorobanContractError} on contract-level rejection
+     */
+    async extendHistoryTtl(startIndex, endIndex) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('extend_history_ttl', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeU32)(startIndex), (0, codec_1.encodeU32)(endIndex)))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);
@@ -315,6 +342,65 @@ class SorobanInvoiceClient {
     async isPaused() {
         const retval = await this.simulateView('is_paused');
         return Boolean((0, stellar_sdk_1.scValToNative)(retval));
+    }
+    /**
+     * Return a paginated slice of the allowlisted `(code, issuer)` asset pairs.
+     *
+     * Permissionless read — no admin keypair required.
+     *
+     * @param cursor  Zero-based slot index to start from (default `0`).
+     * @param limit   Maximum entries per page (capped at 25 by the contract).
+     */
+    async listAssets(cursor = 0, limit = 25) {
+        const retval = await this.simulateView('list_assets', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
+        return (0, codec_1.decodeAllowlistPage)(retval);
+    }
+    /**
+     * Return the total number of allowlisted asset pairs.
+     *
+     * Permissionless read. Consistent with the enumeration returned by
+     * `listAssets`: `count === (await listAssets(0, count)).total`.
+     */
+    async getAllowlistCount() {
+        const retval = await this.simulateView('allowlist_count');
+        return Number((0, stellar_sdk_1.scValToNative)(retval));
+    }
+    /**
+     * Rebuild the enumerable allowlist index for legacy deployments.
+     *
+     * Call once after upgrading a deployment that predates this contract version.
+     * Supply the complete list of `(code, issuer)` pairs that were previously
+     * allowlisted. Entries whose on-chain existence sentinel is absent are
+     * silently dropped.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} with code `Unauthorized` if caller is not admin.
+     */
+    async rebuildAllowlistIndex(pairs) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const pairsEncoded = pairs.map((p) => 
+        // Each entry is a Soroban struct with two string fields.
+        stellar_sdk_1.xdr.ScVal.scvMap([
+            new stellar_sdk_1.xdr.ScMapEntry({
+                key: stellar_sdk_1.xdr.ScVal.scvSymbol('code'),
+                val: (0, codec_1.encodeString)(p.code),
+            }),
+            new stellar_sdk_1.xdr.ScMapEntry({
+                key: stellar_sdk_1.xdr.ScVal.scvSymbol('issuer'),
+                val: (0, codec_1.encodeString)(p.issuer),
+            }),
+        ]));
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('rebuild_allowlist_index', (0, codec_1.encodeAddress)(caller), stellar_sdk_1.xdr.ScVal.scvVec(pairsEncoded)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
     }
     // ─── Private helpers ────────────────────────────────────────────────────────
     /**

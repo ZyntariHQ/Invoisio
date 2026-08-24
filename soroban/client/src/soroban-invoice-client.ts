@@ -327,6 +327,42 @@ export class SorobanInvoiceClient {
     return this.submitWrite(tx);
   }
 
+  /**
+   * Bulk extend the TTLs for the payment log, history index, and specific
+   * payment records within a given bounded range.
+   * 
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @param startIndex Zero-based start index (inclusive).
+   * @param endIndex Zero-based end index (exclusive).
+   * @throws {SorobanContractError} on contract-level rejection
+   */
+  async extendHistoryTtl(
+    startIndex: number,
+    endIndex: number,
+  ): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          'extend_history_ttl',
+          encodeAddress(caller),
+          encodeU32(startIndex),
+          encodeU32(endIndex),
+        ),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
   // ─── Read operations (permissionless) ──────────────────────────────────────
 
   /**

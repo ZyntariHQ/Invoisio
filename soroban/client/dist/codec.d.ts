@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { ContractConfig, PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
+import { ContractConfig, AllowlistPage, PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**
@@ -36,6 +36,10 @@ export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHisto
  * - allowlist_mode.requires_token_allowlist
  */
 export declare function decodeContractConfig(scVal: xdr.ScVal): ContractConfig;
+/**
+ * Decode a bounded allowlist page returned by `list_assets()`.
+ */
+export declare function decodeAllowlistPage(scVal: xdr.ScVal): AllowlistPage;
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
  * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code

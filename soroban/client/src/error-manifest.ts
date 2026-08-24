@@ -164,6 +164,12 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal.',
   },
+  {
+    code: 22,
+    name: 'PaymentArchived',
+    meaning:
+      'The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read.',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */

@@ -8,6 +8,7 @@ exports.encodeBool = encodeBool;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
+exports.decodeAllowlistPage = decodeAllowlistPage;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
@@ -100,6 +101,8 @@ function decodePaymentHistoryPage(scVal) {
         records: records.map((record) => decodePaymentRecordFromNative(record)),
         nextCursor: Number(raw['next_cursor']),
         hasMore: Boolean(raw['has_more']),
+        archivedSkipped: Number(raw['archived_skipped']),
+        corruptSkipped: Number(raw['corrupt_skipped']),
     };
 }
 /**
@@ -133,6 +136,22 @@ function decodeContractConfig(scVal) {
             requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
         },
         paused: Boolean(raw['paused']),
+    };
+}
+/**
+ * Decode a bounded allowlist page returned by `list_assets()`.
+ */
+function decodeAllowlistPage(scVal) {
+    const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const entries = raw['entries'] ?? [];
+    return {
+        entries: entries.map((entry) => ({
+            code: String(entry['code']),
+            issuer: String(entry['issuer']),
+        })),
+        nextCursor: Number(raw['next_cursor']),
+        hasMore: Boolean(raw['has_more']),
+        total: Number(raw['total']),
     };
 }
 // ─── Error parsing ────────────────────────────────────────────────────────────

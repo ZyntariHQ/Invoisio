@@ -9,39 +9,32 @@ pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
 // TTL Policy
 // ============================================================================
 //
-// The contract uses two TTL thresholds:
-// - MIN_TTL = 17,280 ledgers (~1 day)  - extend when remaining TTL falls below this
-// - BUMP_TTL = 518,400 ledgers (~30 days) - target TTL after extension
+// The contract uses two TTL thresholds to ensure a reliable on-chain log of invoice payments.
+// Payment records and their history indices are retained for an extended period, allowing
+// audits to run without frequently bumping entries. However, they are not kept alive forever 
+// on-chain to manage ledger costs. They must be permanently retrievable off-chain if archived.
+//
+// - MIN_TTL = 3_153_600 ledgers (~6 months) - extend when remaining TTL falls below this
+// - BUMP_TTL = 6_312_000 ledgers (~1 year)  - target TTL after extension
 //
 // TTL Extension Strategy:
 //
-// 1. WRITE operations (any state mutation):
+// 1. Persistent Storage (DataKey::Payment*, DataKey::PaymentHistory, DataKey::AllowList)
 //    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after writing
-//    - This applies to: set_admin, set_pending_admin, set_contract_meta,
-//      set_native_allowed, set_paused, bump_count, bump_history_count
-//
-// 2. CRITICAL READ operations (instance storage that must survive):
 //    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after reading
-//    - This applies to: get_admin, get_pending_admin_opt, get_pending_admin,
-//      has_admin, has_pending_admin, is_native_allowed, is_paused,
-//      get_count, get_history_count, get_contract_config, get_contract_meta,
-//      get_storage_schema_version, get_state_contract_version,
-//      is_schema_compatible, is_history_index_consistent,
-//      get_missing_history_count, get_payment_count
+//    - Archived persistent entries are reported as `PaymentArchived` when accessed via read paths.
 //
-// 3. PERSISTENT READ operations (payment records, history, allowlist):
+// 2. Instance Storage (DataKey::Admin, DataKey::ContractVersion, DataKey::PaymentCount, etc)
+//    - Instance storage has a single shared TTL.
+//    - Extending any instance key extends ALL instance keys.
+//    - Bumps instance TTL on every call to keep critical config alive.
+//
+// 3. Read paths
 //    - TTL is extended on read via individual get/read functions
-//    - This applies to: get_payment, get_history_record, is_asset_allowed
-//
-// Rationale:
-// - Instance storage contains critical contract configuration (admin, pause state,
-//   allowlist policy, counters) that must remain available for as long as the
-//   contract is actively used.
-// - Permissionless views (config, admin, pending_admin, is_paused, payment_count,
-//   history_count) are frequently called by off-chain tooling and should keep
-//   instance storage alive without requiring admin intervention.
-// - Persistent storage records are bumped on read/write to prevent archival
-//   while still being accessed.
+//    - All read functions (e.g. `get_admin`, `get_payment`) bump TTL for the
+//      data they access.
+//    - Note: The top-level `config()` view function reads instance data but
+//      *does not* bump TTL because Soroban view functions cannot write to state.
 //
 // Idempotency:
 // - `extend_ttl` is idempotent - calling it multiple times is safe
@@ -55,11 +48,11 @@ pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
 
 // TTL budget
 // At ~5-second ledger close times:
-//   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
-//   BUMP_TTL = 518 400 ledgers ≈ 30 days (target TTL after extension)
+//   MIN_TTL  = 3,153,600 ledgers ≈ 6 months (extend when remaining TTL falls below this)
+//   BUMP_TTL = 6,312,000 ledgers ≈ 1 year   (target TTL after extension)
 
-pub(crate) const MIN_TTL: u32 = 17_280;
-pub(crate) const BUMP_TTL: u32 = 518_400;
+pub(crate) const MIN_TTL: u32 = 3_153_600;
+pub(crate) const BUMP_TTL: u32 = 6_312_000;
 
 // Versioning
 
@@ -279,12 +272,10 @@ pub struct PaymentHistoryPage {
     pub next_cursor: u32,
     /// True when more entries are available after `next_cursor`.
     pub has_more: bool,
-    /// Number of history-index slots in `[cursor, next_cursor)` that were
-    /// expected to hold a record but did not (e.g. a corrupted or
-    /// partially-rebuilt index). Always `0` for a healthy index. Off-chain
-    /// tooling can use this to detect index corruption without inferring it
-    /// from record counts.
-    pub gaps_skipped: u32,
+    /// Number of history-index slots that were archived.
+    pub archived_skipped: u32,
+    /// Number of history-index slots that were missing or corrupted.
+    pub corrupt_skipped: u32,
 }
 
 // ─── Version Helpers (Instance Storage) ──────────────────────────────────────
@@ -488,15 +479,19 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
 /// `invoice_id`.
 pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, ContractError> {
     let v1_key = payment_key_v1(invoice_id);
+    let has_v1 = env.storage().persistent().has(&v1_key);
     let v1_record: Option<PaymentRecord> = env.storage().persistent().get(&v1_key);
     if let Some(record) = v1_record {
         env.storage()
             .persistent()
             .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
         return Ok(record);
+    } else if has_v1 {
+        return Err(ContractError::PaymentArchived);
     }
 
     let legacy_key = payment_key_legacy(invoice_id);
+    let has_legacy = env.storage().persistent().has(&legacy_key);
     let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
     match legacy_record {
         Some(record) => {
@@ -511,7 +506,13 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
             Ok(record)
         }
-        None => Err(ContractError::PaymentNotFound),
+        None => {
+            if has_legacy {
+                Err(ContractError::PaymentArchived)
+            } else {
+                Err(ContractError::PaymentNotFound)
+            }
+        }
     }
 }
 
@@ -533,6 +534,7 @@ pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
+
 
 fn payment_log_key(index: u32) -> DataKey {
     DataKey::PaymentLog(index)
@@ -563,27 +565,25 @@ pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
 }
 
 /// Get a history record by index. Extends TTL if record exists.
-fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
+/// Returns Ok(record) if found, Err(true) if archived, Err(false) if missing/corrupt.
+fn get_history_record_with_status(env: &Env, index: u32) -> Result<PaymentRecord, bool> {
     let key = payment_history_key(index);
+    let has = env.storage().persistent().has(&key);
     let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-    if record.is_some() {
+    if let Some(r) = record {
         env.storage()
             .persistent()
             .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        Ok(r)
+    } else {
+        Err(has)
     }
-    record
 }
 
 /// Read a bounded page of history starting at `cursor`.
 ///
-/// A missing slot (a hole left by a corrupted or partially-rebuilt index)
-/// is skipped rather than treated as the end of the index: `index` always
-/// advances by at least one slot per iteration, so `next_cursor` can never
-/// repeat a `cursor` the caller already passed in, and `has_more` reflects
-/// whether any slot at or after `next_cursor` remains to be scanned — never
-/// a stalled hole. The page keeps scanning past holes (bounded by `total`)
-/// until it collects `capped_limit` records or exhausts the index, so a
-/// sparse index still fills pages as densely as the data allows.
+/// A missing slot is skipped rather than treated as the end of the index.
+/// Distinguishes between slots that are missing due to archival vs corruption.
 ///
 /// Extends instance TTL for history count and persistent TTL for records.
 pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
@@ -594,15 +594,17 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut index = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
 
     while index < total && collected < capped_limit {
-        match get_history_record(env, index) {
-            Some(record) => {
+        match get_history_record_with_status(env, index) {
+            Ok(record) => {
                 records.push_back(record);
                 collected += 1;
             }
-            None => gaps_skipped += 1,
+            Err(true) => archived_skipped += 1,
+            Err(false) => corrupt_skipped += 1,
         }
         index += 1;
     }
@@ -611,7 +613,8 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
         records,
         next_cursor: index,
         has_more: index < total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 
@@ -1065,4 +1068,30 @@ pub fn record_settlement_ref(env: &Env, ref_str: &String) {
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Extends the TTL for a payment record (both v1 and legacy if present)
+pub fn extend_payment_ttl(env: &Env, invoice_id: &String) {
+    let v1_key = payment_key_v1(invoice_id);
+    if env.storage().persistent().has(&v1_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
+    }
+    let legacy_key = payment_key_legacy(invoice_id);
+    if env.storage().persistent().has(&legacy_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+    }
+}
+
+/// Extends the TTL for a payment history record
+pub fn extend_history_ttl(env: &Env, index: u32) {
+    let key = payment_history_key(index);
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
 }

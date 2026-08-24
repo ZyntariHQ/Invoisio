@@ -89,6 +89,8 @@ export interface PaymentHistoryPage {
   readonly records: PaymentRecord[];
   readonly nextCursor: number;
   readonly hasMore: boolean;
+  readonly archivedSkipped: number;
+  readonly corruptSkipped: number;
 }
 
 // ─── Allowlist types ──────────────────────────────────────────────────────────

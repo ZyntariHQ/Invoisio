@@ -140,6 +140,16 @@ exports.CONTRACT_ERROR_MANIFEST = [
         name: 'SettlementRefAlreadyUsed',
         meaning: 'The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.',
     },
+    {
+        code: 21,
+        name: 'AssetNotFound',
+        meaning: 'revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal.',
+    },
+    {
+        code: 22,
+        name: 'PaymentArchived',
+        meaning: 'The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read.',
+    },
 ];
 /**
  * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.

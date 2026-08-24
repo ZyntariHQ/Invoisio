@@ -87,4 +87,7 @@ pub enum ContractError {
     /// allowlisted. Callers can use this to distinguish a no-op revoke from a
     /// successful removal.
     AssetNotFound = 21,
+
+    /// The invoice payment has been archived.
+    PaymentArchived = 22,
 }

@@ -1,0 +1,14 @@
+/home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/deps/serde-ef1ab62da4ce7e0d.d: /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/build/serde-dd75b415ecc25820/out/private.rs
+
+/home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/deps/libserde-ef1ab62da4ce7e0d.rlib: /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/build/serde-dd75b415ecc25820/out/private.rs
+
+/home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/deps/libserde-ef1ab62da4ce7e0d.rmeta: /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs /home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs /home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/build/serde-dd75b415ecc25820/out/private.rs
+
+/home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/lib.rs:
+/home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/integer128.rs:
+/home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/mod.rs:
+/home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/de.rs:
+/home/semicolon/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.229/src/private/ser.rs:
+/home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/build/serde-dd75b415ecc25820/out/private.rs:
+
+# env-dep:OUT_DIR=/home/semicolon/GrantFox/Invoisio/test_project/s_test/target/debug/build/serde-dd75b415ecc25820/out

@@ -12,13 +12,18 @@ export type Asset = AssetNative | AssetToken;
 /**
  * Stable summary of the contract's asset-acceptance policy.
  *
- * `requiresTokenAllowlist` is currently always `true`: issued Stellar assets
- * must be explicitly allowlisted on-chain before `record_payment` accepts them.
+ * `requiresTokenAllowlist` is derived from real on-chain state: it is `true`
+ * when at least one `(code, issuer)` pair has been explicitly added via
+ * `allow_asset`, and `false` when the allowlist is empty or all entries have
+ * been revoked. It is no longer hardcoded.
  */
 export interface AllowlistMode {
     /** Whether native XLM payments are currently accepted. */
     readonly nativeAllowed: boolean;
-    /** Whether non-native assets must be explicitly allowlisted. */
+    /**
+     * `true` when at least one token pair is allowlisted (`allowlist_count > 0`).
+     * Derived from real on-chain state — never hardcoded.
+     */
     readonly requiresTokenAllowlist: boolean;
 }
 /** On-chain version metadata attached to contract state. */
@@ -75,6 +80,26 @@ export interface PaymentHistoryPage {
     readonly records: PaymentRecord[];
     readonly nextCursor: number;
     readonly hasMore: boolean;
+    readonly archivedSkipped: number;
+    readonly corruptSkipped: number;
+}
+/** A single entry in the enumerable allowlist index. */
+export interface AllowedAssetEntry {
+    /** Token code, e.g. "USDC" (max 12 characters, never "XLM"). */
+    readonly code: string;
+    /** Stellar issuer address (G...). */
+    readonly issuer: string;
+}
+/** Bounded, cursor-friendly slice of the allowlist returned by `list_assets()`. */
+export interface AllowlistPage {
+    /** Asset entries for this page. */
+    readonly entries: AllowedAssetEntry[];
+    /** Cursor to pass to the next `list_assets()` call. */
+    readonly nextCursor: number;
+    /** `true` when more entries exist after `nextCursor`. */
+    readonly hasMore: boolean;
+    /** Total number of allowlisted assets at the time of the call. */
+    readonly total: number;
 }
 import { CONTRACT_ERROR_CODES, CONTRACT_ERROR_MANIFEST, ContractErrorCode, ContractErrorManifestEntry, ContractErrorName, getContractError, getContractErrorCode } from './error-manifest';
 export { CONTRACT_ERROR_CODES, CONTRACT_ERROR_MANIFEST, ContractErrorCode, ContractErrorManifestEntry, ContractErrorName, getContractError, getContractErrorCode, };
