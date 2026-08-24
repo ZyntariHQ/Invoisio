@@ -86,7 +86,8 @@ fn test_config_before_initialize_reports_uninitialized_state() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: false,
-                requires_token_allowlist: true,
+                // No assets have been added; count is 0 → false.
+                requires_token_allowlist: false,
             },
             paused: false
         }
@@ -110,7 +111,8 @@ fn test_config_after_initialize_returns_high_level_snapshot() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: false,
-                requires_token_allowlist: true,
+                // No assets added yet: derived from real state (count == 0).
+                requires_token_allowlist: false,
             },
             paused: false
         }
@@ -1678,6 +1680,7 @@ fn test_config_reflects_allowlist_mode_changes() {
 
     client.set_allow_native(&true);
 
+    // Only native is toggled; no token pairs added yet → requires_token_allowlist = false.
     assert_eq!(
         client.config(),
         ContractConfig {
@@ -1690,7 +1693,7 @@ fn test_config_reflects_allowlist_mode_changes() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: true,
-                requires_token_allowlist: true,
+                requires_token_allowlist: false,
             },
             paused: false
         }
@@ -2702,10 +2705,11 @@ fn test_allow_asset_after_revoke_restores_allowlist() {
 }
 
 /// Revoking an asset that was never added must be a silent no-op.
-/// `storage.persistent().remove()` on a non-existent key does not panic;
-/// the function must return `Ok(())` and no error should propagate.
+/// `storage.persistent().remove()` on a non-existent key used to be a no-op.
+/// After the enumerable allowlist change, revoking an absent pair returns
+/// `ContractError::AssetNotFound` so callers can distinguish this from success.
 #[test]
-fn test_revoke_asset_nonexistent_is_noop() {
+fn test_revoke_asset_nonexistent_returns_asset_not_found() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
@@ -2713,11 +2717,12 @@ fn test_revoke_asset_nonexistent_is_noop() {
     let code = String::from_str(&env, "PHANTOM");
     let issuer = String::from_str(&env, "GBPhantomIssuer");
 
-    // This asset was never added — revoke must succeed without error.
+    // Asset was never added — revoke must return AssetNotFound.
     let result = client.try_revoke_asset(&code, &issuer);
-    assert!(
-        result.is_ok(),
-        "revoking a non-existent asset must be a no-op"
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::AssetNotFound)),
+        "revoking a non-existent asset must return AssetNotFound"
     );
 
     // The allowlist state is still empty: a payment attempt must be rejected.
@@ -2733,10 +2738,10 @@ fn test_revoke_asset_nonexistent_is_noop() {
     assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }
 
-/// Revoking the same asset twice must be idempotent — the second call must
-/// not error even though the key is already absent.
+/// Revoking the same asset twice: the second call must return `AssetNotFound`
+/// since the pair was already removed on the first revoke.
 #[test]
-fn test_revoke_asset_idempotent_double_revoke() {
+fn test_revoke_asset_second_revoke_returns_asset_not_found() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
@@ -2748,9 +2753,13 @@ fn test_revoke_asset_idempotent_double_revoke() {
     client.allow_asset(&code, &issuer);
     client.revoke_asset(&code, &issuer);
 
-    // Second revoke of the same (now absent) asset must not error.
+    // Second revoke of the same (now absent) asset must return AssetNotFound.
     let result = client.try_revoke_asset(&code, &issuer);
-    assert!(result.is_ok(), "double-revoke must be idempotent");
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::AssetNotFound)),
+        "second revoke must return AssetNotFound"
+    );
 }
 
 /// Calling `allow_asset` before `initialize()` must return
@@ -3687,7 +3696,8 @@ fn test_regression_config_after_upgrade_reflects_all_fields() {
         }
     );
     assert!(!config.allowlist_mode.native_allowed);
-    assert!(config.allowlist_mode.requires_token_allowlist);
+    // After upgrade with no token pairs added: derived count is 0 → false.
+    assert!(!config.allowlist_mode.requires_token_allowlist);
     assert!(!config.paused);
 }
 
@@ -4466,4 +4476,413 @@ fn test_settlement_ref_not_consumed_on_failed_transaction() {
     // Verify payment succeeded
     assert_eq!(client.payment_count(), 1);
     assert!(client.has_payment(&invoice_id_2));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Enumerable Allowlist — Acceptance criteria tests
+// ═══════════════════════════════════════════════════════════════════════════
+
+// AC-1: Any caller can enumerate every allowlisted asset pair.
+
+#[test]
+fn test_list_assets_empty_on_fresh_contract() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let page = client.list_assets(&0u32, &25u32);
+    assert_eq!(page.entries.len(), 0);
+    assert_eq!(page.next_cursor, 0);
+    assert!(!page.has_more);
+    assert_eq!(page.total, 0);
+}
+
+#[test]
+fn test_list_assets_returns_all_added_pairs() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.allow_asset(&String::from_str(&env, "EURC"), &issuer);
+    client.allow_asset(&String::from_str(&env, "BTCLN"), &issuer);
+
+    let page = client.list_assets(&0u32, &25u32);
+    assert_eq!(page.entries.len(), 3);
+    assert_eq!(page.total, 3);
+    assert!(!page.has_more);
+}
+
+// AC-2: Paginated with bounded page size and terminates correctly.
+
+#[test]
+fn test_list_assets_pagination_cursor_advances() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    for code in &["AAA", "BBB", "CCC"] {
+        client.allow_asset(&String::from_str(&env, code), &issuer);
+    }
+
+    let first = client.list_assets(&0u32, &2u32);
+    assert_eq!(first.entries.len(), 2);
+    assert_eq!(first.next_cursor, 2);
+    assert!(first.has_more);
+    assert_eq!(first.total, 3);
+
+    let second = client.list_assets(&first.next_cursor, &2u32);
+    assert_eq!(second.entries.len(), 1);
+    assert_eq!(second.next_cursor, 3);
+    assert!(!second.has_more);
+    assert_eq!(second.total, 3);
+}
+
+#[test]
+fn test_list_assets_page_size_capped_at_25() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    for i in 0..26u32 {
+        let code_str = alloc::format!("A{:03}", i);
+        client.allow_asset(&String::from_str(&env, &code_str), &issuer);
+    }
+
+    let first = client.list_assets(&0u32, &100u32);
+    assert_eq!(first.entries.len(), 25);
+    assert!(first.has_more);
+    assert_eq!(first.total, 26);
+
+    let second = client.list_assets(&first.next_cursor, &100u32);
+    assert_eq!(second.entries.len(), 1);
+    assert!(!second.has_more);
+}
+
+#[test]
+fn test_list_assets_full_loop_terminates() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    for i in 0..5u32 {
+        let code = alloc::format!("C{:03}", i);
+        client.allow_asset(&String::from_str(&env, &code), &issuer);
+    }
+
+    let mut cursor = 0u32;
+    let mut total_entries = 0u32;
+    let mut iterations = 0u32;
+    loop {
+        iterations += 1;
+        assert!(iterations <= 10, "pagination loop did not terminate");
+        let page = client.list_assets(&cursor, &2u32);
+        assert!(page.next_cursor > cursor || !page.has_more);
+        total_entries += page.entries.len() as u32;
+        cursor = page.next_cursor;
+        if !page.has_more {
+            break;
+        }
+    }
+    assert_eq!(total_entries, 5);
+}
+
+// AC-3: Count matches entries after arbitrary adds and revokes.
+
+#[test]
+fn test_allowlist_count_matches_list_assets_total() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+
+    assert_eq!(client.allowlist_count(), 0);
+
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    assert_eq!(client.allowlist_count(), 1);
+    assert_eq!(client.list_assets(&0u32, &25u32).total, 1);
+
+    client.allow_asset(&String::from_str(&env, "EURC"), &issuer);
+    assert_eq!(client.allowlist_count(), 2);
+    assert_eq!(client.list_assets(&0u32, &25u32).total, 2);
+
+    client.revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+    assert_eq!(client.allowlist_count(), 1);
+    assert_eq!(client.list_assets(&0u32, &25u32).total, 1);
+    assert_eq!(
+        client.list_assets(&0u32, &25u32).entries.get(0).unwrap().code,
+        String::from_str(&env, "EURC")
+    );
+}
+
+// AC-4: Revoking removes from enumeration.
+
+#[test]
+fn test_revoke_asset_removes_from_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.allow_asset(&String::from_str(&env, "EURC"), &issuer);
+
+    client.revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+
+    let page = client.list_assets(&0u32, &25u32);
+    assert_eq!(page.entries.len(), 1);
+    assert_eq!(page.total, 1);
+    assert_eq!(page.entries.get(0).unwrap().code, String::from_str(&env, "EURC"));
+}
+
+#[test]
+fn test_revoke_first_of_three_leaves_correct_two() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "AAA"), &issuer);
+    client.allow_asset(&String::from_str(&env, "BBB"), &issuer);
+    client.allow_asset(&String::from_str(&env, "CCC"), &issuer);
+
+    // Revoke first (swap-and-pop with CCC).
+    client.revoke_asset(&String::from_str(&env, "AAA"), &issuer);
+
+    let page = client.list_assets(&0u32, &25u32);
+    assert_eq!(page.entries.len(), 2);
+    let codes: alloc::vec::Vec<_> = page.entries.iter().map(|e| e.code.clone()).collect();
+    assert!(codes.contains(&String::from_str(&env, "BBB")));
+    assert!(codes.contains(&String::from_str(&env, "CCC")));
+}
+
+// AC-5: allow_asset validates as strictly as record_payment.
+
+#[test]
+fn test_allow_asset_rejects_code_longer_than_12_chars() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_allow_asset(&String::from_str(&env, "TOOLONGCODEXX"), &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_allow_asset_rejects_xlm_code() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_allow_asset(&String::from_str(&env, "XLM"), &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_allow_asset_rejects_empty_code() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_allow_asset(&String::from_str(&env, ""), &issuer);
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_allow_asset_rejects_empty_issuer() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let result = client.try_allow_asset(
+        &String::from_str(&env, "USDC"),
+        &String::from_str(&env, ""),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+}
+
+#[test]
+fn test_allow_asset_accepts_12_char_code() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_allow_asset(&String::from_str(&env, "ABCDEFGHIJKL"), &issuer);
+    assert!(result.is_ok());
+    assert_eq!(client.allowlist_count(), 1);
+}
+
+// AC-6: Revoking a never-allowlisted pair returns AssetNotFound.
+
+#[test]
+fn test_revoke_never_allowlisted_returns_asset_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let result = client.try_revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotFound)));
+}
+
+#[test]
+fn test_second_revoke_of_same_pair_returns_asset_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    // First revoke succeeds.
+    assert!(client.try_revoke_asset(&String::from_str(&env, "USDC"), &issuer).is_ok());
+    // Second revoke returns AssetNotFound.
+    let result = client.try_revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+    assert_eq!(result, Err(Ok(ContractError::AssetNotFound)));
+}
+
+// AC-7: AllowlistMode reports only state it actually reads.
+
+#[test]
+fn test_allowlist_mode_false_when_no_assets() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    assert!(!client.config().allowlist_mode.requires_token_allowlist);
+}
+
+#[test]
+fn test_allowlist_mode_true_after_allow_asset() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+
+    assert!(client.config().allowlist_mode.requires_token_allowlist);
+}
+
+#[test]
+fn test_allowlist_mode_false_after_all_revoked() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+
+    assert!(!client.config().allowlist_mode.requires_token_allowlist);
+}
+
+// AC-8: Migration path seeds legacy deployments via rebuild_allowlist_index.
+
+#[test]
+fn test_rebuild_allowlist_index_seeds_legacy_deployment() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+
+    // Simulate legacy: write sentinels without the index.
+    env.as_contract(&client.address, || {
+        let key1 = DataKey::AllowList(String::from_str(&env, "USDC"), issuer.clone());
+        env.storage().persistent().set(&key1, &());
+        let key2 = DataKey::AllowList(String::from_str(&env, "EURC"), issuer.clone());
+        env.storage().persistent().set(&key2, &());
+    });
+
+    // Index is empty before rebuild.
+    assert_eq!(client.allowlist_count(), 0);
+
+    let pairs = soroban_sdk::vec![
+        &env,
+        AllowedAssetEntry { code: String::from_str(&env, "USDC"), issuer: issuer.clone() },
+        AllowedAssetEntry { code: String::from_str(&env, "EURC"), issuer: issuer.clone() },
+    ];
+    client.rebuild_allowlist_index(&admin, &pairs);
+
+    assert_eq!(client.allowlist_count(), 2);
+    let page = client.list_assets(&0u32, &25u32);
+    assert_eq!(page.entries.len(), 2);
+    assert_eq!(page.total, 2);
+}
+
+#[test]
+fn test_rebuild_allowlist_index_drops_stale_pairs() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+
+    // Only USDC has a real sentinel.
+    env.as_contract(&client.address, || {
+        let key = DataKey::AllowList(String::from_str(&env, "USDC"), issuer.clone());
+        env.storage().persistent().set(&key, &());
+    });
+
+    let pairs = soroban_sdk::vec![
+        &env,
+        AllowedAssetEntry { code: String::from_str(&env, "USDC"), issuer: issuer.clone() },
+        AllowedAssetEntry { code: String::from_str(&env, "EURC"), issuer: issuer.clone() }, // stale
+    ];
+    client.rebuild_allowlist_index(&admin, &pairs);
+
+    assert_eq!(client.allowlist_count(), 1);
+    assert_eq!(
+        client.list_assets(&0u32, &25u32).entries.get(0).unwrap().code,
+        String::from_str(&env, "USDC")
+    );
+}
+
+// Idempotency: allow_asset called twice does not duplicate the index.
+
+#[test]
+fn test_allow_asset_idempotent_no_duplicate_index() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer); // duplicate
+
+    assert_eq!(client.allowlist_count(), 1);
+    assert_eq!(client.list_assets(&0u32, &25u32).entries.len(), 1);
+}
+
+// record_payment is rejected after revoke.
+
+#[test]
+fn test_record_payment_rejected_after_revoke() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+    client.revoke_asset(&String::from_str(&env, "USDC"), &issuer);
+
+    let payer = Address::generate(&env);
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-post-revoke"),
+        &payer,
+        &String::from_str(&env, "USDC"),
+        &issuer,
+        &10_000_000i128,
+        &String::from_str(&env, "settle-post-revoke"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::AssetNotAllowed)));
 }

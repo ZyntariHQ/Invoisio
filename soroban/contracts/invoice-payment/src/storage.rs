@@ -2,6 +2,9 @@ use crate::errors::ContractError;
 use crate::events;
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
+/// Maximum number of allowlisted assets returned in one `list_assets` page.
+pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
+
 // ============================================================================
 // TTL Policy
 // ============================================================================
@@ -101,14 +104,16 @@ pub fn current_contract_meta() -> ContractMeta {
 
 /// Stable, high-level summary of allowlist policy for integration consumers.
 ///
-/// `requires_token_allowlist` is currently always `true`: issued assets must be
-/// explicitly added via `allow_asset(code, issuer)` before `record_payment`
-/// accepts them. `native_allowed` reflects the mutable XLM toggle controlled by
-/// `set_allow_native`.
+/// `native_allowed` reflects the mutable XLM toggle controlled by
+/// `set_allow_native`. `requires_token_allowlist` is `true` whenever at least
+/// one issued asset has been explicitly allowlisted via `allow_asset`; it is
+/// derived from real on-chain state (`AllowListCount > 0`) and never hardcoded.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AllowlistMode {
     pub native_allowed: bool,
+    /// Derived from the allowlist index count; `true` when at least one
+    /// token pair has been explicitly allowlisted.
     pub requires_token_allowlist: bool,
 }
 
@@ -163,9 +168,15 @@ pub enum DataKey {
     /// records stay enumerable during index rebuilds even if the history
     /// index itself is corrupted or cleared.
     PaymentLog(u32),
-    /// Allowlist entry for a token in **persistent** storage.
-    /// Key: AllowList(asset_code, issuer)
+    /// Allowlist existence sentinel for a token in **persistent** storage.
+    /// Key: AllowList(asset_code, issuer) → unit value (exists = allowed)
     AllowList(String, String),
+    /// Enumerable allowlist index: maps a sequential slot number to the
+    /// `AllowedAssetEntry` at that position, in **persistent** storage.
+    /// Key: AllowListIndex(u32) → AllowedAssetEntry
+    AllowListIndex(u32),
+    /// Running count of allowlisted asset pairs in **instance** storage.
+    AllowListCount,
     /// Flag for allowing native XLM in **instance** storage.
     AllowNative,
     /// Flag indicating whether the contract is paused (instance storage).
@@ -173,13 +184,36 @@ pub enum DataKey {
     /// Address proposed as the next admin by `propose_admin()` in **instance**
     /// storage. Read by `accept_admin()` to complete the two-step handoff.
     PendingAdmin,
-    // Add to DataKey enum
     /// Global index tracking used settlement references.
-    /// Key: SettlementRef(String) -> unit value (exists = used)
+    /// Key: SettlementRef(String) → unit value (exists = used)
     SettlementRef(String),
 }
 
 // Data structures
+
+/// A single entry in the enumerable allowlist index.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowedAssetEntry {
+    /// Token asset code, e.g. `"USDC"` (max 12 characters, never `"XLM"`).
+    pub code: String,
+    /// Stellar issuer address (G...).
+    pub issuer: String,
+}
+
+/// Bounded, cursor-friendly slice of the allowlist index.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllowlistPage {
+    /// Asset entries returned for this page.
+    pub entries: Vec<AllowedAssetEntry>,
+    /// Cursor to pass to the next call (`next_cursor` from this page).
+    pub next_cursor: u32,
+    /// `true` when more entries are available after `next_cursor`.
+    pub has_more: bool,
+    /// Total number of allowlisted assets at the time of the call.
+    pub total: u32,
+}
 
 /// Asset type enum for multi-asset support.
 ///
@@ -324,6 +358,7 @@ pub fn get_schema_version(env: &Env) -> u32 {
 /// Return a high-level snapshot of contract state for ops tooling.
 /// Bumps instance TTL on every call to keep critical config alive.
 pub fn get_contract_config(env: &Env) -> ContractConfig {
+    let allowlist_count = get_allowlist_count(env);
     let config = ContractConfig {
         admin: env.storage().instance().get(&DataKey::Admin),
         pending_admin: get_pending_admin_opt(env),
@@ -334,7 +369,9 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
         },
         allowlist_mode: AllowlistMode {
             native_allowed: is_native_allowed(env),
-            requires_token_allowlist: true,
+            // Derived from real state: true when at least one token pair
+            // has been explicitly added via allow_asset().
+            requires_token_allowlist: allowlist_count > 0,
         },
         paused: is_paused(env),
     };
@@ -672,6 +709,150 @@ pub fn get_missing_history_count(env: &Env) -> u32 {
 
 // ─── Allowlist Helpers ──────────────────────────────────────────────────────
 
+// ─── Allowlist Counter Helpers (Instance Storage) ───────────────────────────
+
+/// Return the current number of allowlisted asset pairs. Bumps instance TTL.
+pub fn get_allowlist_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::AllowListCount)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+/// Persist the allowlist count in instance storage.
+pub fn set_allowlist_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowListCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Increment the allowlist counter.
+fn bump_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    set_allowlist_count(env, count + 1);
+}
+
+/// Decrement the allowlist counter (saturating at 0).
+fn decrement_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    set_allowlist_count(env, count.saturating_sub(1));
+}
+
+// ─── Allowlist Index Helpers (Persistent Storage) ────────────────────────────
+
+fn allowlist_index_key(slot: u32) -> DataKey {
+    DataKey::AllowListIndex(slot)
+}
+
+/// Append an asset pair to the dense enumerable index.
+/// Caller is responsible for ensuring the pair is not already present.
+fn append_to_allowlist_index(env: &Env, code: &String, issuer: &String) {
+    let slot = get_allowlist_count(env);
+    let key = allowlist_index_key(slot);
+    let entry = AllowedAssetEntry {
+        code: code.clone(),
+        issuer: issuer.clone(),
+    };
+    env.storage().persistent().set(&key, &entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    bump_allowlist_count(env);
+}
+
+/// Remove an asset pair from the dense enumerable index using swap-and-pop.
+///
+/// Scans from slot 0 up to `count - 1` for the matching pair, then overwrites
+/// it with the last slot's entry and removes the tail, keeping the index dense.
+///
+/// Returns `true` if the pair was found and removed, `false` if not present.
+fn remove_from_allowlist_index(env: &Env, code: &String, issuer: &String) -> bool {
+    let count = get_allowlist_count(env);
+    if count == 0 {
+        return false;
+    }
+
+    // Find the slot containing the matching pair.
+    let mut found_slot: Option<u32> = None;
+    for slot in 0..count {
+        let key = allowlist_index_key(slot);
+        let entry: Option<AllowedAssetEntry> = env.storage().persistent().get(&key);
+        if let Some(e) = entry {
+            if e.code == *code && e.issuer == *issuer {
+                found_slot = Some(slot);
+                break;
+            }
+        }
+    }
+
+    let slot = match found_slot {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let last_slot = count - 1;
+    if slot != last_slot {
+        // Swap with last entry to keep index dense.
+        let last_key = allowlist_index_key(last_slot);
+        let last_entry: AllowedAssetEntry = env
+            .storage()
+            .persistent()
+            .get(&last_key)
+            .expect("last slot must exist");
+        let target_key = allowlist_index_key(slot);
+        env.storage().persistent().set(&target_key, &last_entry);
+        env.storage()
+            .persistent()
+            .extend_ttl(&target_key, MIN_TTL, BUMP_TTL);
+    }
+
+    // Remove the (now-duplicate) last slot.
+    let tail_key = allowlist_index_key(last_slot);
+    env.storage().persistent().remove(&tail_key);
+    decrement_allowlist_count(env);
+
+    true
+}
+
+/// Read a bounded page of the allowlist index starting at `cursor`.
+///
+/// Mirrors `get_payment_history_page`: `cursor` is the slot index to start from,
+/// `limit` is capped at `MAX_ALLOWLIST_PAGE_SIZE`. Holes in the dense index
+/// (e.g. from TTL expiry) are skipped without ending the page early.
+pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
+    let total = get_allowlist_count(env);
+    let capped = core::cmp::min(limit, MAX_ALLOWLIST_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+
+    let mut entries: Vec<AllowedAssetEntry> = Vec::new(env);
+    let mut index = start;
+    let mut collected: u32 = 0;
+
+    while index < total && collected < capped {
+        let key = allowlist_index_key(index);
+        let entry: Option<AllowedAssetEntry> = env.storage().persistent().get(&key);
+        if let Some(e) = entry {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+            entries.push_back(e);
+            collected += 1;
+        }
+        index += 1;
+    }
+
+    AllowlistPage {
+        entries,
+        next_cursor: index,
+        has_more: index < total,
+        total,
+    }
+}
+
 /// Return `true` if native XLM is allowed. Bumps instance TTL.
 pub fn is_native_allowed(env: &Env) -> bool {
     let allowed = env
@@ -705,20 +886,66 @@ pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
     exists
 }
 
-/// Add an asset to the allowlist and bump TTL.
+/// Add an asset to the allowlist existence sentinel and the enumerable index.
+/// Does nothing (idempotent) if the pair is already present.
 pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
-    // We store a unit value since we only care about existence.
+    if env.storage().persistent().has(&key) {
+        // Already present: bump TTL and return without touching the index.
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        return;
+    }
+    // Store existence sentinel.
     env.storage().persistent().set(&key, &());
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    // Append to the dense enumerable index.
+    append_to_allowlist_index(env, code, issuer);
 }
 
 /// Remove an asset from the allowlist.
-pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
+///
+/// Returns `true` when the pair was present and removed, `false` when the
+/// pair was never in the allowlist (no-op).
+pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
+    if !env.storage().persistent().has(&key) {
+        return false;
+    }
     env.storage().persistent().remove(&key);
+    // Keep the enumerable index in sync.
+    remove_from_allowlist_index(env, code, issuer);
+    true
+}
+
+/// Rebuild the enumerable allowlist index from a caller-supplied list of pairs.
+///
+/// Used during migration of legacy deployments where the index did not exist.
+/// Clears the current index (if any) and re-inserts all pairs from `pairs`.
+/// Skips any pair that does not have an existence sentinel in persistent storage
+/// (so stale pairs passed by the operator are silently dropped).
+pub fn rebuild_allowlist_index(
+    env: &Env,
+    pairs: &Vec<AllowedAssetEntry>,
+) {
+    // Clear old index entries.
+    let old_count = get_allowlist_count(env);
+    for slot in 0..old_count {
+        let key = allowlist_index_key(slot);
+        env.storage().persistent().remove(&key);
+    }
+    set_allowlist_count(env, 0);
+
+    // Re-insert only pairs whose existence sentinel is present.
+    for entry in pairs.iter() {
+        let sentinel = DataKey::AllowList(entry.code.clone(), entry.issuer.clone());
+        if env.storage().persistent().has(&sentinel) {
+            append_to_allowlist_index(env, &entry.code, &entry.issuer);
+        }
+    }
 }
 
 // ─── Pause Helpers ──────────────────────────────────────────────────────────

@@ -82,4 +82,9 @@ pub enum ContractError {
     /// The settlement reference has already been used for a different invoice.
     /// Each settlement reference must be globally unique across all payments.
     SettlementRefAlreadyUsed = 20,
+
+    /// `revoke_asset()` was called for a `(code, issuer)` pair that was never
+    /// allowlisted. Callers can use this to distinguish a no-op revoke from a
+    /// successful removal.
+    AssetNotFound = 21,
 }

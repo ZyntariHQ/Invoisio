@@ -10,9 +10,10 @@ use soroban_sdk::{Env, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    current_contract_meta, ensure_current_contract_meta, get_contract_meta, get_history_count,
-    get_payment, get_payment_log_entry, get_storage_schema_version, record_settlement_ref,
-    set_contract_meta, set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
+    current_contract_meta, ensure_current_contract_meta, get_allowlist_count, get_contract_meta,
+    get_history_count, get_payment, get_payment_log_entry, get_storage_schema_version,
+    record_settlement_ref, set_contract_meta, set_history_count, DataKey, PaymentRecord,
+    STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -200,6 +201,9 @@ fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), Con
 /// This migration also:
 /// - Rebuilds payment history index
 /// - Records all settlement references for global uniqueness
+/// - Resets the allowlist count to match existing sentinels (index remains
+///   empty for legacy deployments — the operator calls rebuild_allowlist_index
+///   once after the WASM upgrade to populate it with known pairs).
 pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
     // Step 1: Ensure ContractMeta exists
     ensure_current_contract_meta(env);
@@ -210,12 +214,34 @@ pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
     // Step 3: Record all existing settlement references for uniqueness
     migrate_settlement_refs(env)?;
 
-    // Step 4: Update the storage schema version in metadata
+    // Step 4: Ensure allowlist count is initialised (idempotent).
+    // For legacy deployments the enumerable index is empty; the operator
+    // must call rebuild_allowlist_index() once with the known pairs.
+    migrate_allowlist_count_if_unset(env);
+
+    // Step 5: Update the storage schema version in metadata
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
     set_contract_meta(env, &meta);
 
     Ok(())
+}
+
+/// Ensures the allowlist count is initialised to 0 on legacy deployments.
+///
+/// On fresh deployments (after this WASM) `initialize()` already sets the
+/// counter. On legacy deployments (upgraded from pre-index WASM) the key
+/// may be absent — this initialises it so `get_allowlist_count()` never
+/// falls through to the `unwrap_or(0)` path after migration.
+///
+/// Safe to call multiple times (idempotent).
+fn migrate_allowlist_count_if_unset(env: &Env) {
+    if get_allowlist_count(env) == 0 {
+        // Either truly empty or the key was never written. Writing 0
+        // makes the key explicit; the operator will populate the index
+        // by calling rebuild_allowlist_index() with known pairs.
+        crate::storage::set_allowlist_count(env, 0);
+    }
 }
 
 /// Migrates existing settlement references to the global uniqueness index.

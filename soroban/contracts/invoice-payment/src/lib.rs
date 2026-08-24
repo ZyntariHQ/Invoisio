@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
 
 pub mod errors;
 pub mod events;
@@ -11,9 +11,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
-    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
-    STORAGE_SCHEMA_VERSION,
+    AllowedAssetEntry, AllowlistMode, AllowlistPage, Asset, ContractConfig, ContractMeta,
+    DataKey, PaymentHistoryPage, PaymentRecord, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
+    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -23,10 +23,11 @@ use events::{
 use storage::{
     allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
     clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
-    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
-    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
+    get_allowlist_count, get_allowlist_page, get_contract_config, get_count, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
+    is_native_allowed, rebuild_allowlist_index, revoke_asset, set_admin, set_contract_meta,
+    set_native_allowed, set_payment, set_pending_admin,
 };
 
 // Contract
@@ -109,6 +110,10 @@ impl InvoicePaymentContract {
         env.storage()
             .instance()
             .set(&DataKey::PaymentHistoryCount, &0u32);
+        // Initialise the allowlist counter explicitly.
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowListCount, &0u32);
         Ok(())
     }
 
@@ -448,10 +453,26 @@ impl InvoicePaymentContract {
     /// Add a `(code, issuer)` token pair to the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Validation
+    /// Aligns with `record_payment`:
+    /// - `code` must be non-empty and at most 12 characters.
+    /// - `code` must not be `"XLM"` (native is controlled by `set_allow_native`).
+    /// - `issuer` must be non-empty.
+    ///
+    /// If the pair is already allowlisted the call is a no-op and returns `Ok`.
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
+            return Err(ContractError::InvalidAsset);
+        }
+        // Align validation with record_payment: reject codes longer than 12 chars.
+        if code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+        // Native XLM cannot be allowlisted as a token pair; use set_allow_native.
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         allow_asset(&env, &code, &issuer);
@@ -462,13 +483,19 @@ impl InvoicePaymentContract {
     /// Remove a `(code, issuer)` token pair from the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// Returns [`ContractError::AssetNotFound`] when the pair was never in the
+    /// allowlist — distinguishing a no-op from a successful removal. Emits
+    /// `AssetRevoked` only when the pair was actually present.
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-        revoke_asset(&env, &code, &issuer);
+        if !revoke_asset(&env, &code, &issuer) {
+            return Err(ContractError::AssetNotFound);
+        }
         emit_asset_revoked(&env, code, issuer);
         Ok(())
     }
@@ -510,6 +537,47 @@ impl InvoicePaymentContract {
     /// Permissionless read — no auth required.
     pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return a paginated list of allowlisted `(code, issuer)` asset pairs.
+    ///
+    /// - `cursor` — zero-based slot index to start from (pass `0` for the first page).
+    /// - `limit`  — maximum entries to return (capped internally at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn list_assets(env: Env, cursor: u32, limit: u32) -> storage::AllowlistPage {
+        get_allowlist_page(&env, cursor, limit)
+    }
+
+    /// Return the total number of allowlisted asset pairs.
+    ///
+    /// Permissionless read — no auth required. Value is always consistent with
+    /// the enumeration returned by `list_assets`.
+    pub fn allowlist_count(env: Env) -> u32 {
+        get_allowlist_count(&env)
+    }
+
+    /// Rebuild the enumerable allowlist index for legacy deployments.
+    ///
+    /// Call once after upgrading a deployment that predates this version.
+    /// Supply the complete list of `(code, issuer)` pairs that were previously
+    /// allowlisted. The function skips any pair whose existence sentinel is
+    /// missing from persistent storage (silently drops stale entries).
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    pub fn rebuild_allowlist_index(
+        env: Env,
+        admin: Address,
+        pairs: Vec<AllowedAssetEntry>,
+    ) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        rebuild_allowlist_index(&env, &pairs);
+        Ok(())
     }
 
     /// Return all payments made by `payer`, paginated.
