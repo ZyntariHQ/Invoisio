@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
@@ -118,6 +119,20 @@ class FakePrisma {
   }
 }
 
+/** Helper to wrap amounts as Prisma Decimal (like real DB storage). */
+function asDecimal(amount: any): Prisma.Decimal {
+  if (amount instanceof Prisma.Decimal) return amount;
+  return new Prisma.Decimal(amount ?? 0);
+}
+
+/**
+ * Format a number to exactly 7 decimal places for assertion matching.
+ * Mirrors the normalisation done by InvoicesService.toDecimalString().
+ */
+function d7(value: number | string): string {
+  return new Prisma.Decimal(value).toFixed(7);
+}
+
 describe("InvoicesService.applySorobanPaymentEvent", () => {
   let service: InvoicesService;
   let prisma: any;
@@ -161,7 +176,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       data: {
         id,
         clientName: "A",
-        amount: 1000,
+        amount: asDecimal(1000),
         asset_code: "XLM",
         memo: "123",
         memo_type: "ID",
@@ -180,11 +195,13 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       payer: "GPAAYER",
       asset_code: "XLM",
       asset_issuer: "",
-      amount: "10000000",
+      amount: "1000",
     });
 
     expect(res?.status).toBe("paid");
     expect(res?.tx_hash).toBe("soroban:evt-123");
+    expect(res?.amountPaid).toBe(d7("1000"));
+    expect(res?.amountDue).toBe(d7("0"));
     const stored = await prisma.invoice.findUnique({ where: { id } });
     expect(stored.metadata?.soroban?.lastEventId).toBe("evt-123");
     expect(stored.metadata?.soroban?.ledger).toBe(999);
@@ -196,7 +213,7 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       data: {
         id,
         clientName: "B",
-        amount: 500,
+        amount: asDecimal(500),
         asset_code: "XLM",
         memo: "456",
         memo_type: "ID",
@@ -220,6 +237,8 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
     const normalized = await service.findOne(id, "dummyMerchantId");
     expect(first.status).toBe("paid");
     expect(normalized.status).toBe("paid");
+    expect(normalized.amountPaid).toBe(d7("500"));
+    expect(normalized.amountDue).toBe(d7("0"));
     expect(normalized.tx_hash).toBe("soroban:evt-1");
   });
 
@@ -229,9 +248,9 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
       data: {
         id,
         clientName: "C",
-        amount: 1000,
-        amountPaid: 0,
-        amountDue: 1000,
+        amount: asDecimal(1000),
+        amountPaid: asDecimal(0),
+        amountDue: asDecimal(1000),
         asset_code: "XLM",
         memo: "789",
         memo_type: "ID",
@@ -255,15 +274,131 @@ describe("InvoicesService.applySorobanPaymentEvent", () => {
 
     const first = await service.applySorobanPaymentEvent(event);
     expect(first?.status).toBe("partially_paid");
-    expect(Number((first as any).amountPaid)).toBe(300);
+    expect(first?.amountPaid).toBe(d7("300"));
+    expect(first?.amountDue).toBe(d7("700"));
 
     const replayed = await service.applySorobanPaymentEvent(event);
     expect(replayed?.status).toBe("partially_paid");
-    expect(Number((replayed as any).amountPaid)).toBe(300);
+    expect(replayed?.amountPaid).toBe(d7("300"));
+    expect(replayed?.amountDue).toBe(d7("700"));
     expect(warnSpy).toHaveBeenCalledWith(
       expect.stringContaining("Skipped replayed soroban payment"),
     );
 
     warnSpy.mockRestore();
+  });
+});
+
+describe("InvoicesService.applySorobanPaymentEvent — decimal precision", () => {
+  let service: InvoicesService;
+  let prisma: any;
+
+  const stellarStub = {
+    parseMemo: (memo: string) =>
+      memo.startsWith("invoisio-") ? memo.slice("invoisio-".length) : null,
+    getMerchantPublicKey: () =>
+      "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+  } as unknown as StellarService;
+
+  const sorobanStub = {} as unknown as SorobanService;
+  const webhooksStub = {
+    enqueueWebhook: async () => {},
+  } as unknown as WebhooksService;
+  const notificationsStub = {
+    notifyInvoicePaid: async () => {},
+    notifyInvoiceOverdue: async () => {},
+    notifyPaymentReviewFlagged: async () => {},
+  } as unknown as NotificationsService;
+  const structuredLoggerStub =
+    mockStructuredLogger as unknown as StructuredLogger;
+
+  beforeEach(async () => {
+    prisma = new FakePrisma();
+    service = new InvoicesService(
+      stellarStub,
+      sorobanStub,
+      prisma,
+      webhooksStub,
+      notificationsStub,
+      structuredLoggerStub,
+    );
+  });
+
+  it("settles after repeated partial Soroban events that sum exactly to invoice amount", async () => {
+    const id = "soro-prec-1";
+    await prisma.invoice.create({
+      data: {
+        id,
+        clientName: "SoroPrecision",
+        amount: asDecimal("0.7000000"),
+        amountPaid: asDecimal("0"),
+        amountDue: asDecimal("0.7000000"),
+        asset_code: "USDC",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        memo: "soro-m1",
+        memo_type: "ID",
+        status: "pending",
+        tx_hash: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    // Six payments of 0.1000000
+    for (let i = 1; i <= 6; i++) {
+      const r = await service.applySorobanPaymentEvent({
+        eventId: `soro-evt-${i}`,
+        contractId: "Csoro1",
+        invoice_id: `invoisio-${id}`,
+        amount: "0.1000000",
+      });
+      expect(r?.status).toBe("partially_paid");
+      expect(r?.amountDue).toBe(d7(String(0.7 - i * 0.1)));
+    }
+
+    // Seventh payment — should settle
+    const r7 = await service.applySorobanPaymentEvent({
+      eventId: "soro-evt-7",
+      contractId: "Csoro1",
+      invoice_id: `invoisio-${id}`,
+      amount: "0.1000000",
+    });
+    expect(r7?.status).toBe("paid");
+    expect(r7?.amountPaid).toBe(d7("0.7"));
+    expect(r7?.amountDue).toBe(d7("0"));
+  });
+
+  it("handles large amounts beyond safe integer range via Soroban events", async () => {
+    const id = "soro-prec-2";
+    const hugeAmount = "9999999999999.9999999";
+    await prisma.invoice.create({
+      data: {
+        id,
+        clientName: "SoroHuge",
+        amount: asDecimal(hugeAmount),
+        amountPaid: asDecimal("0"),
+        amountDue: asDecimal(hugeAmount),
+        asset_code: "USDC",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+        memo: "soro-m2",
+        memo_type: "ID",
+        status: "pending",
+        tx_hash: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
+
+    const r = await service.applySorobanPaymentEvent({
+      eventId: "soro-evt-big",
+      contractId: "Csoro2",
+      invoice_id: `invoisio-${id}`,
+      amount: hugeAmount,
+    });
+    expect(r?.status).toBe("paid");
+    expect(r?.amountPaid).toBe(d7(hugeAmount));
+    expect(r?.amountDue).toBe(d7("0"));
   });
 });

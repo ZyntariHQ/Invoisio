@@ -307,9 +307,9 @@ export class InvoicesService implements OnModuleInit {
       clientName: dto.clientName,
       clientEmail: dto.clientEmail,
       description: dto.description || null,
-      amount: dto.amount as any,
-      amountPaid: 0 as any,
-      amountDue: dto.amount as any,
+      amount: new Prisma.Decimal(dto.amount),
+      amountPaid: new Prisma.Decimal(0),
+      amountDue: new Prisma.Decimal(dto.amount),
       assetCode: dto.asset_code.toUpperCase(),
       assetIssuer: dto.asset_issuer ?? undefined,
       memo: this.generateMemoId(),
@@ -370,13 +370,13 @@ export class InvoicesService implements OnModuleInit {
       description: ActivityFeedService.formatDescription("invoice_created", {
         invoiceNumber: created.invoiceNumber,
         clientName: created.clientName,
-        amount: Number(created.amount).toFixed(2),
+        amount: String(created.amount),
         assetCode: created.assetCode,
       }),
       metadata: {
         invoiceNumber: created.invoiceNumber,
         clientName: created.clientName,
-        amount: Number(created.amount),
+        amount: String(created.amount),
         assetCode: created.assetCode,
       },
     });
@@ -625,12 +625,12 @@ export class InvoicesService implements OnModuleInit {
       type: activityType,
       description: ActivityFeedService.formatDescription(activityType, {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount).toFixed(2),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       }),
       metadata: {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
         previousStatus: status === "overdue" ? "pending" : undefined,
       },
@@ -677,12 +677,12 @@ export class InvoicesService implements OnModuleInit {
       type: "invoice_paid",
       description: ActivityFeedService.formatDescription("invoice_paid", {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount).toFixed(2),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       }),
       metadata: {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       },
     });
@@ -774,7 +774,7 @@ export class InvoicesService implements OnModuleInit {
     invoiceNumber?: string;
     merchantName: string;
     description?: string;
-    amount: number;
+    amount: string;
     asset_code: string;
     asset_issuer?: string;
     memo: string;
@@ -803,7 +803,7 @@ export class InvoicesService implements OnModuleInit {
       invoiceNumber: normalized.invoiceNumber ?? undefined,
       merchantName: invoice.merchant?.name || "Merchant",
       description: normalized.description ?? undefined,
-      amount: normalized.amount as number,
+      amount: normalized.amount,
       asset_code: normalized.asset_code ?? "",
       asset_issuer: normalized.asset_issuer ?? undefined,
       memo: normalized.memo ?? "",
@@ -883,7 +883,7 @@ export class InvoicesService implements OnModuleInit {
       const review = await this.createPaymentReviewOnce({
         txHash: params.txHash,
         contractId: params.contractId,
-        amount: Number(params.amount || 0),
+        amount: new Prisma.Decimal(params.amount || 0),
         assetCode: params.assetCode,
         assetIssuer: params.assetIssuer,
         payer: params.payer,
@@ -913,7 +913,7 @@ export class InvoicesService implements OnModuleInit {
       return { invoice: this.normalizeInvoice(existing) };
     }
 
-    const paymentAmount = Number(params.amount || 0);
+    const paymentAmount = new Prisma.Decimal(params.amount || 0);
     const observedAssetCode = this.normalizeAssetCode(params.assetCode);
     const observedAssetIssuer = this.normalizeAssetIssuer(params.assetIssuer);
     const expectedAssetCode = this.normalizeAssetCode(existing.assetCode);
@@ -979,15 +979,17 @@ export class InvoicesService implements OnModuleInit {
       return { invoice: this.normalizeInvoice(existing), review };
     }
 
-    const currentPaid = Number(existing.amountPaid || 0);
-    const newAmountPaid = currentPaid + paymentAmount;
-    const currentAmount = Number(existing.amount);
-    const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
-    const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+    const currentPaid = new Prisma.Decimal(existing.amountPaid || 0);
+    const newAmountPaid = currentPaid.plus(paymentAmount);
+    const currentAmount = new Prisma.Decimal(existing.amount);
+    const rawDiff = currentAmount.minus(newAmountPaid);
+    const newAmountDue = rawDiff.isNegative() ? new Prisma.Decimal(0) : rawDiff;
+    const isPaid = newAmountDue.isZero();
+    const newStatus = isPaid ? "paid" : "partially_paid";
     const issueType =
-      newAmountDue === 0 && newAmountPaid > currentAmount
+      isPaid && newAmountPaid.greaterThan(currentAmount)
         ? "overpaid"
-        : newAmountDue > 0
+        : newAmountDue.greaterThan(0)
           ? "underpaid"
           : null;
 
@@ -1222,12 +1224,14 @@ export class InvoicesService implements OnModuleInit {
       };
     }
 
-    const paymentAmount = Number(amount || 0);
-    const currentPaid = Number((invoice as any).amountPaid || 0);
-    const newAmountPaid = currentPaid + paymentAmount;
-    const currentAmount = Number(invoice.amount);
-    const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
-    const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+    const paymentAmount = new Prisma.Decimal(amount || 0);
+    const currentPaid = new Prisma.Decimal((invoice as any).amountPaid || 0);
+    const newAmountPaid = currentPaid.plus(paymentAmount);
+    const currentAmount = new Prisma.Decimal(invoice.amount);
+    const rawDiff = currentAmount.minus(newAmountPaid);
+    const newAmountDue = rawDiff.isNegative() ? new Prisma.Decimal(0) : rawDiff;
+    const isPaid = newAmountDue.isZero();
+    const newStatus = isPaid ? "paid" : "partially_paid";
 
     let txHash = "pending_full_payment";
     let ledger = 0;
@@ -1240,13 +1244,16 @@ export class InvoicesService implements OnModuleInit {
 
       if (!alreadyOnChain) {
         // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
-        // For the contract, we can just pass the total amount that was paid.
+        // For the contract, pass the total amount paid in integer stroops (1 unit = 10^7 stroops).
+        const stroopAmount = newAmountPaid
+          .times(10_000_000)
+          .toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
         const result = await this.sorobanService.recordInvoicePayment({
           invoiceId,
           payer,
           assetCode,
           assetIssuer,
-          amount: newAmountPaid.toString(),
+          amount: stroopAmount,
           settlementRef,
         });
         if (result) {
@@ -1465,40 +1472,24 @@ export class InvoicesService implements OnModuleInit {
     }
   }
 
-  /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
+  /** Normalize invoice before returning to callers (convert Decimal/string amounts to exact decimal strings and add destination address) */
   private normalizeInvoice(inv: any): Invoice {
-    const amount = inv?.amount;
-    let numericAmount: number | string = amount;
-    try {
-      if (
-        amount &&
-        typeof amount === "object" &&
-        typeof amount.toNumber === "function"
-      ) {
-        numericAmount = amount.toNumber();
-      } else {
-        numericAmount = Number(amount);
-      }
-    } catch {
-      numericAmount = Number(String(amount));
-    }
-
     return {
       ...inv,
-      amount: numericAmount,
-      amountPaid: this.toNumber(inv.amountPaid),
-      amountDue: this.toNumber(inv.amountDue),
-      asset_code: inv.assetCode,
-      asset: inv.assetCode,
-      asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
-      memo_type: inv.memoType,
-      tx_hash: inv.txHash,
+      amount: this.toDecimalString(inv?.amount) ?? "0",
+      amountPaid: this.toDecimalString(inv?.amountPaid),
+      amountDue: this.toDecimalString(inv?.amountDue),
+      asset_code: inv?.assetCode,
+      asset: inv?.assetCode,
+      asset_issuer: inv?.assetIssuer === null ? undefined : inv?.assetIssuer,
+      memo_type: inv?.memoType,
+      tx_hash: inv?.txHash,
       destination_address:
-        inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
-      payments: Array.isArray(inv.payments)
+        inv?.destinationAddress || this.stellarService.getMerchantPublicKey(),
+      payments: Array.isArray(inv?.payments)
         ? inv.payments.map((payment: any) => ({
             id: payment.id,
-            amount: this.toNumber(payment.amount),
+            amount: this.toDecimalString(payment.amount),
             txHash: payment.txHash,
             createdAt: payment.createdAt,
           }))
@@ -1506,17 +1497,24 @@ export class InvoicesService implements OnModuleInit {
     };
   }
 
-  /** Coerce a Prisma Decimal (or plain value) into a number for JSON output */
-  private toNumber(value: unknown): number | undefined {
+  /**
+   * Coerce a Prisma Decimal (or plain value) into a string for JSON output,
+   * normalising to 7 decimal places to match the Decimal(18, 7) schema and
+   * Stellar's stroop precision.  Trailing zeros are preserved so that API
+   * consumers always see a consistent format.
+   */
+  private toDecimalString(value: unknown): string | undefined {
     if (value === undefined || value === null) return undefined;
-    if (
-      typeof value === "object" &&
-      typeof (value as { toNumber?: unknown }).toNumber === "function"
-    ) {
-      return (value as { toNumber: () => number }).toNumber();
+    try {
+      const dec =
+        value instanceof Prisma.Decimal
+          ? value
+          : new Prisma.Decimal(value as any);
+      return dec.toFixed(7);
+    } catch {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      return String(value);
     }
-    const parsed = Number(value);
-    return Number.isNaN(parsed) ? undefined : parsed;
   }
 
   /**
