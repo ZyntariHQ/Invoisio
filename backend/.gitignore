@@ -1,0 +1,6 @@
+# Tooling and compiler outputs
+errors.txt
+typescript-errors.txt
+tsout.txt
+testout.txt
+test-results.json
