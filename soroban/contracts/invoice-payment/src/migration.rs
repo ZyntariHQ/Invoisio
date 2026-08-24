@@ -10,9 +10,10 @@ use soroban_sdk::{Env, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    current_contract_meta, ensure_current_contract_meta, get_contract_meta, get_history_count,
-    get_payment, get_payment_log_entry, get_storage_schema_version, record_settlement_ref,
-    set_contract_meta, set_history_count, DataKey, PaymentRecord, STORAGE_SCHEMA_VERSION,
+    append_payer_entry, clear_payer_indexes, current_contract_meta, ensure_current_contract_meta,
+    get_contract_meta, get_history_count, get_payment, get_payment_log_entry,
+    get_storage_schema_version, record_settlement_ref, set_contract_meta, set_history_count,
+    DataKey, PaymentRecord, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -168,13 +169,23 @@ fn sort_records_by_timestamp(env: &Env, records: Vec<PaymentRecord>) -> Vec<Paym
 }
 
 /// Writes the sorted records to the history index.
+///
+/// Also (re)constructs the per-payer payment index for every payer found in
+/// the write-order payment log, so a history rebuild always leaves
+/// `payments_by_payer` on its direct-read path (issue #445).
 fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), ContractError> {
     let count = records.len();
 
-    // Clear existing index first
-    clear_history_index(env);
+    // Collect every payer that owns per-payer index entries. The payment
+    // log enumerates every recorded payment independently of the shared
+    // index, so this stays correct even when the history index is corrupt.
+    let owners = collect_payer_owners(env);
 
-    // Write each record
+    // Clear existing indexes first
+    clear_history_index(env);
+    clear_payer_indexes(env, &owners);
+
+    // Write each record and its per-payer mapping
     for (i, record) in records.iter().enumerate() {
         let key = DataKey::PaymentHistory(i as u32);
         env.storage().persistent().set(&key, &record);
@@ -184,12 +195,52 @@ fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), Con
             crate::storage::MIN_TTL,
             crate::storage::BUMP_TTL,
         );
+        append_payer_entry(env, &record.payer, i as u32);
     }
 
     // Update history count
     set_history_count(env, count);
 
     Ok(())
+}
+
+/// Rebuilds only the per-payer payment index from an intact history index.
+///
+/// Used by the schema V1 → V2 migration when the shared history index does
+/// not need repair: ordinals are assigned by walking the existing
+/// `PaymentHistory` slots in order, so the per-payer view matches exactly
+/// what the bounded-scan fallback would have produced.
+fn rebuild_payer_indexes(env: &Env) {
+    let owners = collect_payer_owners(env);
+    clear_payer_indexes(env, &owners);
+
+    let total = get_history_count(env);
+    for i in 0..total {
+        let record: Option<PaymentRecord> =
+            env.storage().persistent().get(&DataKey::PaymentHistory(i));
+        if let Some(record) = record {
+            append_payer_entry(env, &record.payer, i);
+        }
+    }
+}
+
+/// Enumerate every payer with recorded payments via the write-order payment
+/// log. The log survives history-index corruption, so this yields a complete
+/// owner list even when `PaymentHistory` has holes — required to clear stale
+/// per-payer entries before rebuilding.
+fn collect_payer_owners(env: &Env) -> alloc::vec::Vec<soroban_sdk::Address> {
+    let mut owners: alloc::vec::Vec<soroban_sdk::Address> = alloc::vec::Vec::new();
+    let payment_count = get_payment_count(env);
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if !owners.contains(&record.payer) {
+                    owners.push(record.payer);
+                }
+            }
+        }
+    }
+    owners
 }
 
 /// Migration from schema version 0 (legacy) to version 1.
@@ -210,7 +261,42 @@ pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
     // Step 3: Record all existing settlement references for uniqueness
     migrate_settlement_refs(env)?;
 
-    // Step 4: Update the storage schema version in metadata
+    // Step 4: Update the storage schema version in metadata. This migration
+    // targets V1 specifically; the upgrade driver runs later steps (e.g.
+    // V1 → V2 per-payer index construction) separately.
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_V1;
+    set_contract_meta(env, &meta);
+
+    Ok(())
+}
+
+/// Migration from schema version 1 to version 2.
+///
+/// Schema V2 introduces the per-payer payment index so `payments_by_payer`
+/// serves pages with direct reads instead of an unbounded filtered scan of
+/// the shared history index (issue #445).
+///
+/// - If the shared history index is intact, only per-payer indexes are
+///   backfilled (ordinals mirror the existing slot order).
+/// - If the index is missing or incomplete, it is rebuilt first; the rebuild
+///   path constructs per-payer indexes as part of writing slots.
+///
+/// Idempotent: rebuilding indexes over the same record set converges to the
+/// same layout, so interrupted migrations can simply be re-run.
+pub fn migrate_schema_v1_to_v2(env: &Env) -> Result<(), ContractError> {
+    if is_index_complete(env) {
+        // Shared history index is intact — backfill payer indexes only.
+        rebuild_payer_indexes(env);
+    } else {
+        // Repair the shared index first; write_history_index constructs
+        // per-payer indexes as part of the rewrite.
+        let records = collect_all_payment_records(env)?;
+        let sorted = sort_records_by_timestamp(env, records);
+        write_history_index(env, sorted)?;
+    }
+
+    // Update the storage schema version in metadata
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
     set_contract_meta(env, &meta);
