@@ -22,6 +22,9 @@ clean:
 #   export ADMIN_SECRET=S...   (testnet secret key for the admin / backend account)
 #   The account must have testnet XLM; fund via: https://friendbot.stellar.org
 #
+# For production, use ../../deploy.sh: it deploys, initializes, verifies the
+# admin, and publishes the contract ID as one unattended operation.
+# Manual targets are retained for local development only.
 # Run targets in order: generate-identity → fund → deploy → invoke-initialize
 # → invoke-record-payment → invoke-get-payment
 

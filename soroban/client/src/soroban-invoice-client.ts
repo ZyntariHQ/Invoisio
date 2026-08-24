@@ -94,6 +94,26 @@ export class SorobanInvoiceClient {
   // ─── Write operations ───────────────────────────────────────────────────────
 
   /**
+   * Initialize a freshly deployed contract with the configured signer as admin.
+   * The installed admin must authorize this call; passing another address does
+   * not transfer authority to that address without its signature.
+   */
+  async initialize(admin: string): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(this.contract.call('initialize', encodeAddress(admin)))
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
    * Record a verified invoice payment on-chain.
    *
    * The caller is responsible for confirming the companion Stellar Payment on

@@ -119,8 +119,20 @@ Operators can monitor instance storage TTL health via:
 If instance storage expires (becomes archived), the contract may still be recoverable:
 
 1. The contract instance itself remains (it doesn't expire)
-2. A new admin can be set via contract initialization if the contract is not initialized
+2. A new admin can be set via contract initialization if the contract is not initialized; initialization requires the installed admin's authorization
 3. For initialized contracts with expired storage, a migration may be required
 
 **Note**: Instance storage expiry is rare given the 30-day `BUMP_TTL` and frequent reads from operational tooling.
+
+## Deployment Authorization
+
+`initialize(admin)` requires `admin.require_auth()`. The account running
+`deploy.sh` must therefore be the account being installed as admin; it cannot
+install a different address without that address authorizing the transaction.
+
+Deployment and initialization are separate Stellar transactions because the
+contract ID is created by deployment. `soroban/deploy.sh` runs them immediately
+as one unattended operation, verifies `config().admin` on-chain, and writes the
+contract ID file only after verification succeeds. Do not put a newly deployed
+contract into service until that script has completed successfully.
 

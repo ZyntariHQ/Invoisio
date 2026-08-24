@@ -88,6 +88,23 @@ class SorobanInvoiceClient {
         return this.submitWrite(tx);
     }
     /**
+     * Initialize a freshly deployed contract with the configured signer as admin.
+     * The installed admin must authorize this call; passing another address does
+     * not transfer authority to that address without its signature.
+     */
+    async initialize(admin) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('initialize', (0, codec_1.encodeAddress)(admin)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
      * Step 1 of the two-step admin handoff: propose `newAdmin` as the next
      * contract admin.
      *

@@ -21,7 +21,8 @@
 #   3. Fund the account from Friendbot (testnet only)
 #   4. Deploy the contract WASM
 #   5. Initialize the contract with the admin address
-#   6. Save the CONTRACT_ID to the path defined in the manifest
+#   6. Verify the initialized admin on-chain
+#   7. Save the CONTRACT_ID to the path defined in the manifest
 
 set -e
 
@@ -41,15 +42,28 @@ fi
 
 echo "📋 Loading manifest: ${MANIFEST_FILE}"
 
-# Parse TOML values with grep (no external deps required)
+# Parse section.key TOML values with awk (no external deps required)
 _toml_get() {
-    grep -E "^${1}\s*=" "$MANIFEST_FILE" | head -1 | sed 's/^[^=]*=\s*//' | tr -d '"' | tr -d "'"
+    local section="${1%%.*}"
+    local key="${1#*.}"
+    awk -v section="$section" -v key="$key" '
+        $0 ~ /^\[[^]]+\]$/ {
+            current = $0
+            gsub(/[\[\]]/, "", current)
+        }
+        current == section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            gsub(/"/, "")
+            print
+            exit
+        }
+    ' "$MANIFEST_FILE"
 }
 
 MANIFEST_IDENTITY="$(_toml_get identity.name 2>/dev/null || true)"
-MANIFEST_WASM_PATH="$(_toml_get wasm_path 2>/dev/null || true)"
-MANIFEST_CONTRACT_ID_FILE="$(_toml_get contract_id_file 2>/dev/null || true)"
-MANIFEST_SECRET_KEY_ENV="$(_toml_get secret_key_env 2>/dev/null || true)"
+MANIFEST_WASM_PATH="$(_toml_get contract.wasm_path 2>/dev/null || true)"
+MANIFEST_CONTRACT_ID_FILE="$(_toml_get contract.contract_id_file 2>/dev/null || true)"
+MANIFEST_SECRET_KEY_ENV="$(_toml_get identity.secret_key_env 2>/dev/null || true)"
 
 # Resolve configuration (env overrides manifest)
 IDENTITY="${STELLAR_IDENTITY:-${MANIFEST_IDENTITY:-invoisio-admin}}"
@@ -134,12 +148,6 @@ echo "✅ Contract deployed!"
 echo "   Contract ID: $CONTRACT_ID"
 echo ""
 
-# Save contract ID with secure permissions
-echo "$CONTRACT_ID" > "$CONTRACT_ID_FILE"
-chmod 600 "$CONTRACT_ID_FILE" 2>/dev/null || true  # Secure file, ignore on Windows
-echo "💾 Contract ID saved to $CONTRACT_ID_FILE"
-echo ""
-
 # Step 4: Initialize contract
 echo "⚙️  Step 4/4: Initializing contract..."
 echo ""
@@ -153,6 +161,26 @@ stellar contract invoke \
 
 echo ""
 echo "✅ Contract initialized with admin: $ADMIN_ADDRESS"
+echo ""
+
+# Verify the result before publishing the contract ID for downstream services.
+echo "🔎 Verifying on-chain admin..."
+CONFIG_OUTPUT=$(stellar contract invoke \
+    --id "$CONTRACT_ID" \
+    --source "$IDENTITY" \
+    --network "$NETWORK" \
+    -- config)
+printf '%s\n' "$CONFIG_OUTPUT"
+if ! printf '%s' "$CONFIG_OUTPUT" | grep -Fq "$ADMIN_ADDRESS"; then
+    echo "❌ Error: on-chain admin does not match $ADMIN_ADDRESS" >&2
+    exit 1
+fi
+echo "✅ On-chain admin verified"
+
+# Save contract ID only after deploy, initialization, and verification succeed.
+echo "$CONTRACT_ID" > "$CONTRACT_ID_FILE"
+chmod 600 "$CONTRACT_ID_FILE" 2>/dev/null || true  # Secure file, ignore on Windows
+echo "💾 Contract ID saved to $CONTRACT_ID_FILE"
 echo ""
 
 # Success summary

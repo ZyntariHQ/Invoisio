@@ -285,7 +285,7 @@
     "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." }
   },
   "methods": {
-    "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
+    "initialize": { "auth": "admin", "description": "One-time setup; sets the admin after admin authorization." },
     "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
     "get_payment": { "auth": "none", "description": "Return PaymentRecord for invoice_id." },
     "has_payment": { "auth": "none", "description": "Return true if a payment exists for invoice_id." },

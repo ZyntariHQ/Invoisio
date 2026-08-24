@@ -95,7 +95,7 @@ done
 # Source of truth for names is the #[contractimpl] block in src/lib.rs. Add an
 # entry below whenever a new public method is added.
 declare -A METHOD_AUTH=(
-  [initialize]="none"
+  [initialize]="admin"
   [record_payment]="admin"
   [get_payment]="none"
   [has_payment]="none"

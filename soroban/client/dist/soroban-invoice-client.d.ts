@@ -32,6 +32,12 @@ export declare class SorobanInvoiceClient {
     private readonly keypair;
     constructor(config: SorobanInvoiceClientConfig);
     /**
+     * Initialize a freshly deployed contract with the configured signer as admin.
+     * The installed admin must authorize this call; passing another address does
+     * not transfer authority to that address without its signature.
+     */
+    initialize(admin: string): Promise<TransactionResult>;
+    /**
      * Record a verified invoice payment on-chain.
      *
      * The caller is responsible for confirming the companion Stellar Payment on

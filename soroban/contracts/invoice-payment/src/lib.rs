@@ -102,6 +102,7 @@ impl InvoicePaymentContract {
         if has_admin(&env) {
             return Err(ContractError::AlreadyInitialized);
         }
+        admin.require_auth();
         set_admin(&env, &admin);
         // Persist explicit metadata so clients can reason about upgrades.
         set_contract_meta(&env, &current_contract_meta());

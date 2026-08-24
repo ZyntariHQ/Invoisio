@@ -16,6 +16,15 @@ fn setup(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
     let admin = Address::generate(env);
     let contract_id = env.register(InvoicePaymentContract, ());
     let client = InvoicePaymentContractClient::new(env, &contract_id);
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "initialize",
+            args: (admin.clone(),).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
     client.initialize(&admin);
     (client, admin)
 }
@@ -134,6 +143,29 @@ fn test_initialize_twice_returns_error() {
     // try_initialize returns Result — second call must fail with AlreadyInitialized.
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
+}
+
+#[test]
+fn test_initialize_requires_admin_authorization() {
+    let env = Env::default();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    let attacker = Address::generate(&env);
+    let intended_admin = Address::generate(&env);
+
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "initialize",
+            args: (intended_admin.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_initialize(&intended_admin);
+    assert!(result.is_err(), "initialize must require the installed admin's auth");
+    assert!(client.try_admin().is_err(), "failed initialize must not install an admin");
 }
 
 // record_payment

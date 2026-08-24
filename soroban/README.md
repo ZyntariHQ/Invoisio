@@ -245,7 +245,8 @@ Builds the contract WASM file for deployment.
 
 ### `./deploy.sh`
 
-Deploys the contract to Stellar testnet and initializes it.
+Deploys the contract to Stellar testnet, initializes it, verifies the expected
+admin on-chain, and publishes the contract ID only after all steps succeed.
 
 **Environment variables:**
 - `STELLAR_NETWORK` — Network to use (default: `testnet`)
@@ -255,8 +256,15 @@ Deploys the contract to Stellar testnet and initializes it.
 1. Creates/verifies the identity exists
 2. Funds the account from Friendbot (testnet only)
 3. Deploys the WASM to the network
-4. Initializes the contract with the admin address
-5. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
+4. Initializes the contract with the admin address (the admin must authorize)
+5. Verifies `config().admin` matches the expected admin
+6. Saves `CONTRACT_ID` to `contracts/invoice-payment/.contract-id`
+
+Deployment and initialization are separate Stellar transactions because the
+contract ID is created by deployment. Keep the resulting contract out of
+service until `deploy.sh` completes successfully; the script treats the
+sequence as one unattended operation and does not publish a partially
+initialized contract ID.
 
 ### Deploy Manifests
 
@@ -610,7 +618,7 @@ Contract v1 (C1) live
 
 | Method | Auth | Description |
 |--------|------|-------------|
-| `initialize(admin)` | — | One-time setup; registers the admin address. |
+| `initialize(admin)` | admin | One-time setup; registers the admin address after admin authorization. |
 | `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `settlement_ref` is a non-empty hash/reference ID (≤ 128 chars) for backend deduplication. |
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |

@@ -30,6 +30,9 @@ secret_key_env = "INVOISIO_ADMIN_SECRET"
 wasm_path       = "target/wasm32v1-none/release/invoice_payment.wasm"
 # File where the deployed contract ID is written after a successful deploy.
 contract_id_file = "contracts/invoice-payment/.contract-id"
+# deploy.sh performs deploy, initialize, and admin verification as one
+# uninterrupted operation. Stellar records these as separate transactions;
+# never expose the new contract ID for use until the script completes.
 
 [assets]
 # Allowlist of accepted payment assets.
