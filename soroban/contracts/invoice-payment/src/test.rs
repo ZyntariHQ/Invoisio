@@ -6,7 +6,7 @@ use crate::storage::{AllowlistMode, ContractConfig};
 use alloc::format;
 use soroban_sdk::{
     testutils::{Address as _, MockAuth, MockAuthInvoke},
-    Address, Env, IntoVal, String,
+    Address, BytesN, Env, IntoVal, String,
 };
 
 // TTL / Helpers
@@ -2226,6 +2226,181 @@ fn test_schema_compatibility_check() {
     // Version info should match current
     let info = client.version_info();
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);
+}
+
+// ─── upgrade() ──────────────────────────────────────────────────────────────
+//
+// The full "actually swaps the running code" path needs a real, callable
+// WASM binary — `env.deployer().upload_contract_wasm(...)` traps on
+// synthetic bytes, so that end-to-end coverage lives in the
+// `upgrade_wasm_integration` module below, gated behind the
+// `upgrade-fixture-test` feature (see its doc comment). The tests here cover
+// every rejection path, which never reach the deployer host call at all and
+// so need no real WASM.
+
+/// A syntactically valid but never-installed WASM hash — sufficient for
+/// negative tests that must fail before `upgrade()` reaches the deployer.
+fn dummy_wasm_hash(env: &Env) -> BytesN<32> {
+    BytesN::from_array(env, &[7u8; 32])
+}
+
+#[test]
+fn test_upgrade_before_initialize_returns_not_initialized() {
+    let env = Env::default();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let result = client.try_upgrade(&admin, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+}
+
+#[test]
+fn test_upgrade_requires_admin() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    env.mock_all_auths();
+
+    client.set_paused(&admin, &true);
+
+    let attacker = Address::generate(&env);
+    let result = client.try_upgrade(&attacker, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "non-admin upgrade() must return Unauthorized"
+    );
+}
+
+#[test]
+fn test_upgrade_requires_contract_paused() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    env.mock_all_auths();
+
+    // Not paused yet — must be rejected before ever touching the deployer.
+    let result = client.try_upgrade(&admin, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::MustBePausedForUpgrade)),
+        "upgrade() while unpaused must return MustBePausedForUpgrade"
+    );
+
+    // Pausing clears the way (the call then proceeds to the deployer, which
+    // traps on this placeholder hash — the pause gate itself is what this
+    // test verifies, not the deployer call).
+    assert!(!client.is_paused());
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+}
+
+/// End-to-end coverage for the documented `upgrade()` → `upgrade_storage()`
+/// runbook, using this crate's own compiled WASM as the "new" code.
+///
+/// `env.deployer().upload_contract_wasm(...)` requires real, callable WASM
+/// bytes (a synthetic byte array traps as soon as it's invoked), and
+/// `contractimport!` resolves its `file` path at compile time — so this
+/// module is opt-in via the `upgrade-fixture-test` Cargo feature rather than
+/// part of the default `cargo test` run, which the Soroban CI job runs
+/// *before* the WASM build step (and against a different build target).
+///
+/// Run it explicitly, after building the contract:
+///   ./build.sh && cargo test -p invoice-payment --features upgrade-fixture-test
+#[cfg(feature = "upgrade-fixture-test")]
+mod upgrade_wasm_integration {
+    use super::*;
+
+    mod rebuilt_self {
+        soroban_sdk::contractimport!(
+            file = "../../target/wasm32v1-none/release/invoice_payment.wasm"
+        );
+    }
+
+    /// Upgrades a live contract to a freshly-built copy of its own code, then
+    /// runs `upgrade_storage()` under that new code — exercising the full
+    /// documented runbook, not just the storage-migration step in isolation.
+    #[test]
+    fn test_wasm_upgrade_then_storage_migration_preserves_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin) = setup(&env);
+
+        // Seed state that must survive the upgrade unchanged.
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        client.allow_asset(
+            &String::from_str(&env, "USDC"),
+            &String::from_str(
+                &env,
+                "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+            ),
+        );
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("wasm-upgrade-{i:02}"));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("settle-wasm-upgrade-{i:02}")),
+            );
+        }
+
+        let admin_before = client.admin();
+        let history_before = client.payment_history(&0u32, &10u32);
+        let count_before = client.payment_count();
+        let native_allowed_before = client.config().allowlist_mode.native_allowed;
+
+        // Step 1: pause (required by upgrade()).
+        client.set_paused(&admin, &true);
+
+        // Step 2: install and switch to the new code.
+        let new_hash = env.deployer().upload_contract_wasm(rebuilt_self::WASM);
+        client.upgrade(&admin, &new_hash, &CONTRACT_VERSION);
+
+        // Step 3: run the storage migration under the new code.
+        client.upgrade_storage(&admin);
+
+        // Step 4: verify state survived, and that the new code is live.
+        assert_eq!(client.admin(), admin_before);
+        assert_eq!(client.payment_count(), count_before);
+        let history_after = client.payment_history(&0u32, &10u32);
+        assert_eq!(history_after.records.len(), history_before.records.len());
+        for (before, after) in history_before
+            .records
+            .iter()
+            .zip(history_after.records.iter())
+        {
+            assert_eq!(before.invoice_id, after.invoice_id);
+            assert_eq!(before.amount, after.amount);
+        }
+        assert_eq!(
+            client.config().allowlist_mode.native_allowed,
+            native_allowed_before
+        );
+        assert_eq!(client.contract_version(), CONTRACT_VERSION);
+        assert_eq!(
+            client.version_info().storage_schema_version,
+            STORAGE_SCHEMA_VERSION
+        );
+
+        // Step 5: unpause.
+        client.set_paused(&admin, &false);
+        assert!(!client.is_paused());
+
+        // The contract is fully functional post-upgrade, under the new code.
+        client.record_payment(
+            &String::from_str(&env, "wasm-upgrade-post"),
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &50_000_000i128,
+            &String::from_str(&env, "settle-wasm-upgrade-post"),
+        );
+        assert_eq!(client.payment_count(), count_before + 1);
+    }
 }
 
 // ─── Pause Tests ────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ import {
   decodePaymentHistoryPage,
   encodeAddress,
   encodeBool,
+  encodeBytes32,
   encodeI128,
   encodeString,
   encodeU32,
@@ -60,6 +61,7 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
  *
@@ -313,6 +315,51 @@ export class SorobanInvoiceClient {
     })
       .addOperation(
         this.contract.call('set_paused', encodeAddress(caller), encodeBool(paused)),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Upgrade the deployed contract WASM in place.
+   *
+   * The contract MUST already be paused via `setPaused(true)` — this is
+   * enforced on-chain and the call is rejected with
+   * `MustBePausedForUpgrade` otherwise. See
+   * `soroban/docs/upgrade-runbook.md` for the full
+   * pause → upgrade → upgrade_storage → verify → unpause sequence, and why
+   * the contract must stay paused for that whole window.
+   *
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @param newWasmHash - hex-encoded 32-byte hash of the WASM already
+   *   installed on-chain (e.g. via `stellar contract upload`).
+   * @param newContractVersion - packed semver of the WASM being deployed
+   *   (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`), carried in the emitted
+   *   `contract_upgraded` event for off-chain indexers. Not verified
+   *   on-chain against `newWasmHash` — must match what was actually built.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *   (e.g. `Unauthorized`, `MustBePausedForUpgrade`)
+   */
+  async upgrade(newWasmHash: string, newContractVersion: number): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          'upgrade',
+          encodeAddress(caller),
+          encodeBytes32(newWasmHash),
+          encodeU32(newContractVersion),
+        ),
       )
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();

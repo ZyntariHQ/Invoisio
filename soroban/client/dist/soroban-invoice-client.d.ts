@@ -17,6 +17,7 @@ import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams,
  * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
  *
@@ -126,6 +127,29 @@ export declare class SorobanInvoiceClient {
      */
     setPaused(paused: boolean): Promise<TransactionResult>;
     /**
+     * Upgrade the deployed contract WASM in place.
+     *
+     * The contract MUST already be paused via `setPaused(true)` — this is
+     * enforced on-chain and the call is rejected with
+     * `MustBePausedForUpgrade` otherwise. See
+     * `soroban/docs/upgrade-runbook.md` for the full
+     * pause → upgrade → upgrade_storage → verify → unpause sequence, and why
+     * the contract must stay paused for that whole window.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @param newWasmHash - hex-encoded 32-byte hash of the WASM already
+     *   installed on-chain (e.g. via `stellar contract upload`).
+     * @param newContractVersion - packed semver of the WASM being deployed
+     *   (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`), carried in the emitted
+     *   `contract_upgraded` event for off-chain indexers. Not verified
+     *   on-chain against `newWasmHash` — must match what was actually built.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `Unauthorized`, `MustBePausedForUpgrade`)
+     */
+    upgrade(newWasmHash: string, newContractVersion: number): Promise<TransactionResult>;
+    /**
      * Return the stable high-level contract configuration snapshot.
      *
      * This is the preferred single-call read for deployment checks, backend
@@ -167,6 +191,29 @@ export declare class SorobanInvoiceClient {
      * contract so responses remain bounded and predictable.
      */
     getPaymentHistory(cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
+    /**
+     * Fetch a bounded page of payments made by a single payer.
+     *
+     * Two contract read paths are selected automatically per payer:
+     *
+     * - **Per-payer index (default).** Payments recorded after the index was
+     *   introduced (or backfilled by the schema V2 migration /
+     *   `rebuild_history_index`) are served with O(limit) direct reads. Here
+     *   `cursor` is an ordinal into that payer's payment list — start at `0`
+     *   and echo `next_cursor` afterwards.
+     *
+     * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
+     *   not yet migrated), the contract scans the shared history index with
+     *   the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
+     *   per call regardless of how few records match. On this path `cursor`
+     *   is a shared-history-index slot, and **an empty page with
+     *   `has_more: true` is expected** on sparse result sets — keep paging
+     *   from `next_cursor` until it flips to `false`.
+     *
+     * In both paths `limit` is capped by the contract (25), gaps are reported
+     * in `gaps_skipped`, and `has_more: false` terminates pagination.
+     */
+    getPaymentsByPayer(payer: string, cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
     /**
      * Return `true` if the contract is currently paused (writes disabled).
      * Permissionless read.

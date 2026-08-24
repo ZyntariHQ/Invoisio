@@ -54,12 +54,27 @@ export type AdminTransferAcceptedEvent = {
     newAdmin: string;
     timestamp: bigint;
 };
+export type ContractUpgradedEvent = {
+    type: 'contract_upgraded';
+    /** Packed semver of the code that was running when `upgrade()` was called. */
+    previousVersion: number;
+    /**
+     * Caller-supplied packed semver of the code being deployed. Not verified
+     * on-chain against `newWasmHash` — see `upgrade()`'s doc comment in
+     * `contracts/invoice-payment/src/lib.rs`.
+     */
+    newVersion: number;
+    /** Hex-encoded 32-byte hash of the newly installed WASM. */
+    newWasmHash: string;
+    upgradedBy: string;
+    upgradedAt: bigint;
+};
 export type UnknownSorobanEvent = {
     type: 'unknown';
     name?: string;
     reason: string;
 };
-export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | UnknownSorobanEvent;
+export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | ContractUpgradedEvent | UnknownSorobanEvent;
 /**
  * Shape of a contract event as delivered by the Soroban RPC `getEvents`
  * endpoint (or `SorobanRpc.Server.getEvents`). `topics` and `data` are

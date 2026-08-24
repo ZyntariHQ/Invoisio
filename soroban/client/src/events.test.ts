@@ -170,6 +170,29 @@ describe('decodeSorobanEvent', () => {
     });
   });
 
+  it('decodes contract_upgraded, hex-encoding the WASM hash', () => {
+    const wasmHashBytes = Uint8Array.from({ length: 32 }, (_, i) => i);
+    const event: SorobanEventInput = {
+      topics: [topic('contract_upgraded')],
+      data: vecPayload(
+        nativeToScVal(1_000_000, { type: 'u32' }),
+        nativeToScVal(1_001_000, { type: 'u32' }),
+        nativeToScVal(wasmHashBytes, { type: 'bytes' }),
+        nativeToScVal(G_ADMIN, { type: 'address' }),
+        nativeToScVal(1_786_000_200, { type: 'u64' }),
+      ),
+    };
+
+    expect(decodeSorobanEvent(event)).toEqual({
+      type: 'contract_upgraded',
+      previousVersion: 1_000_000,
+      newVersion: 1_001_000,
+      newWasmHash: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
+      upgradedBy: G_ADMIN,
+      upgradedAt: BigInt(1_786_000_200),
+    });
+  });
+
   it('passes unknown event names through as unknown instead of throwing', () => {
     const event: SorobanEventInput = {
       topics: [topic('some_future_event')],
