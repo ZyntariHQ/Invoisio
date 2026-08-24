@@ -17,6 +17,19 @@ export interface AnchoringStatus {
   message?: string;
 }
 
+export interface WatcherCursorInfo {
+  watcher: string;
+  cursor: string;
+  /** Seconds since the cursor was last persisted; null when never checkpointed. */
+  secondsSinceCheckpoint: number | null;
+}
+
+export interface WatcherDeadLetterInfo {
+  watcher: string;
+  pendingCount: number;
+  oldestPendingAt: string | null;
+}
+
 export interface HealthReport {
   ok: boolean;
   version: string;
@@ -27,6 +40,10 @@ export interface HealthReport {
     postgres: DependencyStatus;
     horizon: DependencyStatus;
     soroban_rpc: DependencyStatus;
+  };
+  watchers?: {
+    cursors: WatcherCursorInfo[];
+    deadLetters: WatcherDeadLetterInfo[];
   };
 }
 
@@ -60,6 +77,7 @@ export class HealthService {
       soroban_rpc.status === "up";
 
     const anchoring = this.getAnchoringStatus();
+    const watchers = await this.getWatcherObservability();
 
     return {
       ok,
@@ -68,6 +86,7 @@ export class HealthService {
       timestamp: new Date().toISOString(),
       anchoring,
       checks: { postgres, horizon, soroban_rpc },
+      ...(watchers ? { watchers } : {}),
     };
   }
 
@@ -96,7 +115,8 @@ export class HealthService {
   private getAnchoringStatus(): AnchoringStatus {
     const enabled = process.env.SOROBAN_ANCHORING_ENABLED === "true";
     const contractId = process.env.SOROBAN_CONTRACT_ID || "";
-    const adminKey = process.env.ADMIN_SECRET_KEY || process.env.SOROBAN_SECRET_KEY || "";
+    const adminKey =
+      process.env.ADMIN_SECRET_KEY || process.env.SOROBAN_SECRET_KEY || "";
 
     const contractIdConfigured = contractId.length > 0;
     const adminKeyConfigured = adminKey.length > 0;
@@ -106,7 +126,8 @@ export class HealthService {
       if (!contractIdConfigured) {
         message = "SOROBAN_CONTRACT_ID is required when anchoring is enabled";
       } else if (!adminKeyConfigured) {
-        message = "ADMIN_SECRET_KEY or SOROBAN_SECRET_KEY is required when anchoring is enabled";
+        message =
+          "ADMIN_SECRET_KEY or SOROBAN_SECRET_KEY is required when anchoring is enabled";
       } else {
         message = "Anchoring is fully configured and operational";
       }
@@ -121,6 +142,49 @@ export class HealthService {
       adminKeyConfigured,
       message,
     };
+  }
+
+  /**
+   * Persisted live-watcher cursor positions and pending dead-letter counts,
+   * so cursor drift and poison records are observable without reading logs.
+   * Best-effort: observability must never break the readiness probe itself.
+   */
+  private async getWatcherObservability(): Promise<{
+    cursors: WatcherCursorInfo[];
+    deadLetters: WatcherDeadLetterInfo[];
+  } | null> {
+    try {
+      const [cursors, deadLetterGroups] = await Promise.all([
+        this.prisma.watcherCursor.findMany(),
+        this.prisma.watcherDeadLetter.groupBy({
+          by: ["watcher"],
+          where: { status: "pending" },
+          _count: { _all: true },
+          _min: { createdAt: true },
+        }),
+      ]);
+
+      const now = Date.now();
+      return {
+        cursors: cursors.map((row) => ({
+          watcher: row.watcher,
+          cursor: row.cursor,
+          secondsSinceCheckpoint: Math.round(
+            (now - row.updatedAt.getTime()) / 1000,
+          ),
+        })),
+        deadLetters: deadLetterGroups.map((group) => ({
+          watcher: group.watcher,
+          pendingCount: group._count._all,
+          oldestPendingAt: group._min.createdAt?.toISOString() ?? null,
+        })),
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Watcher observability query failed: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   private async checkPostgres(): Promise<DependencyStatus> {
