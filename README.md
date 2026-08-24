@@ -5,9 +5,9 @@ Invoisio is a modern, privacy‑first invoice platform. It combines AI‑assiste
 
 Invoisio is being adapted to run with grant programs on **GrantFox (grantfox.xyz)** so contributors can help fund and use the app in real projects.
 
-![Next.js](https://img.shields.io/badge/Next.js-14.2.16-black?style=for-the-badge&logo=nextdotjs)
+![Next.js](https://img.shields.io/badge/Next.js-16.1.6-black?style=for-the-badge&logo=nextdotjs)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue?style=for-the-badge&logo=typescript)
-![Tailwind](https://img.shields.io/badge/Tailwind_CSS-^3.x-38B2AC?style=for-the-badge&logo=tailwindcss)
+![Tailwind](https://img.shields.io/badge/Tailwind_CSS-^4.0-38B2AC?style=for-the-badge&logo=tailwindcss)
 ![Stellar](https://img.shields.io/badge/Stellar-Network-7D00FF?style=for-the-badge&logo=stellar)
 ![Soroban](https://img.shields.io/badge/Soroban-ready-7D00FF?style=for-the-badge) <!-- optional if you later add Soroban -->
 
@@ -19,8 +19,10 @@ Invoisio is being adapted to run with grant programs on **GrantFox (grantfox.xyz
 - **Live status updates** via intelligent polling with exponential backoff
 - Ultra‑low‑cost payments on Stellar: XLM and USDC
 - Real‑time backend reconciliation via Horizon (listen for payments + memo)
-- Privacy‑first mindset; collect only what’s necessary- Mobile smoke test checklist: [`mobile/SMOKE_TEST_CHECKLIST.md`](mobile/SMOKE_TEST_CHECKLIST.md)## 💳 Invoice Detail & Payment
+- Privacy‑first mindset; collect only what’s necessary
+- Mobile smoke test checklist: [`mobile/SMOKE_TEST_CHECKLIST.md`](mobile/SMOKE_TEST_CHECKLIST.md)
 
+## 💳 Invoice Detail & Payment
 The **invoice detail page** (web: `/invoices/[id]`) allows payers to:
 
 1. **View Invoice Details** — Client name, amount, due date, payment instructions
@@ -40,21 +42,31 @@ The **invoice detail page** (web: `/invoices/[id]`) allows payers to:
 - ✅ **Transaction Tracking** — Displays `tx_hash` after payment confirmed
 - ✅ **Responsive Design** — Works seamlessly on web
 
-For detailed integration docs, see [docs/INVOICE_PAYMENT_SETUP.md](docs/INVOICE_PAYMENT_SETUP.md) and [docs/invoice-detail-payment-flow.md](docs/invoice-detail-payment-flow.md).
+For detailed integration docs, see the [Documentation Index](docs/INDEX.md).
+
+## 🧭 Where Things Live
+
+If you are new to the project, here is how to navigate the codebase:
+- **Frontend App**: `web/` (Next.js 16, React, Tailwind)
+- **Backend API**: `backend/` (NestJS, Prisma, PostgreSQL)
+- **Mobile Client**: `mobile/` (Expo React Native)
+- **Smart Contracts**: `soroban/` (Rust Soroban contracts)
+- **Documentation**: `docs/` (Specs and implementation guides)
+- **Obsolete Code**: `legacy/` (EVM prototypes, old dashboards)
+
 ## 🏗️ Monorepo Structure
 
-```
+```text
 ./
-├── webapp/         # Next.js 14 app (frontend UI)
-├── backend/        # New Stellar-first NestJS API (invoices, payments, Soroban integration)
-├── smart-contracts/ # Soroban smart contracts (Rust · stellar contract init)
+├── web/            # Next.js 16 app (frontend UI)
+├── backend/        # Stellar-first NestJS API (invoices, payments)
+├── mobile/         # Expo React Native client
+├── soroban/        # Rust Soroban smart contracts
 │   └── contracts/
 │       └── invoice-payment/   # Invoice payment tracking contract
-└── legacy/         # All legacy code kept during migration
-    ├── backend-legacy/ # Original backend kept as reference during migration
-    └── legacy-evm/     # EVM prototype (Solidity + Hardhat)
-        ├── contracts/  # Solidity PaymentRouter and related contracts
-        └── hardhat/    # Hardhat project (compile/deploy EVM router)
+├── docs/           # Project documentation and specifications
+├── scripts/        # Utility scripts
+└── legacy/         # Old prototypes (EVM, webapp, app, server)
 ```
 
 ## 🚀 Quick Start
@@ -130,9 +142,9 @@ The frontend handles:
 
 ## 🔧 Soroban (Stellar smart contracts)
 
-The `smart-contracts/` workspace contains Rust-based Soroban contracts built with the official `stellar contract init` template.
+The `soroban/` workspace contains Rust-based Soroban contracts built with the official `stellar contract init` template.
 
-### `invoice-payment` contract (live in `smart-contracts/contracts/invoice-payment/`)
+### `invoice-payment` contract (live in `soroban/contracts/invoice-payment/`)
 
 Tracks invoice payments on-chain so the backend can reconcile Soroban events with native Horizon payment streams.
 
@@ -149,12 +161,12 @@ Every `record_payment` emits a Soroban event carrying the full `PaymentRecord`, 
   - Destination: `MERCHANT_PUBLIC_KEY`
   - Asset: XLM or USDC on Stellar
   - Memo: `MEMO_PREFIX + <invoiceId>` for off‑chain matching
-- Soroban (`smart-contracts/`):
+- Soroban (`soroban/`):
   - `invoice-payment` contract records and indexes payment state
   - Events consumers can stream: topics `("payment", "recorded")`
   - Future room for programmable discounts, escrow, or milestone payments
 
-See [`smart-contracts/README.md`](smart-contracts/README.md) for full build, deploy, and invocation instructions.
+See [`soroban/README.md`](soroban/README.md) for full build, deploy, and invocation instructions.
 
 ## 📚 Documentation
 
@@ -169,12 +181,12 @@ For complete project documentation, including implementation guides, walkthrough
 - Backend:
   - `npm run start:dev` — run NestJS in watch mode
   - `npm run test` / `npm run test:e2e` — tests
-- Soroban contracts (`smart-contracts/`):
+- Soroban contracts (`soroban/`):
   - `stellar contract build` — compile to WASM
   - `cargo test` — run all unit tests (no network needed)
   - `make deploy` — deploy to Stellar testnet (from `contracts/invoice-payment/`)
   - `make invoke-record-payment CONTRACT_ID=<id> ...` — call contract on testnet
-  - See [`smart-contracts/README.md`](smart-contracts/README.md) for full details
+  - See [`soroban/README.md`](soroban/README.md) for full details
 - Legacy contracts/Hardhat (EVM prototype, optional):
   - `npx hardhat compile` — compile contracts
   - `npx hardhat run scripts/deploy.js --network baseSepolia` — deploy router
