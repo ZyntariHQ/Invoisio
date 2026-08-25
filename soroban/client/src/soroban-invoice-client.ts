@@ -15,6 +15,8 @@ import {
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
+  SettlementRefIndexStatus,
+  SettlementRefPage,
   SorobanInvoiceClientConfig,
   TransactionResult,
 } from './types';
@@ -23,6 +25,9 @@ import {
   decodeContractConfig,
   decodePaymentRecord,
   decodePaymentHistoryPage,
+  decodeSettlementRefIndexStatus,
+  decodeSettlementRefOwner,
+  decodeSettlementRefPage,
   encodeAddress,
   encodeBool,
   encodeBytes32,
@@ -116,6 +121,13 @@ export class SorobanInvoiceClient {
    * Both fields are validated locally before the transaction is built, so a
    * non-canonical value fails fast with a plain `Error` instead of spending
    * a transaction on a simulation the contract would reject.
+   *
+   * ## Diagnosing a `SettlementRefAlreadyUsed` rejection
+   * That rejection alone doesn't say whether it's a benign retry of an
+   * already-successful attempt, or a genuine reconciliation conflict from a
+   * different invoice claiming the same reference — call
+   * {@link getSettlementRefOwner} with the same `settlementRef` and compare
+   * the returned invoice ID to the one just attempted (issue #495).
    *
    * @throws {Error} if `invoiceId` or `settlementRef` is not canonical
    * @throws {SorobanContractError} on contract-level rejection
@@ -574,6 +586,63 @@ export class SorobanInvoiceClient {
   async isPaused(): Promise<boolean> {
     const retval = await this.simulateView('is_paused');
     return Boolean(scValToNative(retval));
+  }
+
+  /**
+   * Resolve a settlement reference to the invoice ID that consumed it.
+   *
+   * Returns `null` when the reference is unused — a plain "not found"
+   * result rather than an error, since an unused reference is a normal,
+   * expected outcome for this read (issue #495).
+   *
+   * ## Disambiguating a `SettlementRefAlreadyUsed` rejection from `recordPayment`
+   * Call this with the same `settlementRef` and compare the returned
+   * invoice ID to the one just attempted: equal means a benign retry of an
+   * already-successful anchoring attempt; different means a genuine
+   * reconciliation conflict where another invoice already claimed the
+   * reference.
+   *
+   * Permissionless read.
+   */
+  async getSettlementRefOwner(settlementRef: string): Promise<string | null> {
+    const retval = await this.simulateView('settlement_ref_owner', encodeString(settlementRef));
+    return decodeSettlementRefOwner(retval);
+  }
+
+  /**
+   * Fetch a bounded page of the settlement-reference index in write order,
+   * so operators can enumerate and audit every settlement reference ever
+   * recorded (issue #495).
+   *
+   * `cursor` is the next write-order index to read; `limit` is capped by
+   * the contract, mirroring `getPaymentHistory`. A missing index slot is
+   * skipped and counted in `gapsSkipped` rather than stalling pagination —
+   * keep paging from `nextCursor` until `hasMore` is `false`.
+   */
+  async getSettlementRefHistory(cursor = 0, limit = 25): Promise<SettlementRefPage> {
+    const retval = await this.simulateView(
+      'settlement_ref_history',
+      encodeU32(cursor),
+      encodeU32(limit),
+    );
+    return decodeSettlementRefPage(retval);
+  }
+
+  /**
+   * Return a quick consistency summary for the settlement-reference index.
+   *
+   * `isConsistent` reads `false` when some payment's settlement reference
+   * was never recorded — for example legacy data with an empty
+   * `settlementRef`, or a duplicate reference migration deliberately left
+   * unresolved rather than silently overwrite. Use `getSettlementRefHistory`
+   * together with `getPaymentHistory` to find the affected payments.
+   *
+   * O(1) — only compares counters, does not walk every payment.
+   * Permissionless read.
+   */
+  async getSettlementRefIndexStatus(): Promise<SettlementRefIndexStatus> {
+    const retval = await this.simulateView('settlement_ref_index_status');
+    return decodeSettlementRefIndexStatus(retval);
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

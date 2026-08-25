@@ -86,6 +86,47 @@ export interface PaymentHistoryPage {
   readonly hasMore: boolean;
 }
 
+/**
+ * A single settlement-reference → invoice_id mapping, as recorded by
+ * `record_payment` or backfilled by migration.
+ */
+export interface SettlementRefEntry {
+  readonly settlementRef: string;
+  readonly invoiceId: string;
+}
+
+/**
+ * Bounded, cursor-friendly page of the settlement-reference index returned
+ * by `settlement_ref_history()`. Mirrors `PaymentHistoryPage`'s pagination
+ * conventions.
+ */
+export interface SettlementRefPage {
+  readonly records: SettlementRefEntry[];
+  readonly nextCursor: number;
+  readonly hasMore: boolean;
+  /** Number of index slots in this page's range that were expected to hold
+   * an entry but did not (e.g. a corrupted or partially-rebuilt index). */
+  readonly gapsSkipped: number;
+}
+
+/**
+ * Quick consistency summary for the settlement-reference index, returned by
+ * `settlement_ref_index_status()`.
+ *
+ * `isConsistent` is `true` only when every recorded payment has a
+ * corresponding settlement-reference mapping. It reads `false` when some
+ * payment's settlement_ref was never recorded — e.g. an empty settlement_ref
+ * on legacy (pre-guard) data, or a duplicate reference that migration
+ * deliberately left unresolved rather than silently overwrite. Use
+ * `getSettlementRefHistory` together with `getPaymentHistory` to find the
+ * affected payments.
+ */
+export interface SettlementRefIndexStatus {
+  readonly settlementRefCount: number;
+  readonly paymentCount: number;
+  readonly isConsistent: boolean;
+}
+
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 // The typed contract error manifest (codes + meanings) lives in

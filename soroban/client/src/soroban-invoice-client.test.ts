@@ -469,6 +469,163 @@ describe('getPayment', () => {
   });
 });
 
+describe('getSettlementRefOwner', () => {
+  it('resolves a used settlement reference to its owning invoice ID', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(nativeToScVal('invoisio-abc123', { type: 'string' }));
+      },
+    );
+
+    await expect(
+      makeClient().getSettlementRefOwner('settle-hash-abc123'),
+    ).resolves.toBe('invoisio-abc123');
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'settlement_ref_owner',
+      args: ['settle-hash-abc123'],
+    });
+  });
+
+  it('returns null for an unused settlement reference', async () => {
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockResolvedValue(
+      simulateSuccess(nativeToScVal(null, { type: 'void' })),
+    );
+
+    await expect(makeClient().getSettlementRefOwner('settle-never-used')).resolves.toBeNull();
+  });
+});
+
+describe('getSettlementRefHistory', () => {
+  it('decodes a page of settlement-reference entries in write order', async () => {
+    const page = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('records', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([
+          xdr.ScVal.scvMap([
+            new xdr.ScMapEntry({
+              key: nativeToScVal('settlement_ref', { type: 'symbol' }),
+              val: nativeToScVal('settle-001', { type: 'string' }),
+            }),
+            new xdr.ScMapEntry({
+              key: nativeToScVal('invoice_id', { type: 'symbol' }),
+              val: nativeToScVal('invoisio-001', { type: 'string' }),
+            }),
+          ]),
+          xdr.ScVal.scvMap([
+            new xdr.ScMapEntry({
+              key: nativeToScVal('settlement_ref', { type: 'symbol' }),
+              val: nativeToScVal('settle-002', { type: 'string' }),
+            }),
+            new xdr.ScMapEntry({
+              key: nativeToScVal('invoice_id', { type: 'symbol' }),
+              val: nativeToScVal('invoisio-002', { type: 'string' }),
+            }),
+          ]),
+        ]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('next_cursor', { type: 'symbol' }),
+        val: nativeToScVal(2, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('has_more', { type: 'symbol' }),
+        val: nativeToScVal(false, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('gaps_skipped', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+    ]);
+
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(page);
+      },
+    );
+
+    await expect(makeClient().getSettlementRefHistory(0, 25)).resolves.toEqual({
+      records: [
+        { settlementRef: 'settle-001', invoiceId: 'invoisio-001' },
+        { settlementRef: 'settle-002', invoiceId: 'invoisio-002' },
+      ],
+      nextCursor: 2,
+      hasMore: false,
+      gapsSkipped: 0,
+    });
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'settlement_ref_history',
+      args: [0, 25],
+    });
+  });
+
+  it('defaults cursor to 0 and limit to 25', async () => {
+    const emptyPage = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('records', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('next_cursor', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('has_more', { type: 'symbol' }),
+        val: nativeToScVal(false, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('gaps_skipped', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+    ]);
+
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(emptyPage);
+      },
+    );
+
+    await makeClient().getSettlementRefHistory();
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'settlement_ref_history',
+      args: [0, 25],
+    });
+  });
+});
+
+describe('getSettlementRefIndexStatus', () => {
+  it('decodes the (count, count, is_consistent) tuple', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(
+          xdr.ScVal.scvVec([
+            nativeToScVal(4, { type: 'u32' }),
+            nativeToScVal(5, { type: 'u32' }),
+            nativeToScVal(false, { type: 'bool' }),
+          ]),
+        );
+      },
+    );
+
+    await expect(makeClient().getSettlementRefIndexStatus()).resolves.toEqual({
+      settlementRefCount: 4,
+      paymentCount: 5,
+      isConsistent: false,
+    });
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'settlement_ref_index_status',
+      args: [],
+    });
+  });
+});
+
 describe('config read method', () => {
   it('getConfig() decodes the complete contract config snapshot including paused flag', async () => {
     const configVal = xdr.ScVal.scvMap([

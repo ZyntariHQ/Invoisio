@@ -7,6 +7,9 @@ import {
   getContractErrorCode,
   PaymentHistoryPage,
   PaymentRecord,
+  SettlementRefEntry,
+  SettlementRefIndexStatus,
+  SettlementRefPage,
   SorobanContractError,
 } from './types';
 
@@ -220,6 +223,59 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
       ),
     },
     paused: Boolean(raw['paused']),
+  };
+}
+
+/**
+ * Decode the `Option<String>` returned by `settlement_ref_owner()`.
+ *
+ * `scValToNative` resolves an absent Soroban `Option` to `null` or
+ * `undefined` depending on SDK version; both map to `null` here so callers
+ * get a single, unambiguous "not found" sentinel rather than an error (issue
+ * #495) — the same convention `getPendingAdmin()` already uses.
+ */
+export function decodeSettlementRefOwner(scVal: xdr.ScVal): string | null {
+  const native = scValToNative(scVal);
+  return native === null || native === undefined ? null : String(native);
+}
+
+function decodeSettlementRefEntryFromNative(raw: Record<string, unknown>): SettlementRefEntry {
+  return {
+    settlementRef: String(raw['settlement_ref']),
+    invoiceId: String(raw['invoice_id']),
+  };
+}
+
+/**
+ * Decode a bounded settlement-reference page returned by
+ * `settlement_ref_history()`.
+ */
+export function decodeSettlementRefPage(scVal: xdr.ScVal): SettlementRefPage {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const records = (raw['records'] as Record<string, unknown>[] | undefined) ?? [];
+
+  return {
+    records: records.map((record) => decodeSettlementRefEntryFromNative(record)),
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
+    gapsSkipped: Number(raw['gaps_skipped']),
+  };
+}
+
+/**
+ * Decode the `(u32, u32, bool)` tuple returned by
+ * `settlement_ref_index_status()`.
+ */
+export function decodeSettlementRefIndexStatus(scVal: xdr.ScVal): SettlementRefIndexStatus {
+  const [settlementRefCount, paymentCount, isConsistent] = scValToNative(scVal) as [
+    number,
+    number,
+    boolean,
+  ];
+  return {
+    settlementRefCount: Number(settlementRefCount),
+    paymentCount: Number(paymentCount),
+    isConsistent: Boolean(isConsistent),
   };
 }
 

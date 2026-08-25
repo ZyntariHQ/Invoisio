@@ -201,17 +201,25 @@ pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
 }
 
 /// Event emitted when settlement references are migrated during upgrade.
+///
+/// `conflicts_skipped` counts payments whose settlement_ref was already
+/// owned by a different invoice in the index and was therefore left
+/// untouched rather than overwritten (issue #495) — a non-zero value here
+/// means genuine pre-existing duplicate settlement references were found and
+/// need operator investigation, not that the migration failed.
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettlementRefsMigrated {
     pub count: u32,
+    pub conflicts_skipped: u32,
     pub migrated_at: u64,
 }
 
 /// Emit settlement references migrated event.
-pub fn emit_settlement_refs_migrated(env: &Env, count: u32) {
+pub fn emit_settlement_refs_migrated(env: &Env, count: u32, conflicts_skipped: u32) {
     let payload = SettlementRefsMigrated {
         count,
+        conflicts_skipped,
         migrated_at: env.ledger().timestamp(),
     };
     payload.publish(env);

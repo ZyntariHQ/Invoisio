@@ -66,14 +66,27 @@ pub const CONTRACT_VERSION_MINOR: u32 = 0;
 pub const CONTRACT_VERSION_PATCH: u32 = 0;
 /// Current storage schema version.
 ///
-/// V2 introduces the per-payer payment index (`PayerPaymentCount` /
-/// `PayerPaymentIdx`) maintained on write by `record_payment` and
-/// backfilled for legacy deployments by `migrate_schema_v1_to_v2` /
-/// `rebuild_payment_history_index`. See issue #445.
-pub const STORAGE_SCHEMA_VERSION: u32 = 2;
+/// V3 changes what `DataKey::SettlementRef(ref)` stores: previously a unit
+/// value marking the reference as "used", now the invoice_id that consumed
+/// it, so `settlement_ref_owner` can resolve a reference back to its owning
+/// invoice. Backfilled for legacy deployments by `migrate_schema_v2_to_v3`.
+/// See issue #495.
+///
+/// **Maintenance note:** each migration step function stamps
+/// `ContractMeta.storage_schema_version` with the fixed constant for the
+/// version *it* reaches (e.g. `migrate_schema_v1_to_v2` stamps
+/// `STORAGE_SCHEMA_V2`), never this constant directly — `upgrade_storage_schema`
+/// is what stamps `STORAGE_SCHEMA_VERSION` once every step up to the final
+/// target has run. If you add a new final step (e.g. V3 → V4), change the
+/// previous final step to stamp its own fixed constant instead of this one.
+pub const STORAGE_SCHEMA_VERSION: u32 = 3;
 
 /// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
 pub const STORAGE_SCHEMA_V1: u32 = 1;
+
+/// Schema version that introduced the per-payer payment index
+/// (`PayerPaymentCount` / `PayerPaymentIdx`). See issue #445.
+pub const STORAGE_SCHEMA_V2: u32 = 2;
 
 /// Legacy deployments (before explicit version metadata existed).
 pub const LEGACY_CONTRACT_VERSION: u32 = 0;
@@ -91,6 +104,10 @@ pub const CONTRACT_VERSION: u32 = pack_version(
 
 /// Maximum number of payment records returned in one history page.
 pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
+
+/// Maximum number of settlement-reference entries returned in one
+/// `settlement_ref_history` page. Mirrors `MAX_PAYMENT_HISTORY_PAGE_SIZE`.
+pub const MAX_SETTLEMENT_REF_PAGE_SIZE: u32 = 25;
 
 // ─── Identifier Canonicalisation ────────────────────────────────────────────
 //
@@ -275,10 +292,21 @@ pub enum DataKey {
     /// Address proposed as the next admin by `propose_admin()` in **instance**
     /// storage. Read by `accept_admin()` to complete the two-step handoff.
     PendingAdmin,
-    // Add to DataKey enum
-    /// Global index tracking used settlement references.
-    /// Key: SettlementRef(String) -> unit value (exists = used)
+    /// Global index resolving a settlement reference to the invoice_id that
+    /// consumed it, in **persistent** storage.
+    /// Key: `SettlementRef(settlement_ref) -> invoice_id`.
+    ///
+    /// Before schema V3 this stored a unit value (existence only); V3
+    /// backfills every entry with its owning invoice_id (issue #495).
     SettlementRef(String),
+    /// Running count of settlement references recorded (persistent index
+    /// size), in **instance** storage. Mirrors `PaymentCount`.
+    SettlementRefCount,
+    /// Append-only write-order log of settlement-reference → invoice_id
+    /// mappings, keyed by `SettlementRefCount` index at write time. Powers
+    /// `settlement_ref_history` pagination, mirroring `PaymentLog`'s role
+    /// for `PaymentHistory`.
+    SettlementRefLog(u32),
 }
 
 // Data structures
@@ -358,6 +386,32 @@ pub struct PaymentHistoryPage {
     /// partially-rebuilt index). Always `0` for a healthy index. Off-chain
     /// tooling can use this to detect index corruption without inferring it
     /// from record counts.
+    pub gaps_skipped: u32,
+}
+
+/// A single settlement-reference → invoice_id mapping, as recorded by
+/// `record_payment` or backfilled by migration. Used both as the stored
+/// enumeration-log value and as a page record in [`SettlementRefPage`].
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettlementRefEntry {
+    pub settlement_ref: String,
+    pub invoice_id: String,
+}
+
+/// A bounded, cursor-friendly slice of the settlement-reference index.
+/// Mirrors [`PaymentHistoryPage`]'s pagination and gap-skipping conventions.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct SettlementRefPage {
+    /// Entries returned for this page, in write order.
+    pub records: Vec<SettlementRefEntry>,
+    /// Cursor to pass to the next call.
+    pub next_cursor: u32,
+    /// True when more entries are available after `next_cursor`.
+    pub has_more: bool,
+    /// Number of index slots in `[cursor, next_cursor)` that were expected to
+    /// hold an entry but did not. Always `0` for a healthy index.
     pub gaps_skipped: u32,
 }
 
@@ -1068,8 +1122,10 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
                 // V1 → V2: backfill per-payer payment indexes (#445)
                 crate::migration::migrate_schema_v1_to_v2(env)?;
             }
-            // Future migrations:
-            // 2 => migrate_schema_v2_to_v3(env)?,
+            2 => {
+                // V2 → V3: backfill settlement_ref → invoice_id mapping (#495)
+                crate::migration::migrate_schema_v2_to_v3(env)?;
+            }
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
         version += 1;
@@ -1088,39 +1144,196 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
 }
 
 // ─── Settlement Reference Helpers ──────────────────────────────────────────
+//
+// `SettlementRef(ref) -> invoice_id` resolves a settlement reference back to
+// the invoice that consumed it (issue #495) — previously this key stored a
+// unit value (existence only), so `SettlementRefAlreadyUsed` told a caller
+// *that* a reference was taken but nothing about *what* took it. That made a
+// benign retry (the same invoice re-anchoring after a transient failure)
+// indistinguishable from a genuine reconciliation conflict (a different
+// invoice claiming the same reference). `get_settlement_ref_owner` closes
+// that gap: a caller who gets `SettlementRefAlreadyUsed` can look up the
+// owner and compare it to the invoice_id they just attempted.
+//
+// `SettlementRefLog` / `SettlementRefCount` add a write-order enumeration
+// index (mirroring `PaymentLog` / `PaymentCount`) so the reference set can be
+// paginated for audit and reconciliation, the same write-only-storage gap
+// already closed for the asset allowlist (issue #464).
+//
+// ## No admin-gated correction path
+//
+// A reference recorded in error (e.g. a duplicate resurfaced by a migration
+// bug) has no on-chain removal or reassignment method, by design. An
+// admin-callable "unmark this settlement reference" primitive would let a
+// compromised or careless admin key quietly sever the exact link this
+// guarantee exists to protect — the reference-to-invoice mapping is meant to
+// be independently verifiable audit evidence, not admin-editable state.
+// Correcting a genuinely bad entry is a data-integrity event, not a routine
+// operation: it should go through the same reviewed path as any other
+// storage-shape fix — a new schema version and migration, exactly like the
+// `migrate_schema_v2_to_v3` backfill below — so the correction itself is
+// auditable rather than silent.
 
-/// Key for tracking used settlement references in persistent storage.
+/// Key for the settlement-reference → invoice_id mapping in persistent
+/// storage.
 fn settlement_ref_key(ref_str: &String) -> DataKey {
     DataKey::SettlementRef(ref_str.clone())
 }
 
-/// Checks if a settlement reference has already been used.
-///
-/// # Arguments
-/// * `env` - The Soroban environment
-/// * `ref_str` - The settlement reference to check
-///
-/// # Returns
-/// * `true` if the reference has been used
-/// * `false` otherwise
-pub fn is_settlement_ref_used(env: &Env, ref_str: &String) -> bool {
-    let key = settlement_ref_key(ref_str);
-    env.storage().persistent().has(&key)
+fn settlement_ref_log_key(index: u32) -> DataKey {
+    DataKey::SettlementRefLog(index)
 }
 
-/// Records a settlement reference as used and extends its TTL.
-///
-/// # Arguments
-/// * `env` - The Soroban environment
-/// * `ref_str` - The settlement reference to record
-///
-/// # Panics
-/// * If the reference is already used (caller should check first)
-pub fn record_settlement_ref(env: &Env, ref_str: &String) {
+/// Returns `true` if a settlement reference has already been recorded.
+/// Extends persistent storage TTL if the entry exists.
+pub fn is_settlement_ref_used(env: &Env, ref_str: &String) -> bool {
     let key = settlement_ref_key(ref_str);
-    // Store a unit value since we only care about existence
-    env.storage().persistent().set(&key, &());
+    let used = env.storage().persistent().has(&key);
+    if used {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    used
+}
+
+/// Resolve a settlement reference to the invoice_id that consumed it.
+/// Extends persistent storage TTL if the entry exists.
+///
+/// Returns `None` when the reference has never been recorded — a plain,
+/// unambiguous "not found" result rather than an error, since an unused
+/// reference is a normal, expected outcome for this read (see
+/// `InvoicePaymentContract::settlement_ref_owner` in `lib.rs`).
+pub fn get_settlement_ref_owner(env: &Env, ref_str: &String) -> Option<String> {
+    let key = settlement_ref_key(ref_str);
+    let owner: Option<String> = env.storage().persistent().get(&key);
+    if owner.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    owner
+}
+
+/// Record `ref_str` as used by `invoice_id`: write the owner mapping, extend
+/// its TTL, and append it to the write-order enumeration log.
+///
+/// # Unconditional overwrite — check before calling
+/// This function does **not** check for an existing entry and does **not**
+/// panic on one — it always silently overwrites the owner mapping and
+/// appends a new log entry. Calling it on a reference that is already used
+/// will replace the existing owner with `invoice_id`, breaking the
+/// global-uniqueness guarantee this index exists to provide. Callers must
+/// check first via [`is_settlement_ref_used`] / [`get_settlement_ref_owner`]
+/// and decide whether an existing entry should be preserved (see
+/// `migrate_settlement_refs`'s conflict-skip logic for an example) or is
+/// safe to intentionally overwrite (see `migrate_schema_v2_to_v3`'s
+/// value-shape backfill for an example).
+pub fn record_settlement_ref(env: &Env, ref_str: &String, invoice_id: &String) {
+    let key = settlement_ref_key(ref_str);
+    env.storage().persistent().set(&key, invoice_id);
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+
+    append_settlement_ref_log(env, ref_str, invoice_id);
+    bump_settlement_ref_count(env);
+}
+
+/// Append a settlement-reference entry to the write-order enumeration log.
+fn append_settlement_ref_log(env: &Env, ref_str: &String, invoice_id: &String) {
+    let index = get_settlement_ref_count(env);
+    let key = settlement_ref_log_key(index);
+    let entry = SettlementRefEntry {
+        settlement_ref: ref_str.clone(),
+        invoice_id: invoice_id.clone(),
+    };
+    env.storage().persistent().set(&key, &entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Return the number of settlement references recorded. Bumps instance TTL.
+pub fn get_settlement_ref_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::SettlementRefCount)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+/// Increment the settlement-reference counter and extend instance TTL.
+fn bump_settlement_ref_count(env: &Env) {
+    let count = get_settlement_ref_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementRefCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Set the settlement-reference counter directly. Used by
+/// `migration::migrate_schema_v2_to_v3` to reset the enumeration log before
+/// rebuilding it from the payment log, so re-running that migration step
+/// never leaves duplicate log entries behind.
+pub fn set_settlement_ref_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::SettlementRefCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Look up the settlement-reference log entry at write-order `index`.
+/// Extends persistent TTL if the entry exists.
+fn get_settlement_ref_log_entry(env: &Env, index: u32) -> Option<SettlementRefEntry> {
+    let key = settlement_ref_log_key(index);
+    let entry: Option<SettlementRefEntry> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    entry
+}
+
+/// Read a bounded page of the settlement-reference index starting at
+/// `cursor`.
+///
+/// Mirrors [`get_payment_history_page`]'s gap-skipping and termination
+/// guarantees: a missing slot (e.g. a partially-rebuilt index) is skipped
+/// rather than treated as the end of the index, so `index` always advances
+/// by at least one slot per iteration and `next_cursor` can never repeat a
+/// `cursor` the caller already passed in. `has_more` reflects whether any
+/// slot at or after `next_cursor` remains to be scanned.
+///
+/// Extends instance TTL for the count and persistent TTL for entries read.
+pub fn get_settlement_ref_page(env: &Env, cursor: u32, limit: u32) -> SettlementRefPage {
+    let total = get_settlement_ref_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_SETTLEMENT_REF_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+
+    let mut records: Vec<SettlementRefEntry> = Vec::new(env);
+    let mut index = start;
+    let mut collected: u32 = 0;
+    let mut gaps_skipped: u32 = 0;
+
+    while index < total && collected < capped_limit {
+        match get_settlement_ref_log_entry(env, index) {
+            Some(entry) => {
+                records.push_back(entry);
+                collected += 1;
+            }
+            None => gaps_skipped += 1,
+        }
+        index += 1;
+    }
+
+    SettlementRefPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+        gaps_skipped,
+    }
 }

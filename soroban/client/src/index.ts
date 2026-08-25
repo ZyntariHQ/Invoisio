@@ -40,6 +40,9 @@ export type {
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
+  SettlementRefEntry,
+  SettlementRefIndexStatus,
+  SettlementRefPage,
   SorobanInvoiceClientConfig,
   TransactionResult,
 } from './types';

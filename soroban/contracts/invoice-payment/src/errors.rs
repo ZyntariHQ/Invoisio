@@ -113,8 +113,15 @@ pub enum ContractError {
     /// History index is incomplete - rebuild required
     HistoryIndexIncomplete = 19,
 
-    /// The settlement reference has already been used for a different invoice.
-    /// Each settlement reference must be globally unique across all payments.
+    /// `record_payment()` was called with a `settlement_ref` that is already
+    /// recorded. Each settlement reference must be globally unique across
+    /// all payments.
+    ///
+    /// This alone does not say whether the rejection is a benign retry of
+    /// an already-successful attempt for the *same* invoice, or a genuine
+    /// reconciliation conflict from a *different* invoice — a caller needs
+    /// `settlement_ref_owner(settlement_ref)` to tell the two apart (issue
+    /// #495; see the doc comment on `record_payment` in `lib.rs`).
     SettlementRefAlreadyUsed = 20,
 
     /// `upgrade()` was called while the contract is not paused. The contract

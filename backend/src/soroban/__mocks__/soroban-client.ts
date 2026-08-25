@@ -50,6 +50,7 @@ const KNOWN_CONTRACT_ERROR_CODES: Record<number, string> = {
   9: "Unauthorized",
   12: "ContractPaused",
   13: "InvalidSettlementRef",
+  20: "SettlementRefAlreadyUsed",
 };
 
 const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)|contractError\((\d+)\)/;
@@ -83,6 +84,10 @@ export class SorobanInvoiceClient {
   }
 
   async getPaymentCount(): Promise<number> {
+    throw new Error("stub — replace with jest.fn() in tests");
+  }
+
+  async getSettlementRefOwner(_settlementRef: string): Promise<string | null> {
     throw new Error("stub — replace with jest.fn() in tests");
   }
 }

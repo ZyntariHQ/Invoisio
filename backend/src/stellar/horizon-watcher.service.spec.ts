@@ -1,5 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
+import { SorobanContractError } from "@invoisio/soroban-client";
 import { HorizonWatcherService } from "./horizon-watcher.service";
 import { StellarService } from "./stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
@@ -41,6 +42,7 @@ describe("HorizonWatcherService cursor persistence", () => {
 
   const mockSorobanService = {
     recordPayment: jest.fn(),
+    getSettlementRefOwner: jest.fn(),
     pingRpc: jest.fn(),
   };
 
@@ -124,6 +126,8 @@ describe("HorizonWatcherService cursor persistence", () => {
     applyHorizonPayment.mockResolvedValue({
       invoice: { id: "invoice-1", status: "paid", memo: "42" },
     });
+    mockInvoicesService.recordAnchoringFailure.mockResolvedValue(undefined);
+    mockSorobanService.getSettlementRefOwner.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -312,6 +316,108 @@ describe("HorizonWatcherService cursor persistence", () => {
       // No silent skip: cursor remains where it was before the poison record.
       expect(service.getCursorState().cursor).not.toBe("800");
       expect(cursorUpsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Soroban anchoring duplicate handling (#495)", () => {
+    /** Let the fire-and-forget `.catch()` handler on `anchorToSoroban` settle. */
+    async function flushAnchoringCatch() {
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+
+    it("treats PaymentAlreadyRecorded as a benign retry: no anchoring failure recorded", async () => {
+      const payment = makePayment({ paging_token: "900", id: "already-recorded" });
+      mockStellarService.getServer.mockReturnValue(makeServer([payment]));
+      mockSorobanService.recordPayment.mockRejectedValue(
+        new SorobanContractError(
+          "PaymentAlreadyRecorded",
+          3,
+          "Soroban contract error: PaymentAlreadyRecorded (code=3)",
+        ),
+      );
+
+      await service.pollPayments();
+      await waitFor(() => mockSorobanService.recordPayment.mock.calls.length > 0);
+      await flushAnchoringCatch();
+
+      expect(mockInvoicesService.recordAnchoringFailure).not.toHaveBeenCalled();
+      expect(mockStructuredLogger.info).toHaveBeenCalledWith(
+        "horizon.soroban_anchor.duplicate_benign",
+        expect.objectContaining({ reason: "invoice_already_recorded" }),
+      );
+    });
+
+    it("treats SettlementRefAlreadyUsed as benign when the owner is this same invoice", async () => {
+      const payment = makePayment({
+        paging_token: "901",
+        id: "same-invoice-retry",
+        transaction_hash: "same-invoice-retry-tx",
+      });
+      payment.transaction = async () => ({ memo: "invoisio-42" });
+      mockStellarService.getServer.mockReturnValue(makeServer([payment]));
+      mockSorobanService.recordPayment.mockRejectedValue(
+        new SorobanContractError(
+          "SettlementRefAlreadyUsed",
+          20,
+          "Soroban contract error: SettlementRefAlreadyUsed (code=20)",
+        ),
+      );
+      // The invoice's own on-chain ID (`invoice.memo`) already owns this ref.
+      mockSorobanService.getSettlementRefOwner.mockResolvedValue("42");
+
+      await service.pollPayments();
+      await waitFor(() => mockSorobanService.getSettlementRefOwner.mock.calls.length > 0);
+      await flushAnchoringCatch();
+
+      expect(mockSorobanService.getSettlementRefOwner).toHaveBeenCalledWith(
+        "same-invoice-retry-tx",
+      );
+      expect(mockInvoicesService.recordAnchoringFailure).not.toHaveBeenCalled();
+      expect(mockStructuredLogger.info).toHaveBeenCalledWith(
+        "horizon.soroban_anchor.duplicate_benign",
+        expect.objectContaining({
+          reason: "settlement_ref_owned_by_same_invoice",
+        }),
+      );
+    });
+
+    it("treats SettlementRefAlreadyUsed as a genuine conflict when a different invoice owns the reference", async () => {
+      const payment = makePayment({
+        paging_token: "902",
+        id: "conflicting-invoice",
+        transaction_hash: "conflicting-invoice-tx",
+      });
+      payment.transaction = async () => ({ memo: "invoisio-42" });
+      mockStellarService.getServer.mockReturnValue(makeServer([payment]));
+      mockSorobanService.recordPayment.mockRejectedValue(
+        new SorobanContractError(
+          "SettlementRefAlreadyUsed",
+          20,
+          "Soroban contract error: SettlementRefAlreadyUsed (code=20)",
+        ),
+      );
+      // A different invoice already claimed this settlement reference.
+      mockSorobanService.getSettlementRefOwner.mockResolvedValue("99");
+
+      await service.pollPayments();
+      await waitFor(
+        () => mockInvoicesService.recordAnchoringFailure.mock.calls.length > 0,
+      );
+      await flushAnchoringCatch();
+
+      expect(mockInvoicesService.recordAnchoringFailure).toHaveBeenCalledWith(
+        "invoice-1",
+        "permanent",
+      );
+      expect(mockStructuredLogger.error).toHaveBeenCalledWith(
+        "horizon.soroban_anchor.settlement_ref_conflict",
+        expect.objectContaining({
+          invoiceId: "invoice-1",
+          conflictingInvoiceId: "99",
+        }),
+      );
     });
   });
 });

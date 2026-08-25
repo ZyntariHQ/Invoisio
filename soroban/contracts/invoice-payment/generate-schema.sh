@@ -103,6 +103,9 @@ declare -A METHOD_AUTH=(
   [payment_count]="none"
   [payment_history]="none"
   [payments_by_payer]="none"
+  [settlement_ref_owner]="none"
+  [settlement_ref_history]="none"
+  [settlement_ref_index_status]="none"
   [config]="none"
   [contract_version]="none"
   [version_info]="none"
@@ -129,6 +132,9 @@ declare -A METHOD_DESC=(
   [payment_count]="Return total recorded payment count."
   [payment_history]="Return a bounded, cursor-paginated PaymentHistoryPage across all payments."
   [payments_by_payer]="Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer."
+  [settlement_ref_owner]="Resolve a settlement reference to the invoice_id that consumed it; None if unused."
+  [settlement_ref_history]="Return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order."
+  [settlement_ref_index_status]="Return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
   [config]="Return ContractConfig snapshot."
   [contract_version]="Return packed semver as u32."
   [version_info]="Return on-chain ContractMeta."
@@ -342,6 +348,49 @@ cat > "$OUT" <<JSON
       },
       "required": ["records", "next_cursor", "has_more"],
       "additionalProperties": false
+    },
+    "SettlementRefEntry": {
+      "description": "A single settlement-reference to invoice_id mapping, as recorded by record_payment() or backfilled by migration.",
+      "type": "object",
+      "properties": {
+        "settlement_ref": {
+          "type": "string",
+          "description": "Normalised settlement reference (e.g. SHA-256 hex)."
+        },
+        "invoice_id": {
+          "type": "string",
+          "description": "Invoice ID that consumed this settlement reference."
+        }
+      },
+      "required": ["settlement_ref", "invoice_id"],
+      "additionalProperties": false
+    },
+    "SettlementRefPage": {
+      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history(). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "\$ref": "#/types/SettlementRefEntry" },
+          "description": "Entries returned for this page, in write order."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        },
+        "gaps_skipped": {
+          "type": "integer",
+          "description": "Number of index slots in this page's range that were expected to hold an entry but did not (e.g. a corrupted or partially-rebuilt index). Always 0 for a healthy index.",
+          "minimum": 0
+        }
+      },
+      "required": ["records", "next_cursor", "has_more", "gaps_skipped"],
+      "additionalProperties": false
     }
   },
   "events": {
@@ -448,9 +497,10 @@ cat > "$OUT" <<JSON
       "topic": "settlement_refs_migrated",
       "fields": {
         "count": { "type": "integer", "description": "Number of settlement references migrated.", "minimum": 0 },
+        "conflicts_skipped": { "type": "integer", "description": "Number of payments whose settlement_ref was already owned by a different invoice in the index and was therefore left untouched rather than overwritten. Non-zero means a genuine pre-existing duplicate was found and needs operator investigation.", "minimum": 0 },
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
-      "required": ["count", "migrated_at"]
+      "required": ["count", "conflicts_skipped", "migrated_at"]
     },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
