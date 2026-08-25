@@ -746,24 +746,29 @@ pub fn get_payer_history_page(
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut ordinal = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
 
     while ordinal < payer_total && collected < capped_limit {
-        match get_payer_entry(env, payer, ordinal)
-            .and_then(|history_slot| get_history_record(env, history_slot))
-        {
-            Some(record) => {
-                // Defensive: skip records whose stored payer no longer
-                // matches (should be impossible — the index is keyed by the
-                // payer written into the record itself).
-                if record.payer == *payer {
-                    records.push_back(record);
-                    collected += 1;
-                } else {
-                    gaps_skipped += 1;
+        match get_payer_entry(env, payer, ordinal) {
+            Some(history_slot) => {
+                match get_history_record_with_status(env, history_slot) {
+                    Ok(record) => {
+                        // Defensive: skip records whose stored payer no longer
+                        // matches (should be impossible — the index is keyed by the
+                        // payer written into the record itself).
+                        if record.payer == *payer {
+                            records.push_back(record);
+                            collected += 1;
+                        } else {
+                            corrupt_skipped += 1;
+                        }
+                    }
+                    Err(true) => archived_skipped += 1,
+                    Err(false) => corrupt_skipped += 1,
                 }
             }
-            None => gaps_skipped += 1,
+            None => corrupt_skipped += 1, // index entry itself is missing
         }
         ordinal += 1;
     }
@@ -772,7 +777,8 @@ pub fn get_payer_history_page(
         records,
         next_cursor: ordinal,
         has_more: ordinal < payer_total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 
@@ -804,19 +810,21 @@ pub fn get_payments_by_payer_page(
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut index = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
     let mut scanned: u32 = 0;
 
     while index < total && collected < capped_limit && scanned < MAX_PAYER_SCAN_SLOTS {
         scanned += 1;
-        match get_history_record(env, index) {
-            Some(record) => {
+        match get_history_record_with_status(env, index) {
+            Ok(record) => {
                 if record.payer == *payer {
                     records.push_back(record);
                     collected += 1;
                 }
             }
-            None => gaps_skipped += 1,
+            Err(true) => archived_skipped += 1,
+            Err(false) => corrupt_skipped += 1,
         }
         index += 1;
     }
@@ -825,7 +833,8 @@ pub fn get_payments_by_payer_page(
         records,
         next_cursor: index,
         has_more: index < total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 

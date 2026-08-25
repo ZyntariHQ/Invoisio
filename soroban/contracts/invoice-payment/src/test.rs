@@ -443,7 +443,7 @@ fn test_payments_by_payer_skips_missing_slot() {
     // payer's view is unaffected by it.
     let indexed = client.payments_by_payer(&payer, &0u32, &10u32);
     assert_eq!(indexed.records.len(), 2);
-    assert_eq!(indexed.gaps_skipped, 0);
+    assert_eq!(indexed.corrupt_skipped, 0);
     assert_eq!(indexed.next_cursor, 2);
     assert!(!indexed.has_more);
 
@@ -4878,7 +4878,7 @@ fn test_payments_by_payer_zero_match_returns_empty_promptly() {
 
     let page = client.payments_by_payer(&stranger, &0u32, &25u32);
     assert_eq!(page.records.len(), 0);
-    assert_eq!(page.gaps_skipped, 0);
+    assert_eq!(page.corrupt_skipped, 0);
     assert!(!page.has_more);
 }
 
@@ -5030,7 +5030,7 @@ fn test_payments_by_payer_index_path_skips_gap_like_payment_history() {
         page.records.get(0).unwrap().invoice_id,
         String::from_str(&env, "invoisio-gap-a")
     );
-    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.corrupt_skipped, 1);
     assert!(!page.has_more);
 }
 
@@ -5071,14 +5071,14 @@ fn test_rebuild_history_index_builds_payer_indexes() {
     // Before rebuild: bounded-scan fallback serves the data correctly.
     let scanned = client.payments_by_payer(&payer, &0u32, &25u32);
     assert_eq!(scanned.records.len(), 8);
-    assert_eq!(scanned.gaps_skipped, 0);
+    assert_eq!(scanned.corrupt_skipped, 0);
 
     client.rebuild_history_index(&admin);
 
     // After rebuild: direct-read path returns identical results.
     let indexed = client.payments_by_payer(&payer, &0u32, &25u32);
     assert_eq!(indexed.records.len(), 8);
-    assert_eq!(indexed.gaps_skipped, 0);
+    assert_eq!(indexed.corrupt_skipped, 0);
     assert!(!indexed.has_more);
     for n in 0..8u32 {
         let rec = indexed.records.get(n).unwrap();
@@ -5163,7 +5163,7 @@ fn test_migration_v1_to_v2_backfills_payer_indexes() {
         client.upgrade_storage(&admin);
         let again = client.payments_by_payer(payer, &0u32, &25u32);
         assert_eq!(again.records.len() as u32, expected);
-        assert_eq!(again.gaps_skipped, 0);
+        assert_eq!(again.corrupt_skipped, 0);
     }
 }
 

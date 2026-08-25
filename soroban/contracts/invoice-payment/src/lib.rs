@@ -628,39 +628,10 @@ impl InvoicePaymentContract {
             get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
         };
 
-        let mut records = soroban_sdk::Vec::new(&env);
-        let mut index = start;
-        let mut collected: u32 = 0;
-        let mut archived_skipped: u32 = 0;
-        let mut corrupt_skipped: u32 = 0;
-
-        while index < total && collected < capped_limit {
-            let key = DataKey::PaymentHistory(index);
-            let has = env.storage().persistent().has(&key);
-            let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-            match record {
-                Some(rec) if rec.payer == payer => {
-                    records.push_back(rec);
-                    collected += 1;
-                }
-                Some(_) => {}
-                None => {
-                    if has {
-                        archived_skipped += 1;
-                    } else {
-                        corrupt_skipped += 1;
-                    }
-                }
-            }
-            index += 1;
-        }
-
-        PaymentHistoryPage {
-            records,
-            next_cursor: index,
-            has_more: index < total,
-            archived_skipped,
-            corrupt_skipped,
+        if get_payer_payment_count(&env, &payer).is_some() {
+            get_payer_history_page(&env, &payer, cursor, limit)
+        } else {
+            get_payments_by_payer_page(&env, &payer, cursor, limit)
         }
     }
 
