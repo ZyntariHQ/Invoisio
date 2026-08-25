@@ -147,8 +147,14 @@ export class SorobanInvoiceClient {
    * the config. The role does NOT change until the proposed address calls
    * `acceptAdmin`.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the
+   * contract has been paused via `setPaused(true)` and has not yet been
+   * unpaused. The admin-transfer control plane is frozen during incident
+   * containment.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
+   *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`, `ContractPaused`)
    */
   async proposeAdmin(newAdmin: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -173,8 +179,15 @@ export class SorobanInvoiceClient {
    * the config — the caller is derived from that keypair and must match the
    * address proposed by `proposeAdmin`.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the
+   * contract has been paused via `setPaused(true)` and has not yet been
+   * unpaused. Even if a proposal was staged **before** the pause, acceptance
+   * is still blocked — the operator has time to investigate and cancel the
+   * proposal via `cancelAdminTransfer()` after unpausing.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   *   (e.g. `NoPendingAdmin`, `Unauthorized`, `ContractPaused`)
    */
   async acceptAdmin(): Promise<TransactionResult> {
     this.requireSigner();
@@ -201,8 +214,14 @@ export class SorobanInvoiceClient {
    * again, the previously proposed address can no longer claim the role, and
    * `proposeAdmin()` can be used for a fresh proposal.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the contract
+   * has been paused via `setPaused(true)`. The entire control plane — including
+   * proposal cancellation — is frozen during containment so the operator can
+   * inspect a stable state before unpausing and deciding whether to cancel.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   *   (e.g. `NoPendingAdmin`, `Unauthorized`, `ContractPaused`)
    */
   async cancelAdminTransfer(): Promise<TransactionResult> {
     this.requireSigner();
@@ -225,8 +244,14 @@ export class SorobanInvoiceClient {
    * Only assets that have been allowlisted are accepted by `recordPayment`.
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the
+   * contract has been paused via `setPaused(true)`. The asset allowlist is
+   * part of the contract control plane and cannot be rewritten during
+   * incident containment.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
    */
   async allowAsset(code: string, issuer: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -251,8 +276,15 @@ export class SorobanInvoiceClient {
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    * Revoking an asset that was never allowlisted is a no-op on-chain.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the
+   * contract has been paused via `setPaused(true)`. Revoking an asset is a
+   * control-plane change that must not happen during the incident-
+   * containment window; the operator needs a stable allowlist to reconcile
+   * against while paused.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
    */
   async revokeAsset(code: string, issuer: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -276,8 +308,15 @@ export class SorobanInvoiceClient {
    *
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    *
+   * ## Paused
+   * Throws `SorobanContractError` with code `ContractPaused` (12) if the
+   * contract has been paused via `setPaused(true)`. Flipping the native-
+   * asset policy would silently change which payments are accepted once
+   * the contract is unpaused, so it is blocked alongside the other
+   * allowlist mutators during containment.
+   *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `Unauthorized`)
+   *   (e.g. `NotInitialized`, `Unauthorized`, `ContractPaused`)
    */
   async setAllowNative(allowed: boolean): Promise<TransactionResult> {
     this.requireSigner();
@@ -295,11 +334,46 @@ export class SorobanInvoiceClient {
   }
 
   /**
-   * Pause or unpause the contract.
+   * Pause or unpause the contract (emergency stop / incident containment).
    *
-   * While paused, write operations (e.g. `recordPayment`) are rejected with
-   * `ContractPaused`; read operations remain available. The caller is derived
-   * from `signerSecretKey` and must match the contract admin.
+   * When `setPaused(true)` is called, the contract enters a **containment
+   * window** in which the following write methods are rejected with a
+   * `SorobanContractError` whose `.code` is `ContractPaused` (12):
+   *
+   * | Method                  | Blocked when paused | Reason                                              |
+   * |-------------------------|---------------------|-----------------------------------------------------|
+   * | `recordPayment`         | blocked             | Payment log frozen during investigation            |
+   * | `proposeAdmin`          | blocked             | Admin role cannot rotate out of containment         |
+   * | `acceptAdmin`           | blocked             | Pending proposals cannot be claimed while paused    |
+   * | `cancelAdminTransfer`   | blocked             | Control plane must remain stable during pause       |
+   * | `allowAsset`            | blocked             | Allowlist cannot be added to while paused           |
+   * | `revokeAsset`           | blocked             | Allowlist cannot be removed from while paused       |
+   * | `setAllowNative`        | blocked             | Native-asset policy cannot flip while paused        |
+   *
+   * The following admin-gated methods are **intentionally exempt** and
+   * remain callable while paused — they are either part of the upgrade
+   * runbook (which REQUIRES pausing first) or recovery paths that must
+   * work during containment:
+   *
+   * | Method                  | Available? | Rationale                                                                  |
+   * |-------------------------|------------|----------------------------------------------------------------------------|
+   * | `setPaused`             | yes        | Unpausing must be possible to lift the containment window                 |
+   * | `upgrade`               | yes        | The WASM-upgrade runbook REQUIRES pausing first; see upgrade() docs       |
+   * | `upgradeStorage`        | yes        | Storage migration runs between `upgrade()` and the final unpause          |
+   * | `rebuildHistoryIndex`   | yes        | Administrative recovery; may run in the upgrade window or standalone     |
+   *
+   * **All read methods** (`getConfig`, `getAdmin`, `getPendingAdmin`,
+   * `isPaused`, `getPayment`, `hasPayment`, `getPaymentCount`,
+   * `getPaymentHistory`, `getPaymentsByPayer`, `getContractVersion`,
+   * `getVersionInfo`, `getHistoryIndexStatus`) remain permissionless and
+   * fully available while paused — auditing and investigation must never
+   * be blocked by the emergency stop.
+   *
+   * The caller is derived from `signerSecretKey` and must match the
+   * contract admin. Calling `setPaused(true)` when the contract is
+   * **already** paused (and vice versa) is a true no-op: no storage
+   * write and no `ContractPaused` event, so the event stream is a
+   * faithful record of actual state transitions.
    *
    * @throws {SorobanContractError} on contract-level rejection
    *   (e.g. `NotInitialized`, `Unauthorized`)
