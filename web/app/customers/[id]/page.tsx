@@ -144,9 +144,10 @@ function CustomerDetailContent() {
   }
 
   if (isError || !summary) {
+    const errObj = error as { status?: number; response?: { status?: number } };
     const is404 =
-      (error as any)?.status === 404 ||
-      (error as any)?.response?.status === 404 ||
+      errObj?.status === 404 ||
+      errObj?.response?.status === 404 ||
       error?.message?.includes("404");
 
     if (is404) {
