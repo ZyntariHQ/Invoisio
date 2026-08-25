@@ -1218,11 +1218,17 @@ pub fn get_settlement_ref_owner(env: &Env, ref_str: &String) -> Option<String> {
 /// Record `ref_str` as used by `invoice_id`: write the owner mapping, extend
 /// its TTL, and append it to the write-order enumeration log.
 ///
-/// # Panics
-/// * If the reference is already used (caller should check first via
-///   [`is_settlement_ref_used`] / [`get_settlement_ref_owner`]) — this
-///   function always overwrites unconditionally, so callers are responsible
-///   for deciding whether an existing entry should be preserved.
+/// # Unconditional overwrite — check before calling
+/// This function does **not** check for an existing entry and does **not**
+/// panic on one — it always silently overwrites the owner mapping and
+/// appends a new log entry. Calling it on a reference that is already used
+/// will replace the existing owner with `invoice_id`, breaking the
+/// global-uniqueness guarantee this index exists to provide. Callers must
+/// check first via [`is_settlement_ref_used`] / [`get_settlement_ref_owner`]
+/// and decide whether an existing entry should be preserved (see
+/// `migrate_settlement_refs`'s conflict-skip logic for an example) or is
+/// safe to intentionally overwrite (see `migrate_schema_v2_to_v3`'s
+/// value-shape backfill for an example).
 pub fn record_settlement_ref(env: &Env, ref_str: &String, invoice_id: &String) {
     let key = settlement_ref_key(ref_str);
     env.storage().persistent().set(&key, invoice_id);
