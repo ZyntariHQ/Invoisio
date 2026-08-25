@@ -127,7 +127,9 @@ model WebhookDelivery {
   nextAttemptAt  DateTime?      @map("next_attempt_at")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
-
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([invoiceId])
+  @@index([userId])
   @@map("webhook_deliveries")
 }
 
@@ -245,6 +247,8 @@ model Invoice {
 
   @@index([merchantId])
   @@index([isDraft, merchantId])
+  @@index([merchantId, status, createdAt])
+  @@index([status, dueDate])
   @@index([lastAutoSavedAt])
   @@map("invoices")
 }

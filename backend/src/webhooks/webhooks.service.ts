@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
+import { ConfigService } from "@nestjs/config";
 import axios from "axios";
 import * as crypto from "crypto";
 import { DeadLetterStatus, Prisma } from "@prisma/client";
@@ -38,7 +39,10 @@ export class WebhooksService implements OnModuleDestroy {
   private readonly logger = new Logger(WebhooksService.name);
   private isProcessing = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly configService: ConfigService,
+  ) {}
 
   /**
    * Return masked metadata for the merchant's current webhook signing secret.
@@ -693,5 +697,56 @@ export class WebhooksService implements OnModuleDestroy {
     this.isProcessing = false;
 
     console.log("[WebhooksService] Shutdown complete");
+  }
+
+  /**
+   * Retention policy: remove successful webhook deliveries older than
+   * `WEBHOOK_RETENTION_DAYS` (default 90). Runs once per day.
+   */
+  @Cron("0 0 * * *")
+  async cleanupDelivered() {
+    const retentionDays = this.configService.get<number>(
+      "webhooks.retentionDays",
+    );
+
+    if (!retentionDays || retentionDays <= 0) {
+      this.logger.debug("Webhook retention disabled or invalid; skipping cleanup.");
+      return;
+    }
+
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    this.logger.log(`Cleaning webhook deliveries older than ${cutoff.toISOString()}`);
+
+    // Delete in small batches to avoid long-running transactions and heavy locks.
+    const BATCH_SIZE = 1000;
+    let deleted = 0;
+
+    while (true) {
+      const ids = await this.prisma.webhookDelivery.findMany({
+        where: {
+          status: "success",
+          createdAt: { lt: cutoff },
+        },
+        select: { id: true },
+        take: BATCH_SIZE,
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (ids.length === 0) break;
+
+      const idList = ids.map((r) => r.id);
+
+      const res = await this.prisma.webhookDelivery.deleteMany({
+        where: { id: { in: idList } },
+      });
+
+      deleted += res.count;
+
+      // small delay to avoid hammering the DB on huge backfills
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    this.logger.log(`Webhook retention completed; deleted ${deleted} rows.`);
   }
 }

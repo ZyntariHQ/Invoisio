@@ -6,6 +6,7 @@ import appConfig from "./config/app.config";
 import stellarConfig from "./config/stellar.config";
 import throttlerConfig from "./config/throttler.config";
 import observabilityConfig from "./config/observability.config";
+import webhooksConfig from "./config/webhooks.config";
 import { ObservabilityModule } from "./observability/observability.module";
 
 // Modules
@@ -37,7 +38,7 @@ import { Module } from "@nestjs/common";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ".env",
-      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig],
+      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig, webhooksConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
         CORS_ORIGIN: Joi.string().default("http://localhost:3000"),
@@ -86,6 +87,7 @@ import { Module } from "@nestjs/common";
         REDIS_KEY_PREFIX: Joi.string().default("invoisio:throttle:"),
         SLOW_DB_THRESHOLD_MS: Joi.number().integer().min(1).default(200),
         SLOW_NETWORK_THRESHOLD_MS: Joi.number().integer().min(1).default(500),
+        WEBHOOK_RETENTION_DAYS: Joi.number().integer().min(0).default(90),
         // Soroban Anchoring Configuration - FAIL FAST when enabled
         SOROBAN_ANCHORING_ENABLED: Joi.boolean().default(false),
         SOROBAN_CONTRACT_ID: Joi.when("SOROBAN_ANCHORING_ENABLED", {
