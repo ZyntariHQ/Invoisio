@@ -53,6 +53,31 @@ pub enum ContractError {
     StorageSchemaTooOld = 11,
 
     /// The contract is paused and cannot perform the requested operation.
+    ///
+    /// # Scope
+    /// `ContractPaused` is returned by the following entrypoints when the
+    /// contract has been paused via `set_paused(true)`:
+    ///
+    /// | Entrypoint              | Covered | Reason                                              |
+    /// |-------------------------|---------|-----------------------------------------------------|
+    /// | `record_payment`        | yes     | Payment log is frozen during incident investigation |
+    /// | `propose_admin`         | yes     | Admin role cannot be transferred out while paused   |
+    /// | `accept_admin`          | yes     | Admin role cannot be claimed while paused           |
+    /// | `cancel_admin_transfer` | yes     | Control-plane changes are frozen while paused       |
+    /// | `allow_asset`           | yes     | Asset allowlist cannot be rewritten while paused    |
+    /// | `revoke_asset`          | yes     | Asset allowlist cannot be rewritten while paused    |
+    /// | `set_allow_native`      | yes     | Native-asset policy cannot change while paused      |
+    ///
+    /// The following entrypoints are **intentionally exempt** and remain
+    /// callable while paused, with admin-only access where applicable:
+    ///
+    /// | Entrypoint               | Exempt? | Rationale                                                                 |
+    /// |--------------------------|---------|---------------------------------------------------------------------------|
+    /// | `set_paused`             | yes     | Must be able to unpause the contract to lift containment                 |
+    /// | `upgrade`                | yes     | The WASM-upgrade runbook *requires* `set_paused(true)` first             |
+    /// | `upgrade_storage`        | yes     | Storage migration must run between `upgrade()` and the final unpause      |
+    /// | `rebuild_history_index`  | yes     | Administrative recovery, may run during the upgrade window or standalone |
+    /// | All read entrypoints     | yes     | Investigation and auditing must remain possible during containment        |
     ContractPaused = 12,
 
     /// `settlement_ref` was empty or exceeded the maximum allowed length.

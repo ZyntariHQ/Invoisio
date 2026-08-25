@@ -149,6 +149,7 @@ impl InvoicePaymentContract {
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused; payment log is frozen
     /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is an empty string
     /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty or exceeds 128 chars
     /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
@@ -366,8 +367,15 @@ impl InvoicePaymentContract {
     /// staged in instance storage but does **not** take effect until the
     /// proposed address calls [`accept_admin`].
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The admin-transfer control plane is frozen during an incident
+    /// containment window so a compromised admin key cannot rotate the role
+    /// out from under the operator.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::PendingAdminExists`] — a transfer is already pending
     /// - [`ContractError::InvalidProposedAdmin`] — `new_admin` equals the
     ///   current admin
@@ -375,6 +383,9 @@ impl InvoicePaymentContract {
     /// ## Events
     /// Emits `AdminTransferProposed` on success.
     pub fn propose_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let current = get_admin(&env)?;
         current.require_auth();
         if has_pending_admin(&env) {
@@ -397,14 +408,25 @@ impl InvoicePaymentContract {
     /// must authorise the call. On success the role is transferred and the
     /// pending proposal is cleared.
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Even if a proposal was staged before the pause, the role
+    /// cannot change hands during incident containment — the operator has
+    /// time to investigate and cancel the proposal via [`cancel_admin_transfer`]
+    /// after unpausing.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
     /// - [`ContractError::Unauthorized`] — `caller` is not the proposed admin
     ///
     /// ## Events
     /// Emits `AdminTransferAccepted` on success.
     pub fn accept_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         // Ensure the contract is initialised first (mirrors the other admin
         // methods) so misuse before setup returns NotInitialized, not a
         // misleading NoPendingAdmin.
@@ -436,10 +458,22 @@ impl InvoicePaymentContract {
     /// mistyped address cannot silently become an immediate irreversible
     /// transfer.
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The entire control plane — including cancellation of a
+    /// previously-staged transfer — is frozen during containment so the
+    /// operator can reason about a stable state before unpausing. Once
+    /// unpaused, the current admin can cancel (and then re-propose to a safe
+    /// address) as usual.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
     pub fn cancel_admin_transfer(env: Env) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let current = get_admin(&env)?;
         current.require_auth();
 
@@ -455,7 +489,17 @@ impl InvoicePaymentContract {
     /// Add a `(code, issuer)` token pair to the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The asset allowlist is part of the contract's control plane
+    /// and must remain stable during incident containment — a paused contract
+    /// cannot silently change which assets are acceptable, and a suspect
+    /// admin key cannot pre-stage new allowlist entries for later use.
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
@@ -469,7 +513,16 @@ impl InvoicePaymentContract {
     /// Remove a `(code, issuer)` token pair from the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Revoking an asset is a control-plane change that must not
+    /// happen during the incident-containment window; the operator needs a
+    /// stable allowlist to reconcile against while paused.
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
@@ -483,7 +536,16 @@ impl InvoicePaymentContract {
     /// Toggle whether native XLM payments are permitted.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Flipping the native-asset policy would silently change which
+    /// payments are accepted once the contract is unpaused, so it is blocked
+    /// alongside the other allowlist mutators during containment.
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
 
@@ -665,6 +727,12 @@ impl InvoicePaymentContract {
     ///
     /// Must be called by the admin after a WASM upgrade that introduces a new
     /// `STORAGE_SCHEMA_VERSION`. Safe to call multiple times — idempotent.
+    ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard. In the standard upgrade runbook the
+    /// contract is paused before `upgrade()` and must remain paused through
+    /// this call until the final unpause; blocking storage migration while
+    /// paused would make the upgrade runbook impossible. Admin-gated.
     pub fn upgrade_storage(env: Env, admin: Address) -> Result<(), ContractError> {
         // Verify caller is the current contract admin.
         let current_admin = get_admin(&env)?;
@@ -678,14 +746,48 @@ impl InvoicePaymentContract {
 
     /// Pause or unpause the contract.
     ///
-    /// When paused, all write operations (`record_payment`) are rejected.
-    /// Read operations remain accessible.
+    /// Pause is an emergency-stop mechanism. When `set_paused(admin, true)`
+    /// has been called, the contract enters a **containment window** in
+    /// which the following state-mutating entrypoints are rejected with
+    /// [`ContractError::ContractPaused`]:
+    ///
+    /// | Entrypoint              | Blocked when paused | Reason                                              |
+    /// |-------------------------|---------------------|-----------------------------------------------------|
+    /// | `record_payment`        | blocked             | Payment log is frozen during investigation          |
+    /// | `propose_admin`         | blocked             | Admin role cannot rotate out of containment         |
+    /// | `accept_admin`          | blocked             | Pending proposals cannot be claimed while paused    |
+    /// | `cancel_admin_transfer` | blocked             | Control plane must remain stable during pause       |
+    /// | `allow_asset`           | blocked             | Allowlist cannot be added to while paused           |
+    /// | `revoke_asset`          | blocked             | Allowlist cannot be removed from while paused       |
+    /// | `set_allow_native`      | blocked             | Native-asset policy cannot flip while paused        |
+    ///
+    /// The following admin-gated entrypoints remain **intentionally available**
+    /// while paused — they are either part of the upgrade runbook (which
+    /// requires the contract to be paused first) or are recovery paths that
+    /// must be usable during containment:
+    ///
+    /// | Entrypoint               | Available? | Rationale                                                                 |
+    /// |--------------------------|------------|---------------------------------------------------------------------------|
+    /// | `set_paused`             | yes        | Unpausing must be possible to lift the containment window                |
+    /// | `upgrade`                | yes        | The WASM-upgrade runbook *requires* pausing first; see `upgrade()` docs  |
+    /// | `upgrade_storage`        | yes        | Storage migration runs between `upgrade()` and the final unpause         |
+    /// | `rebuild_history_index`  | yes        | Administrative recovery; may run in the upgrade window or standalone    |
+    ///
+    /// All read entrypoints (`config`, `admin`, `pending_admin`, `is_paused`,
+    /// `get_payment`, `payment_count`, `payment_history`, `payments_by_payer`,
+    /// `contract_version`, `version_info`, `history_index_status`) remain
+    /// permissionless and available while paused — auditing and investigation
+    /// must never be blocked by the emergency stop.
     ///
     /// ## Authorization
     /// Only the contract admin can call this method.
     ///
     /// ## Events
-    /// Emits `ContractPaused` event with the new state.
+    /// Emits `ContractPaused` event **only on actual state transitions**.
+    /// Calling `set_paused(true)` when already paused, or `set_paused(false)`
+    /// when already unpaused, is a no-op: storage is not written and no
+    /// event is emitted, so the event stream is a faithful record of real
+    /// state changes.
     ///
     /// ## Errors
     /// - `NotInitialized` if contract not initialized
@@ -696,6 +798,11 @@ impl InvoicePaymentContract {
 
         if caller != admin {
             return Err(ContractError::Unauthorized);
+        }
+
+        let current = storage::is_paused(&env);
+        if current == paused {
+            return Ok(());
         }
 
         storage::set_paused(&env, paused);
@@ -721,9 +828,16 @@ impl InvoicePaymentContract {
     /// - If the history index becomes inconsistent with the payment records
     /// - As a recovery mechanism if the index is corrupted
     ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard. As a maintenance/recovery function
+    /// it may be invoked either inside the pause window (as part of the
+    /// upgrade→migrate→verify→unpause runbook) or standalone during normal
+    /// operation. Admin-gated, so only the operator can trigger it.
+    ///
     /// ## Errors
     /// - `NotInitialized` if contract not initialized
     /// - `Unauthorized` if caller is not admin
+    /// - `MigrationRequired` if storage schema is not yet current
     /// - `HistoryIndexRebuildFailed` if rebuild fails
     pub fn rebuild_history_index(env: Env, admin: Address) -> Result<(), ContractError> {
         let current_admin = get_admin(&env)?;

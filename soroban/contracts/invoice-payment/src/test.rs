@@ -3238,9 +3238,13 @@ fn test_set_allow_native_by_non_admin_returns_error() {
 // ─── Regression Tests: Paused-State Write Rejection ──────────────────────────
 
 /// Pausing an already-paused contract must be idempotent.
-/// The call must succeed and `is_paused()` must still return `true`.
+/// The call must succeed, `is_paused()` must still return `true`, and
+/// **no spurious event** may be emitted — the event stream must be a
+/// faithful record of actual state transitions.
 #[test]
 fn test_set_paused_double_pause_is_idempotent() {
+    use soroban_sdk::testutils::Events as _;
+
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -3248,15 +3252,23 @@ fn test_set_paused_double_pause_is_idempotent() {
     client.set_paused(&admin, &true);
     assert!(client.is_paused());
 
-    // Second pause — must not error.
+    // Second pause — must not error and must emit NO event.
     let result = client.try_set_paused(&admin, &true);
     assert!(result.is_ok(), "double-pause must be idempotent");
     assert!(client.is_paused(), "contract must remain paused");
+    assert_eq!(
+        env.events().all().events().len(),
+        0,
+        "double-pause (no-op) must not emit a spurious transition event"
+    );
 }
 
 /// Unpausing an already-unpaused contract must be idempotent.
+/// No spurious event may be emitted on a no-op.
 #[test]
 fn test_set_paused_double_unpause_is_idempotent() {
+    use soroban_sdk::testutils::Events as _;
+
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -3265,13 +3277,18 @@ fn test_set_paused_double_unpause_is_idempotent() {
     let result = client.try_set_paused(&admin, &false);
     assert!(result.is_ok(), "double-unpause must be idempotent");
     assert!(!client.is_paused(), "contract must remain unpaused");
+    assert_eq!(
+        env.events().all().events().len(),
+        0,
+        "double-unpause (no-op) must not emit a spurious transition event"
+    );
 }
 
-/// While the contract is paused, `allow_asset` must still succeed because
-/// the pause flag only blocks `record_payment`.  Admin-only config writes
-/// remain available so an operator can fix allowlist entries while paused.
+/// While the contract is paused, `allow_asset` must be rejected with
+/// [`ContractError::ContractPaused` — the asset allowlist is part of the
+/// control plane and must remain stable during incident containment.
 #[test]
-fn test_allow_asset_works_while_paused() {
+fn test_allow_asset_blocked_while_paused() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -3282,17 +3299,19 @@ fn test_allow_asset_works_while_paused() {
     let code = String::from_str(&env, "USDC");
     let issuer = String::from_str(&env, "GBIssuerPaused");
 
-    // allow_asset must succeed even while paused.
+    // allow_asset must fail while paused.
     let result = client.try_allow_asset(&code, &issuer);
-    assert!(
-        result.is_ok(),
-        "allow_asset must work while contract is paused"
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ContractPaused)),
+        "allow_asset must return ContractPaused while contract is paused"
     );
 }
 
-/// While paused, `revoke_asset` must still succeed.
+/// While paused, `revoke_asset` must be rejected with
+/// [`ContractError::ContractPaused`].
 #[test]
-fn test_revoke_asset_works_while_paused() {
+fn test_revoke_asset_blocked_while_paused() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -3304,17 +3323,20 @@ fn test_revoke_asset_works_while_paused() {
     client.set_paused(&admin, &true);
     assert!(client.is_paused());
 
-    // revoke_asset must succeed even while paused.
+    // revoke_asset must fail while paused.
     let result = client.try_revoke_asset(&code, &issuer);
-    assert!(
-        result.is_ok(),
-        "revoke_asset must work while contract is paused"
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ContractPaused)),
+        "revoke_asset must return ContractPaused while contract is paused"
     );
 }
 
-/// While paused, `set_allow_native` must still succeed.
+/// While paused, `set_allow_native` must be rejected with
+/// [`ContractError::ContractPaused`] and the native_allowed config must
+/// **not** change — the guard fires before any storage write.
 #[test]
-fn test_set_allow_native_works_while_paused() {
+fn test_set_allow_native_blocked_while_paused() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
@@ -3323,44 +3345,87 @@ fn test_set_allow_native_works_while_paused() {
     assert!(client.is_paused());
 
     let result = client.try_set_allow_native(&true);
-    assert!(
-        result.is_ok(),
-        "set_allow_native must work while contract is paused"
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::ContractPaused)),
+        "set_allow_native must return ContractPaused while contract is paused"
     );
     assert!(
-        client.config().allowlist_mode.native_allowed,
-        "native_allowed should reflect the change made while paused"
+        !client.config().allowlist_mode.native_allowed,
+        "native_allowed must remain false after a blocked paused-state call"
     );
 }
 
-/// While paused, the propose-and-accept admin handoff must still succeed
-/// (it is not a payment write).
+/// While paused, both steps of the admin handoff must be rejected with
+/// [`ContractError::ContractPaused`].  Two scenarios matter for security:
+///
+/// **Scenario A — proposal during pause:** a compromised admin cannot even
+/// stage a new proposal while the contract is in containment.
+///
+/// **Scenario B — acceptance of a proposal staged *before* pause:** even if
+/// an attacker managed to sneak in a proposal just before the operator hit
+/// pause, the role cannot actually be claimed until the operator has
+/// investigated (and, if necessary, cancelled the proposal via
+/// [`cancel_admin_transfer`]) after unpausing.
 #[test]
-fn test_admin_transfer_works_while_paused() {
+fn test_admin_transfer_blocked_while_paused() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, admin) = setup(&env);
 
+    // ── Scenario A: propose while paused → blocked ─────────────────────
     client.set_paused(&admin, &true);
     assert!(client.is_paused());
 
-    let new_admin = Address::generate(&env);
-    let propose = client.try_propose_admin(&new_admin);
-    assert!(
-        propose.is_ok(),
-        "propose_admin must work while contract is paused"
+    let attacker = Address::generate(&env);
+    let propose_paused = client.try_propose_admin(&attacker);
+    assert_eq!(
+        propose_paused,
+        Err(Ok(ContractError::ContractPaused)),
+        "propose_admin must return ContractPaused while contract is paused (scenario A)"
     );
-    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
-
-    let accept = client.try_accept_admin(&new_admin);
-    assert!(
-        accept.is_ok(),
-        "accept_admin must work while contract is paused"
+    assert_eq!(
+        client.pending_admin(),
+        None,
+        "pending_admin must remain None after a blocked paused proposal"
     );
     assert_eq!(
         client.admin(),
-        new_admin,
-        "admin must be updated while paused"
+        admin,
+        "admin must remain unchanged after a blocked paused proposal"
+    );
+    // Unpause so scenario B can reuse the same env.
+    client.set_paused(&admin, &false);
+    assert!(!client.is_paused());
+
+    // ── Scenario B: proposal staged BEFORE pause, accept WHILE paused ─
+    let new_admin = Address::generate(&env);
+    client.propose_admin(&new_admin);
+    assert_eq!(
+        client.pending_admin(),
+        Some(new_admin.clone()),
+        "precondition: proposal must be staged while unpaused"
+    );
+
+    // Now pause — the critical containment window starts.
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let accept_paused = client.try_accept_admin(&new_admin);
+    assert_eq!(
+        accept_paused,
+        Err(Ok(ContractError::ContractPaused)),
+        "accept_admin must return ContractPaused while contract is paused (scenario B)"
+    );
+    assert_eq!(
+        client.admin(),
+        admin,
+        "admin must NOT change even though a valid proposal was staged before pause"
+    );
+    assert_eq!(
+        client.pending_admin(),
+        Some(new_admin.clone()),
+        "pending_admin must remain intact during pause (operator inspects after unpause)"
     );
 }
 
@@ -5148,4 +5213,151 @@ fn test_migration_v1_to_v2_backfills_payer_indexes() {
         assert_eq!(again.records.len() as u32, expected);
         assert_eq!(again.gaps_skipped, 0);
     }
+}
+
+// ─── Additional Pause-Scope Tests: Issue #482 ───────────────────────────────
+
+/// `cancel_admin_transfer` — part of the admin control plane — must be
+/// rejected while paused, even though it "undoes" a pending change.  The
+/// entire control plane is frozen during containment so the operator can
+/// reason about a stable state before unpausing.  After unpause the normal
+/// cancellation flow must still work.
+#[test]
+fn test_cancel_admin_transfer_blocked_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Stage a proposal while the contract is still operational.
+    let proposed = Address::generate(&env);
+    client.propose_admin(&proposed);
+    assert_eq!(
+        client.pending_admin(),
+        Some(proposed.clone()),
+        "precondition: proposal must be staged while unpaused"
+    );
+
+    // Operator pauses — containment window begins.
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // Paused attempt: must fail with ContractPaused and MUST NOT clear the
+    // pending proposal (operator inspects it after unpause, then decides).
+    let paused_cancel = client.try_cancel_admin_transfer();
+    assert_eq!(
+        paused_cancel,
+        Err(Ok(ContractError::ContractPaused)),
+        "cancel_admin_transfer must return ContractPaused while paused"
+    );
+    assert_eq!(
+        client.pending_admin(),
+        Some(proposed.clone()),
+        "pending_admin must NOT be cleared by a failed paused cancellation"
+    );
+    assert_eq!(
+        client.admin(),
+        admin,
+        "admin must remain unchanged"
+    );
+
+    // Lift containment — cancellation must now succeed normally.
+    client.set_paused(&admin, &false);
+    client.cancel_admin_transfer();
+    assert_eq!(client.pending_admin(), None);
+}
+
+/// `upgrade_storage` is deliberately **exempt** from the pause guard.
+/// The documented upgrade runbook is:
+///   `set_paused(true) → upgrade() → upgrade_storage() → verify → set_paused(false)`
+/// so storage migration literally *must* run while paused.  Blocking it
+/// would make the runbook impossible.  Here we assert the exemption holds.
+#[test]
+fn test_upgrade_storage_succeeds_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // Follow the runbook order: pause first, then migrate storage.
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // upgrade_storage must NOT be blocked by pause.
+    let migrate = client.try_upgrade_storage(&admin);
+    assert!(
+        migrate.is_ok(),
+        "upgrade_storage must succeed while paused (exempt per upgrade runbook)"
+    );
+
+    // Sanity: schema metadata matches current code, confirming migration ran.
+    let cfg = client.config();
+    assert_eq!(
+        cfg.version.storage_schema_version, STORAGE_SCHEMA_VERSION,
+        "storage schema must be current after a paused migration"
+    );
+    assert!(client.is_paused(), "contract must remain paused after migration");
+}
+
+/// `rebuild_history_index` is deliberately **exempt** from the pause guard.
+/// It is an admin-gated maintenance / recovery function that may be needed
+/// either inside the pause→upgrade→migrate→verify→unpause window or
+/// standalone during normal operation.  Here we seed payments, pause, and
+/// confirm the rebuild call is permitted and restores a consistent index.
+#[test]
+fn test_rebuild_history_index_succeeds_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    // ── Seed payments (unpaused) ────────────────────────────────────────
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    const N: u32 = 3;
+    for i in 0..N {
+        let inv = String::from_str(&env, &format!("rebuild-pause-{:02}", i));
+        let set = String::from_str(&env, &format!("set-rebuild-pause-{:02}", i));
+        client.record_payment(
+            &inv,
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &((i as i128 + 1) * 10_000_000i128),
+            &set,
+        );
+    }
+    let before = client.payment_history(&0u32, &25u32);
+    assert_eq!(before.records.len() as u32, N, "precondition: N payments recorded");
+
+    // Wipe the history index entries (simulate corruption that rebuild fixes).
+    env.as_contract(&client.address, || {
+        for i in 0..N {
+            env.storage().persistent().remove(&DataKey::PaymentHistory(i));
+        }
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &0u32);
+    });
+    let cleared = client.payment_history(&0u32, &25u32);
+    assert_eq!(cleared.records.len(), 0, "precondition: history index cleared");
+
+    // ── Pause, then rebuild — must NOT be blocked ───────────────────────
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let rebuild = client.try_rebuild_history_index(&admin);
+    assert!(
+        rebuild.is_ok(),
+        "rebuild_history_index must succeed while paused (exempt maintenance function)"
+    );
+
+    // Verify the index was actually rebuilt during the paused window.
+    let restored = client.payment_history(&0u32, &25u32);
+    assert_eq!(
+        restored.records.len() as u32, N,
+        "history index must be fully restored by a paused rebuild"
+    );
+    assert_eq!(
+        restored.gaps_skipped, 0,
+        "restored history must report zero gaps"
+    );
+    assert!(client.is_paused(), "contract must remain paused after rebuild");
 }
