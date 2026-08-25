@@ -3,6 +3,7 @@ import axios, { AxiosError } from 'axios';
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 let accessToken: string | null = null;
+let lastCorrelationId: string | null = null;
 
 function getOrCreateCorrelationId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -18,13 +19,19 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use((config) => {
   config.headers = config.headers ?? {};
-  config.headers['X-Correlation-ID'] = getOrCreateCorrelationId();
+  const correlationId = getOrCreateCorrelationId();
+  lastCorrelationId = correlationId;
+  config.headers['X-Correlation-ID'] = correlationId;
 
   if (accessToken != null && accessToken.length > 0) {
     config.headers.Authorization = `Bearer ${accessToken}`;
   }
   return config;
 });
+
+export function getLastCorrelationId(): string | null {
+  return lastCorrelationId;
+}
 
 export function setApiAccessToken(token: string | null): void {
   accessToken = token;
