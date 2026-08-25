@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
-import { ThrottlerModule } from "@nestjs/throttler";
+import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service";
 
@@ -20,6 +21,12 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
                 limit: throttlerConfig.limit,
               },
             ],
+            getTracker: (req: Record<string, any>) => {
+              if (req.user?.id) {
+                return `user:${req.user.id}`;
+              }
+              return req.ip;
+            },
           };
         }
 
@@ -46,9 +53,16 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
             },
           ],
           storage: storage,
+          getTracker: (req: Record<string, any>) => {
+            if (req.user?.id) {
+              return `user:${req.user.id}`;
+            }
+            return req.ip;
+          },
         };
       },
     }),
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class CustomThrottlerModule {}

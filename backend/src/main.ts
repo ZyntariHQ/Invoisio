@@ -21,6 +21,12 @@ async function bootstrap() {
   // Get config service
   const configService = app.get(ConfigService);
 
+  // Trust proxy so req.ip reflects the real client IP behind a load balancer.
+  // Defaults to 1 (single proxy hop, e.g. Render.com). Configure via TRUST_PROXY env var.
+  const httpAdapter = app.getHttpAdapter();
+  const expressInstance = httpAdapter.getInstance();
+  expressInstance.set("trust proxy", configService.get("app.trustProxy", 1));
+
   // Enable CORS for frontend
   const corsOrigin = configService.get("app.corsOrigin");
   app.enableCors({

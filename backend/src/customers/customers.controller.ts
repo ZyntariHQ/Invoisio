@@ -89,7 +89,7 @@ export class CustomersController {
    */
   @Post()
   @Auth()
-  @Throttle({ default: { limit: 30, ttl: 3600 } })
+  @Throttle({ default: { limit: 30, ttl: 3_600_000 } })
   async create(@CurrentUser() user: User, @Body() dto: CreateCustomerDto) {
     return await this.prisma.runWithMerchantScope(user.merchantId, () =>
       this.customersService.create(user.merchantId, dto),
