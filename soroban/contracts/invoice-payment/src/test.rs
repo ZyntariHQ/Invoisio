@@ -6,7 +6,7 @@ use crate::storage::{AllowlistMode, ContractConfig};
 use alloc::format;
 use soroban_sdk::{
     testutils::{Address as _, MockAuth, MockAuthInvoke},
-    Address, Env, IntoVal, String,
+    Address, BytesN, Env, IntoVal, String,
 };
 
 // TTL / Helpers
@@ -410,9 +410,14 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
     assert_eq!(cursor, 6);
 }
 
-/// Regression test for #418: `payments_by_payer` must skip a missing slot
-/// the same way `payment_history` does, distinguishing a real gap from a
-/// slot that simply belongs to a different payer.
+/// Regression test for #418 (scan path): `payments_by_payer` on the bounded
+/// scan fallback must skip a missing slot the same way `payment_history`
+/// does, distinguishing a real gap from a slot that belongs to a different
+/// payer.
+///
+/// With the per-payer index intact (#445), corruption in *another payer's*
+/// slot is no longer visible in this payer's page — the second half of the
+/// test pins that improvement.
 #[test]
 fn test_payments_by_payer_skips_missing_slot() {
     let env = Env::default();
@@ -433,6 +438,16 @@ fn test_payments_by_payer_skips_missing_slot() {
             .remove(&DataKey::PaymentHistory(1));
     });
 
+    // Indexed path: the removed slot belongs to another payer, so this
+    // payer's view is unaffected by it.
+    let indexed = client.payments_by_payer(&payer, &0u32, &10u32);
+    assert_eq!(indexed.records.len(), 2);
+    assert_eq!(indexed.gaps_skipped, 0);
+    assert_eq!(indexed.next_cursor, 2);
+    assert!(!indexed.has_more);
+
+    // Scan fallback: the shared-index walk sees the hole and reports it.
+    strip_payer_index(&env, &client, &payer);
     let page = client.payments_by_payer(&payer, &0u32, &10u32);
     assert_eq!(page.records.len(), 2);
     assert_eq!(page.gaps_skipped, 1);
@@ -2214,6 +2229,181 @@ fn test_schema_compatibility_check() {
     // Version info should match current
     let info = client.version_info();
     assert_eq!(info.storage_schema_version, STORAGE_SCHEMA_VERSION);
+}
+
+// ─── upgrade() ──────────────────────────────────────────────────────────────
+//
+// The full "actually swaps the running code" path needs a real, callable
+// WASM binary — `env.deployer().upload_contract_wasm(...)` traps on
+// synthetic bytes, so that end-to-end coverage lives in the
+// `upgrade_wasm_integration` module below, gated behind the
+// `upgrade-fixture-test` feature (see its doc comment). The tests here cover
+// every rejection path, which never reach the deployer host call at all and
+// so need no real WASM.
+
+/// A syntactically valid but never-installed WASM hash — sufficient for
+/// negative tests that must fail before `upgrade()` reaches the deployer.
+fn dummy_wasm_hash(env: &Env) -> BytesN<32> {
+    BytesN::from_array(env, &[7u8; 32])
+}
+
+#[test]
+fn test_upgrade_before_initialize_returns_not_initialized() {
+    let env = Env::default();
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let result = client.try_upgrade(&admin, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+}
+
+#[test]
+fn test_upgrade_requires_admin() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    env.mock_all_auths();
+
+    client.set_paused(&admin, &true);
+
+    let attacker = Address::generate(&env);
+    let result = client.try_upgrade(&attacker, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::Unauthorized)),
+        "non-admin upgrade() must return Unauthorized"
+    );
+}
+
+#[test]
+fn test_upgrade_requires_contract_paused() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    env.mock_all_auths();
+
+    // Not paused yet — must be rejected before ever touching the deployer.
+    let result = client.try_upgrade(&admin, &dummy_wasm_hash(&env), &2_000_000u32);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::MustBePausedForUpgrade)),
+        "upgrade() while unpaused must return MustBePausedForUpgrade"
+    );
+
+    // Pausing clears the way (the call then proceeds to the deployer, which
+    // traps on this placeholder hash — the pause gate itself is what this
+    // test verifies, not the deployer call).
+    assert!(!client.is_paused());
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+}
+
+/// End-to-end coverage for the documented `upgrade()` → `upgrade_storage()`
+/// runbook, using this crate's own compiled WASM as the "new" code.
+///
+/// `env.deployer().upload_contract_wasm(...)` requires real, callable WASM
+/// bytes (a synthetic byte array traps as soon as it's invoked), and
+/// `contractimport!` resolves its `file` path at compile time — so this
+/// module is opt-in via the `upgrade-fixture-test` Cargo feature rather than
+/// part of the default `cargo test` run, which the Soroban CI job runs
+/// *before* the WASM build step (and against a different build target).
+///
+/// Run it explicitly, after building the contract:
+///   ./build.sh && cargo test -p invoice-payment --features upgrade-fixture-test
+#[cfg(feature = "upgrade-fixture-test")]
+mod upgrade_wasm_integration {
+    use super::*;
+
+    mod rebuilt_self {
+        soroban_sdk::contractimport!(
+            file = "../../target/wasm32v1-none/release/invoice_payment.wasm"
+        );
+    }
+
+    /// Upgrades a live contract to a freshly-built copy of its own code, then
+    /// runs `upgrade_storage()` under that new code — exercising the full
+    /// documented runbook, not just the storage-migration step in isolation.
+    #[test]
+    fn test_wasm_upgrade_then_storage_migration_preserves_state() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (client, admin) = setup(&env);
+
+        // Seed state that must survive the upgrade unchanged.
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        client.allow_asset(
+            &String::from_str(&env, "USDC"),
+            &String::from_str(
+                &env,
+                "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+            ),
+        );
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("wasm-upgrade-{i:02}"));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("settle-wasm-upgrade-{i:02}")),
+            );
+        }
+
+        let admin_before = client.admin();
+        let history_before = client.payment_history(&0u32, &10u32);
+        let count_before = client.payment_count();
+        let native_allowed_before = client.config().allowlist_mode.native_allowed;
+
+        // Step 1: pause (required by upgrade()).
+        client.set_paused(&admin, &true);
+
+        // Step 2: install and switch to the new code.
+        let new_hash = env.deployer().upload_contract_wasm(rebuilt_self::WASM);
+        client.upgrade(&admin, &new_hash, &CONTRACT_VERSION);
+
+        // Step 3: run the storage migration under the new code.
+        client.upgrade_storage(&admin);
+
+        // Step 4: verify state survived, and that the new code is live.
+        assert_eq!(client.admin(), admin_before);
+        assert_eq!(client.payment_count(), count_before);
+        let history_after = client.payment_history(&0u32, &10u32);
+        assert_eq!(history_after.records.len(), history_before.records.len());
+        for (before, after) in history_before
+            .records
+            .iter()
+            .zip(history_after.records.iter())
+        {
+            assert_eq!(before.invoice_id, after.invoice_id);
+            assert_eq!(before.amount, after.amount);
+        }
+        assert_eq!(
+            client.config().allowlist_mode.native_allowed,
+            native_allowed_before
+        );
+        assert_eq!(client.contract_version(), CONTRACT_VERSION);
+        assert_eq!(
+            client.version_info().storage_schema_version,
+            STORAGE_SCHEMA_VERSION
+        );
+
+        // Step 5: unpause.
+        client.set_paused(&admin, &false);
+        assert!(!client.is_paused());
+
+        // The contract is fully functional post-upgrade, under the new code.
+        client.record_payment(
+            &String::from_str(&env, "wasm-upgrade-post"),
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &50_000_000i128,
+            &String::from_str(&env, "settle-wasm-upgrade-post"),
+        );
+        assert_eq!(client.payment_count(), count_before + 1);
+    }
 }
 
 // ─── Pause Tests ────────────────────────────────────────────────────────────
@@ -4476,6 +4666,498 @@ fn test_settlement_ref_not_consumed_on_failed_transaction() {
     // Verify payment succeeded
     assert_eq!(client.payment_count(), 1);
     assert!(client.has_payment(&invoice_id_2));
+}
+
+// ─── Issue #445: bounded payments_by_payer scan + per-payer index ──────────
+
+/// Number of history slots a single `payments_by_payer` invocation may
+/// examine on the scan fallback path (mirrors `storage::MAX_PAYER_SCAN_SLOTS`).
+const PAGER_SCAN_CAP: u32 = storage::MAX_PAYER_SCAN_SLOTS;
+
+/// Simulate legacy (pre-per-payer-index) storage for `payer` by removing the
+/// payer's index keys, forcing `payments_by_payer` onto the bounded-scan path.
+fn strip_payer_index(env: &Env, client: &InvoicePaymentContractClient, payer: &Address) {
+    let count = env.as_contract(&client.address, || {
+        let count = storage::get_payer_payment_count(env, payer).unwrap_or(0u32);
+        for ordinal in 0..count {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PayerPaymentCount(payer.clone()));
+        count
+    });
+    assert!(count > 0, "payer had no index entries to strip");
+}
+
+/// Write a synthetic `PaymentHistory` slot without going through
+/// `record_payment`. Lets read-path tests build histories larger than one
+/// scan cap cheaply (hundreds of slots), with no per-payer index entries so
+/// queries fall back to the bounded scan exactly like pre-V2 data.
+fn fabricate_history_slot(
+    env: &Env,
+    client: &InvoicePaymentContractClient,
+    slot: u32,
+    payer: &Address,
+) {
+    env.as_contract(&client.address, || {
+        let record = storage::PaymentRecord {
+            invoice_id: String::from_str(env, &format!("fabricated-{slot:04}")),
+            payer: payer.clone(),
+            asset: storage::Asset::Native,
+            amount: 1_000_000i128,
+            timestamp: slot as u64,
+            settlement_ref: String::from_str(env, &format!("settle-fab-{slot:04}")),
+        };
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentHistory(slot), &record);
+    });
+}
+
+/// Fabricate `total` contiguous history slots owned by `payer_at(slot)` and
+/// set `HistoryCount` accordingly.
+fn fabricate_history<F>(env: &Env, client: &InvoicePaymentContractClient, total: u32, payer_at: F)
+where
+    F: Fn(u32) -> Address,
+{
+    for slot in 0..total {
+        fabricate_history_slot(env, client, slot, &payer_at(slot));
+    }
+    env.as_contract(&client.address, || {
+        storage::set_history_count(env, total);
+    });
+}
+
+/// Regression test for #445: a large history with sparse payer matches must
+/// page through completely via the per-payer index without ever examining
+/// unbounded work, and every matching record must be returned exactly once,
+/// in insertion order.
+#[test]
+fn test_payments_by_payer_sparse_matches_page_through_completely() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // 61 payments total; the target payer owns every 6th record → 11
+    // matches spread across the whole index.
+    let total = 61u32;
+    let mut expected: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
+    for idx in 0..total {
+        let owner = if idx % 6 == 0 { &payer } else { &other };
+        let invoice_id = format!("invoisio-sparse-{idx:02}");
+        record_xlm(
+            &env,
+            &client,
+            &invoice_id,
+            owner,
+            ((idx as i128) + 1) * 1_000_000i128,
+        );
+        if idx % 6 == 0 {
+            expected.push_back(String::from_str(&env, &invoice_id));
+        }
+    }
+
+    // Page through with a small limit; collect everything.
+    let mut seen: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
+    let mut cursor = 0u32;
+    let mut calls = 0u32;
+    loop {
+        let page = client.payments_by_payer(&payer, &cursor, &5u32);
+        for rec in page.records.iter() {
+            seen.push_back(rec.invoice_id.clone());
+        }
+        cursor = page.next_cursor;
+        calls += 1;
+        if !page.has_more {
+            break;
+        }
+        assert!(calls < 50, "pagination did not terminate");
+    }
+
+    assert_eq!(seen.len(), expected.len());
+    for (got, want) in seen.iter().zip(expected.iter()) {
+        assert_eq!(got, want);
+    }
+    assert_eq!(calls, 3, "11 records at limit 5 should take 3 pages");
+}
+
+/// Regression test for #445 (scan fallback): with no per-payer index entries
+/// (simulating pre-V2 data), each call examines at most
+/// `MAX_PAYER_SCAN_SLOTS` history slots, even when nothing matches, and
+/// paging still terminates over the whole sparse result set.
+#[test]
+fn test_payments_by_payer_bounded_scan_caps_work_per_call() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // Grow the history well past several scan caps with only two early
+    // matches for the target payer. Fabricated slots carry no index entries,
+    // so the read falls back to the bounded scan.
+    let total = PAGER_SCAN_CAP * 6 + 40; // 520 slots
+    fabricate_history(&env, &client, total, |slot| {
+        if slot == 1 || slot == 4 {
+            payer.clone()
+        } else {
+            other.clone()
+        }
+    });
+
+    // First call: bounded work. The cursor must advance by exactly the cap;
+    // both early hits fall inside the first capped window.
+    let first = client.payments_by_payer(&payer, &0u32, &25u32);
+    assert_eq!(first.records.len(), 2);
+    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
+    assert!(first.has_more);
+
+    // A zero-match window still advances by exactly the cap and reports
+    // has_more so callers keep going instead of stalling.
+    let mut cursor = first.next_cursor;
+    let mut pages = 1u32;
+    while cursor < total {
+        let page = client.payments_by_payer(&payer, &cursor, &25u32);
+        let examined = page.next_cursor - cursor;
+        assert!(
+            examined <= PAGER_SCAN_CAP,
+            "call examined {} slots > cap {}",
+            examined,
+            PAGER_SCAN_CAP
+        );
+        cursor = page.next_cursor;
+        pages += 1;
+        assert!(
+            !page.records.is_empty() || page.has_more || cursor >= total,
+            "stalled: empty page without progress"
+        );
+        assert!(pages <= 10, "paging did not terminate");
+    }
+    assert_eq!(
+        pages, 7,
+        "520 slots / cap 80 should need ceil(520/80)=7 calls"
+    );
+}
+
+/// Regression test for #445: a payer whose per-payer index exists but who
+/// has no recorded payments returns an empty page immediately.
+#[test]
+fn test_payments_by_payer_zero_match_returns_empty_promptly() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let other = Address::generate(&env);
+    let stranger = Address::generate(&env); // never recorded a payment
+
+    for idx in 0..30u32 {
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-zero-{idx:02}"),
+            &other,
+            1_000_000i128,
+        );
+    }
+
+    let page = client.payments_by_payer(&stranger, &0u32, &25u32);
+    assert_eq!(page.records.len(), 0);
+    assert_eq!(page.gaps_skipped, 0);
+    assert!(!page.has_more);
+}
+
+/// Regression test for #445 (scan fallback): a never-seen payer against
+/// *legacy* data larger than one scan cap gets an empty first page with
+/// has_more set — documented behaviour — and paging walks off the end
+/// cleanly without ever scanning more than the cap per call.
+#[test]
+fn test_payments_by_payer_zero_match_legacy_scan_pages_off_end() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let other = Address::generate(&env);
+    let stranger = Address::generate(&env);
+
+    let total = PAGER_SCAN_CAP + 30;
+    fabricate_history(&env, &client, total, |_| other.clone());
+
+    // The stranger never paid, so they have no index entries; the read falls
+    // back to the bounded scan directly (nothing to strip).
+    let first = client.payments_by_payer(&stranger, &0u32, &25u32);
+    assert_eq!(first.records.len(), 0);
+    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
+    assert!(first.has_more, "empty page must signal callers to continue");
+
+    let second = client.payments_by_payer(&stranger, &first.next_cursor, &25u32);
+    assert_eq!(second.records.len(), 0);
+    assert_eq!(second.next_cursor, total);
+    assert!(!second.has_more);
+}
+
+/// Regression test for #445: matches spanning multiple pages are returned in
+/// order with correct termination, including when the final page is partial.
+#[test]
+fn test_payments_by_payer_multi_page_span_in_order() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    // Pattern: payer, filler, filler repeated — 7 payer payments spread over
+    // 28 history slots. With limit 3 that forces 3 pages (3/3/1).
+    let mut expected_idx: u32 = 0;
+    for idx in 0..28u32 {
+        let is_target = idx % 4 == 0 && expected_idx < 7;
+        let owner = if is_target { &payer } else { &other };
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-multi-{idx:02}"),
+            owner,
+            ((idx as i128) + 1) * 1_000_000i128,
+        );
+        if is_target {
+            expected_idx += 1;
+        }
+    }
+    assert_eq!(expected_idx, 7);
+
+    let mut collected: alloc::vec::Vec<i128> = alloc::vec::Vec::new();
+    let mut cursor = 0u32;
+    loop {
+        let page = client.payments_by_payer(&payer, &cursor, &3u32);
+        for rec in page.records.iter() {
+            collected.push(rec.amount);
+        }
+        cursor = page.next_cursor;
+        if !page.has_more {
+            break;
+        }
+    }
+    assert_eq!(collected.len(), 7);
+    // Amounts encode original slot order: every 4th payment starting at 0.
+    for (n, amount) in collected.iter().enumerate() {
+        assert_eq!(*amount, ((n as i128) * 4 + 1) * 1_000_000i128);
+    }
+}
+
+/// Regression test for #445: bounded-work assertion via the CPU budget —
+/// a single zero-match call against a large history must stay far below the
+/// ledger budget now that the scan is capped.
+#[test]
+fn test_payments_by_payer_single_call_cpu_stays_bounded() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    let total = PAGER_SCAN_CAP + 100;
+    fabricate_history(&env, &client, total, |slot| {
+        if slot == 0 {
+            payer.clone()
+        } else {
+            other.clone()
+        }
+    });
+
+    let before = env.cost_estimate().budget().cpu_instruction_cost();
+    let page = client.payments_by_payer(&payer, &0u32, &25u32);
+    let after = env.cost_estimate().budget().cpu_instruction_cost();
+
+    assert_eq!(page.records.len(), 1);
+    // One capped invocation must consume well under the ~100M instruction
+    // ledger budget; a full uncapped scan of this size would already be
+    // several times larger and grows linearly forever with history length.
+    let used = after - before;
+    assert!(
+        used < 20_000_000u64,
+        "single capped call consumed {} CPU instructions",
+        used
+    );
+}
+
+/// Regression test for #445: gap semantics are preserved on the per-payer
+/// index path — a removed backing history slot for one of the payer's own
+/// ordinals counts in `gaps_skipped` without stalling or mis-ordering the
+/// remaining records.
+#[test]
+fn test_payments_by_payer_index_path_skips_gap_like_payment_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    record_xlm(&env, &client, "invoisio-gap-a", &payer, 10_000_000);
+    record_xlm(&env, &client, "invoisio-gap-b", &other, 20_000_000);
+    record_xlm(&env, &client, "invoisio-gap-c", &payer, 30_000_000);
+
+    // Corrupt the shared history slot backing the payer's ordinal 1
+    // (slot 2 — their second recorded payment).
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(2));
+    });
+
+    let page = client.payments_by_payer(&payer, &0u32, &10u32);
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(
+        page.records.get(0).unwrap().invoice_id,
+        String::from_str(&env, "invoisio-gap-a")
+    );
+    assert_eq!(page.gaps_skipped, 1);
+    assert!(!page.has_more);
+}
+
+/// Regression test for #445: `rebuild_history_index` reconstructs per-payer
+/// indexes for pre-existing payments, moving payers back onto the direct-
+/// read path after a rebuild (e.g. following corruption repair).
+#[test]
+fn test_rebuild_history_index_builds_payer_indexes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    for idx in 0..8u32 {
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-rebuild-payer-{idx:02}"),
+            &payer,
+            ((idx as i128) + 1) * 1_000_000i128,
+        );
+    }
+
+    // Wipe the payer's index entries entirely (as if the contract was
+    // upgraded from a pre-V2 deployment).
+    env.as_contract(&client.address, || {
+        for ordinal in 0..8u32 {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PayerPaymentCount(payer.clone()));
+    });
+
+    // Before rebuild: bounded-scan fallback serves the data correctly.
+    let scanned = client.payments_by_payer(&payer, &0u32, &25u32);
+    assert_eq!(scanned.records.len(), 8);
+    assert_eq!(scanned.gaps_skipped, 0);
+
+    client.rebuild_history_index(&admin);
+
+    // After rebuild: direct-read path returns identical results.
+    let indexed = client.payments_by_payer(&payer, &0u32, &25u32);
+    assert_eq!(indexed.records.len(), 8);
+    assert_eq!(indexed.gaps_skipped, 0);
+    assert!(!indexed.has_more);
+    for n in 0..8u32 {
+        let rec = indexed.records.get(n).unwrap();
+        assert_eq!(
+            rec.invoice_id,
+            String::from_str(&env, &format!("invoisio-rebuild-payer-{n:02}"))
+        );
+    }
+}
+
+/// Regression test for #445: the schema V1 → V2 migration backfills
+/// per-payer indexes without data loss, and is idempotent.
+#[test]
+fn test_migration_v1_to_v2_backfills_payer_indexes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    let payer_a = Address::generate(&env);
+    let payer_b = Address::generate(&env);
+    for idx in 0..12u32 {
+        let payer = if idx % 3 == 0 { &payer_a } else { &payer_b };
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-mig-{idx:02}"),
+            payer,
+            1_000_000i128,
+        );
+    }
+
+    // Roll storage metadata back to V1 and wipe payer indexes to simulate a
+    // V1-era deployment.
+    env.as_contract(&client.address, || {
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
+        meta.storage_schema_version = storage::STORAGE_SCHEMA_V1;
+        storage::set_contract_meta(&env, &meta);
+        for payer in [payer_a.clone(), payer_b.clone()] {
+            let count = storage::get_payer_payment_count(&env, &payer).unwrap_or(0u32);
+            for ordinal in 0..count {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
+            }
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PayerPaymentCount(payer.clone()));
+        }
+    });
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        storage::STORAGE_SCHEMA_V1
+    );
+
+    // Run the upgrade driver; it must route through migrate_schema_v1_to_v2.
+    let admin = client.admin();
+    client.upgrade_storage(&admin);
+
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        storage::STORAGE_SCHEMA_VERSION
+    );
+
+    // Both payers are back on the direct-read path with complete results.
+    for payer in [&payer_a, &payer_b] {
+        let mut total = 0u32;
+        let mut cursor = 0u32;
+        loop {
+            let page = client.payments_by_payer(payer, &cursor, &2u32);
+            total += page.records.len() as u32;
+            cursor = page.next_cursor;
+            if !page.has_more {
+                break;
+            }
+        }
+        let expected = if payer == &payer_a { 4 } else { 8 };
+        assert_eq!(total, expected);
+
+        // Idempotency: running the migration again is safe.
+        client.upgrade_storage(&admin);
+        let again = client.payments_by_payer(payer, &0u32, &25u32);
+        assert_eq!(again.records.len() as u32, expected);
+        assert_eq!(again.gaps_skipped, 0);
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

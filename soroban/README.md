@@ -297,6 +297,26 @@ rename it `manifests/futurenet.toml`, update the `[network]` block, and run:
 STELLAR_NETWORK=futurenet ./deploy.sh
 ```
 
+### `./invoke-upgrade.sh` and `./invoke-upgrade-storage.sh`
+
+Upgrade an already-deployed contract's WASM in place, without changing its
+contract ID. Full procedure, ordering rationale, and rollback expectations:
+[`docs/upgrade-runbook.md`](docs/upgrade-runbook.md).
+
+```bash
+# Always dry-run first — prints the plan without touching the network.
+./invoke-upgrade.sh target/wasm32v1-none/release/invoice_payment.wasm 1.1.0 --dry-run
+
+./invoke-pause.sh
+./invoke-upgrade.sh target/wasm32v1-none/release/invoice_payment.wasm 1.1.0
+./invoke-upgrade-storage.sh
+./invoke-inspect-config.sh   # verify before unpausing
+./invoke-unpause.sh
+```
+
+`invoke-upgrade.sh` refuses to run (dry-run or not) unless the contract is
+already paused — `upgrade()` enforces this on-chain.
+
 ### `./invoke-record-payment.sh`
 
 Records an invoice payment on-chain.
@@ -564,12 +584,35 @@ The contract uses a practical hybrid strategy:
 1. **Semver for contract code** (`CONTRACT_VERSION`).
 2. **Explicit on-chain schema metadata** (`ContractMeta { contract_version, storage_schema_version }`).
 3. **Versioned storage keys** for records (`PaymentV1(invoice_id)`), while retaining **legacy read support** (`Payment(invoice_id)`).
+4. **An in-place code upgrade entrypoint** (`upgrade()`), so a deployment isn't frozen at its original WASM forever.
 
 #### Why this pattern
 
 - **Major breaking changes** (new required fields, behavioral changes): deploy a **new contract address**.
-- **Backward-compatible updates** (bug fixes, additive methods): code can be upgraded in place, and metadata tracks state/schema.
+- **Backward-compatible updates** (bug fixes, additive methods): code is upgraded in place via `upgrade()`, and metadata tracks state/schema.
 - **Legacy safety**: reads still accept old keys and lazily migrate them to the current key namespace.
+
+#### In-place code upgrades
+
+`upgrade(admin, new_wasm_hash, new_contract_version)` calls
+`env.deployer().update_current_contract_wasm(...)` to swap the WASM running
+at the deployed contract address, admin-gated and requiring the contract to
+already be paused (`ContractError::MustBePausedForUpgrade` otherwise — the
+contract enforces this on-chain, it's not just a documented convention). It
+emits a `ContractUpgraded` event with the previous and new packed version so
+off-chain indexers can detect the transition.
+
+`upgrade()` and `upgrade_storage()` are two separate calls in two separate
+transactions: `upgrade()` swaps the code (taking effect starting with the
+*next* invocation — Soroban doesn't retroactively change the call that's
+currently running), and `upgrade_storage()` is that next invocation, running
+under the new code to migrate on-chain storage to the new
+`STORAGE_SCHEMA_VERSION` if one was introduced.
+
+**Full procedure, ordering rationale, and rollback expectations:
+[`docs/upgrade-runbook.md`](docs/upgrade-runbook.md).** Ops tooling:
+`./invoke-upgrade.sh` (supports `--dry-run`) and `./invoke-upgrade-storage.sh`,
+alongside the existing `./invoke-pause.sh` / `./invoke-unpause.sh`.
 
 #### Event compatibility policy
 
@@ -616,12 +659,14 @@ Contract v1 (C1) live
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
 | `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
+| `payments_by_payer(payer, cursor, limit) → PaymentHistoryPage` | — | Return a bounded page of payments made by one payer. Served from the per-payer index (schema V2) when present; otherwise a filtered scan of the shared history index capped at `MAX_PAYER_SCAN_SLOTS` slots examined per call — an empty page with `has_more: true` is expected mid-pagination on that fallback path. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `pending_admin() → Address | null` | — | Address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight. |
 | `propose_admin(new_admin)` | admin | Step 1 of two-step admin handoff: propose the next admin (current admin signs). |
 | `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
+| `upgrade(admin, new_wasm_hash, new_contract_version)` | admin | Swap the deployed WASM in place (`env.deployer().update_current_contract_wasm`). Requires the contract to already be paused. See [`docs/upgrade-runbook.md`](docs/upgrade-runbook.md). |
 
 `payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
@@ -651,6 +696,7 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
 | 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
 | 20 | SettlementRefAlreadyUsed | The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments. |
+| 21 | MustBePausedForUpgrade | `upgrade()` was called while the contract is not paused; the contract must stay paused for the whole `upgrade()` → `upgrade_storage()` window. |
 
 #### Typed error manifest (off-chain reference)
 

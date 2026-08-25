@@ -27,6 +27,7 @@ import {
   decodeAllowlistPage,
   encodeAddress,
   encodeBool,
+  encodeBytes32,
   encodeI128,
   encodeString,
   encodeU32,
@@ -53,21 +54,22 @@ const TX_TIMEOUT_SECONDS = 30;
  * `Keypair` are initialised once in the constructor and reused across calls.
  *
  * ## Complexity
- * | Method                   | Time                       | Space |
- * |--------------------------|----------------------------|-------|
- * | `recordPayment`          | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getPayment`             | O(1)                       | O(1) |
- * | `hasPayment`             | O(1)                       | O(1) |
- * | `getPaymentCount`        | O(1)                       | O(1) |
- * | `allowAsset`             | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `revokeAsset`            | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setAllowNative`         | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setPaused`              | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getAdmin`               | O(1)                       | O(1) |
- * | `isPaused`               | O(1)                       | O(1) |
- * | `listAssets`             | O(1)                       | O(p) |
- * | `getAllowlistCount`       | O(1)                       | O(1) |
- * | `rebuildAllowlistIndex`  | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | Method                    | Time                        | Space |
+ * |---------------------------|-----------------------------|-------|
+ * | `recordPayment`           | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `getPayment`              | O(1)                        | O(1)  |
+ * | `hasPayment`              | O(1)                        | O(1)  |
+ * | `getPaymentCount`         | O(1)                        | O(1)  |
+ * | `allowAsset`              | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `revokeAsset`             | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `setAllowNative`          | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `setPaused`               | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `upgrade`                 | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
+ * | `getAdmin`                | O(1)                        | O(1)  |
+ * | `isPaused`                | O(1)                        | O(1)  |
+ * | `listAssets`              | O(1)                        | O(p)  |
+ * | `getAllowlistCount`       | O(1)                        | O(1)  |
+ * | `rebuildAllowlistIndex`   | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1)  |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -112,7 +114,7 @@ export class SorobanInvoiceClient {
    * the contract rejects longer values with `InvalidSettlementRef`.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`, `InvalidSettlementRef`)
+   *    (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`, `InvalidSettlementRef`)
    * @throws {Error} on network errors or confirmation timeout
    */
   async recordPayment(params: RecordPaymentParams): Promise<TransactionResult> {
@@ -152,7 +154,7 @@ export class SorobanInvoiceClient {
    * `acceptAdmin`.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
+   *    (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
    */
   async proposeAdmin(newAdmin: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -178,7 +180,7 @@ export class SorobanInvoiceClient {
    * address proposed by `proposeAdmin`.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   *    (e.g. `NoPendingAdmin`, `Unauthorized`)
    */
   async acceptAdmin(): Promise<TransactionResult> {
     this.requireSigner();
@@ -206,7 +208,7 @@ export class SorobanInvoiceClient {
    * `proposeAdmin()` can be used for a fresh proposal.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+   *    (e.g. `NoPendingAdmin`, `Unauthorized`)
    */
   async cancelAdminTransfer(): Promise<TransactionResult> {
     this.requireSigner();
@@ -230,7 +232,7 @@ export class SorobanInvoiceClient {
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   *    (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
    */
   async allowAsset(code: string, issuer: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -255,9 +257,9 @@ export class SorobanInvoiceClient {
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    *
    * @throws {SorobanContractError} with code `AssetNotFound` when the pair
-   *   was never in the allowlist — distinguishing a no-op from a real removal.
+   *    was never in the allowlist — distinguishing a no-op from a real removal.
    * @throws {SorobanContractError} on other contract-level rejections
-   *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+   *    (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
    */
   async revokeAsset(code: string, issuer: string): Promise<TransactionResult> {
     this.requireSigner();
@@ -282,7 +284,7 @@ export class SorobanInvoiceClient {
    * The **contract admin** keypair must be provided via `signerSecretKey`.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `Unauthorized`)
+   *    (e.g. `NotInitialized`, `Unauthorized`)
    */
   async setAllowNative(allowed: boolean): Promise<TransactionResult> {
     this.requireSigner();
@@ -307,7 +309,7 @@ export class SorobanInvoiceClient {
    * from `signerSecretKey` and must match the contract admin.
    *
    * @throws {SorobanContractError} on contract-level rejection
-   *   (e.g. `NotInitialized`, `Unauthorized`)
+   *    (e.g. `NotInitialized`, `Unauthorized`)
    */
   async setPaused(paused: boolean): Promise<TransactionResult> {
     this.requireSigner();
@@ -320,6 +322,51 @@ export class SorobanInvoiceClient {
     })
       .addOperation(
         this.contract.call('set_paused', encodeAddress(caller), encodeBool(paused)),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
+  /**
+   * Upgrade the deployed contract WASM in place.
+   *
+   * The contract MUST already be paused via `setPaused(true)` — this is
+   * enforced on-chain and the call is rejected with
+   * `MustBePausedForUpgrade` otherwise. See
+   * `soroban/docs/upgrade-runbook.md` for the full
+   * pause → upgrade → upgrade_storage → verify → unpause sequence, and why
+   * the contract must stay paused for that whole window.
+   *
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @param newWasmHash - hex-encoded 32-byte hash of the WASM already
+   *    installed on-chain (e.g. via `stellar contract upload`).
+   * @param newContractVersion - packed semver of the WASM being deployed
+   *    (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`), carried in the emitted
+   *    `contract_upgraded` event for off-chain indexers. Not verified
+   *    on-chain against `newWasmHash` — must match what was actually built.
+   *
+   * @throws {SorobanContractError} on contract-level rejection
+   *    (e.g. `Unauthorized`, `MustBePausedForUpgrade`)
+   */
+  async upgrade(newWasmHash: string, newContractVersion: number): Promise<TransactionResult> {
+    this.requireSigner();
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          'upgrade',
+          encodeAddress(caller),
+          encodeBytes32(newWasmHash),
+          encodeU32(newContractVersion),
+        ),
       )
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();
@@ -345,7 +392,7 @@ export class SorobanInvoiceClient {
    * Return the current contract admin address. Permissionless read.
    *
    * @throws {SorobanContractError} with code `NotInitialized` if the contract
-   *   has not been initialised yet.
+   *    has not been initialised yet.
    */
   async getAdmin(): Promise<string> {
     const retval = await this.simulateView('admin');
@@ -398,6 +445,42 @@ export class SorobanInvoiceClient {
   async getPaymentHistory(cursor = 0, limit = 25): Promise<PaymentHistoryPage> {
     const retval = await this.simulateView(
       'payment_history',
+      encodeU32(cursor),
+      encodeU32(limit),
+    );
+    return decodePaymentHistoryPage(retval);
+  }
+
+  /**
+   * Fetch a bounded page of payments made by a single payer.
+   *
+   * Two contract read paths are selected automatically per payer:
+   *
+   * - **Per-payer index (default).** Payments recorded after the index was
+   *    introduced (or backfilled by the schema V2 migration /
+   *    `rebuild_history_index`) are served with O(limit) direct reads. Here
+   *    `cursor` is an ordinal into that payer's payment list — start at `0`
+   *    and echo `next_cursor` afterwards.
+   *
+   * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
+   *    not yet migrated), the contract scans the shared history index with
+   *    the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
+   *    per call regardless of how few records match. On this path `cursor`
+   *    is a shared-history-index slot, and **an empty page with
+   *    `has_more: true` is expected** on sparse result sets — keep paging
+   *    from `next_cursor` until it flips to `false`.
+   *
+   * In both paths `limit` is capped by the contract (25), gaps are reported
+   * in `gaps_skipped`, and `has_more: false` terminates pagination.
+   */
+  async getPaymentsByPayer(
+    payer: string,
+    cursor = 0,
+    limit = 25,
+  ): Promise<PaymentHistoryPage> {
+    const retval = await this.simulateView(
+      'payments_by_payer',
+      encodeAddress(payer),
       encodeU32(cursor),
       encodeU32(limit),
     );

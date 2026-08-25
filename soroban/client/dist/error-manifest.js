@@ -140,6 +140,11 @@ exports.CONTRACT_ERROR_MANIFEST = [
         name: 'SettlementRefAlreadyUsed',
         meaning: 'The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.',
     },
+    {
+        code: 21,
+        name: 'MustBePausedForUpgrade',
+        meaning: 'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
+    },
 ];
 /**
  * Numeric code → stable name, derived from `CONTRACT_ERROR_MANIFEST`.

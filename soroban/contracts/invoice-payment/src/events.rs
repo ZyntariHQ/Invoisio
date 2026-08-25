@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, Env, String};
+use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 
 /// Schema version for the `invoice_payment_recorded` event payload.
 /// Bumped only when the payload shape changes in a breaking way so that
@@ -213,6 +213,42 @@ pub fn emit_settlement_refs_migrated(env: &Env, count: u32) {
     let payload = SettlementRefsMigrated {
         count,
         migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
+/// Event emitted by `upgrade()` when the contract admin swaps the deployed
+/// WASM in place via `env.deployer().update_current_contract_wasm(...)`.
+///
+/// Lets off-chain indexers detect a code transition without polling
+/// `contract_version()`. `previous_version` is the packed semver of the code
+/// that was running when `upgrade()` was called; `new_version` is the
+/// caller-supplied packed semver of the code being deployed (not verified
+/// on-chain — see `upgrade()`'s doc comment in `lib.rs`).
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContractUpgraded {
+    pub previous_version: u32,
+    pub new_version: u32,
+    pub new_wasm_hash: BytesN<32>,
+    pub upgraded_by: Address,
+    pub upgraded_at: u64,
+}
+
+/// Emit a contract-upgraded event.
+pub fn emit_contract_upgraded(
+    env: &Env,
+    previous_version: u32,
+    new_version: u32,
+    new_wasm_hash: BytesN<32>,
+    upgraded_by: Address,
+) {
+    let payload = ContractUpgraded {
+        previous_version,
+        new_version,
+        new_wasm_hash,
+        upgraded_by,
+        upgraded_at: env.ledger().timestamp(),
     };
     payload.publish(env);
 }

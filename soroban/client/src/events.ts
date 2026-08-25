@@ -66,6 +66,22 @@ export type AdminTransferAcceptedEvent = {
   timestamp: bigint;
 };
 
+export type ContractUpgradedEvent = {
+  type: 'contract_upgraded';
+  /** Packed semver of the code that was running when `upgrade()` was called. */
+  previousVersion: number;
+  /**
+   * Caller-supplied packed semver of the code being deployed. Not verified
+   * on-chain against `newWasmHash` — see `upgrade()`'s doc comment in
+   * `contracts/invoice-payment/src/lib.rs`.
+   */
+  newVersion: number;
+  /** Hex-encoded 32-byte hash of the newly installed WASM. */
+  newWasmHash: string;
+  upgradedBy: string;
+  upgradedAt: bigint;
+};
+
 export type UnknownSorobanEvent = {
   type: 'unknown';
   name?: string;
@@ -81,6 +97,7 @@ export type DecodedSorobanEvent =
   | ContractPausedEvent
   | AdminTransferProposedEvent
   | AdminTransferAcceptedEvent
+  | ContractUpgradedEvent
   | UnknownSorobanEvent;
 
 // ─── Raw event input ─────────────────────────────────────────────────────────
@@ -106,6 +123,22 @@ function toBigInt(value: unknown, field: string): bigint {
   } catch {
     throw new Error(`Field ${field} is not integer-like: ${JSON.stringify(value)}`);
   }
+}
+
+/**
+ * Decode a `BytesN<32>` field (e.g. a WASM hash) into a lowercase hex string.
+ * `scValToNative` returns raw bytes for an `ScBytes` as a `Uint8Array`
+ * (`Buffer` in Node, which extends it); a string is passed through as-is for
+ * callers that already normalised the value upstream.
+ */
+function toHex(value: unknown, field: string): string {
+  if (value instanceof Uint8Array) {
+    let hex = '';
+    for (const byte of value) hex += byte.toString(16).padStart(2, '0');
+    return hex;
+  }
+  if (typeof value === 'string') return value;
+  throw new Error(`Field ${field} is not bytes-like: ${JSON.stringify(value)}`);
 }
 
 /**
@@ -233,6 +266,16 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
           previousAdmin: String(fieldAt(payload, 0, 'previous_admin')),
           newAdmin: String(fieldAt(payload, 1, 'new_admin')),
           timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+        };
+      case 'contract_upgraded':
+        if (!checkArity(payload, 5)) break;
+        return {
+          type: 'contract_upgraded',
+          previousVersion: Number(fieldAt(payload, 0, 'previous_version')),
+          newVersion: Number(fieldAt(payload, 1, 'new_version')),
+          newWasmHash: toHex(fieldAt(payload, 2, 'new_wasm_hash'), 'new_wasm_hash'),
+          upgradedBy: String(fieldAt(payload, 3, 'upgraded_by')),
+          upgradedAt: toBigInt(fieldAt(payload, 4, 'upgraded_at'), 'upgraded_at'),
         };
       default:
         return { type: 'unknown', name, reason: 'unrecognized event name' };

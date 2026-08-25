@@ -58,7 +58,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "inv-xlm"
+                  "string": "invoisio-dedup-cross"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -73,7 +73,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-cross-asset"
+                  "string": "settle-cross-xlm"
                 }
               ]
             }
@@ -82,7 +82,6 @@
         }
       ]
     ],
-    [],
     [],
     [],
     []
@@ -239,6 +238,63 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "PayerPaymentCount"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 1
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PayerPaymentIdx"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  },
+                  {
+                    "u32": 0
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 0
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -274,7 +330,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-xlm"
+                      "string": "invoisio-dedup-cross"
                     }
                   },
                   {
@@ -290,7 +346,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-cross-asset"
+                      "string": "settle-cross-xlm"
                     }
                   },
                   {
@@ -328,7 +384,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-xlm"
+                "string": "invoisio-dedup-cross"
               }
             }
           },
@@ -349,7 +405,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "inv-xlm"
+                    "string": "invoisio-dedup-cross"
                   }
                 ]
               },
@@ -381,7 +437,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-xlm"
+                      "string": "invoisio-dedup-cross"
                     }
                   },
                   {
@@ -397,7 +453,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-cross-asset"
+                      "string": "settle-cross-xlm"
                     }
                   },
                   {
@@ -429,7 +485,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-cross-asset"
+                    "string": "settle-cross-xlm"
                   }
                 ]
               },
@@ -515,7 +571,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 1
+                              "u32": 2
                             }
                           }
                         ]
