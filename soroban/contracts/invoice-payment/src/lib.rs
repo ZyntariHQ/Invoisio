@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 
 pub mod errors;
 pub mod events;
@@ -11,9 +11,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
-    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
-    STORAGE_SCHEMA_VERSION,
+    AllowedAssetEntry, AllowlistMode, AllowlistPage, Asset, ContractConfig, ContractMeta,
+    DataKey, PaymentHistoryPage, PaymentRecord, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
+    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -24,10 +24,11 @@ use events::{
 use storage::{
     allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
     bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
-    get_admin, get_contract_config, get_count, get_history_count, get_payment,
-    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
-    get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
-    is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
+    get_admin, get_allowlist_count, get_allowlist_page, get_contract_config, get_count,
+    get_history_count, get_payment, get_payment_history_page, get_pending_admin,
+    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, rebuild_allowlist_index,
+    revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
     set_pending_admin,
 };
 
@@ -111,6 +112,10 @@ impl InvoicePaymentContract {
         env.storage()
             .instance()
             .set(&DataKey::PaymentHistoryCount, &0u32);
+        // Initialise the allowlist counter explicitly.
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowListCount, &0u32);
         Ok(())
     }
 
@@ -138,12 +143,12 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
-    /// - `payer`           — Stellar account address that sent the payment
-    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
-    /// - `amount`          — payment amount in smallest denomination (must be > 0)
-    /// - `settlement_ref`  — normalised settlement hash or reference ID for
+    /// - `invoice_id`     — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `payer`          — Stellar account address that sent the payment
+    /// - `asset_code`     — `"XLM"` or token code (e.g. `"USDC"`)
+    /// - `asset_issuer`   — issuer public key for tokens; `""` for native XLM
+    /// - `amount`         — payment amount in smallest denomination (must be > 0)
+    /// - `settlement_ref` — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
     ///                       (must be non-empty, max 128 chars)
     ///
@@ -455,10 +460,26 @@ impl InvoicePaymentContract {
     /// Add a `(code, issuer)` token pair to the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Validation
+    /// Aligns with `record_payment`:
+    /// - `code` must be non-empty and at most 12 characters.
+    /// - `code` must not be `"XLM"` (native is controlled by `set_allow_native`).
+    /// - `issuer` must be non-empty.
+    ///
+    /// If the pair is already allowlisted the call is a no-op and returns `Ok`.
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
+            return Err(ContractError::InvalidAsset);
+        }
+        // Align validation with record_payment: reject codes longer than 12 chars.
+        if code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+        // Native XLM cannot be allowlisted as a token pair; use set_allow_native.
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         allow_asset(&env, &code, &issuer);
@@ -469,13 +490,19 @@ impl InvoicePaymentContract {
     /// Remove a `(code, issuer)` token pair from the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// Returns [`ContractError::AssetNotFound`] when the pair was never in the
+    /// allowlist — distinguishing a no-op from a successful removal. Emits
+    /// `AssetRevoked` only when the pair was actually present.
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-        revoke_asset(&env, &code, &issuer);
+        if !revoke_asset(&env, &code, &issuer) {
+            return Err(ContractError::AssetNotFound);
+        }
         emit_asset_revoked(&env, code, issuer);
         Ok(())
     }
@@ -517,6 +544,47 @@ impl InvoicePaymentContract {
     /// Permissionless read — no auth required.
     pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
+    }
+
+    /// Return a paginated list of allowlisted `(code, issuer)` asset pairs.
+    ///
+    /// - `cursor` — zero-based slot index to start from (pass `0` for the first page).
+    /// - `limit`  — maximum entries to return (capped internally at 25).
+    ///
+    /// Permissionless read — no auth required.
+    pub fn list_assets(env: Env, cursor: u32, limit: u32) -> storage::AllowlistPage {
+        get_allowlist_page(&env, cursor, limit)
+    }
+
+    /// Return the total number of allowlisted asset pairs.
+    ///
+    /// Permissionless read — no auth required. Value is always consistent with
+    /// the enumeration returned by `list_assets`.
+    pub fn allowlist_count(env: Env) -> u32 {
+        get_allowlist_count(&env)
+    }
+
+    /// Rebuild the enumerable allowlist index for legacy deployments.
+    ///
+    /// Call once after upgrading a deployment that predates this version.
+    /// Supply the complete list of `(code, issuer)` pairs that were previously
+    /// allowlisted. The function skips any pair whose existence sentinel is
+    /// missing from persistent storage (silently drops stale entries).
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    pub fn rebuild_allowlist_index(
+        env: Env,
+        admin: Address,
+        pairs: Vec<AllowedAssetEntry>,
+    ) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        rebuild_allowlist_index(&env, &pairs);
+        Ok(())
     }
 
     /// Return all payments made by `payer`, paginated.
@@ -592,7 +660,7 @@ impl InvoicePaymentContract {
     /// migration ran — masking the exact corruption `upgrade_storage` exists
     /// to fix. Staying paused for the whole window closes that gap, and also
     /// means any `record_payment` transaction submitted around the same time
-    /// as the upgrade ("in-flight") simply fails with
+    /// as the upgrade (\"in-flight\") simply fails with
     /// [`ContractError::ContractPaused`] instead of racing the migration.
     ///
     /// Full runbook: `soroban/docs/upgrade-runbook.md`. Summary:
@@ -741,15 +809,56 @@ impl InvoicePaymentContract {
         crate::migration::rebuild_payment_history_index(&env)
     }
 
+    /// Admin-gated bulk TTL-extension entrypoint.
+    /// Walks a bounded range of the history index and extends TTLs for the
+    /// log entries, history records, and payment records.
+    pub fn extend_history_ttl(env: Env, admin: Address, start_index: u32, end_index: u32) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        let total = crate::storage::get_history_count(&env);
+        let end = core::cmp::min(end_index, total);
+
+        for i in start_index..end {
+            if let Some(invoice_id) = crate::storage::get_payment_log_entry(&env, i) {
+                // get_payment_log_entry already extended the log entry TTL
+                crate::storage::extend_history_ttl(&env, i);
+                crate::storage::extend_payment_ttl(&env, &invoice_id);
+            }
+        }
+        Ok(())
+    }
+
     /// Get the consistency status of the history index.
     ///
-    /// Returns a tuple (history_count, payment_count, is_consistent).
-    /// This is a diagnostic function for ops tooling.
-    pub fn history_index_status(env: Env) -> (u32, u32, bool) {
+    /// Returns a tuple (history_count, payment_count, archived_count, corrupt_count, is_consistent).
+    /// This is a diagnostic function for ops tooling. It scans the entire index
+    /// to accurately differentiate between intact, archived, and corrupt records.
+    pub fn history_index_status(env: Env) -> (u32, u32, u32, u32, bool) {
         let history_count = crate::storage::get_history_count(&env);
         let payment_count = crate::storage::get_payment_count(&env);
-        let is_consistent = history_count == payment_count;
-        (history_count, payment_count, is_consistent)
+        
+        let mut archived_count = 0;
+        let mut corrupt_count = 0;
+        
+        for i in 0..history_count {
+            let key = crate::storage::DataKey::PaymentHistory(i);
+            if env.storage().persistent().has(&key) {
+                if env.storage().persistent().get::<_, crate::PaymentRecord>(&key).is_none() {
+                    archived_count += 1;
+                }
+            } else {
+                corrupt_count += 1;
+            }
+        }
+        
+        // is_consistent indicates there are NO corrupt records and the counts match.
+        // Archived records do not make the index inconsistent.
+        let is_consistent = history_count == payment_count && corrupt_count == 0;
+        (history_count, payment_count, archived_count, corrupt_count, is_consistent)
     }
 }
 

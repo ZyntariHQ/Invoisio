@@ -164,6 +164,18 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
   },
+  {
+    code: 22,
+    name: 'AssetNotFound',
+    meaning:
+      'revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal.',
+  },
+  {
+    code: 23,
+    name: 'PaymentArchived',
+    meaning:
+      'The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read.',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */

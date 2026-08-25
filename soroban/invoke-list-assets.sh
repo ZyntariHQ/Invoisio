@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # ============================================================================
-# invoke-list-assets.sh — Query the current allowlist from the Invoisio contract
+# invoke-list-assets.sh — Enumerate the current allowlist from the Invoisio contract
 # ============================================================================
 #
-# Calls config() on the deployed contract and prints the allowed asset list
-# along with contract state (admin, paused status, version).
+# Calls list_assets() (paginated) and allowlist_count() on the deployed contract
+# and prints all allowlisted (code, issuer) pairs along with count metadata.
+#
+# Previously this script called config() which had no enumeration capability.
+# It now calls the dedicated list_assets / allowlist_count entry-points added
+# in the enumerable-allowlist upgrade.
 #
 # Usage:
 #   ./invoke-list-assets.sh [--json]
 #
 # Options:
-#   --json    Output raw JSON from the contract's config() call and exit.
+#   --json    Output raw JSON from the contract's list_assets() call and exit.
 #             Useful for scripting / CI assertions.
 #
 # Environment variables:
@@ -19,7 +23,7 @@
 #   CONTRACT_ID       Override the contract ID   (default: read .contract-id)
 #
 # Exit codes:
-#   0  Success — config read and printed
+#   0  Success — allowlist read and printed
 #   1  Validation error — missing tool, contract not found
 #   2  Network/RPC connectivity failure
 #   3  Contract invocation failed
@@ -58,7 +62,7 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 Usage: $0 [--json]
 
 Options:
-  --json   Print raw JSON output from config() and exit
+  --json   Print raw JSON output from list_assets() + allowlist_count() and exit
 
 Environment:
   STELLAR_NETWORK   testnet | mainnet  (default: testnet)
@@ -126,6 +130,15 @@ resolve_contract_id() {
     fi
 }
 
+invoke_contract() {
+    local fn_name="$1"; shift
+    stellar contract invoke \
+        --id "$CONTRACT_ID" \
+        --source "$IDENTITY" \
+        --network "$NETWORK" \
+        -- "$fn_name" "$@" 2>/dev/null
+}
+
 # ── Pre-flight ───────────────────────────────────────────────────────────────
 
 if [[ "$JSON_OUTPUT" != "true" ]]; then
@@ -142,30 +155,53 @@ step "Resolving contract ID ..."
 resolve_contract_id
 [[ "$JSON_OUTPUT" != "true" ]] && ok "Contract ID: $CONTRACT_ID"
 
-# ── Call config() ─────────────────────────────────────────────────────────────
+# ── Fetch allowlist count ─────────────────────────────────────────────────────
 
-if [[ "$JSON_OUTPUT" != "true" ]]; then
-    echo "" >&2
-    info "Calling config() on $NETWORK ..."
-    echo "" >&2
-fi
-
-CONFIG_OUTPUT=$(stellar contract invoke \
-    --id "$CONTRACT_ID" \
-    --source "$IDENTITY" \
-    --network "$NETWORK" \
-    -- config 2>/dev/null) || {
-    die 3 "config() invocation failed
+COUNT_OUTPUT=$(invoke_contract allowlist_count) || {
+    die 3 "allowlist_count() invocation failed
    Possible reasons:
      - Contract is not yet initialized (run ./deploy.sh first)
+     - Contract has not been upgraded to the enumerable-allowlist version
      - Contract ID is wrong
      - Identity '$IDENTITY' does not exist locally"
 }
 
+TOTAL_COUNT=$(echo "$COUNT_OUTPUT" | tr -d '[:space:]')
+
+# ── Fetch paginated allowlist ─────────────────────────────────────────────────
+
+# Collect all pages; limit is 25 per page (contract cap).
+CURSOR=0
+LIMIT=25
+ALL_ENTRIES="[]"
+HAS_MORE=true
+
+while [[ "$HAS_MORE" == "true" ]]; do
+    PAGE_OUTPUT=$(invoke_contract list_assets --cursor "$CURSOR" --limit "$LIMIT") || {
+        die 3 "list_assets(cursor=$CURSOR, limit=$LIMIT) invocation failed"
+    }
+
+    # Extract has_more and next_cursor from the raw JSON-like Soroban output.
+    # Soroban CLI returns WASM-encoded ScVal; for simple structs it serialises
+    # as JSON so we can grep the fields directly.
+    HAS_MORE=$(echo "$PAGE_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(str(d.get('has_more', False)).lower())" 2>/dev/null || echo "false")
+    NEXT_CURSOR=$(echo "$PAGE_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('next_cursor', 0))" 2>/dev/null || echo "0")
+    PAGE_ENTRIES=$(echo "$PAGE_OUTPUT" | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d.get('entries', [])))" 2>/dev/null || echo "[]")
+
+    # Merge into ALL_ENTRIES (poor-man's JSON merge without jq dependency).
+    ALL_ENTRIES=$(python3 -c "import json; a=json.loads('$ALL_ENTRIES'); b=json.loads('''$PAGE_ENTRIES'''); print(json.dumps(a + b))" 2>/dev/null || echo "[]")
+
+    CURSOR="$NEXT_CURSOR"
+
+    if [[ "$HAS_MORE" != "true" ]]; then
+        HAS_MORE=false
+    fi
+done
+
 # ── JSON mode — raw output and exit ──────────────────────────────────────────
 
 if [[ "$JSON_OUTPUT" == "true" ]]; then
-    echo "$CONFIG_OUTPUT"
+    python3 -c "import json; print(json.dumps({'total': $TOTAL_COUNT, 'entries': json.loads('$ALL_ENTRIES')}, indent=2))"
     exit 0
 fi
 
@@ -173,17 +209,33 @@ fi
 
 echo "" >&2
 echo "═══════════════════════════════════════════" >&2
-echo "  Invoisio Contract State — $NETWORK" >&2
+echo "  Invoisio Allowlist — $NETWORK" >&2
 echo "═══════════════════════════════════════════" >&2
 echo "" >&2
 
-echo "$CONFIG_OUTPUT" >&2
+echo "  Total allowlisted assets: $TOTAL_COUNT" >&2
+echo "" >&2
+
+if [[ "$TOTAL_COUNT" == "0" ]]; then
+    echo "  (no assets allowlisted)" >&2
+else
+    echo "  Code         Issuer" >&2
+    echo "  ──────────── ──────────────────────────────────────────────────────" >&2
+    python3 -c "
+import json, sys
+entries = json.loads(sys.argv[1])
+for e in entries:
+    code = e.get('code', '?')
+    issuer = e.get('issuer', '?')
+    print(f'  {code:<12} {issuer}')
+" "$ALL_ENTRIES" >&2
+fi
 
 echo "" >&2
-ok "Config retrieved successfully."
+ok "Allowlist retrieved successfully."
 echo "" >&2
 echo "  Allowlist operations:" >&2
 echo "    Add asset:     ./invoke-allow-asset.sh  <code> <issuer>" >&2
 echo "    Remove asset:  ./invoke-revoke-asset.sh <code> <issuer>" >&2
-echo "    Unified tool:  ./manage-allowlist.sh" >&2
+echo "    Rebuild index: ./invoke-rebuild-allowlist-index.sh <code1:issuer1> ..." >&2
 echo "" >&2

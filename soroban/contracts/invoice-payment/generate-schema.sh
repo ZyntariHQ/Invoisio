@@ -64,6 +64,8 @@ declare -A ERROR_DESC=(
   [HistoryIndexIncomplete]="The payment history index is incomplete and must be rebuilt via rebuild_history_index()."
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
+  [AssetNotFound]="revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal."
+  [PaymentArchived]="The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -120,6 +122,10 @@ declare -A METHOD_AUTH=(
   [is_paused]="none"
   [rebuild_history_index]="admin"
   [history_index_status]="none"
+  [list_assets]="none"
+  [allowlist_count]="none"
+  [rebuild_allowlist_index]="admin"
+  [extend_history_ttl]="admin"
 )
 declare -A METHOD_DESC=(
   [initialize]="One-time setup; sets the admin."
@@ -146,6 +152,10 @@ declare -A METHOD_DESC=(
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
   [history_index_status]="Return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [list_assets]="Return a bounded, cursor-paginated AllowlistPage of allowlisted (code, issuer) asset pairs."
+  [allowlist_count]="Return the total number of allowlisted asset pairs."
+  [rebuild_allowlist_index]="Rebuild the enumerable allowlist index for legacy deployments from a supplied list of (code, issuer) pairs."
+  [extend_history_ttl]="Extend the persistent TTL for payment history records within a given index range (archival resilience maintenance)."
 )
 
 # "pub fn name(" lines inside the #[contractimpl] block, in declaration order.

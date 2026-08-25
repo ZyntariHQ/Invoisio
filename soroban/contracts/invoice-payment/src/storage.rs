@@ -2,48 +2,44 @@ use crate::errors::ContractError;
 use crate::events;
 use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
+/// Maximum number of allowlisted assets returned in one `list_assets` page.
+pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
+
 // ============================================================================
 // TTL Policy
 // ============================================================================
 //
-// The contract uses two TTL thresholds:
-// - MIN_TTL = 17,280 ledgers (~1 day)  - extend when remaining TTL falls below this
-// - BUMP_TTL = 518,400 ledgers (~30 days) - target TTL after extension
+// The contract uses two TTL thresholds to ensure a reliable on-chain log of invoice payments.
+// Payment records and their history indices are retained for an extended period, allowing
+// audits to run without frequently bumping entries. However, they are not kept alive forever 
+// on-chain to manage ledger costs. They must be permanently retrievable off-chain if archived.
+//
+// - MIN_TTL = 3_153_600 ledgers (~6 months) - extend when remaining TTL falls below this
+// - BUMP_TTL = 6_312_000 ledgers (~1 year)  - target TTL after extension
 //
 // TTL Extension Strategy:
 //
-// 1. WRITE operations (any state mutation):
+// 1. Persistent Storage (DataKey::Payment*, DataKey::PaymentHistory, DataKey::AllowList)
 //    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after writing
-//    - This applies to: set_admin, set_pending_admin, set_contract_meta,
-//      set_native_allowed, set_paused, bump_count, bump_history_count
-//
-// 2. CRITICAL READ operations (instance storage that must survive):
 //    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after reading
-//    - This applies to: get_admin, get_pending_admin_opt, get_pending_admin,
-//      has_admin, has_pending_admin, is_native_allowed, is_paused,
-//      get_count, get_history_count, get_contract_config, get_contract_meta,
-//      get_storage_schema_version, get_state_contract_version,
-//      is_schema_compatible, is_history_index_consistent,
-//      get_missing_history_count, get_payment_count
+//    - Archived persistent entries are reported as `PaymentArchived` when accessed via read paths.
 //
-// 3. PERSISTENT READ operations (payment records, history, allowlist):
+// 2. Instance Storage (DataKey::Admin, DataKey::ContractVersion, DataKey::PaymentCount, etc)
+//    - Instance storage has a single shared TTL.
+//    - Extending any instance key extends ALL instance keys.
+//    - Bumps instance TTL on every call to keep critical config alive.
+//
+// 3. Read paths
 //    - TTL is extended on read via individual get/read functions
-//    - This applies to: get_payment, get_history_record, is_asset_allowed
-//
-// Rationale:
-// - Instance storage contains critical contract configuration (admin, pause state,
-//   allowlist policy, counters) that must remain available for as long as the
-//   contract is actively used.
-// - Permissionless views (config, admin, pending_admin, is_paused, payment_count,
-//   history_count) are frequently called by off-chain tooling and should keep
-//   instance storage alive without requiring admin intervention.
-// - Persistent storage records are bumped on read/write to prevent archival
-//   while still being accessed.
+//    - All read functions (e.g. `get_admin`, `get_payment`) bump TTL for the
+//      data they access.
+//    - Note: The top-level `config()` view function reads instance data but
+//      *does not* bump TTL because Soroban view functions cannot write to state.
 //
 // Idempotency:
 // - `extend_ttl` is idempotent - calling it multiple times is safe
 // - The contract maintains a "bump on access" pattern that naturally keeps
-//   actively-used storage alive
+//    actively-used storage alive
 //
 // Maintenance:
 // - If adding a new instance storage read, ALWAYS add `extend_ttl` after the read
@@ -52,11 +48,11 @@ use soroban_sdk::{contracttype, Address, Env, String, Vec};
 
 // TTL budget
 // At ~5-second ledger close times:
-//   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
-//   BUMP_TTL = 518 400 ledgers ≈ 30 days (target TTL after extension)
+//   MIN_TTL  = 3,153,600 ledgers ≈ 6 months (extend when remaining TTL falls below this)
+//   BUMP_TTL = 6,312,000 ledgers ≈ 1 year   (target TTL after extension)
 
-pub(crate) const MIN_TTL: u32 = 17_280;
-pub(crate) const BUMP_TTL: u32 = 518_400;
+pub(crate) const MIN_TTL: u32 = 3_153_600;
+pub(crate) const BUMP_TTL: u32 = 6_312_000;
 
 // Versioning
 
@@ -128,14 +124,16 @@ pub fn current_contract_meta() -> ContractMeta {
 
 /// Stable, high-level summary of allowlist policy for integration consumers.
 ///
-/// `requires_token_allowlist` is currently always `true`: issued assets must be
-/// explicitly added via `allow_asset(code, issuer)` before `record_payment`
-/// accepts them. `native_allowed` reflects the mutable XLM toggle controlled by
-/// `set_allow_native`.
+/// `native_allowed` reflects the mutable XLM toggle controlled by
+/// `set_allow_native`. `requires_token_allowlist` is `true` whenever at least
+/// one issued asset has been explicitly allowlisted via `allow_asset`; it is
+/// derived from real on-chain state (`AllowListCount > 0`) and never hardcoded.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AllowlistMode {
     pub native_allowed: bool,
+    /// Derived from the allowlist index count; `true` when at least one
+    /// token pair has been explicitly allowlisted.
     pub requires_token_allowlist: bool,
 }
 
@@ -200,9 +198,15 @@ pub enum DataKey {
     /// payment, in **persistent** storage. Written by `record_payment()` and
     /// backfilled by the schema V2 migration / `rebuild_payment_history_index`.
     PayerPaymentIdx(Address, u32),
-    /// Allowlist entry for a token in **persistent** storage.
-    /// Key: AllowList(asset_code, issuer)
+    /// Allowlist existence sentinel for a token in **persistent** storage.
+    /// Key: AllowList(asset_code, issuer) → unit value (exists = allowed)
     AllowList(String, String),
+    /// Enumerable allowlist index: maps a sequential slot number to the
+    /// `AllowedAssetEntry` at that position, in **persistent** storage.
+    /// Key: AllowListIndex(u32) → AllowedAssetEntry
+    AllowListIndex(u32),
+    /// Running count of allowlisted asset pairs in **instance** storage.
+    AllowListCount,
     /// Flag for allowing native XLM in **instance** storage.
     AllowNative,
     /// Flag indicating whether the contract is paused (instance storage).
@@ -210,13 +214,36 @@ pub enum DataKey {
     /// Address proposed as the next admin by `propose_admin()` in **instance**
     /// storage. Read by `accept_admin()` to complete the two-step handoff.
     PendingAdmin,
-    // Add to DataKey enum
     /// Global index tracking used settlement references.
-    /// Key: SettlementRef(String) -> unit value (exists = used)
+    /// Key: SettlementRef(String) → unit value (exists = used)
     SettlementRef(String),
 }
 
 // Data structures
+
+/// A single entry in the enumerable allowlist index.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AllowedAssetEntry {
+    /// Token asset code, e.g. `"USDC"` (max 12 characters, never `"XLM"`).
+    pub code: String,
+    /// Stellar issuer address (G...).
+    pub issuer: String,
+}
+
+/// Bounded, cursor-friendly slice of the allowlist index.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllowlistPage {
+    /// Asset entries returned for this page.
+    pub entries: Vec<AllowedAssetEntry>,
+    /// Cursor to pass to the next call (`next_cursor` from this page).
+    pub next_cursor: u32,
+    /// `true` when more entries are available after `next_cursor`.
+    pub has_more: bool,
+    /// Total number of allowlisted assets at the time of the call.
+    pub total: u32,
+}
 
 /// Asset type enum for multi-asset support.
 ///
@@ -282,12 +309,10 @@ pub struct PaymentHistoryPage {
     pub next_cursor: u32,
     /// True when more entries are available after `next_cursor`.
     pub has_more: bool,
-    /// Number of history-index slots in `[cursor, next_cursor)` that were
-    /// expected to hold a record but did not (e.g. a corrupted or
-    /// partially-rebuilt index). Always `0` for a healthy index. Off-chain
-    /// tooling can use this to detect index corruption without inferring it
-    /// from record counts.
-    pub gaps_skipped: u32,
+    /// Number of history-index slots that were archived.
+    pub archived_skipped: u32,
+    /// Number of history-index slots that were missing or corrupted.
+    pub corrupt_skipped: u32,
 }
 
 // ─── Version Helpers (Instance Storage) ──────────────────────────────────────
@@ -361,6 +386,7 @@ pub fn get_schema_version(env: &Env) -> u32 {
 /// Return a high-level snapshot of contract state for ops tooling.
 /// Bumps instance TTL on every call to keep critical config alive.
 pub fn get_contract_config(env: &Env) -> ContractConfig {
+    let allowlist_count = get_allowlist_count(env);
     let config = ContractConfig {
         admin: env.storage().instance().get(&DataKey::Admin),
         pending_admin: get_pending_admin_opt(env),
@@ -371,7 +397,9 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
         },
         allowlist_mode: AllowlistMode {
             native_allowed: is_native_allowed(env),
-            requires_token_allowlist: true,
+            // Derived from real state: true when at least one token pair
+            // has been explicitly added via allow_asset().
+            requires_token_allowlist: allowlist_count > 0,
         },
         paused: is_paused(env),
     };
@@ -488,15 +516,19 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
 /// `invoice_id`.
 pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, ContractError> {
     let v1_key = payment_key_v1(invoice_id);
+    let has_v1 = env.storage().persistent().has(&v1_key);
     let v1_record: Option<PaymentRecord> = env.storage().persistent().get(&v1_key);
     if let Some(record) = v1_record {
         env.storage()
             .persistent()
             .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
         return Ok(record);
+    } else if has_v1 {
+        return Err(ContractError::PaymentArchived);
     }
 
     let legacy_key = payment_key_legacy(invoice_id);
+    let has_legacy = env.storage().persistent().has(&legacy_key);
     let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
     match legacy_record {
         Some(record) => {
@@ -511,7 +543,13 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
             Ok(record)
         }
-        None => Err(ContractError::PaymentNotFound),
+        None => {
+            if has_legacy {
+                Err(ContractError::PaymentArchived)
+            } else {
+                Err(ContractError::PaymentNotFound)
+            }
+        }
     }
 }
 
@@ -533,6 +571,7 @@ pub fn append_payment_history(env: &Env, record: &PaymentRecord) {
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 }
+
 
 fn payment_log_key(index: u32) -> DataKey {
     DataKey::PaymentLog(index)
@@ -563,27 +602,25 @@ pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
 }
 
 /// Get a history record by index. Extends TTL if record exists.
-fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
+/// Returns Ok(record) if found, Err(true) if archived, Err(false) if missing/corrupt.
+fn get_history_record_with_status(env: &Env, index: u32) -> Result<PaymentRecord, bool> {
     let key = payment_history_key(index);
+    let has = env.storage().persistent().has(&key);
     let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-    if record.is_some() {
+    if let Some(r) = record {
         env.storage()
             .persistent()
             .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        Ok(r)
+    } else {
+        Err(has)
     }
-    record
 }
 
 /// Read a bounded page of history starting at `cursor`.
 ///
-/// A missing slot (a hole left by a corrupted or partially-rebuilt index)
-/// is skipped rather than treated as the end of the index: `index` always
-/// advances by at least one slot per iteration, so `next_cursor` can never
-/// repeat a `cursor` the caller already passed in, and `has_more` reflects
-/// whether any slot at or after `next_cursor` remains to be scanned — never
-/// a stalled hole. The page keeps scanning past holes (bounded by `total`)
-/// until it collects `capped_limit` records or exhausts the index, so a
-/// sparse index still fills pages as densely as the data allows.
+/// A missing slot is skipped rather than treated as the end of the index.
+/// Distinguishes between slots that are missing due to archival vs corruption.
 ///
 /// Extends instance TTL for history count and persistent TTL for records.
 pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
@@ -594,15 +631,17 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut index = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
 
     while index < total && collected < capped_limit {
-        match get_history_record(env, index) {
-            Some(record) => {
+        match get_history_record_with_status(env, index) {
+            Ok(record) => {
                 records.push_back(record);
                 collected += 1;
             }
-            None => gaps_skipped += 1,
+            Err(true) => archived_skipped += 1,
+            Err(false) => corrupt_skipped += 1,
         }
         index += 1;
     }
@@ -611,7 +650,8 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
         records,
         next_cursor: index,
         has_more: index < total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 
@@ -706,24 +746,29 @@ pub fn get_payer_history_page(
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut ordinal = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
 
     while ordinal < payer_total && collected < capped_limit {
-        match get_payer_entry(env, payer, ordinal)
-            .and_then(|history_slot| get_history_record(env, history_slot))
-        {
-            Some(record) => {
-                // Defensive: skip records whose stored payer no longer
-                // matches (should be impossible — the index is keyed by the
-                // payer written into the record itself).
-                if record.payer == *payer {
-                    records.push_back(record);
-                    collected += 1;
-                } else {
-                    gaps_skipped += 1;
+        match get_payer_entry(env, payer, ordinal) {
+            Some(history_slot) => {
+                match get_history_record_with_status(env, history_slot) {
+                    Ok(record) => {
+                        // Defensive: skip records whose stored payer no longer
+                        // matches (should be impossible — the index is keyed by the
+                        // payer written into the record itself).
+                        if record.payer == *payer {
+                            records.push_back(record);
+                            collected += 1;
+                        } else {
+                            corrupt_skipped += 1;
+                        }
+                    }
+                    Err(true) => archived_skipped += 1,
+                    Err(false) => corrupt_skipped += 1,
                 }
             }
-            None => gaps_skipped += 1,
+            None => corrupt_skipped += 1, // index entry itself is missing
         }
         ordinal += 1;
     }
@@ -732,7 +777,8 @@ pub fn get_payer_history_page(
         records,
         next_cursor: ordinal,
         has_more: ordinal < payer_total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 
@@ -764,19 +810,21 @@ pub fn get_payments_by_payer_page(
     let mut records: Vec<PaymentRecord> = Vec::new(env);
     let mut index = start;
     let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
+    let mut corrupt_skipped: u32 = 0;
     let mut scanned: u32 = 0;
 
     while index < total && collected < capped_limit && scanned < MAX_PAYER_SCAN_SLOTS {
         scanned += 1;
-        match get_history_record(env, index) {
-            Some(record) => {
+        match get_history_record_with_status(env, index) {
+            Ok(record) => {
                 if record.payer == *payer {
                     records.push_back(record);
                     collected += 1;
                 }
             }
-            None => gaps_skipped += 1,
+            Err(true) => archived_skipped += 1,
+            Err(false) => corrupt_skipped += 1,
         }
         index += 1;
     }
@@ -785,7 +833,8 @@ pub fn get_payments_by_payer_page(
         records,
         next_cursor: index,
         has_more: index < total,
-        gaps_skipped,
+        archived_skipped,
+        corrupt_skipped,
     }
 }
 
@@ -883,6 +932,150 @@ pub fn get_missing_history_count(env: &Env) -> u32 {
 
 // ─── Allowlist Helpers ──────────────────────────────────────────────────────
 
+// ─── Allowlist Counter Helpers (Instance Storage) ───────────────────────────
+
+/// Return the current number of allowlisted asset pairs. Bumps instance TTL.
+pub fn get_allowlist_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::AllowListCount)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+/// Persist the allowlist count in instance storage.
+pub fn set_allowlist_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowListCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Increment the allowlist counter.
+fn bump_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    set_allowlist_count(env, count + 1);
+}
+
+/// Decrement the allowlist counter (saturating at 0).
+fn decrement_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    set_allowlist_count(env, count.saturating_sub(1));
+}
+
+// ─── Allowlist Index Helpers (Persistent Storage) ────────────────────────────
+
+fn allowlist_index_key(slot: u32) -> DataKey {
+    DataKey::AllowListIndex(slot)
+}
+
+/// Append an asset pair to the dense enumerable index.
+/// Caller is responsible for ensuring the pair is not already present.
+fn append_to_allowlist_index(env: &Env, code: &String, issuer: &String) {
+    let slot = get_allowlist_count(env);
+    let key = allowlist_index_key(slot);
+    let entry = AllowedAssetEntry {
+        code: code.clone(),
+        issuer: issuer.clone(),
+    };
+    env.storage().persistent().set(&key, &entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    bump_allowlist_count(env);
+}
+
+/// Remove an asset pair from the dense enumerable index using swap-and-pop.
+///
+/// Scans from slot 0 up to `count - 1` for the matching pair, then overwrites
+/// it with the last slot's entry and removes the tail, keeping the index dense.
+///
+/// Returns `true` if the pair was found and removed, `false` if not present.
+fn remove_from_allowlist_index(env: &Env, code: &String, issuer: &String) -> bool {
+    let count = get_allowlist_count(env);
+    if count == 0 {
+        return false;
+    }
+
+    // Find the slot containing the matching pair.
+    let mut found_slot: Option<u32> = None;
+    for slot in 0..count {
+        let key = allowlist_index_key(slot);
+        let entry: Option<AllowedAssetEntry> = env.storage().persistent().get(&key);
+        if let Some(e) = entry {
+            if e.code == *code && e.issuer == *issuer {
+                found_slot = Some(slot);
+                break;
+            }
+        }
+    }
+
+    let slot = match found_slot {
+        Some(s) => s,
+        None => return false,
+    };
+
+    let last_slot = count - 1;
+    if slot != last_slot {
+        // Swap with last entry to keep index dense.
+        let last_key = allowlist_index_key(last_slot);
+        let last_entry: AllowedAssetEntry = env
+            .storage()
+            .persistent()
+            .get(&last_key)
+            .expect("last slot must exist");
+        let target_key = allowlist_index_key(slot);
+        env.storage().persistent().set(&target_key, &last_entry);
+        env.storage()
+            .persistent()
+            .extend_ttl(&target_key, MIN_TTL, BUMP_TTL);
+    }
+
+    // Remove the (now-duplicate) last slot.
+    let tail_key = allowlist_index_key(last_slot);
+    env.storage().persistent().remove(&tail_key);
+    decrement_allowlist_count(env);
+
+    true
+}
+
+/// Read a bounded page of the allowlist index starting at `cursor`.
+///
+/// Mirrors `get_payment_history_page`: `cursor` is the slot index to start from,
+/// `limit` is capped at `MAX_ALLOWLIST_PAGE_SIZE`. Holes in the dense index
+/// (e.g. from TTL expiry) are skipped without ending the page early.
+pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
+    let total = get_allowlist_count(env);
+    let capped = core::cmp::min(limit, MAX_ALLOWLIST_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+
+    let mut entries: Vec<AllowedAssetEntry> = Vec::new(env);
+    let mut index = start;
+    let mut collected: u32 = 0;
+
+    while index < total && collected < capped {
+        let key = allowlist_index_key(index);
+        let entry: Option<AllowedAssetEntry> = env.storage().persistent().get(&key);
+        if let Some(e) = entry {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+            entries.push_back(e);
+            collected += 1;
+        }
+        index += 1;
+    }
+
+    AllowlistPage {
+        entries,
+        next_cursor: index,
+        has_more: index < total,
+        total,
+    }
+}
+
 /// Return `true` if native XLM is allowed. Bumps instance TTL.
 pub fn is_native_allowed(env: &Env) -> bool {
     let allowed = env
@@ -916,20 +1109,66 @@ pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
     exists
 }
 
-/// Add an asset to the allowlist and bump TTL.
+/// Add an asset to the allowlist existence sentinel and the enumerable index.
+/// Does nothing (idempotent) if the pair is already present.
 pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
-    // We store a unit value since we only care about existence.
+    if env.storage().persistent().has(&key) {
+        // Already present: bump TTL and return without touching the index.
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        return;
+    }
+    // Store existence sentinel.
     env.storage().persistent().set(&key, &());
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    // Append to the dense enumerable index.
+    append_to_allowlist_index(env, code, issuer);
 }
 
 /// Remove an asset from the allowlist.
-pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
+///
+/// Returns `true` when the pair was present and removed, `false` when the
+/// pair was never in the allowlist (no-op).
+pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
+    if !env.storage().persistent().has(&key) {
+        return false;
+    }
     env.storage().persistent().remove(&key);
+    // Keep the enumerable index in sync.
+    remove_from_allowlist_index(env, code, issuer);
+    true
+}
+
+/// Rebuild the enumerable allowlist index from a caller-supplied list of pairs.
+///
+/// Used during migration of legacy deployments where the index did not exist.
+/// Clears the current index (if any) and re-inserts all pairs from `pairs`.
+/// Skips any pair that does not have an existence sentinel in persistent storage
+/// (so stale pairs passed by the operator are silently dropped).
+pub fn rebuild_allowlist_index(
+    env: &Env,
+    pairs: &Vec<AllowedAssetEntry>,
+) {
+    // Clear old index entries.
+    let old_count = get_allowlist_count(env);
+    for slot in 0..old_count {
+        let key = allowlist_index_key(slot);
+        env.storage().persistent().remove(&key);
+    }
+    set_allowlist_count(env, 0);
+
+    // Re-insert only pairs whose existence sentinel is present.
+    for entry in pairs.iter() {
+        let sentinel = DataKey::AllowList(entry.code.clone(), entry.issuer.clone());
+        if env.storage().persistent().has(&sentinel) {
+            append_to_allowlist_index(env, &entry.code, &entry.issuer);
+        }
+    }
 }
 
 // ─── Pause Helpers ──────────────────────────────────────────────────────────
@@ -1052,4 +1291,30 @@ pub fn record_settlement_ref(env: &Env, ref_str: &String) {
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+}
+
+/// Extends the TTL for a payment record (both v1 and legacy if present)
+pub fn extend_payment_ttl(env: &Env, invoice_id: &String) {
+    let v1_key = payment_key_v1(invoice_id);
+    if env.storage().persistent().has(&v1_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
+    }
+    let legacy_key = payment_key_legacy(invoice_id);
+    if env.storage().persistent().has(&legacy_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+    }
+}
+
+/// Extends the TTL for a payment history record
+pub fn extend_history_ttl(env: &Env, index: u32) {
+    let key = payment_history_key(index);
+    if env.storage().persistent().has(&key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
 }

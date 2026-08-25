@@ -88,4 +88,12 @@ pub enum ContractError {
     /// window so no write can land on the new code before storage has been
     /// migrated — see the doc comment on `upgrade()` in `lib.rs`.
     MustBePausedForUpgrade = 21,
+
+    /// `revoke_asset()` was called for a `(code, issuer)` pair that was never
+    /// allowlisted. Callers can use this to distinguish a no-op revoke from a
+    /// successful removal.
+    AssetNotFound = 22,
+
+    /// The invoice payment has been archived.
+    PaymentArchived = 23,
 }

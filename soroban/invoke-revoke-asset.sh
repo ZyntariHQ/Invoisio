@@ -251,15 +251,16 @@ echo "" >&2
 info "Invoking revoke_asset on $NETWORK ..."
 echo "" >&2
 
-if stellar contract invoke \
+REVOKE_OUTPUT=$(stellar contract invoke \
     --id "$CONTRACT_ID" \
     --source "$IDENTITY" \
     --network "$NETWORK" \
     --send yes \
     -- revoke_asset \
     --code "$ASSET_CODE" \
-    --issuer "$ASSET_ISSUER"; then
+    --issuer "$ASSET_ISSUER" 2>&1) && REVOKE_EXIT=0 || REVOKE_EXIT=$?
 
+if [[ "$REVOKE_EXIT" -eq 0 ]]; then
     echo "" >&2
     ok "Asset revoked successfully!"
     echo "" >&2
@@ -273,11 +274,24 @@ if stellar contract invoke \
         warn "Re-add with: ./invoke-allow-asset.sh $ASSET_CODE $ASSET_ISSUER"
         echo "" >&2
     fi
+elif echo "$REVOKE_OUTPUT" | grep -q "AssetNotFound\|Error(Contract, #21)\|contractError(21)"; then
+    # AssetNotFound (code 21): the pair was never in the allowlist.
+    # This is not a failure — the desired post-condition (pair absent) is already true.
+    echo "" >&2
+    warn "Asset not found in allowlist — no change made."
+    echo "" >&2
+    echo "  $ASSET_CODE ($ASSET_ISSUER) was not in the allowlist on $NETWORK." >&2
+    echo "  Nothing was revoked; the contract state is unchanged." >&2
+    echo "" >&2
+    echo "  To see what is currently allowlisted:" >&2
+    echo "    ./invoke-list-assets.sh" >&2
+    echo "" >&2
+    exit 0
 else
     echo "" >&2
+    echo "$REVOKE_OUTPUT" >&2
     die 3 "revoke_asset invocation failed (see output above)
    Common causes:
      - Identity '$IDENTITY' does not have admin rights on the contract
-     - Asset is not currently in the allowlist (check with ./invoke-list-assets.sh)
      - Contract is paused (check with ./invoke-config.sh)"
 fi

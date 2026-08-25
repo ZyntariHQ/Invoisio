@@ -3,6 +3,8 @@ import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk
 import {
   ContractConfig,
   Asset,
+  AllowedAssetEntry,
+  AllowlistPage,
   ContractErrorCode,
   getContractErrorCode,
   PaymentHistoryPage,
@@ -126,6 +128,8 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
     records: records.map((record) => decodePaymentRecordFromNative(record)),
     nextCursor: Number(raw['next_cursor']),
     hasMore: Boolean(raw['has_more']),
+    archivedSkipped: Number(raw['archived_skipped']),
+    corruptSkipped: Number(raw['corrupt_skipped']),
   };
 }
 
@@ -165,6 +169,24 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
       ),
     },
     paused: Boolean(raw['paused']),
+  };
+}
+
+/**
+ * Decode a bounded allowlist page returned by `list_assets()`.
+ */
+export function decodeAllowlistPage(scVal: xdr.ScVal): AllowlistPage {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const entries = (raw['entries'] as Record<string, unknown>[] | undefined) ?? [];
+
+  return {
+    entries: entries.map((entry) => ({
+      code: String((entry as Record<string, unknown>)['code']),
+      issuer: String((entry as Record<string, unknown>)['issuer']),
+    })) as AllowedAssetEntry[],
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
+    total: Number(raw['total']),
   };
 }
 
