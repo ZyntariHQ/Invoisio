@@ -58,7 +58,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-dedup-cross"
+                  "string": "inv-xlm"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -73,7 +73,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "settle-cross-xlm"
+                  "string": "settle-cross-asset"
                 }
               ]
             }
@@ -82,6 +82,7 @@
         }
       ]
     ],
+    [],
     [],
     [],
     []
@@ -253,7 +254,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -283,7 +284,7 @@
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -330,7 +331,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-dedup-cross"
+                      "string": "inv-xlm"
                     }
                   },
                   {
@@ -346,7 +347,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-cross-xlm"
+                      "string": "settle-cross-asset"
                     }
                   },
                   {
@@ -384,7 +385,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-dedup-cross"
+                "string": "inv-xlm"
               }
             }
           },
@@ -405,7 +406,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-dedup-cross"
+                    "string": "inv-xlm"
                   }
                 ]
               },
@@ -437,7 +438,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-dedup-cross"
+                      "string": "inv-xlm"
                     }
                   },
                   {
@@ -453,7 +454,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-cross-xlm"
+                      "string": "settle-cross-asset"
                     }
                   },
                   {
@@ -485,7 +486,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-cross-xlm"
+                    "string": "settle-cross-asset"
                   }
                 ]
               },
