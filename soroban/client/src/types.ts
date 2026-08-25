@@ -79,6 +79,15 @@ export interface PaymentRecord {
   readonly settlementRef: string;
 }
 
+/** Durable cursor returned by `migration_progress()`. */
+export interface MigrationProgress {
+  readonly phase: number;
+  readonly cursor: number;
+  readonly total: number;
+  readonly schemaFrom: number;
+  readonly active: boolean;
+}
+
 /** Bounded page of payment history returned by the contract. */
 export interface PaymentHistoryPage {
   readonly records: PaymentRecord[];

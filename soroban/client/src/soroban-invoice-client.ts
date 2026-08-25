@@ -16,6 +16,7 @@ import {
   PaymentRecord,
   RecordPaymentParams,
   SettlementRefIndexStatus,
+  MigrationProgress,
   SettlementRefPage,
   SorobanInvoiceClientConfig,
   TransactionResult,
@@ -26,6 +27,7 @@ import {
   decodePaymentRecord,
   decodePaymentHistoryPage,
   decodeSettlementRefIndexStatus,
+  decodeMigrationProgress,
   decodeSettlementRefOwner,
   decodeSettlementRefPage,
   encodeAddress,
@@ -626,6 +628,12 @@ export class SorobanInvoiceClient {
       encodeU32(limit),
     );
     return decodeSettlementRefPage(retval);
+  }
+
+  /** Return the durable cursor for an in-progress rebuild or schema migration. */
+  async getMigrationProgress(): Promise<MigrationProgress> {
+    const retval = await this.simulateView('migration_progress');
+    return decodeMigrationProgress(retval);
   }
 
   /**
