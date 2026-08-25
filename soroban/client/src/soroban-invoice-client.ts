@@ -19,6 +19,7 @@ import {
   TransactionResult,
 } from './types';
 import {
+  assertCanonicalIdentifier,
   decodeContractConfig,
   decodePaymentRecord,
   decodePaymentHistoryPage,
@@ -28,6 +29,8 @@ import {
   encodeI128,
   encodeString,
   encodeU32,
+  MAX_INVOICE_ID_LEN,
+  MAX_SETTLEMENT_REF_LEN,
   parseContractError,
 } from './codec';
 
@@ -102,17 +105,27 @@ export class SorobanInvoiceClient {
    * Horizon **before** calling this method. The contract admin keypair must be
    * provided via `signerSecretKey` in the config.
    *
-   * `params.settlementRef` is the normalised settlement reference (e.g. a
-   * SHA-256 hash or reconciliation ID) used for backend deduplication and
-   * idempotent reconciliation. It must be non-empty and at most 128 chars —
-   * the contract rejects longer values with `InvalidSettlementRef`.
+   * `params.invoiceId` and `params.settlementRef` must both be in
+   * **canonical form** — lowercase letters, digits, and hyphens only, within
+   * the contract's length bounds (`invoiceId` ≤ {@link MAX_INVOICE_ID_LEN},
+   * `settlementRef` ≤ {@link MAX_SETTLEMENT_REF_LEN} chars) — mirroring the
+   * `record_payment` guards on-chain. `settlementRef` is the normalised
+   * settlement reference (e.g. a SHA-256 hash or reconciliation ID) used for
+   * backend deduplication and idempotent reconciliation.
    *
+   * Both fields are validated locally before the transaction is built, so a
+   * non-canonical value fails fast with a plain `Error` instead of spending
+   * a transaction on a simulation the contract would reject.
+   *
+   * @throws {Error} if `invoiceId` or `settlementRef` is not canonical
    * @throws {SorobanContractError} on contract-level rejection
    *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`, `InvalidSettlementRef`)
    * @throws {Error} on network errors or confirmation timeout
    */
   async recordPayment(params: RecordPaymentParams): Promise<TransactionResult> {
     this.requireSigner();
+    assertCanonicalIdentifier(params.invoiceId, MAX_INVOICE_ID_LEN, 'invoiceId');
+    assertCanonicalIdentifier(params.settlementRef, MAX_SETTLEMENT_REF_LEN, 'settlementRef');
 
     // server.getAccount() is needed here: submitted transactions must carry
     // the correct on-chain sequence number to prevent replay attacks.

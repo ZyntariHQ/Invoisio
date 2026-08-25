@@ -1,5 +1,22 @@
 import { xdr } from '@stellar/stellar-sdk';
 import { ContractConfig, PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
+/** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
+export declare const MAX_INVOICE_ID_LEN = 64;
+/** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
+export declare const MAX_SETTLEMENT_REF_LEN = 128;
+/**
+ * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
+ * consists solely of ASCII lowercase letters, digits, and hyphens.
+ */
+export declare function isCanonicalIdentifier(value: string, maxLen: number): boolean;
+/**
+ * Throw a descriptive `Error` if `value` is not a canonical identifier —
+ * empty, too long, or containing anything other than lowercase letters,
+ * digits, and hyphens (e.g. uppercase, whitespace, or other punctuation).
+ *
+ * @param fieldName - used only in the thrown message, e.g. `"invoiceId"`.
+ */
+export declare function assertCanonicalIdentifier(value: string, maxLen: number, fieldName: string): void;
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**

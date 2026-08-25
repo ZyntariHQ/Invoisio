@@ -2680,10 +2680,10 @@ fn test_settlement_ref_too_long_returns_error() {
 
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
-    // 129 chars exceeds the 128-char limit
+    // 129 chars (lowercase, i.e. otherwise canonical) exceeds the 128-char limit
     let long_ref = String::from_str(
         &env,
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-long-ref"),
@@ -2704,10 +2704,10 @@ fn test_settlement_ref_exactly_128_chars_succeeds() {
 
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
-    // Exactly 128 chars — should be accepted
+    // Exactly 128 chars, lowercase (canonical form) — should be accepted
     let ref_128 = String::from_str(
         &env,
-        "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
     let invoice_id = String::from_str(&env, "invoisio-ref-128");
     client.record_payment(
@@ -5360,4 +5360,354 @@ fn test_rebuild_history_index_succeeds_while_paused() {
         "restored history must report zero gaps"
     );
     assert!(client.is_paused(), "contract must remain paused after rebuild");
+}
+
+// ─── invoice_id / settlement_ref canonicalisation (issue #497) ─────────────
+
+#[test]
+fn test_invoice_id_exactly_max_len_succeeds() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    // Exactly MAX_INVOICE_ID_LEN (64) chars, canonical — should be accepted.
+    let invoice_id = String::from_str(
+        &env,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    assert_eq!(invoice_id.len(), storage::MAX_INVOICE_ID_LEN);
+
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-max-len-invoice-id"),
+    );
+
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(record.invoice_id, invoice_id);
+}
+
+#[test]
+fn test_invoice_id_over_max_len_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    // MAX_INVOICE_ID_LEN (64) + 1 chars — must be rejected.
+    let invoice_id = String::from_str(
+        &env,
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    );
+    assert_eq!(invoice_id.len(), storage::MAX_INVOICE_ID_LEN + 1);
+
+    let result = client.try_record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-over-max-len-invoice-id"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
+fn test_invoice_id_uppercase_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "INV-CANON-001"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-uppercase"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
+fn test_invoice_id_leading_whitespace_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, " inv-canon-002"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-leading-ws"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
+fn test_invoice_id_trailing_whitespace_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-canon-003 "),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-trailing-ws"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
+fn test_invoice_id_embedded_whitespace_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv canon 004"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-embedded-ws"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+}
+
+#[test]
+fn test_invoice_id_case_variant_cannot_defeat_idempotency_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    client.record_payment(
+        &String::from_str(&env, "inv-canon-dup"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-dup-1"),
+    );
+
+    // A case variant of the same invoice_id must be rejected outright as
+    // non-canonical — it must NOT be accepted as a second, distinct record.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "INV-CANON-DUP"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-dup-2"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_invoice_id_whitespace_variant_cannot_defeat_idempotency_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    client.record_payment(
+        &String::from_str(&env, "inv-canon-ws-dup"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-ws-dup-1"),
+    );
+
+    // A whitespace variant of the same invoice_id must be rejected outright
+    // as non-canonical — it must NOT be accepted as a second, distinct record.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "inv-canon-ws-dup "),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-ws-dup-2"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_settlement_ref_uppercase_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-001"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "SETTLE-CANON-001"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+#[test]
+fn test_settlement_ref_whitespace_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-002"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle canon 002"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+#[test]
+fn test_settlement_ref_invalid_format_returns_error() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    // Underscore and '+' are not in the canonical charset (a-z0-9-).
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-003"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle_canon+003"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+}
+
+#[test]
+fn test_settlement_ref_case_variant_cannot_defeat_uniqueness_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    client.record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-dup-1"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-ref-dup"),
+    );
+
+    // A case variant of the same settlement_ref must be rejected outright as
+    // non-canonical — it must NOT be accepted as a "different" reference for
+    // a second invoice.
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-dup-2"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "SETTLE-CANON-REF-DUP"),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_settlement_ref_whitespace_variant_cannot_defeat_uniqueness_guard() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    client.record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-ws-1"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-ref-ws"),
+    );
+
+    let result = client.try_record_payment(
+        &String::from_str(&env, "invoisio-canon-ref-ws-2"),
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &String::from_str(&env, "settle-canon-ref-ws "),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_is_canonical_identifier_accepts_lowercase_alnum_hyphen_only() {
+    let env = Env::default();
+
+    assert!(storage::is_canonical_identifier(&String::from_str(
+        &env, "abc-123"
+    )));
+    assert!(!storage::is_canonical_identifier(&String::from_str(
+        &env, "Abc-123"
+    )));
+    assert!(!storage::is_canonical_identifier(&String::from_str(
+        &env, "abc_123"
+    )));
+    assert!(!storage::is_canonical_identifier(&String::from_str(
+        &env, "abc 123"
+    )));
+    assert!(!storage::is_canonical_identifier(&String::from_str(
+        &env, " abc123"
+    )));
+    assert!(!storage::is_canonical_identifier(&String::from_str(
+        &env, "abc123 "
+    )));
 }

@@ -92,6 +92,71 @@ pub const CONTRACT_VERSION: u32 = pack_version(
 /// Maximum number of payment records returned in one history page.
 pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
 
+// ─── Identifier Canonicalisation ────────────────────────────────────────────
+//
+// `invoice_id` and `settlement_ref` back the contract's two idempotency
+// guards (`has_payment` / `is_settlement_ref_used`), both of which compare
+// stored keys byte-exactly. Without a canonical form, "inv-001", "INV-001",
+// and "inv-001 " are three different keys even though they identify the same
+// invoice, silently defeating "each invoice_id may be recorded only once".
+//
+// `record_payment` enforces canonical form by *rejecting* anything that is
+// not already canonical rather than normalising it before storage — this is
+// the safer default because the stored key always matches exactly what the
+// caller supplied, with no silent transformation to account for.
+//
+// Canonical form (both fields): ASCII lowercase letters (`a`-`z`), digits
+// (`0`-`9`), and hyphens (`-`) only — nothing else, including uppercase
+// letters, whitespace (leading, trailing, or embedded), and other
+// punctuation. This single rule covers every shape these fields are
+// documented to hold: UUID-style invoice IDs, lowercase-hex settlement
+// hashes (Horizon always returns transaction hashes as lowercase hex), and
+// human-readable kebab-case reference IDs — while still rejecting the
+// case/whitespace variants and pasted-blob inputs that would otherwise slip
+// past the uniqueness guards or bloat persistent storage.
+//
+// Existing deployments: this validation applies only to `record_payment`'s
+// write path for *new* records. It is never invoked by `get_payment`,
+// `rebuild_history_index`, or the schema migrations, so payment records
+// already on chain under a pre-existing, non-canonical `invoice_id` or
+// `settlement_ref` remain fully readable and are not touched or re-validated
+// by an upgrade — only newly submitted payments are held to the new rule.
+
+/// Maximum length of `invoice_id`. `record_payment` rejects longer values.
+///
+/// The product currently issues UUIDv4 invoice IDs (36 characters: lowercase
+/// hex digits and hyphens). 64 leaves headroom for future ID formats while
+/// staying well below `MAX_SETTLEMENT_REF_LEN`, bounding the ledger rent an
+/// oversized identifier could otherwise impose (invoice_id is duplicated
+/// across `PaymentV1`, `PaymentLog`, and every `PaymentHistory` slot).
+pub const MAX_INVOICE_ID_LEN: u32 = 64;
+
+/// Maximum length of `settlement_ref`. A SHA-256 hex string is 64 chars;
+/// this allows headroom for other reference ID shapes while still rejecting
+/// a full transaction blob pasted by mistake.
+pub const MAX_SETTLEMENT_REF_LEN: u32 = 128;
+
+/// Capacity of the stack buffer used by [`is_canonical_identifier`] —
+/// large enough for either bounded field, since callers only ever copy
+/// `value.len()` bytes into it.
+const MAX_IDENTIFIER_LEN: usize = MAX_SETTLEMENT_REF_LEN as usize;
+
+/// Returns `true` if `value` is already in canonical form: every byte is an
+/// ASCII lowercase letter, digit, or hyphen. See the module-level
+/// "Identifier Canonicalisation" notes above for the rationale.
+///
+/// Callers must check `value.len() <= MAX_IDENTIFIER_LEN` first (both
+/// `MAX_INVOICE_ID_LEN` and `MAX_SETTLEMENT_REF_LEN` are within that bound);
+/// this function panics via `String::copy_into_slice` otherwise.
+pub fn is_canonical_identifier(value: &String) -> bool {
+    let len = value.len() as usize;
+    let mut buf = [0u8; MAX_IDENTIFIER_LEN];
+    value.copy_into_slice(&mut buf[..len]);
+    buf[..len]
+        .iter()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
 /// Hard cap on the number of history-index slots a single `payments_by_payer`
 /// invocation may examine, regardless of how few records match the payer.
 ///
@@ -265,10 +330,16 @@ pub struct PaymentRecord {
 
     /// Normalised settlement reference for backend deduplication and auditing.
     ///
-    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or
-    /// a well-known reconciliation identifier) that the backend uses for
+    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or a
+    /// kebab-case reconciliation identifier) that the backend uses for
     /// idempotent settlement reconciliation. Stored on-chain so any observer
     /// can verify the settlement reference associated with a payment.
+    ///
+    /// `record_payment` enforces the "normalised" claim: canonical form is
+    /// ASCII lowercase letters, digits, and hyphens only, at most
+    /// [`MAX_SETTLEMENT_REF_LEN`] characters — see
+    /// [`is_canonical_identifier`]. Records written before this validation
+    /// existed may not conform; they remain readable as-is.
     pub settlement_ref: String,
 }
 
