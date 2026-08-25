@@ -105,7 +105,13 @@ export interface SorobanInvoiceClientConfig {
     readonly signerSecretKey?: string;
 }
 export interface RecordPaymentParams {
-    /** Unique invoice identifier, e.g. "invoisio-abc123" */
+    /**
+     * Unique invoice identifier, e.g. "invoisio-abc123". Must be in
+     * **canonical form** — lowercase letters, digits, and hyphens only — and
+     * at most `MAX_INVOICE_ID_LEN` (64) characters. `recordPayment` validates
+     * this locally and throws before submitting a transaction if it isn't;
+     * the contract enforces the same rule with `InvalidInvoiceId`.
+     */
     readonly invoiceId: string;
     /** Stellar G... address of the payer */
     readonly payer: string;
@@ -117,9 +123,11 @@ export interface RecordPaymentParams {
     readonly amount: bigint;
     /**
      * Normalised settlement reference or hash for backend deduplication and
-     * idempotent reconciliation. Required — must be non-empty and at most
-     * 128 characters (the contract rejects longer values with
-     * `InvalidSettlementRef`).
+     * idempotent reconciliation. Required — must be in **canonical form**
+     * (lowercase letters, digits, and hyphens only) and at most
+     * `MAX_SETTLEMENT_REF_LEN` (128) characters. `recordPayment` validates
+     * this locally and throws before submitting a transaction if it isn't;
+     * the contract enforces the same rule with `InvalidSettlementRef`.
      */
     readonly settlementRef: string;
 }

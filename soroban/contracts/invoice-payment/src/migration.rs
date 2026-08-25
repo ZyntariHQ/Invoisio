@@ -4,6 +4,20 @@
 //! and counts for legacy data during storage upgrades. It ensures that
 //! `payment_history()` returns complete results after upgrade without requiring
 //! ad-hoc reads.
+//!
+//! ## Non-canonical existing identifiers
+//!
+//! `record_payment` rejects `invoice_id` / `settlement_ref` values that are
+//! not in canonical form (see `storage::is_canonical_identifier`), but that
+//! guard applies only to new writes. Deployments that recorded payments
+//! before the guard existed may already hold non-conforming identifiers.
+//! Every function in this module — `collect_all_payment_records`,
+//! `rebuild_payment_history_index`, `migrate_settlement_refs`, and the
+//! schema migrations that call them — reads those identifiers back through
+//! `get_payment_log_entry` / `get_payment` and never re-validates their
+//! format, so pre-existing non-canonical records migrate, rebuild, and
+//! remain readable exactly like any other record. Only a *new*
+//! `record_payment` call is held to the canonical-form rule.
 
 use soroban_sdk::{Env, Vec};
 

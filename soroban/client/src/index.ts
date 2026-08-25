@@ -1,6 +1,12 @@
 export { SorobanInvoiceClient } from './soroban-invoice-client';
 
-export { parseContractError } from './codec';
+export {
+  assertCanonicalIdentifier,
+  isCanonicalIdentifier,
+  MAX_INVOICE_ID_LEN,
+  MAX_SETTLEMENT_REF_LEN,
+  parseContractError,
+} from './codec';
 
 export {
   EVENT_SCHEMA_VERSION,
