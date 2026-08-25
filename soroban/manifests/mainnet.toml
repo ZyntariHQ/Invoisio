@@ -43,3 +43,14 @@ allowlist = [
 #   3. Ensure the admin account has enough XLM for fees + rent.
 #   4. Run:  STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
 #   5. Commit the resulting .contract-id-mainnet file to git.
+#
+# Mainnet upgrade checklist (in-place, existing contract ID — no redeploy):
+#   Full procedure, ordering rationale, and rollback expectations:
+#   docs/upgrade-runbook.md
+#   1. Dry-run first:
+#        STELLAR_NETWORK=mainnet ./invoke-upgrade.sh <path-to-new.wasm> <new_version> --dry-run
+#   2. STELLAR_NETWORK=mainnet ./invoke-pause.sh
+#   3. STELLAR_NETWORK=mainnet ./invoke-upgrade.sh <path-to-new.wasm> <new_version>
+#   4. STELLAR_NETWORK=mainnet ./invoke-upgrade-storage.sh
+#   5. STELLAR_NETWORK=mainnet ./invoke-inspect-config.sh   (verify before unpausing)
+#   6. STELLAR_NETWORK=mainnet ./invoke-unpause.sh

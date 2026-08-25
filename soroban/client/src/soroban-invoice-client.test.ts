@@ -286,6 +286,102 @@ describe('recordPayment', () => {
       args: ['invoisio-abc123', READER, 'XLM', '', amount, 'settle-hash-abc123'],
     });
   });
+
+  it('recordPayment() rejects a non-canonical invoiceId before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'INVOISIO-ABC123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects an invoiceId over MAX_INVOICE_ID_LEN before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'a'.repeat(65),
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects a non-canonical settlementRef before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle hash abc123',
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects a settlementRef over MAX_SETTLEMENT_REF_LEN before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'a'.repeat(129),
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects an empty invoiceId or settlementRef before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: '',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: '',
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
 });
 
 describe('admin read method', () => {
@@ -461,5 +557,58 @@ describe('write methods require a signer', () => {
     await expect(client.allowAsset('USDC', ISSUER)).rejects.toThrow(expected);
     await expect(client.revokeAsset('USDC', ISSUER)).rejects.toThrow(expected);
     await expect(client.setAllowNative(true)).rejects.toThrow(expected);
+    await expect(client.upgrade('ab'.repeat(32), 1)).rejects.toThrow(expected);
+  });
+});
+
+describe('upgrade()', () => {
+  it('submits upgrade(caller, new_wasm_hash, new_contract_version) and returns the tx result', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(async (tx) => {
+      prepared = tx as Transaction;
+      return {
+        status: 'PENDING',
+        hash: TX_HASH,
+        latestLedger: LEDGER,
+        latestLedgerCloseTime: 0,
+      };
+    });
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(async () =>
+      getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const client = makeClient(signer.secret());
+    const newWasmHash = 'ab'.repeat(32);
+    const result = await client.upgrade(newWasmHash, 1_001_000);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(prepared).toBeDefined();
+    const invocation = decodeInvocation(prepared as Transaction);
+    expect(invocation.method).toBe('upgrade');
+    const [caller, wasmHashArg, versionArg] = invocation.args;
+    expect(caller).toBe(SIGNER_PUBLIC);
+    expect(Buffer.from(wasmHashArg as Uint8Array).toString('hex')).toBe(newWasmHash);
+    expect(versionArg).toBe(1_001_000);
+  });
+
+  it('rejects a malformed WASM hash before submitting the transaction', async () => {
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    const sendSpy = vi
+      .spyOn(rpc.Server.prototype, 'sendTransaction')
+      .mockImplementation(async () => {
+        throw new Error('sendTransaction should not be reached for a malformed hash');
+      });
+
+    const client = makeClient(signer.secret());
+    await expect(client.upgrade('not-a-hash', 1)).rejects.toThrow(/32-byte hex-encoded hash/);
+    expect(sendSpy).not.toHaveBeenCalled();
   });
 });

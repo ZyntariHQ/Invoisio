@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { InvoicesService } from "./invoices.service";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
@@ -116,6 +117,40 @@ class FakePrisma {
   }
 }
 
+/** Helper to create an invoice stored as Prisma Decimal amounts (like real DB). */
+function makeDecimalInvoiceAmounts(
+  overrides: Record<string, any>,
+): Record<string, any> {
+  const result = { ...overrides };
+  if (
+    result.amount !== undefined &&
+    !(result.amount instanceof Prisma.Decimal)
+  ) {
+    result.amount = new Prisma.Decimal(result.amount);
+  }
+  if (
+    result.amountPaid !== undefined &&
+    !(result.amountPaid instanceof Prisma.Decimal)
+  ) {
+    result.amountPaid = new Prisma.Decimal(result.amountPaid);
+  }
+  if (
+    result.amountDue !== undefined &&
+    !(result.amountDue instanceof Prisma.Decimal)
+  ) {
+    result.amountDue = new Prisma.Decimal(result.amountDue);
+  }
+  return result;
+}
+
+/**
+ * Format a number to exactly 7 decimal places for assertion matching.
+ * Mirrors the normalisation done by InvoicesService.toDecimalString().
+ */
+function d7(value: number | string): string {
+  return new Prisma.Decimal(value).toFixed(7);
+}
+
 describe("InvoicesService.applyHorizonPayment", () => {
   let service: InvoicesService;
   let prisma: FakePrisma;
@@ -173,7 +208,10 @@ describe("InvoicesService.applyHorizonPayment", () => {
       updatedAt: new Date(),
       ...overrides,
     };
-    await prisma.invoice.create({ data: invoice });
+    // Store as Decimal to match real Prisma behaviour
+    await prisma.invoice.create({
+      data: makeDecimalInvoiceAmounts(invoice),
+    });
     return invoice;
   };
 
@@ -189,8 +227,8 @@ describe("InvoicesService.applyHorizonPayment", () => {
     });
 
     expect(result.invoice?.status).toBe("partially_paid");
-    expect(result.invoice?.amountPaid).toBe(125.25);
-    expect(result.invoice?.amountDue).toBe(374.75);
+    expect(result.invoice?.amountPaid).toBe(d7("125.25"));
+    expect(result.invoice?.amountDue).toBe(d7("374.75"));
     expect(result.review?.issueType).toBe("underpaid");
     expect(notifications.notifyInvoicePaid).not.toHaveBeenCalled();
     expect(notifications.notifyPaymentReviewFlagged).toHaveBeenCalledWith(
@@ -210,8 +248,8 @@ describe("InvoicesService.applyHorizonPayment", () => {
     });
 
     expect(result.invoice?.status).toBe("paid");
-    expect(result.invoice?.amountPaid).toBe(500);
-    expect(result.invoice?.amountDue).toBe(0);
+    expect(result.invoice?.amountPaid).toBe(d7("500"));
+    expect(result.invoice?.amountDue).toBe(d7("0"));
     expect(result.review).toBeNull();
     expect(notifications.notifyInvoicePaid).toHaveBeenCalled();
   });
@@ -228,8 +266,8 @@ describe("InvoicesService.applyHorizonPayment", () => {
     });
 
     expect(result.invoice?.status).toBe("paid");
-    expect(result.invoice?.amountPaid).toBe(650);
-    expect(result.invoice?.amountDue).toBe(0);
+    expect(result.invoice?.amountPaid).toBe(d7("650"));
+    expect(result.invoice?.amountDue).toBe(d7("0"));
     expect(result.review?.issueType).toBe("overpaid");
     expect(notifications.notifyPaymentReviewFlagged).toHaveBeenCalledWith(
       expect.objectContaining({ issueType: "overpaid" }),
@@ -253,8 +291,8 @@ describe("InvoicesService.applyHorizonPayment", () => {
     });
 
     expect(result.invoice?.status).toBe("paid");
-    expect(result.invoice?.amountPaid).toBe(500);
-    expect(result.invoice?.amountDue).toBe(0);
+    expect(result.invoice?.amountPaid).toBe(d7("500"));
+    expect(result.invoice?.amountDue).toBe(d7("0"));
     expect(result.review?.issueType).toBe("overpaid");
     expect((prisma as any).payment._store).toHaveLength(0);
   });
@@ -270,8 +308,8 @@ describe("InvoicesService.applyHorizonPayment", () => {
     });
 
     expect(result.invoice?.status).toBe("pending");
-    expect(result.invoice?.amountPaid).toBe(0);
-    expect(result.invoice?.amountDue).toBe(500);
+    expect(result.invoice?.amountPaid).toBe(d7("0"));
+    expect(result.invoice?.amountDue).toBe(d7("500"));
     expect(result.review?.issueType).toBe("asset_mismatch");
     expect(notifications.notifyInvoicePaid).not.toHaveBeenCalled();
   });
@@ -290,9 +328,207 @@ describe("InvoicesService.applyHorizonPayment", () => {
     const replayed = await service.applyHorizonPayment(payment);
 
     expect(replayed.invoice?.status).toBe("partially_paid");
-    expect(replayed.invoice?.amountPaid).toBe(125);
-    expect(replayed.invoice?.amountDue).toBe(375);
+    expect(replayed.invoice?.amountPaid).toBe(d7("125"));
+    expect(replayed.invoice?.amountDue).toBe(d7("375"));
     expect((prisma as any).payment._store).toHaveLength(1);
     expect((prisma as any).paymentReview._store).toHaveLength(1);
+  });
+});
+
+describe("InvoicesService — decimal precision (issue #457)", () => {
+  let service: InvoicesService;
+  let prisma: FakePrisma;
+  let webhooks: { enqueueWebhook: jest.Mock };
+  let notifications: {
+    notifyInvoicePaid: jest.Mock;
+    notifyInvoiceOverdue: jest.Mock;
+    notifyPaymentReviewFlagged: jest.Mock;
+  };
+
+  beforeEach(() => {
+    prisma = new FakePrisma();
+    webhooks = { enqueueWebhook: jest.fn().mockResolvedValue(undefined) };
+    notifications = {
+      notifyInvoicePaid: jest.fn().mockResolvedValue(undefined),
+      notifyInvoiceOverdue: jest.fn().mockResolvedValue(undefined),
+      notifyPaymentReviewFlagged: jest.fn().mockResolvedValue(undefined),
+    };
+    service = new InvoicesService(
+      {
+        getMerchantPublicKey: () =>
+          "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      } as unknown as StellarService,
+      {} as unknown as SorobanService,
+      prisma as any,
+      webhooks as unknown as WebhooksService,
+      notifications as unknown as NotificationsService,
+      mockStructuredLogger as unknown as StructuredLogger,
+    );
+  });
+
+  const createDecimalInvoice = async (overrides: Record<string, any> = {}) => {
+    const invoice = {
+      id: overrides.id ?? "decimal-inv-1",
+      merchantId: overrides.merchantId ?? "merchant-1",
+      userId: "user-1",
+      invoiceNumber: overrides.invoiceNumber ?? "INV-DEC-1",
+      clientName: "Client",
+      clientEmail: "client@example.com",
+      amount: overrides.amount ?? "100.1234567",
+      amountPaid: overrides.amountPaid ?? "0",
+      amountDue: overrides.amountDue ?? overrides.amount ?? "100.1234567",
+      assetCode: overrides.assetCode ?? "USDC",
+      assetIssuer:
+        overrides.assetIssuer ??
+        "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      memo: overrides.memo ?? "999999",
+      memoType: "ID",
+      status: overrides.status ?? "pending",
+      destinationAddress:
+        "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+      txHash: overrides.txHash ?? null,
+      metadata: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    await prisma.invoice.create({
+      data: makeDecimalInvoiceAmounts({ ...invoice, ...overrides }),
+    });
+    return invoice;
+  };
+
+  it("settles when partial payments sum exactly to seven-decimal invoice amount", async () => {
+    await createDecimalInvoice({
+      id: "dec-exact-1",
+      amount: "0.3000000",
+      amountDue: "0.3000000",
+      amountPaid: "0",
+    });
+
+    // First partial: 0.1000000
+    const r1 = await service.applyHorizonPayment({
+      txHash: "dec-p1",
+      memo: "999999",
+      amount: "0.1000000",
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+    expect(r1.invoice?.status).toBe("partially_paid");
+    expect(r1.invoice?.amountPaid).toBe(d7("0.1"));
+    expect(r1.invoice?.amountDue).toBe(d7("0.2"));
+
+    // Second partial: 0.1000000
+    const r2 = await service.applyHorizonPayment({
+      txHash: "dec-p2",
+      memo: "999999",
+      amount: "0.1000000",
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+    expect(r2.invoice?.status).toBe("partially_paid");
+    expect(r2.invoice?.amountPaid).toBe(d7("0.2"));
+    expect(r2.invoice?.amountDue).toBe(d7("0.1"));
+
+    // Third partial: 0.1000000 — exactly clears the invoice
+    const r3 = await service.applyHorizonPayment({
+      txHash: "dec-p3",
+      memo: "999999",
+      amount: "0.1000000",
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+    expect(r3.invoice?.status).toBe("paid");
+    expect(r3.invoice?.amountPaid).toBe(d7("0.3"));
+    expect(r3.invoice?.amountDue).toBe(d7("0"));
+    expect(notifications.notifyInvoicePaid).toHaveBeenCalled();
+  });
+
+  it("produces no dust residue after accumulating many tiny seven-decimal payments", async () => {
+    await createDecimalInvoice({
+      id: "dec-dust-1",
+      amount: "1.0000000",
+      amountDue: "1.0000000",
+      amountPaid: "0",
+    });
+
+    for (let i = 1; i <= 9; i++) {
+      const r = await service.applyHorizonPayment({
+        txHash: `dust-p${i}`,
+        memo: "999999",
+        amount: "0.1000000",
+        asset_code: "USDC",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      });
+      expect(r.invoice?.status).toBe("partially_paid");
+      expect(r.invoice?.amountDue).toBe(d7(String(1 - i * 0.1)));
+    }
+
+    // Final payment
+    const r10 = await service.applyHorizonPayment({
+      txHash: "dust-p10",
+      memo: "999999",
+      amount: "0.1000000",
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+    expect(r10.invoice?.status).toBe("paid");
+    expect(r10.invoice?.amountPaid).toBe(d7("1.0"));
+    expect(r10.invoice?.amountDue).toBe(d7("0"));
+  });
+
+  it("handles amounts beyond Number.MAX_SAFE_INTEGER without precision loss", async () => {
+    const hugeAmount = "9007199254740993.0000000";
+    await createDecimalInvoice({
+      id: "dec-huge-1",
+      amount: hugeAmount,
+      amountDue: hugeAmount,
+      amountPaid: "0",
+    });
+
+    const result = await service.applyHorizonPayment({
+      txHash: "huge-p1",
+      memo: "999999",
+      amount: hugeAmount,
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+
+    expect(result.invoice?.status).toBe("paid");
+    expect(result.invoice?.amountPaid).toBe(d7(hugeAmount));
+    expect(result.invoice?.amountDue).toBe(d7("0"));
+  });
+
+  it("produces no dust when repeatedly paying 0.0000001 on a 0.0000007 invoice", async () => {
+    await createDecimalInvoice({
+      id: "dec-micro-1",
+      amount: "0.0000007",
+      amountDue: "0.0000007",
+      amountPaid: "0",
+    });
+
+    // Pay in seven increments of 0.0000001
+    for (let i = 1; i <= 6; i++) {
+      const r = await service.applyHorizonPayment({
+        txHash: `micro-p${i}`,
+        memo: "999999",
+        amount: "0.0000001",
+        asset_code: "USDC",
+        asset_issuer:
+          "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      });
+      expect(r.invoice?.status).toBe("partially_paid");
+    }
+
+    const r7 = await service.applyHorizonPayment({
+      txHash: "micro-p7",
+      memo: "999999",
+      amount: "0.0000001",
+      asset_code: "USDC",
+      asset_issuer: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+    });
+    expect(r7.invoice?.status).toBe("paid");
+    expect(r7.invoice?.amountPaid).toBe(d7("0.0000007"));
+    expect(r7.invoice?.amountDue).toBe(d7("0"));
   });
 });

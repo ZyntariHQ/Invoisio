@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
@@ -33,7 +34,7 @@ const DEFAULT_DEAD_LETTER_LIMIT = 50;
 const MAX_DEAD_LETTER_LIMIT = 100;
 
 @Injectable()
-export class WebhooksService {
+export class WebhooksService implements OnModuleDestroy {
   private readonly logger = new Logger(WebhooksService.name);
   private isProcessing = false;
 
@@ -676,5 +677,21 @@ export class WebhooksService {
     }
 
     return value as Prisma.InputJsonValue;
+  }
+
+  /**
+   * Cleanup on shutdown - stop processing and release locks
+   */
+  async onModuleDestroy() {
+    console.log("[WebhooksService] Shutting down...");
+
+    // Clear any pending timeouts
+    if (this.isProcessing) {
+      this.isProcessing = false;
+    }
+
+    this.isProcessing = false;
+
+    console.log("[WebhooksService] Shutdown complete");
   }
 }

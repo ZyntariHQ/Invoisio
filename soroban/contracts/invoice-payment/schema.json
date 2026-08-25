@@ -3,7 +3,7 @@
   "title": "Invoisio Invoice Payment Contract Schema",
   "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
   "contract_version": "1.0.0",
-  "storage_schema_version": 1,
+  "storage_schema_version": 2,
   "types": {
     "Asset": {
       "description": "Asset type: native XLM or a Stellar-issued token.",
@@ -260,6 +260,18 @@
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
       "required": ["count", "migrated_at"]
+    },
+    "ContractUpgraded": {
+      "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
+      "topic": "contract_upgraded",
+      "fields": {
+        "previous_version": { "type": "integer", "description": "Packed semver of the code that was running when upgrade() was called." },
+        "new_version": { "type": "integer", "description": "Caller-supplied packed semver of the code being deployed. Not verified on-chain against new_wasm_hash." },
+        "new_wasm_hash": { "type": "string", "description": "Hex-encoded 32-byte hash of the newly installed WASM.", "contentEncoding": "hex" },
+        "upgraded_by": { "type": "string", "description": "Admin address that triggered the upgrade." },
+        "upgraded_at": { "type": "integer", "description": "Ledger timestamp when the upgrade occurred." }
+      },
+      "required": ["previous_version", "new_version", "new_wasm_hash", "upgraded_by", "upgraded_at"]
     }
   },
   "errors": {
@@ -282,7 +294,8 @@
     "HistoryIndexRebuildFailed":   { "code": 17, "description": "rebuild_history_index() failed to rebuild the payment history index; check storage consistency." },
     "MigrationRequired":   { "code": 18, "description": "rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first." },
     "HistoryIndexIncomplete":   { "code": 19, "description": "The payment history index is incomplete and must be rebuilt via rebuild_history_index()." },
-    "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." }
+    "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." },
+    "MustBePausedForUpgrade":   { "code": 21, "description": "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window." }
   },
   "methods": {
     "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
@@ -303,6 +316,7 @@
     "config": { "auth": "none", "description": "Return ContractConfig snapshot." },
     "payment_history": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
     "payments_by_payer": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
+    "upgrade": { "auth": "admin", "description": "Upgrade the deployed contract WASM in place. Requires the contract to already be paused." },
     "upgrade_storage": { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
     "set_paused": { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
     "is_paused": { "auth": "none", "description": "Return true if the contract is currently paused." },

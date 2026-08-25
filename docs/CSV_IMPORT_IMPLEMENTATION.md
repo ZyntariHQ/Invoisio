@@ -1,5 +1,8 @@
 # CSV Invoice Import Feature - Implementation Guide
 
+**Status:** Historical
+**Last Reviewed:** 2026-08-24
+
 ## Overview
 This implementation adds a merchant-friendly CSV invoice upload flow to the web dashboard, allowing users to bulk import invoices with comprehensive validation feedback and detailed import outcome reporting.
 

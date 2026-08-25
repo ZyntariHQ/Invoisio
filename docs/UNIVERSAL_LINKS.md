@@ -1,5 +1,8 @@
 # Universal links and Android App Links
 
+**Status:** Current
+**Last Reviewed:** 2026-08-24
+
 Invoisio supports these HTTPS entry points (the custom `invoisio://` scheme is
 retained for backwards compatibility):
 

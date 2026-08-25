@@ -10,6 +10,61 @@ import {
   SorobanContractError,
 } from './types';
 
+// ─── Identifier canonicalisation ─────────────────────────────────────────────
+//
+// Mirrors `storage::is_canonical_identifier` and the length bounds enforced
+// on-chain by `record_payment` in
+// `soroban/contracts/invoice-payment/src/lib.rs`. Validating here lets a
+// caller fail locally — before spending a transaction — instead of learning
+// about a malformed `invoiceId` or `settlementRef` from a simulation error.
+//
+// Canonical form (both fields): ASCII lowercase letters (`a`-`z`), digits
+// (`0`-`9`), and hyphens (`-`) only. The contract rejects anything else
+// (uppercase, whitespace, other punctuation) rather than normalising it, so
+// this client mirrors that rejection rather than silently lower-casing or
+// trimming input on the caller's behalf.
+
+/** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
+export const MAX_INVOICE_ID_LEN = 64;
+
+/** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
+export const MAX_SETTLEMENT_REF_LEN = 128;
+
+const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
+
+/**
+ * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
+ * consists solely of ASCII lowercase letters, digits, and hyphens.
+ */
+export function isCanonicalIdentifier(value: string, maxLen: number): boolean {
+  return value.length > 0 && value.length <= maxLen && CANONICAL_IDENTIFIER_PATTERN.test(value);
+}
+
+/**
+ * Throw a descriptive `Error` if `value` is not a canonical identifier —
+ * empty, too long, or containing anything other than lowercase letters,
+ * digits, and hyphens (e.g. uppercase, whitespace, or other punctuation).
+ *
+ * @param fieldName - used only in the thrown message, e.g. `"invoiceId"`.
+ */
+export function assertCanonicalIdentifier(
+  value: string,
+  maxLen: number,
+  fieldName: string,
+): void {
+  if (value.length === 0) {
+    throw new Error(`${fieldName} must not be empty`);
+  }
+  if (value.length > maxLen) {
+    throw new Error(`${fieldName} must be at most ${maxLen} characters, got ${value.length}`);
+  }
+  if (!CANONICAL_IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(
+      `${fieldName} must contain only lowercase letters, digits, and hyphens, got: ${value}`,
+    );
+  }
+}
+
 // ─── Encoders (TypeScript → XDR ScVal) ───────────────────────────────────────
 
 export function encodeString(value: string): xdr.ScVal {
@@ -35,6 +90,22 @@ export function encodeU32(value: number): xdr.ScVal {
 
 export function encodeBool(value: boolean): xdr.ScVal {
   return nativeToScVal(value, { type: 'bool' });
+}
+
+/**
+ * Encode a hex-encoded 32-byte hash (e.g. a WASM hash) as a Soroban
+ * `BytesN<32>` ScVal. Accepts an optional `0x` prefix.
+ */
+export function encodeBytes32(hexHash: string): xdr.ScVal {
+  const clean = hexHash.startsWith('0x') ? hexHash.slice(2) : hexHash;
+  if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
+    throw new Error(`Expected a 32-byte hex-encoded hash (64 hex chars), got: ${hexHash}`);
+  }
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+  }
+  return nativeToScVal(bytes, { type: 'bytes' });
 }
 
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────

@@ -30,8 +30,12 @@ pub enum ContractError {
     /// `amount` was zero or negative. All payments must be strictly positive.
     InvalidAmount = 5,
 
-    /// `invoice_id` was an empty string. Every payment must reference a
-    /// non-empty invoice identifier.
+    /// `invoice_id` was empty, exceeded the maximum allowed length, or was
+    /// not in canonical form (ASCII lowercase letters, digits, and hyphens
+    /// only — no uppercase, no whitespace). Every payment must reference a
+    /// non-empty, bounded, canonical invoice identifier so the on-chain
+    /// idempotency guard's byte-exact comparison cannot be defeated by
+    /// case or whitespace variants of the same invoice.
     InvalidInvoiceId = 6,
 
     /// `asset_code` was empty, or a non-XLM asset was supplied without an
@@ -53,9 +57,39 @@ pub enum ContractError {
     StorageSchemaTooOld = 11,
 
     /// The contract is paused and cannot perform the requested operation.
+    ///
+    /// # Scope
+    /// `ContractPaused` is returned by the following entrypoints when the
+    /// contract has been paused via `set_paused(true)`:
+    ///
+    /// | Entrypoint              | Covered | Reason                                              |
+    /// |-------------------------|---------|-----------------------------------------------------|
+    /// | `record_payment`        | yes     | Payment log is frozen during incident investigation |
+    /// | `propose_admin`         | yes     | Admin role cannot be transferred out while paused   |
+    /// | `accept_admin`          | yes     | Admin role cannot be claimed while paused           |
+    /// | `cancel_admin_transfer` | yes     | Control-plane changes are frozen while paused       |
+    /// | `allow_asset`           | yes     | Asset allowlist cannot be rewritten while paused    |
+    /// | `revoke_asset`          | yes     | Asset allowlist cannot be rewritten while paused    |
+    /// | `set_allow_native`      | yes     | Native-asset policy cannot change while paused      |
+    ///
+    /// The following entrypoints are **intentionally exempt** and remain
+    /// callable while paused, with admin-only access where applicable:
+    ///
+    /// | Entrypoint               | Exempt? | Rationale                                                                 |
+    /// |--------------------------|---------|---------------------------------------------------------------------------|
+    /// | `set_paused`             | yes     | Must be able to unpause the contract to lift containment                 |
+    /// | `upgrade`                | yes     | The WASM-upgrade runbook *requires* `set_paused(true)` first             |
+    /// | `upgrade_storage`        | yes     | Storage migration must run between `upgrade()` and the final unpause      |
+    /// | `rebuild_history_index`  | yes     | Administrative recovery, may run during the upgrade window or standalone |
+    /// | All read entrypoints     | yes     | Investigation and auditing must remain possible during containment        |
     ContractPaused = 12,
 
-    /// `settlement_ref` was empty or exceeded the maximum allowed length.
+    /// `settlement_ref` was empty, exceeded the maximum allowed length, or
+    /// was not in canonical form (ASCII lowercase letters, digits, and
+    /// hyphens only — no uppercase, no whitespace). This enforces the
+    /// "normalised" contract documented on `settlement_ref` and keeps case
+    /// or whitespace variants of the same reference from defeating the
+    /// on-chain settlement-reference uniqueness guard.
     InvalidSettlementRef = 13,
 
     /// `accept_admin()` was called but no admin transfer proposal is pending.
@@ -82,4 +116,10 @@ pub enum ContractError {
     /// The settlement reference has already been used for a different invoice.
     /// Each settlement reference must be globally unique across all payments.
     SettlementRefAlreadyUsed = 20,
+
+    /// `upgrade()` was called while the contract is not paused. The contract
+    /// must stay paused for the entire `upgrade()` → `upgrade_storage()`
+    /// window so no write can land on the new code before storage has been
+    /// migrated — see the doc comment on `upgrade()` in `lib.rs`.
+    MustBePausedForUpgrade = 21,
 }

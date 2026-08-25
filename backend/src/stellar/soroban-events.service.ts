@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { InvoicesService } from "../invoices/invoices.service";
+import { PrismaService } from "../prisma/prisma.service";
 import https from "node:https";
 import { URL } from "node:url";
 import { RequestContextService } from "../observability/request-context.service";
@@ -9,21 +10,33 @@ import { traceAsync } from "../observability/tracing.util";
 
 type Json = Record<string, any>;
 
+const SOROBAN_WATCHER_NAME = "soroban" as const;
+const DEFAULT_MAX_PROCESS_ATTEMPTS = 3;
+
+export interface WatcherCursorState {
+  watcher: typeof SOROBAN_WATCHER_NAME;
+  cursor: string | undefined;
+  cursorUpdatedAt: Date | null;
+  resumed: boolean;
+}
+
 @Injectable()
 export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   private running = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cursor: string | undefined = undefined;
   private backoffMs = 1000;
+  private cursorUpdatedAt: Date | null = null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly invoices: InvoicesService,
+    private readonly prisma: PrismaService,
     private readonly requestContext: RequestContextService,
     private readonly logger: StructuredLogger,
   ) {}
 
-  onModuleInit(): void {
+  async onModuleInit(): Promise<void> {
     const rpcUrl = this.getRpcUrl();
     const contractId = this.getContractId();
     if (!rpcUrl || !contractId) {
@@ -33,13 +46,78 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
       });
       return;
     }
+    await this.restoreCursor();
     this.running = true;
     this.logger.info("soroban.events.started", {
       domain: "soroban",
       rpcUrl,
       contractId,
+      cursor: this.cursor,
     });
     this.scheduleNext(0);
+  }
+
+  /**
+   * Resume the event cursor from its last durable checkpoint. Only a genuine
+   * first run (no persisted row) starts with no cursor — restarting must
+   * never re-derive a start point that skips events settled during downtime.
+   */
+  private async restoreCursor(): Promise<void> {
+    try {
+      const persisted = await this.prisma.watcherCursor.findUnique({
+        where: { watcher: SOROBAN_WATCHER_NAME },
+      });
+      if (persisted) {
+        this.cursor = persisted.cursor;
+        this.cursorUpdatedAt = persisted.updatedAt;
+        this.logger.info("soroban.events.cursor_resumed", {
+          domain: "soroban",
+          cursor: this.cursor,
+          persistedAt: persisted.updatedAt,
+        });
+        return;
+      }
+    } catch (error) {
+      // A transient DB outage on boot should not wedge startup; fall back to
+      // a derived start point but make the degradation loud.
+      this.logger.error("soroban.events.cursor_restore_failed", {
+        domain: "soroban",
+        error: (error as Error).message,
+      });
+    }
+    this.logger.info("soroban.events.cursor_first_run", {
+      domain: "soroban",
+      cursor: this.cursor ?? "(none)",
+    });
+  }
+
+  /** Persist the cursor after every advance so restarts resume from here. */
+  private async checkpointCursor(cursor: string): Promise<void> {
+    try {
+      const row = await this.prisma.watcherCursor.upsert({
+        where: { watcher: SOROBAN_WATCHER_NAME },
+        create: { watcher: SOROBAN_WATCHER_NAME, cursor },
+        update: { cursor },
+      });
+      this.cursorUpdatedAt = row.updatedAt;
+    } catch (error) {
+      // In-memory cursor already advanced; log loudly so a persist failure
+      // (which would reintroduce the downtime blind spot) is observable.
+      this.logger.error("soroban.events.cursor_checkpoint_failed", {
+        domain: "soroban",
+        cursor,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  getCursorState(): WatcherCursorState {
+    return {
+      watcher: SOROBAN_WATCHER_NAME,
+      cursor: this.cursor,
+      cursorUpdatedAt: this.cursorUpdatedAt,
+      resumed: this.cursor !== undefined,
+    };
   }
 
   onModuleDestroy(): void {
@@ -73,8 +151,18 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
           });
 
           for (const ev of events) {
-            await this.handleEvent(ev);
-            this.cursor = ev?.pagingToken ?? ev?.paging_token ?? this.cursor;
+            const pagingToken: string | undefined =
+              ev?.pagingToken ?? ev?.paging_token;
+            const safeToAdvance = await this.handleEventWithRetry(ev);
+            if (!safeToAdvance) {
+              // Even dead-lettering failed — halt so this event is retried
+              // on the next poll instead of being silently skipped.
+              break;
+            }
+            if (pagingToken) {
+              this.cursor = pagingToken;
+              await this.checkpointCursor(this.cursor);
+            }
           }
           this.backoffMs = 1000;
           this.scheduleNext(events.length > 0 ? 50 : 500);
@@ -90,6 +178,110 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
         }
       },
     );
+  }
+
+  /**
+   * Handle a single event with a bounded retry budget. A transient failure
+   * is retried in-process; an event that keeps failing is quarantined as a
+   * dead letter so it cannot stall the watcher indefinitely.
+   *
+   * Returns true when it is safe to advance the cursor past this event
+   * (handled successfully, or dead-lettered for operator review).
+   * Returns false only when even the dead-letter write failed.
+   */
+  private async handleEventWithRetry(ev: any): Promise<boolean> {
+    const eventId = String(
+      ev?.id ?? ev?.eventId ?? ev?.pagingToken ?? Date.now(),
+    );
+    const maxAttempts = this.getMaxProcessAttempts();
+    const retryDelayMs = this.getRetryDelayMs();
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.handleEvent(ev);
+        return true;
+      } catch (err) {
+        lastError = err;
+        this.logger.warn("soroban.event.attempt_failed", {
+          domain: "soroban",
+          eventId,
+          attempt,
+          maxAttempts,
+          willRetry: attempt < maxAttempts,
+          error: (err as Error).message,
+        });
+        if (attempt < maxAttempts && retryDelayMs > 0) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      }
+    }
+
+    return this.deadLetterEvent(ev, eventId, lastError);
+  }
+
+  /**
+   * Quarantine a poison event with its raw payload so an operator can
+   * inspect and replay it. Idempotent per (watcher, recordId): repeated
+   * failures increment errorCount instead of duplicating rows.
+   */
+  private async deadLetterEvent(
+    ev: any,
+    eventId: string,
+    error: unknown,
+  ): Promise<boolean> {
+    const message = error instanceof Error ? error.message : String(error);
+    const pagingToken: string | undefined = ev?.pagingToken ?? ev?.paging_token;
+
+    try {
+      await this.prisma.watcherDeadLetter.upsert({
+        where: {
+          watcher_recordId: {
+            watcher: SOROBAN_WATCHER_NAME,
+            recordId: eventId,
+          },
+        },
+        create: {
+          watcher: SOROBAN_WATCHER_NAME,
+          recordId: eventId,
+          recordCursor: pagingToken,
+          payload: this.serializeEvent(ev),
+          lastError: message,
+        },
+        update: {
+          recordCursor: pagingToken,
+          payload: this.serializeEvent(ev),
+          lastError: message,
+          errorCount: { increment: 1 },
+        },
+      });
+
+      this.logger.error("soroban.event.dead_lettered", {
+        domain: "soroban",
+        eventId,
+        error: message,
+      });
+      return true;
+    } catch (persistErr) {
+      // Cannot even quarantine the event — halt so the cursor stays put
+      // and the next poll retries it instead of silently skipping it.
+      this.logger.error("soroban.event.dead_letter_persist_failed", {
+        domain: "soroban",
+        eventId,
+        originalError: message,
+        persistError:
+          persistErr instanceof Error ? persistErr.message : String(persistErr),
+      });
+      return false;
+    }
+  }
+
+  private serializeEvent(ev: any): any {
+    try {
+      return JSON.parse(JSON.stringify(ev));
+    } catch {
+      return { id: ev?.id, pagingToken: ev?.pagingToken };
+    }
   }
 
   async handleEvent(ev: any): Promise<void> {
@@ -279,6 +471,20 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   private getTopic(): string {
     const conf = this.config.get("stellar");
     return conf?.sorobanEventTopic || "InvoicePaymentRecorded";
+  }
+
+  private getMaxProcessAttempts(): number {
+    const raw = this.config.get<string>("SOROBAN_MAX_PROCESS_ATTEMPTS");
+    const parsed = parseInt(raw ?? "", 10);
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : DEFAULT_MAX_PROCESS_ATTEMPTS;
+  }
+
+  private getRetryDelayMs(): number {
+    const raw = this.config.get<string>("SOROBAN_RETRY_DELAY_MS");
+    const parsed = parseInt(raw ?? "", 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 250;
   }
 
   private getSlowNetworkThresholdMs(): number {

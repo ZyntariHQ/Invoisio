@@ -1,8 +1,14 @@
-let AsyncStorage: any;
+interface AsyncStorageLike {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+}
+
+let AsyncStorage: AsyncStorageLike;
 try {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const mod = require('@react-native-async-storage/async-storage');
-  AsyncStorage = mod.default ?? mod;
+  AsyncStorage = (mod.default ?? mod) as AsyncStorageLike;
 } catch {
   const memoryStore: Record<string, string> = {};
   AsyncStorage = {
@@ -24,6 +30,41 @@ import { useAuthStore } from '../hooks/use-auth-store';
 const SYNC_STATUS_KEY = '@invoisio_sync_status';
 const SYNC_HISTORY_KEY = '@invoisio_sync_history';
 const LAST_SYNC_KEY = '@invoisio_last_sync';
+
+/**
+ * Parse persisted last-sync metadata into a valid epoch-milliseconds timestamp.
+ * Accepts the canonical numeric form written by `saveLastSyncTime()` as well as
+ * ISO-8601 strings. Returns `null` for missing, empty, or malformed values so
+ * callers never render `Invalid Date` or a misleading sync status.
+ */
+export function parseLastSyncTimestamp(
+  raw: string | null | undefined,
+): number | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  let ts: number;
+  if (/^\d+$/.test(trimmed)) {
+    ts = Number(trimmed);
+    if (!Number.isSafeInteger(ts)) return null;
+  } else {
+    ts = Date.parse(trimmed);
+  }
+  return Number.isFinite(ts) && ts > 0 ? ts : null;
+}
+
+/**
+ * Format a last-sync timestamp for display. Returns `null` for missing or
+ * invalid values so the UI can omit the label instead of showing nonsense.
+ */
+export function formatLastSyncTime(
+  ts: number | null | undefined,
+): string | null {
+  if (ts == null || !Number.isFinite(ts)) return null;
+  const date = new Date(ts);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+}
 
 export type SyncOperationType = 
   | 'drafts' 
@@ -76,6 +117,13 @@ class SyncCoordinator {
   private listeners: ((status: SyncStatus) => void)[] = [];
   private maxRetries = 3;
   private retryDelay = 1000; // Base delay in ms
+  private lastSyncTime: number | null = null;
+
+  constructor() {
+    // Load persisted last-sync metadata at startup so `getStatus()` reports a
+    // trustworthy value immediately after app launch / offline recovery.
+    void this.reloadLastSyncTime();
+  }
 
   /**
    * Add a listener for sync status changes
@@ -120,23 +168,35 @@ class SyncCoordinator {
   }
 
   /**
-   * Get last sync time from storage
+   * Re-read persisted last-sync metadata from storage into memory.
+   * Safe to call repeatedly; used on startup and app-resume recovery.
    */
-  private getLastSyncTime(): number | null {
+  async reloadLastSyncTime(): Promise<void> {
     try {
-      const stored = AsyncStorage.getItem(LAST_SYNC_KEY);
-      return stored ? Number(stored) : null;
-    } catch {
-      return null;
+      const stored = await AsyncStorage.getItem(LAST_SYNC_KEY);
+      this.lastSyncTime = parseLastSyncTimestamp(stored);
+    } catch (error) {
+      console.error('Failed to reload last sync time:', error);
+      this.lastSyncTime = null;
     }
+    this.notifyListeners();
   }
 
   /**
-   * Save last sync time to storage
+   * Get last sync time from memory (loaded from storage at startup/on save)
+   */
+  private getLastSyncTime(): number | null {
+    return this.lastSyncTime;
+  }
+
+  /**
+   * Save last sync time to storage and keep the in-memory value in sync
    */
   private async saveLastSyncTime(): Promise<void> {
+    const now = Date.now();
     try {
-      await AsyncStorage.setItem(LAST_SYNC_KEY, String(Date.now()));
+      await AsyncStorage.setItem(LAST_SYNC_KEY, String(now));
+      this.lastSyncTime = now;
     } catch (error) {
       console.error('Failed to save last sync time:', error);
     }

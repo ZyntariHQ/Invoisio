@@ -48,3 +48,8 @@ backend/dist/
 .claude/
 github/
 skip-lock.json/
+
+# Issue tracking tooling output
+issue-list*.json
+created-issues*.json
+.trae_issue_list.json

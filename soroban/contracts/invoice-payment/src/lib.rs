@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
 
 pub mod errors;
 pub mod events;
@@ -18,15 +18,17 @@ pub use storage::{
 
 use events::{
     emit_admin_transfer_accepted, emit_admin_transfer_cancelled, emit_admin_transfer_proposed,
-    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+    emit_asset_allowlisted, emit_asset_revoked, emit_contract_upgraded, emit_native_allow_changed,
+    emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
-    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
-    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
-    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
+    allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
+    bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
+    get_admin, get_contract_config, get_count, get_history_count, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
+    is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
+    set_pending_admin,
 };
 
 // Contract
@@ -124,6 +126,20 @@ impl InvoicePaymentContract {
     /// Each `invoice_id` may be recorded **only once**.
     /// Returns [`ContractError::PaymentAlreadyRecorded`] on duplicates.
     ///
+    /// ## Canonicalisation
+    /// `invoice_id` and `settlement_ref` back this idempotency guard and the
+    /// settlement-reference uniqueness guard respectively, and both guards
+    /// compare stored values byte-exactly. To keep case or whitespace
+    /// variants of the same identifier from slipping past those guards, both
+    /// fields must already be in **canonical form** — ASCII lowercase
+    /// letters, digits, and hyphens only, no uppercase and no whitespace
+    /// (leading, trailing, or embedded). Non-canonical input is **rejected**,
+    /// not normalised: the stored key always matches exactly what the caller
+    /// supplied. See [`storage::is_canonical_identifier`] for the exact rule.
+    /// This validation applies only to new writes — payment records already
+    /// on chain from before this guard existed remain readable as-is and are
+    /// never re-validated or rewritten by an upgrade.
+    ///
     /// ## Emitted event
     /// | Field  | Value                                   |
     /// |--------|-----------------------------------------|
@@ -136,19 +152,26 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`);
+    ///                       must be non-empty, max [`storage::MAX_INVOICE_ID_LEN`]
+    ///                       chars, and in canonical form (see above)
     /// - `payer`           — Stellar account address that sent the payment
     /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
     /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
     /// - `amount`          — payment amount in smallest denomination (must be > 0)
     /// - `settlement_ref`  — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
-    ///                       (must be non-empty, max 128 chars)
+    ///                       (must be non-empty, max [`storage::MAX_SETTLEMENT_REF_LEN`]
+    ///                       chars, and in canonical form — see above)
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
-    /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is an empty string
-    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty or exceeds 128 chars
+    /// - [`ContractError::ContractPaused`] — contract is paused; payment log is frozen
+    /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is empty, exceeds
+    ///   [`storage::MAX_INVOICE_ID_LEN`] chars, or is not in canonical form
+    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty,
+    ///   exceeds [`storage::MAX_SETTLEMENT_REF_LEN`] chars, or is not in
+    ///   canonical form
     /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
@@ -181,6 +204,22 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidInvoiceId);
         }
 
+        // invoice_id length guard — reject unreasonably long identifiers so
+        // an oversized invoice_id can't inflate ledger rent (it is duplicated
+        // across PaymentV1, PaymentLog, and every PaymentHistory slot). See
+        // `storage::MAX_INVOICE_ID_LEN` for the rationale.
+        if invoice_id.len() > storage::MAX_INVOICE_ID_LEN {
+            return Err(ContractError::InvalidInvoiceId);
+        }
+
+        // invoice_id canonical-form guard — `has_payment` compares invoice_id
+        // byte-exactly, so case and whitespace variants of the same ID must
+        // be rejected rather than silently treated as distinct invoices. See
+        // `storage::is_canonical_identifier` for the exact rule.
+        if !storage::is_canonical_identifier(&invoice_id) {
+            return Err(ContractError::InvalidInvoiceId);
+        }
+
         // settlement_ref must be non-empty.
         if settlement_ref.is_empty() {
             return Err(ContractError::InvalidSettlementRef);
@@ -189,7 +228,15 @@ impl InvoicePaymentContract {
         // settlement_ref length guard — reject unreasonably long references
         // (e.g. a full transaction blob pasted by mistake).
         // A SHA-256 hex string is 64 chars; this allows some headroom.
-        if settlement_ref.len() > 128 {
+        if settlement_ref.len() > storage::MAX_SETTLEMENT_REF_LEN {
+            return Err(ContractError::InvalidSettlementRef);
+        }
+
+        // settlement_ref canonical-form guard — enforces the "normalised"
+        // claim in its documentation and closes the same byte-exact-
+        // comparison gap as the invoice_id guard above, this time against
+        // `is_settlement_ref_used`. See `storage::is_canonical_identifier`.
+        if !storage::is_canonical_identifier(&settlement_ref) {
             return Err(ContractError::InvalidSettlementRef);
         }
 
@@ -277,6 +324,11 @@ impl InvoicePaymentContract {
         append_payment_history(&env, &record);
         bump_history_count(&env);
 
+        // 11b. Index the payment by payer so `payments_by_payer` becomes
+        // direct reads instead of a filtered scan of the whole history
+        // (issue #445). The history slot just written is `history_count - 1`.
+        append_payer_entry(&env, &record.payer, get_history_count(&env) - 1);
+
         // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
@@ -359,8 +411,15 @@ impl InvoicePaymentContract {
     /// staged in instance storage but does **not** take effect until the
     /// proposed address calls [`accept_admin`].
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The admin-transfer control plane is frozen during an incident
+    /// containment window so a compromised admin key cannot rotate the role
+    /// out from under the operator.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::PendingAdminExists`] — a transfer is already pending
     /// - [`ContractError::InvalidProposedAdmin`] — `new_admin` equals the
     ///   current admin
@@ -368,6 +427,9 @@ impl InvoicePaymentContract {
     /// ## Events
     /// Emits `AdminTransferProposed` on success.
     pub fn propose_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let current = get_admin(&env)?;
         current.require_auth();
         if has_pending_admin(&env) {
@@ -390,14 +452,25 @@ impl InvoicePaymentContract {
     /// must authorise the call. On success the role is transferred and the
     /// pending proposal is cleared.
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Even if a proposal was staged before the pause, the role
+    /// cannot change hands during incident containment — the operator has
+    /// time to investigate and cancel the proposal via [`cancel_admin_transfer`]
+    /// after unpausing.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
     /// - [`ContractError::Unauthorized`] — `caller` is not the proposed admin
     ///
     /// ## Events
     /// Emits `AdminTransferAccepted` on success.
     pub fn accept_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         // Ensure the contract is initialised first (mirrors the other admin
         // methods) so misuse before setup returns NotInitialized, not a
         // misleading NoPendingAdmin.
@@ -429,10 +502,22 @@ impl InvoicePaymentContract {
     /// mistyped address cannot silently become an immediate irreversible
     /// transfer.
     ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The entire control plane — including cancellation of a
+    /// previously-staged transfer — is frozen during containment so the
+    /// operator can reason about a stable state before unpausing. Once
+    /// unpaused, the current admin can cancel (and then re-propose to a safe
+    /// address) as usual.
+    ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::ContractPaused`] — contract is paused, control-plane writes are frozen
     /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
     pub fn cancel_admin_transfer(env: Env) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let current = get_admin(&env)?;
         current.require_auth();
 
@@ -448,7 +533,17 @@ impl InvoicePaymentContract {
     /// Add a `(code, issuer)` token pair to the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. The asset allowlist is part of the contract's control plane
+    /// and must remain stable during incident containment — a paused contract
+    /// cannot silently change which assets are acceptable, and a suspect
+    /// admin key cannot pre-stage new allowlist entries for later use.
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
@@ -462,7 +557,16 @@ impl InvoicePaymentContract {
     /// Remove a `(code, issuer)` token pair from the allowlist.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Revoking an asset is a control-plane change that must not
+    /// happen during the incident-containment window; the operator needs a
+    /// stable allowlist to reconcile against while paused.
     pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
         if code.is_empty() || issuer.is_empty() {
@@ -476,7 +580,16 @@ impl InvoicePaymentContract {
     /// Toggle whether native XLM payments are permitted.
     ///
     /// The **contract admin** must authorise this call.
+    ///
+    /// ## Pause interaction
+    /// Rejected with [`ContractError::ContractPaused`] when the contract is
+    /// paused. Flipping the native-asset policy would silently change which
+    /// payments are accepted once the contract is unpaused, so it is blocked
+    /// alongside the other allowlist mutators during containment.
     pub fn set_allow_native(env: Env, allowed: bool) -> Result<(), ContractError> {
+        if storage::is_paused(&env) {
+            return Err(ContractError::ContractPaused);
+        }
         let admin = get_admin(&env)?;
         admin.require_auth();
 
@@ -514,12 +627,33 @@ impl InvoicePaymentContract {
 
     /// Return all payments made by `payer`, paginated.
     ///
-    /// Scans the deterministic history index and filters by payer address.
-    /// - `cursor` — history index to start scanning from.
-    /// - `limit` — maximum records to return (capped at 25).
+    /// Two read paths, selected automatically per payer:
     ///
-    /// A missing history-index slot is skipped like in `payment_history`;
-    /// see `PaymentHistoryPage.gaps_skipped`.
+    /// **Per-payer index (default).** Every payment written by
+    /// `record_payment` (and every record backfilled by the schema V2
+    /// migration or `rebuild_history_index`) is indexed by payer. When an
+    /// index exists for this payer, each page costs O(limit) direct reads.
+    /// Here `cursor` is an *ordinal* into that payer's payment list — pass
+    /// `0` for the first page and echo `next_cursor` afterwards.
+    ///
+    /// **Bounded scan (fallback).** For payers whose index has not been
+    /// built (pre-V2 data not yet migrated), the call scans the shared
+    /// history index with the filter applied. Because slots belonging to
+    /// other payers are consumed without contributing to the page, the scan
+    /// is capped at [`storage::MAX_PAYER_SCAN_SLOTS`] history slots examined
+    /// per invocation — independent of how many records match and of how
+    /// large the history grows. On this path a payer with no matching
+    /// records returns an *empty page promptly* instead of scanning the
+    /// whole index; **an empty page with `has_more: true` is expected** and
+    /// callers must keep paging from `next_cursor` until it flips to
+    /// `false`. Here `cursor` is a shared-history-index slot.
+    ///
+    /// In both paths:
+    /// - at most [`storage::MAX_PAYMENT_HISTORY_PAGE_SIZE`] records are
+    ///   returned per call (`limit` is capped internally),
+    /// - a missing backing slot is counted in `gaps_skipped` and skipped
+    ///   exactly like in `payment_history`,
+    /// - `has_more == false` terminates paging.
     ///
     /// Permissionless read — no auth required.
     pub fn payments_by_payer(
@@ -528,42 +662,121 @@ impl InvoicePaymentContract {
         cursor: u32,
         limit: u32,
     ) -> PaymentHistoryPage {
-        use storage::{get_history_count, MAX_PAYMENT_HISTORY_PAGE_SIZE};
-        let total = get_history_count(&env);
-        let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
-        let start = core::cmp::min(cursor, total);
+        use storage::{
+            get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
+        };
 
-        let mut records = soroban_sdk::Vec::new(&env);
-        let mut index = start;
-        let mut collected: u32 = 0;
-        let mut gaps_skipped: u32 = 0;
+        if get_payer_payment_count(&env, &payer).is_some() {
+            get_payer_history_page(&env, &payer, cursor, limit)
+        } else {
+            get_payments_by_payer_page(&env, &payer, cursor, limit)
+        }
+    }
 
-        while index < total && collected < capped_limit {
-            let key = DataKey::PaymentHistory(index);
-            let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-            match record {
-                Some(rec) if rec.payer == payer => {
-                    records.push_back(rec);
-                    collected += 1;
-                }
-                Some(_) => {}
-                None => gaps_skipped += 1,
-            }
-            index += 1;
+    /// Upgrade the deployed contract WASM in place.
+    ///
+    /// This is the *only* way to change the code running at this contract
+    /// address after deployment. Without it, [`upgrade_storage`] and the
+    /// migration logic in `migration.rs` are unreachable, and a live
+    /// deployment could never receive a bug fix without moving to a brand
+    /// new contract ID and migrating every payment record and every backend
+    /// reference off-chain.
+    ///
+    /// ## Authorization
+    /// Only the **contract admin** may call this.
+    ///
+    /// ## Required ordering (enforced on-chain) — pause for the duration
+    /// The contract **must already be paused** (`set_paused(true)`) before
+    /// calling `upgrade`; otherwise this returns
+    /// [`ContractError::MustBePausedForUpgrade`]. This is enforced, not just
+    /// documented, because every write path (`record_payment`,
+    /// `propose_admin`, ...) calls `ensure_current_contract_meta()`, which
+    /// *unconditionally* backfills `ContractMeta` to match whatever code is
+    /// currently running. If a write landed after `upgrade()` took effect
+    /// but before [`upgrade_storage`] actually ran its migration steps, it
+    /// would silently mark the new schema version as current *before* the
+    /// migration ran — masking the exact corruption `upgrade_storage` exists
+    /// to fix. Staying paused for the whole window closes that gap, and also
+    /// means any `record_payment` transaction submitted around the same time
+    /// as the upgrade ("in-flight") simply fails with
+    /// [`ContractError::ContractPaused`] instead of racing the migration.
+    ///
+    /// Full runbook: `soroban/docs/upgrade-runbook.md`. Summary:
+    /// 1. `set_paused(admin, true)`
+    /// 2. `upgrade(admin, new_wasm_hash, new_contract_version)`
+    /// 3. `upgrade_storage(admin)` — now runs under the **new** code
+    /// 4. Verify `config()` / `version_info()` / `payment_history()` look right
+    /// 5. `set_paused(admin, false)`
+    ///
+    /// ## Timing
+    /// Soroban only swaps the executing code for **subsequent**
+    /// invocations — this call itself finishes running the old code.
+    /// `contract_version()` keeps reporting the old version if called again
+    /// in the same transaction, and starts reporting the new version on the
+    /// next top-level invocation (e.g. the following `upgrade_storage` call).
+    ///
+    /// ## `new_contract_version`
+    /// A caller-supplied audit value (the packed semver of the WASM being
+    /// deployed) carried in the emitted event. It is **not** verified
+    /// against `new_wasm_hash` — the currently-running (old) code has no way
+    /// to introspect constants baked into a not-yet-live binary — so it is
+    /// the operator's responsibility to pass the value that actually matches
+    /// the WASM being deployed (the ops script derives it from the build
+    /// it's pushing, not from user input).
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — caller is not admin
+    /// - [`ContractError::MustBePausedForUpgrade`] — contract is not paused
+    ///
+    /// ## Events
+    /// Emits `ContractUpgraded { previous_version, new_version, new_wasm_hash,
+    /// upgraded_by, upgraded_at }` so off-chain indexers can detect the
+    /// transition without polling `contract_version()`.
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+        new_contract_version: u32,
+    ) -> Result<(), ContractError> {
+        // Verify caller is the current contract admin.
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        // The contract must stay paused for the whole upgrade -> migrate
+        // window — see the ordering rationale above.
+        if !storage::is_paused(&env) {
+            return Err(ContractError::MustBePausedForUpgrade);
         }
 
-        PaymentHistoryPage {
-            records,
-            next_cursor: index,
-            has_more: index < total,
-            gaps_skipped,
-        }
+        let previous_version = CONTRACT_VERSION;
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        emit_contract_upgraded(
+            &env,
+            previous_version,
+            new_contract_version,
+            new_wasm_hash,
+            admin,
+        );
+
+        Ok(())
     }
 
     /// Migrate on-chain storage layout to the current schema version.
     ///
     /// Must be called by the admin after a WASM upgrade that introduces a new
     /// `STORAGE_SCHEMA_VERSION`. Safe to call multiple times — idempotent.
+    ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard. In the standard upgrade runbook the
+    /// contract is paused before `upgrade()` and must remain paused through
+    /// this call until the final unpause; blocking storage migration while
+    /// paused would make the upgrade runbook impossible. Admin-gated.
     pub fn upgrade_storage(env: Env, admin: Address) -> Result<(), ContractError> {
         // Verify caller is the current contract admin.
         let current_admin = get_admin(&env)?;
@@ -577,14 +790,48 @@ impl InvoicePaymentContract {
 
     /// Pause or unpause the contract.
     ///
-    /// When paused, all write operations (`record_payment`) are rejected.
-    /// Read operations remain accessible.
+    /// Pause is an emergency-stop mechanism. When `set_paused(admin, true)`
+    /// has been called, the contract enters a **containment window** in
+    /// which the following state-mutating entrypoints are rejected with
+    /// [`ContractError::ContractPaused`]:
+    ///
+    /// | Entrypoint              | Blocked when paused | Reason                                              |
+    /// |-------------------------|---------------------|-----------------------------------------------------|
+    /// | `record_payment`        | blocked             | Payment log is frozen during investigation          |
+    /// | `propose_admin`         | blocked             | Admin role cannot rotate out of containment         |
+    /// | `accept_admin`          | blocked             | Pending proposals cannot be claimed while paused    |
+    /// | `cancel_admin_transfer` | blocked             | Control plane must remain stable during pause       |
+    /// | `allow_asset`           | blocked             | Allowlist cannot be added to while paused           |
+    /// | `revoke_asset`          | blocked             | Allowlist cannot be removed from while paused       |
+    /// | `set_allow_native`      | blocked             | Native-asset policy cannot flip while paused        |
+    ///
+    /// The following admin-gated entrypoints remain **intentionally available**
+    /// while paused — they are either part of the upgrade runbook (which
+    /// requires the contract to be paused first) or are recovery paths that
+    /// must be usable during containment:
+    ///
+    /// | Entrypoint               | Available? | Rationale                                                                 |
+    /// |--------------------------|------------|---------------------------------------------------------------------------|
+    /// | `set_paused`             | yes        | Unpausing must be possible to lift the containment window                |
+    /// | `upgrade`                | yes        | The WASM-upgrade runbook *requires* pausing first; see `upgrade()` docs  |
+    /// | `upgrade_storage`        | yes        | Storage migration runs between `upgrade()` and the final unpause         |
+    /// | `rebuild_history_index`  | yes        | Administrative recovery; may run in the upgrade window or standalone    |
+    ///
+    /// All read entrypoints (`config`, `admin`, `pending_admin`, `is_paused`,
+    /// `get_payment`, `payment_count`, `payment_history`, `payments_by_payer`,
+    /// `contract_version`, `version_info`, `history_index_status`) remain
+    /// permissionless and available while paused — auditing and investigation
+    /// must never be blocked by the emergency stop.
     ///
     /// ## Authorization
     /// Only the contract admin can call this method.
     ///
     /// ## Events
-    /// Emits `ContractPaused` event with the new state.
+    /// Emits `ContractPaused` event **only on actual state transitions**.
+    /// Calling `set_paused(true)` when already paused, or `set_paused(false)`
+    /// when already unpaused, is a no-op: storage is not written and no
+    /// event is emitted, so the event stream is a faithful record of real
+    /// state changes.
     ///
     /// ## Errors
     /// - `NotInitialized` if contract not initialized
@@ -595,6 +842,11 @@ impl InvoicePaymentContract {
 
         if caller != admin {
             return Err(ContractError::Unauthorized);
+        }
+
+        let current = storage::is_paused(&env);
+        if current == paused {
+            return Ok(());
         }
 
         storage::set_paused(&env, paused);
@@ -620,9 +872,16 @@ impl InvoicePaymentContract {
     /// - If the history index becomes inconsistent with the payment records
     /// - As a recovery mechanism if the index is corrupted
     ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard. As a maintenance/recovery function
+    /// it may be invoked either inside the pause window (as part of the
+    /// upgrade→migrate→verify→unpause runbook) or standalone during normal
+    /// operation. Admin-gated, so only the operator can trigger it.
+    ///
     /// ## Errors
     /// - `NotInitialized` if contract not initialized
     /// - `Unauthorized` if caller is not admin
+    /// - `MigrationRequired` if storage schema is not yet current
     /// - `HistoryIndexRebuildFailed` if rebuild fails
     pub fn rebuild_history_index(env: Env, admin: Address) -> Result<(), ContractError> {
         let current_admin = get_admin(&env)?;

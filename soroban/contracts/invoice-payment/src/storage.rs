@@ -64,7 +64,16 @@ pub(crate) const BUMP_TTL: u32 = 518_400;
 pub const CONTRACT_VERSION_MAJOR: u32 = 1;
 pub const CONTRACT_VERSION_MINOR: u32 = 0;
 pub const CONTRACT_VERSION_PATCH: u32 = 0;
-pub const STORAGE_SCHEMA_VERSION: u32 = 1;
+/// Current storage schema version.
+///
+/// V2 introduces the per-payer payment index (`PayerPaymentCount` /
+/// `PayerPaymentIdx`) maintained on write by `record_payment` and
+/// backfilled for legacy deployments by `migrate_schema_v1_to_v2` /
+/// `rebuild_payment_history_index`. See issue #445.
+pub const STORAGE_SCHEMA_VERSION: u32 = 2;
+
+/// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
+pub const STORAGE_SCHEMA_V1: u32 = 1;
 
 /// Legacy deployments (before explicit version metadata existed).
 pub const LEGACY_CONTRACT_VERSION: u32 = 0;
@@ -82,6 +91,89 @@ pub const CONTRACT_VERSION: u32 = pack_version(
 
 /// Maximum number of payment records returned in one history page.
 pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
+
+// ─── Identifier Canonicalisation ────────────────────────────────────────────
+//
+// `invoice_id` and `settlement_ref` back the contract's two idempotency
+// guards (`has_payment` / `is_settlement_ref_used`), both of which compare
+// stored keys byte-exactly. Without a canonical form, "inv-001", "INV-001",
+// and "inv-001 " are three different keys even though they identify the same
+// invoice, silently defeating "each invoice_id may be recorded only once".
+//
+// `record_payment` enforces canonical form by *rejecting* anything that is
+// not already canonical rather than normalising it before storage — this is
+// the safer default because the stored key always matches exactly what the
+// caller supplied, with no silent transformation to account for.
+//
+// Canonical form (both fields): ASCII lowercase letters (`a`-`z`), digits
+// (`0`-`9`), and hyphens (`-`) only — nothing else, including uppercase
+// letters, whitespace (leading, trailing, or embedded), and other
+// punctuation. This single rule covers every shape these fields are
+// documented to hold: UUID-style invoice IDs, lowercase-hex settlement
+// hashes (Horizon always returns transaction hashes as lowercase hex), and
+// human-readable kebab-case reference IDs — while still rejecting the
+// case/whitespace variants and pasted-blob inputs that would otherwise slip
+// past the uniqueness guards or bloat persistent storage.
+//
+// Existing deployments: this validation applies only to `record_payment`'s
+// write path for *new* records. It is never invoked by `get_payment`,
+// `rebuild_history_index`, or the schema migrations, so payment records
+// already on chain under a pre-existing, non-canonical `invoice_id` or
+// `settlement_ref` remain fully readable and are not touched or re-validated
+// by an upgrade — only newly submitted payments are held to the new rule.
+
+/// Maximum length of `invoice_id`. `record_payment` rejects longer values.
+///
+/// The product currently issues UUIDv4 invoice IDs (36 characters: lowercase
+/// hex digits and hyphens). 64 leaves headroom for future ID formats while
+/// staying well below `MAX_SETTLEMENT_REF_LEN`, bounding the ledger rent an
+/// oversized identifier could otherwise impose (invoice_id is duplicated
+/// across `PaymentV1`, `PaymentLog`, and every `PaymentHistory` slot).
+pub const MAX_INVOICE_ID_LEN: u32 = 64;
+
+/// Maximum length of `settlement_ref`. A SHA-256 hex string is 64 chars;
+/// this allows headroom for other reference ID shapes while still rejecting
+/// a full transaction blob pasted by mistake.
+pub const MAX_SETTLEMENT_REF_LEN: u32 = 128;
+
+/// Capacity of the stack buffer used by [`is_canonical_identifier`] —
+/// large enough for either bounded field, since callers only ever copy
+/// `value.len()` bytes into it.
+const MAX_IDENTIFIER_LEN: usize = MAX_SETTLEMENT_REF_LEN as usize;
+
+/// Returns `true` if `value` is already in canonical form: every byte is an
+/// ASCII lowercase letter, digit, or hyphen. See the module-level
+/// "Identifier Canonicalisation" notes above for the rationale.
+///
+/// Callers must check `value.len() <= MAX_IDENTIFIER_LEN` first (both
+/// `MAX_INVOICE_ID_LEN` and `MAX_SETTLEMENT_REF_LEN` are within that bound);
+/// this function panics via `String::copy_into_slice` otherwise.
+pub fn is_canonical_identifier(value: &String) -> bool {
+    let len = value.len() as usize;
+    let mut buf = [0u8; MAX_IDENTIFIER_LEN];
+    value.copy_into_slice(&mut buf[..len]);
+    buf[..len]
+        .iter()
+        .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
+/// Hard cap on the number of history-index slots a single `payments_by_payer`
+/// invocation may examine, regardless of how few records match the payer.
+///
+/// `payments_by_payer` filters by payer while scanning the shared history
+/// index, so its work per call is bounded by slots *examined*, not records
+/// returned. Without this cap a payer with no matching records forces a full
+/// scan of the entire index in one invocation — which reliably exhausts the
+/// ledger CPU/read budget as history grows and starts failing for everyone
+/// (issue #445).
+///
+/// The value is bounded by Soroban's per-invocation footprint limit of 100
+/// distinct ledger entries: every examined slot is one persistent entry read,
+/// so the cap must leave headroom for the instance, config, and count keys.
+/// 80 examined slots keeps the worst-case invocation comfortably inside that
+/// limit; callers page through larger sparse result sets using the returned
+/// `next_cursor` / `has_more`.
+pub const MAX_PAYER_SCAN_SLOTS: u32 = 80;
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -163,6 +255,16 @@ pub enum DataKey {
     /// records stay enumerable during index rebuilds even if the history
     /// index itself is corrupted or cleared.
     PaymentLog(u32),
+    /// Number of payments recorded for a payer (per-payer index size), in
+    /// **persistent** storage. Presence of this key marks the payer's
+    /// per-payer index as built; absence means `payments_by_payer` must fall
+    /// back to the bounded history scan. Introduced by schema V2 (#445).
+    PayerPaymentCount(Address),
+    /// Per-payer payment index: maps `(payer, ordinal)` to the slot in the
+    /// shared `PaymentHistory` index holding that payer's Nth recorded
+    /// payment, in **persistent** storage. Written by `record_payment()` and
+    /// backfilled by the schema V2 migration / `rebuild_payment_history_index`.
+    PayerPaymentIdx(Address, u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -228,10 +330,16 @@ pub struct PaymentRecord {
 
     /// Normalised settlement reference for backend deduplication and auditing.
     ///
-    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or
-    /// a well-known reconciliation identifier) that the backend uses for
+    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or a
+    /// kebab-case reconciliation identifier) that the backend uses for
     /// idempotent settlement reconciliation. Stored on-chain so any observer
     /// can verify the settlement reference associated with a payment.
+    ///
+    /// `record_payment` enforces the "normalised" claim: canonical form is
+    /// ASCII lowercase letters, digits, and hyphens only, at most
+    /// [`MAX_SETTLEMENT_REF_LEN`] characters — see
+    /// [`is_canonical_identifier`]. Records written before this validation
+    /// existed may not conform; they remain readable as-is.
     pub settlement_ref: String,
 }
 
@@ -578,6 +686,180 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     }
 }
 
+// ─── Per-Payer Index Helpers ────────────────────────────────────────────────
+
+/// Return the number of payments indexed for `payer`, or `None` when the
+/// per-payer index has not been built for this payer (legacy data that has
+/// not yet gone through the schema V2 migration / rebuild). Bumps TTL.
+pub fn get_payer_payment_count(env: &Env, payer: &Address) -> Option<u32> {
+    let key = DataKey::PayerPaymentCount(payer.clone());
+    let count: Option<u32> = env.storage().persistent().get(&key);
+    if count.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    count
+}
+
+/// Append a `(payer → history_index)` mapping to the per-payer index and
+/// bump the payer's entry count. Called by `record_payment()` on every new
+/// payment and by the rebuild/migration paths when backfilling legacy data.
+pub fn append_payer_entry(env: &Env, payer: &Address, history_index: u32) {
+    let count_key = DataKey::PayerPaymentCount(payer.clone());
+    let ordinal: u32 = env.storage().persistent().get(&count_key).unwrap_or(0u32);
+
+    let idx_key = DataKey::PayerPaymentIdx(payer.clone(), ordinal);
+    env.storage().persistent().set(&idx_key, &history_index);
+    env.storage()
+        .persistent()
+        .extend_ttl(&idx_key, MIN_TTL, BUMP_TTL);
+
+    env.storage()
+        .persistent()
+        .set(&count_key, &(ordinal + 1u32));
+    env.storage()
+        .persistent()
+        .extend_ttl(&count_key, MIN_TTL, BUMP_TTL);
+}
+
+/// Look up the history-index slot holding `payer`'s `ordinal`-th payment.
+/// Returns `None` when the slot is missing (corrupted/partially-rebuilt
+/// per-payer index); callers treat that as a gap exactly like
+/// `payment_history` treats holes in the shared index.
+fn get_payer_entry(env: &Env, payer: &Address, ordinal: u32) -> Option<u32> {
+    let key = DataKey::PayerPaymentIdx(payer.clone(), ordinal);
+    let entry: Option<u32> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    entry
+}
+
+/// Remove every per-payer index entry for all payers by clearing the entries
+/// recorded during a full rebuild. Only used internally by the rebuild path,
+/// which walks the freshly collected record set to know which payers own
+/// which ordinals — see `migration::write_history_index`.
+pub(crate) fn clear_payer_indexes(env: &Env, owners: &[Address]) {
+    for owner in owners {
+        let count = get_payer_payment_count(env, owner).unwrap_or(0u32);
+        for ordinal in 0..count {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PayerPaymentIdx(owner.clone(), ordinal));
+        }
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PayerPaymentCount(owner.clone()));
+    }
+}
+
+/// Read a bounded page of payments made by `payer` via the **per-payer
+/// index** (direct reads, O(limit) storage access).
+///
+/// `cursor` is an ordinal into the payer's payment list (pass `0` first).
+/// A missing backing history slot is counted in `gaps_skipped` and skipped,
+/// mirroring the gap semantics of `payment_history`.
+///
+/// Extends instance TTL for counts and persistent TTL for records/index.
+pub fn get_payer_history_page(
+    env: &Env,
+    payer: &Address,
+    cursor: u32,
+    limit: u32,
+) -> PaymentHistoryPage {
+    let payer_total = get_payer_payment_count(env, payer).unwrap_or(0u32);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, payer_total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut ordinal = start;
+    let mut collected: u32 = 0;
+    let mut gaps_skipped: u32 = 0;
+
+    while ordinal < payer_total && collected < capped_limit {
+        match get_payer_entry(env, payer, ordinal)
+            .and_then(|history_slot| get_history_record(env, history_slot))
+        {
+            Some(record) => {
+                // Defensive: skip records whose stored payer no longer
+                // matches (should be impossible — the index is keyed by the
+                // payer written into the record itself).
+                if record.payer == *payer {
+                    records.push_back(record);
+                    collected += 1;
+                } else {
+                    gaps_skipped += 1;
+                }
+            }
+            None => gaps_skipped += 1,
+        }
+        ordinal += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: ordinal,
+        has_more: ordinal < payer_total,
+        gaps_skipped,
+    }
+}
+
+/// Read a bounded page of payments made by `payer` by scanning the shared
+/// history index with the filter applied.
+///
+/// Unlike [`get_payment_history_page`], where every examined slot either
+/// yields a record or is a gap, filtering breaks that bound: slots belonging
+/// to *other* payers are consumed without contributing to `collected`. The
+/// scan is therefore capped at [`MAX_PAYER_SCAN_SLOTS`] slots **examined**
+/// per invocation, independent of how many records match — a payer with no
+/// matching records returns an empty page promptly instead of scanning the
+/// whole index (issue #445).
+///
+/// `cursor` is a shared-history-index slot; `next_cursor` reports where the
+/// scan actually stopped, so an empty page with `has_more == true` is
+/// expected on sparse result sets and callers must continue paging until
+/// `has_more == false`. Gaps are skipped exactly like `payment_history`.
+pub fn get_payments_by_payer_page(
+    env: &Env,
+    payer: &Address,
+    cursor: u32,
+    limit: u32,
+) -> PaymentHistoryPage {
+    let total = get_history_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+
+    let mut records: Vec<PaymentRecord> = Vec::new(env);
+    let mut index = start;
+    let mut collected: u32 = 0;
+    let mut gaps_skipped: u32 = 0;
+    let mut scanned: u32 = 0;
+
+    while index < total && collected < capped_limit && scanned < MAX_PAYER_SCAN_SLOTS {
+        scanned += 1;
+        match get_history_record(env, index) {
+            Some(record) => {
+                if record.payer == *payer {
+                    records.push_back(record);
+                    collected += 1;
+                }
+            }
+            None => gaps_skipped += 1,
+        }
+        index += 1;
+    }
+
+    PaymentHistoryPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+        gaps_skipped,
+    }
+}
+
 // ─── Payment Counter Helpers (Instance Storage) ─────────────────────────────
 
 /// Return the current payment count (0 if not yet set). Bumps instance TTL.
@@ -782,8 +1064,11 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
                 // Use the migration module for V0 → V1
                 crate::migration::migrate_schema_v0_to_v1(env)?;
             }
+            1 => {
+                // V1 → V2: backfill per-payer payment indexes (#445)
+                crate::migration::migrate_schema_v1_to_v2(env)?;
+            }
             // Future migrations:
-            // 1 => migrate_schema_v1_to_v2(env)?,
             // 2 => migrate_schema_v2_to_v3(env)?,
             _ => return Err(ContractError::StorageSchemaTooOld),
         }

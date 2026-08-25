@@ -529,20 +529,43 @@ model PushNotification {
   @@map("push_notifications")
 }
 
-model RefreshSession {
-  id                 String   @id @default(uuid())
-  userId             String   @map("user_id")
-  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  token              String   @unique
-  familyId           String   @map("family_id")
-  isRevoked          Boolean  @default(false) @map("is_revoked")
-  expiresAt          DateTime @map("expires_at")
-  absoluteExpiresAt  DateTime @map("absolute_expires_at")
-  createdAt          DateTime @default(now()) @map("created_at")
-
-  @@index([userId])
-  @@index([token])
-  @@index([familyId])
-  @@map("refresh_sessions")
+// Durable paging cursors for the live reconciliation watchers
+// (HorizonWatcherService, SorobanEventsService). One row per watcher so a
+// restart resumes from the last checkpointed position instead of re-polling
+// from "now" and permanently skipping everything that settled during downtime.
+enum WatcherName {
+  horizon
+  soroban
 }
 
+model WatcherCursor {
+  watcher   WatcherName @id
+  cursor    String
+  ledger    BigInt?
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@map("watcher_cursors")
+}
+
+// Poison-record quarantine for the live watchers. A record whose processing
+// keeps failing after the bounded retry budget is parked here (with its raw
+// payload) so it can never stall cursor advancement — but it is never
+// silently dropped either.
+model WatcherDeadLetter {
+  id         String      @id @default(uuid())
+  watcher    WatcherName
+  recordId   String      @map("record_id")
+  recordCursor String?   @map("record_cursor")
+  payload    Json
+  errorCount Int         @default(1) @map("error_count")
+  lastError  String?     @map("last_error")
+  status     String      @default("pending") // pending | resolved | ignored
+  resolvedAt DateTime?   @map("resolved_at")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  @@unique([watcher, recordId])
+  @@index([watcher, status])
+  @@map("watcher_dead_letters")
+}

@@ -36,6 +36,7 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 18, name: 'MigrationRequired' },
   { code: 19, name: 'HistoryIndexIncomplete' },
   { code: 20, name: 'SettlementRefAlreadyUsed' },
+  { code: 21, name: 'MustBePausedForUpgrade' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {

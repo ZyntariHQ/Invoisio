@@ -10,24 +10,43 @@ export interface DependencyStatus {
   error?: string;
 }
 
+export interface AnchoringStatus {
+  enabled: boolean;
+  contractIdConfigured: boolean;
+  adminKeyConfigured: boolean;
+  message?: string;
+}
+
+export interface WatcherCursorInfo {
+  watcher: string;
+  cursor: string;
+  /** Seconds since the cursor was last persisted; null when never checkpointed. */
+  secondsSinceCheckpoint: number | null;
+}
+
+export interface WatcherDeadLetterInfo {
+  watcher: string;
+  pendingCount: number;
+  oldestPendingAt: string | null;
+}
+
 export interface HealthReport {
   ok: boolean;
   version: string;
   network: string;
   timestamp: string;
+  anchoring: AnchoringStatus;
   checks: {
     postgres: DependencyStatus;
     horizon: DependencyStatus;
     soroban_rpc: DependencyStatus;
   };
+  watchers?: {
+    cursors: WatcherCursorInfo[];
+    deadLetters: WatcherDeadLetterInfo[];
+  };
 }
 
-/**
- * Health service — performs readiness checks for all backend dependencies.
- *
- * Each check is isolated so a single failing dependency does not crash the
- * process; it is reported as `{ status: "down" }` in the structured output.
- */
 @Injectable()
 export class HealthService {
   private readonly logger = new Logger(HealthService.name);
@@ -39,9 +58,6 @@ export class HealthService {
     private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Run all dependency checks in parallel and return a structured report.
-   */
   async checkReadiness(): Promise<HealthReport> {
     const stellarConfig = this.configService.get("stellar");
     const appConfig = this.configService.get("app");
@@ -60,23 +76,26 @@ export class HealthService {
       horizon.status === "up" &&
       soroban_rpc.status === "up";
 
+    const anchoring = this.getAnchoringStatus();
+    const watchers = await this.getWatcherObservability();
+
     return {
       ok,
       version: appConfig?.version || "0.0.1",
       network,
       timestamp: new Date().toISOString(),
+      anchoring,
       checks: { postgres, horizon, soroban_rpc },
+      ...(watchers ? { watchers } : {}),
     };
   }
 
-  /**
-   * Lightweight liveness probe — no I/O, just confirms the process is running.
-   */
   checkLiveness(): {
     ok: boolean;
     version: string;
     network: string;
     timestamp: string;
+    anchoring: AnchoringStatus;
   } {
     const stellarConfig = this.configService.get("stellar");
     const appConfig = this.configService.get("app");
@@ -89,12 +108,85 @@ export class HealthService {
       version: appConfig?.version || "0.0.1",
       network,
       timestamp: new Date().toISOString(),
+      anchoring: this.getAnchoringStatus(),
+    };
+  }
+
+  private getAnchoringStatus(): AnchoringStatus {
+    const enabled = process.env.SOROBAN_ANCHORING_ENABLED === "true";
+    const contractId = process.env.SOROBAN_CONTRACT_ID || "";
+    const adminKey =
+      process.env.ADMIN_SECRET_KEY || process.env.SOROBAN_SECRET_KEY || "";
+
+    const contractIdConfigured = contractId.length > 0;
+    const adminKeyConfigured = adminKey.length > 0;
+
+    let message: string | undefined;
+    if (enabled) {
+      if (!contractIdConfigured) {
+        message = "SOROBAN_CONTRACT_ID is required when anchoring is enabled";
+      } else if (!adminKeyConfigured) {
+        message =
+          "ADMIN_SECRET_KEY or SOROBAN_SECRET_KEY is required when anchoring is enabled";
+      } else {
+        message = "Anchoring is fully configured and operational";
+      }
+    } else {
+      message =
+        "Anchoring is disabled. Set SOROBAN_ANCHORING_ENABLED=true to enable";
+    }
+
+    return {
+      enabled,
+      contractIdConfigured,
+      adminKeyConfigured,
+      message,
     };
   }
 
   /**
-   * Check Postgres connectivity via a trivial query.
+   * Persisted live-watcher cursor positions and pending dead-letter counts,
+   * so cursor drift and poison records are observable without reading logs.
+   * Best-effort: observability must never break the readiness probe itself.
    */
+  private async getWatcherObservability(): Promise<{
+    cursors: WatcherCursorInfo[];
+    deadLetters: WatcherDeadLetterInfo[];
+  } | null> {
+    try {
+      const [cursors, deadLetterGroups] = await Promise.all([
+        this.prisma.watcherCursor.findMany(),
+        this.prisma.watcherDeadLetter.groupBy({
+          by: ["watcher"],
+          where: { status: "pending" },
+          _count: { _all: true },
+          _min: { createdAt: true },
+        }),
+      ]);
+
+      const now = Date.now();
+      return {
+        cursors: cursors.map((row) => ({
+          watcher: row.watcher,
+          cursor: row.cursor,
+          secondsSinceCheckpoint: Math.round(
+            (now - row.updatedAt.getTime()) / 1000,
+          ),
+        })),
+        deadLetters: deadLetterGroups.map((group) => ({
+          watcher: group.watcher,
+          pendingCount: group._count._all,
+          oldestPendingAt: group._min.createdAt?.toISOString() ?? null,
+        })),
+      };
+    } catch (err) {
+      this.logger.warn(
+        `Watcher observability query failed: ${(err as Error).message}`,
+      );
+      return null;
+    }
+  }
+
   private async checkPostgres(): Promise<DependencyStatus> {
     const start = Date.now();
     try {
@@ -112,9 +204,6 @@ export class HealthService {
     }
   }
 
-  /**
-   * Check Horizon reachability via the Stellar service probe.
-   */
   private async checkHorizon(): Promise<DependencyStatus> {
     try {
       const result = await this.stellarService.pingHorizon();
@@ -135,9 +224,6 @@ export class HealthService {
     }
   }
 
-  /**
-   * Check Soroban RPC reachability via the Soroban service probe.
-   */
   private async checkSorobanRpc(): Promise<DependencyStatus> {
     try {
       const result = await this.sorobanService.pingRpc();
