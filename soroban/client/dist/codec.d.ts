@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { ContractConfig, PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
+import { ContractConfig, PaymentHistoryPage, PaymentRecord, SettlementRefIndexStatus, SettlementRefPage, SorobanContractError } from './types';
 /** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
 export declare const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
@@ -58,6 +58,25 @@ export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHisto
  * - allowlist_mode.requires_token_allowlist
  */
 export declare function decodeContractConfig(scVal: xdr.ScVal): ContractConfig;
+/**
+ * Decode the `Option<String>` returned by `settlement_ref_owner()`.
+ *
+ * `scValToNative` resolves an absent Soroban `Option` to `null` or
+ * `undefined` depending on SDK version; both map to `null` here so callers
+ * get a single, unambiguous "not found" sentinel rather than an error (issue
+ * #495) — the same convention `getPendingAdmin()` already uses.
+ */
+export declare function decodeSettlementRefOwner(scVal: xdr.ScVal): string | null;
+/**
+ * Decode a bounded settlement-reference page returned by
+ * `settlement_ref_history()`.
+ */
+export declare function decodeSettlementRefPage(scVal: xdr.ScVal): SettlementRefPage;
+/**
+ * Decode the `(u32, u32, bool)` tuple returned by
+ * `settlement_ref_index_status()`.
+ */
+export declare function decodeSettlementRefIndexStatus(scVal: xdr.ScVal): SettlementRefIndexStatus;
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
  * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code

@@ -12,8 +12,8 @@ pub mod storage;
 pub use errors::ContractError;
 pub use storage::{
     AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
-    CONTRACT_VERSION, CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
-    STORAGE_SCHEMA_VERSION,
+    SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
+    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -139,6 +139,17 @@ impl InvoicePaymentContract {
     /// This validation applies only to new writes — payment records already
     /// on chain from before this guard existed remain readable as-is and are
     /// never re-validated or rewritten by an upgrade.
+    ///
+    /// ## Diagnosing `SettlementRefAlreadyUsed`
+    /// A rejected `settlement_ref` is ambiguous on its own: it could be a
+    /// benign retry of an anchoring attempt that already succeeded, or a
+    /// genuine reconciliation conflict where a *different* invoice already
+    /// claimed the same reference. Contract errors carry no payload, so
+    /// resolving this requires a follow-up read: call
+    /// [`InvoicePaymentContract::settlement_ref_owner`] with the same
+    /// `settlement_ref` and compare the returned invoice_id to the one just
+    /// attempted — equal means benign retry, different means a real conflict
+    /// (issue #495).
     ///
     /// ## Emitted event
     /// | Field  | Value                                   |
@@ -288,6 +299,10 @@ impl InvoicePaymentContract {
 
         // 6. Settlement reference uniqueness guard.
         //    The same settlement_ref cannot be used for multiple invoices.
+        //    A caller that hits this can call `settlement_ref_owner` to find
+        //    out whether it's a benign retry (owner == this invoice_id) or a
+        //    genuine conflict (owner is a different invoice) — see the
+        //    "Diagnosing SettlementRefAlreadyUsed" section above.
         if storage::is_settlement_ref_used(&env, &settlement_ref) {
             return Err(ContractError::SettlementRefAlreadyUsed);
         }
@@ -314,8 +329,9 @@ impl InvoicePaymentContract {
         // every payment even if the history index is later corrupted.
         append_payment_log(&env, &record.invoice_id);
 
-        // 9. Record the settlement reference as used (global uniqueness).
-        storage::record_settlement_ref(&env, &settlement_ref);
+        // 9. Record the settlement reference as used (global uniqueness) and
+        //    resolvable back to this invoice via `settlement_ref_owner`.
+        storage::record_settlement_ref(&env, &settlement_ref, &record.invoice_id);
 
         // 10. Increment running counter (also bumps instance TTL).
         bump_count(&env);
@@ -671,6 +687,83 @@ impl InvoicePaymentContract {
         } else {
             get_payments_by_payer_page(&env, &payer, cursor, limit)
         }
+    }
+
+    /// Resolve a settlement reference to the invoice ID that consumed it.
+    ///
+    /// Returns `None` when the reference is unused — a plain, unambiguous
+    /// "not found" result rather than an error indistinguishable from a
+    /// failure, since an unused reference is a normal, expected outcome for
+    /// this read (issue #495).
+    ///
+    /// ## Disambiguating a `SettlementRefAlreadyUsed` rejection
+    /// This is how a caller finds out whether a `record_payment` rejection
+    /// was a benign retry of an already-successful attempt for the *same*
+    /// invoice, or a genuine reconciliation conflict from a *different*
+    /// invoice: call this with the same `settlement_ref` and compare the
+    /// returned invoice_id to the one just attempted. See "Diagnosing
+    /// `SettlementRefAlreadyUsed`" on [`Self::record_payment`].
+    ///
+    /// Permissionless read — no auth required, available while paused.
+    pub fn settlement_ref_owner(env: Env, settlement_ref: String) -> Option<String> {
+        if settlement_ref.is_empty() {
+            return None;
+        }
+        storage::get_settlement_ref_owner(&env, &settlement_ref)
+    }
+
+    /// Return a paginated slice of the settlement-reference index in write
+    /// order, so operators can enumerate and audit every settlement
+    /// reference ever recorded — closing the same write-only-storage gap
+    /// already fixed for the asset allowlist (issue #464), this time for
+    /// settlement references (issue #495).
+    ///
+    /// - `cursor` — zero-based write-order index to start from (`0` for the
+    ///   first page).
+    /// - `limit` — maximum entries to return (capped internally at
+    ///   [`storage::MAX_SETTLEMENT_REF_PAGE_SIZE`]).
+    ///
+    /// A missing index slot is skipped, never treated as the end of the
+    /// index: `next_cursor` always advances past a hole, exactly like
+    /// [`Self::payment_history`]. `gaps_skipped` reports how many were
+    /// skipped this page, so the enumeration always terminates (`has_more`
+    /// eventually reads `false`) even over a partially-rebuilt index.
+    ///
+    /// Permissionless read — no auth required, available while paused.
+    pub fn settlement_ref_history(
+        env: Env,
+        cursor: u32,
+        limit: u32,
+    ) -> storage::SettlementRefPage {
+        storage::get_settlement_ref_page(&env, cursor, limit)
+    }
+
+    /// Return a quick consistency summary for the settlement-reference
+    /// index: `(settlement_ref_count, payment_count, is_consistent)`.
+    ///
+    /// `is_consistent` is `true` only when every recorded payment has a
+    /// corresponding settlement-reference mapping. It reads `false` when
+    /// some payment's `settlement_ref` was never recorded — for example, an
+    /// empty `settlement_ref` on legacy (pre-guard) data, or a duplicate
+    /// reference that `migrate_settlement_refs` deliberately left unresolved
+    /// rather than silently overwrite (see
+    /// `migration::migrate_settlement_refs`). Use [`Self::settlement_ref_history`]
+    /// together with [`Self::payment_history`] to find the affected payments.
+    ///
+    /// O(1) — like [`Self::history_index_status`], this only compares
+    /// counters; it does not walk every payment. A caller needing a full,
+    /// per-payment cross-check should page through `payment_history` and
+    /// call `settlement_ref_owner` for each record.
+    ///
+    /// Permissionless read — no auth required, available while paused.
+    pub fn settlement_ref_index_status(env: Env) -> (u32, u32, bool) {
+        let settlement_ref_count = storage::get_settlement_ref_count(&env);
+        let payment_count = storage::get_payment_count(&env);
+        (
+            settlement_ref_count,
+            payment_count,
+            settlement_ref_count == payment_count,
+        )
     }
 
     /// Upgrade the deployed contract WASM in place.

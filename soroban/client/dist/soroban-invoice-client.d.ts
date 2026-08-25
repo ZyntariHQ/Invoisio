@@ -1,4 +1,4 @@
-import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SorobanInvoiceClientConfig, TransactionResult } from './types';
+import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SettlementRefIndexStatus, SettlementRefPage, SorobanInvoiceClientConfig, TransactionResult } from './types';
 /**
  * Minimal client helper for the Invoisio `invoice-payment` Soroban contract.
  *
@@ -50,6 +50,13 @@ export declare class SorobanInvoiceClient {
      * Both fields are validated locally before the transaction is built, so a
      * non-canonical value fails fast with a plain `Error` instead of spending
      * a transaction on a simulation the contract would reject.
+     *
+     * ## Diagnosing a `SettlementRefAlreadyUsed` rejection
+     * That rejection alone doesn't say whether it's a benign retry of an
+     * already-successful attempt, or a genuine reconciliation conflict from a
+     * different invoice claiming the same reference — call
+     * {@link getSettlementRefOwner} with the same `settlementRef` and compare
+     * the returned invoice ID to the one just attempted (issue #495).
      *
      * @throws {Error} if `invoiceId` or `settlementRef` is not canonical
      * @throws {SorobanContractError} on contract-level rejection
@@ -301,6 +308,47 @@ export declare class SorobanInvoiceClient {
      * Permissionless read.
      */
     isPaused(): Promise<boolean>;
+    /**
+     * Resolve a settlement reference to the invoice ID that consumed it.
+     *
+     * Returns `null` when the reference is unused — a plain "not found"
+     * result rather than an error, since an unused reference is a normal,
+     * expected outcome for this read (issue #495).
+     *
+     * ## Disambiguating a `SettlementRefAlreadyUsed` rejection from `recordPayment`
+     * Call this with the same `settlementRef` and compare the returned
+     * invoice ID to the one just attempted: equal means a benign retry of an
+     * already-successful anchoring attempt; different means a genuine
+     * reconciliation conflict where another invoice already claimed the
+     * reference.
+     *
+     * Permissionless read.
+     */
+    getSettlementRefOwner(settlementRef: string): Promise<string | null>;
+    /**
+     * Fetch a bounded page of the settlement-reference index in write order,
+     * so operators can enumerate and audit every settlement reference ever
+     * recorded (issue #495).
+     *
+     * `cursor` is the next write-order index to read; `limit` is capped by
+     * the contract, mirroring `getPaymentHistory`. A missing index slot is
+     * skipped and counted in `gapsSkipped` rather than stalling pagination —
+     * keep paging from `nextCursor` until `hasMore` is `false`.
+     */
+    getSettlementRefHistory(cursor?: number, limit?: number): Promise<SettlementRefPage>;
+    /**
+     * Return a quick consistency summary for the settlement-reference index.
+     *
+     * `isConsistent` reads `false` when some payment's settlement reference
+     * was never recorded — for example legacy data with an empty
+     * `settlementRef`, or a duplicate reference migration deliberately left
+     * unresolved rather than silently overwrite. Use `getSettlementRefHistory`
+     * together with `getPaymentHistory` to find the affected payments.
+     *
+     * O(1) — only compares counters, does not walk every payment.
+     * Permissionless read.
+     */
+    getSettlementRefIndexStatus(): Promise<SettlementRefIndexStatus>;
     /**
      * Simulate, sign, submit, and await a write transaction with the configured
      * signer keypair. Shared by all admin-gated write operations.

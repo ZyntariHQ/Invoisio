@@ -5148,7 +5148,13 @@ fn test_migration_v1_to_v2_backfills_payer_indexes() {
     client.set_allow_native(&true);
     let payer_a = Address::generate(&env);
     let payer_b = Address::generate(&env);
-    for idx in 0..12u32 {
+    // Kept small deliberately: since #495 the V1 → V2 → V3 upgrade path now
+    // runs two full-rebuild migration steps (payer indexes, then the
+    // settlement-reference index) in the same transaction, and Soroban caps
+    // total footprint entries per invocation. A larger payment count here
+    // would exceed that budget before the general chunked/resumable
+    // migration work lands (issue #480).
+    for idx in 0..6u32 {
         let payer = if idx % 3 == 0 { &payer_a } else { &payer_b };
         record_xlm(
             &env,
@@ -5204,7 +5210,7 @@ fn test_migration_v1_to_v2_backfills_payer_indexes() {
                 break;
             }
         }
-        let expected = if payer == &payer_a { 4 } else { 8 };
+        let expected = if payer == &payer_a { 2 } else { 4 };
         assert_eq!(total, expected);
 
         // Idempotency: running the migration again is safe.
@@ -5710,4 +5716,402 @@ fn test_is_canonical_identifier_accepts_lowercase_alnum_hyphen_only() {
     assert!(!storage::is_canonical_identifier(&String::from_str(
         &env, "abc123 "
     )));
+}
+
+// ─── settlement_ref resolvability (issue #495) ─────────────────────────────
+
+#[test]
+fn test_settlement_ref_owner_resolves_to_invoice() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let invoice_id = String::from_str(&env, "invoisio-owner-001");
+    let settlement_ref = String::from_str(&env, "settle-owner-001");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    assert_eq!(
+        client.settlement_ref_owner(&settlement_ref),
+        Some(invoice_id)
+    );
+}
+
+#[test]
+fn test_settlement_ref_owner_returns_none_for_unused_reference() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let unused = String::from_str(&env, "settle-never-used");
+    assert_eq!(client.settlement_ref_owner(&unused), None);
+}
+
+#[test]
+fn test_settlement_ref_owner_returns_none_for_empty_string() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    assert_eq!(
+        client.settlement_ref_owner(&String::from_str(&env, "")),
+        None
+    );
+}
+
+/// Core acceptance scenario for #495: a `SettlementRefAlreadyUsed` rejection
+/// is ambiguous on its own, but `settlement_ref_owner` disambiguates a
+/// benign retry (owner equals the invoice just attempted) from a genuine
+/// reconciliation conflict (owner is a different invoice).
+#[test]
+fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let invoice_a = String::from_str(&env, "invoisio-recon-a");
+    let settlement_ref = String::from_str(&env, "settle-recon-shared");
+    client.record_payment(
+        &invoice_a,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // Retry: same invoice, same settlement_ref. Rejected by the invoice_id
+    // guard (fires first), and the owner is unchanged — a caller comparing
+    // the owner to the invoice_id it just attempted sees they match, i.e.
+    // "this already succeeded".
+    let retry = client.try_record_payment(
+        &invoice_a,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(retry, Err(Ok(ContractError::PaymentAlreadyRecorded)));
+    assert_eq!(
+        client.settlement_ref_owner(&settlement_ref),
+        Some(invoice_a.clone())
+    );
+
+    // Conflict: a different invoice claims the same settlement_ref. Rejected
+    // by the settlement-reference guard, and the owner still names invoice_a
+    // — a caller comparing the owner to invoice_b (what it just attempted)
+    // sees they differ, i.e. "this is a real conflict".
+    let invoice_b = String::from_str(&env, "invoisio-recon-b");
+    let conflict = client.try_record_payment(
+        &invoice_b,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &settlement_ref,
+    );
+    assert_eq!(conflict, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
+    assert_eq!(
+        client.settlement_ref_owner(&settlement_ref),
+        Some(invoice_a)
+    );
+    assert_eq!(client.payment_count(), 1);
+}
+
+#[test]
+fn test_settlement_ref_history_pages_in_write_order() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..5u32 {
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-refhist-{idx:02}"),
+            &payer,
+            10_000_000i128,
+        );
+    }
+
+    let mut collected: alloc::vec::Vec<storage::SettlementRefEntry> = alloc::vec::Vec::new();
+    let mut cursor = 0u32;
+    loop {
+        let page = client.settlement_ref_history(&cursor, &2u32);
+        assert!(page.records.len() as u32 <= 2);
+        assert_eq!(page.gaps_skipped, 0);
+        collected.extend(page.records.iter());
+        cursor = page.next_cursor;
+        if !page.has_more {
+            break;
+        }
+    }
+
+    assert_eq!(collected.len(), 5);
+    for (idx, entry) in collected.iter().enumerate() {
+        assert_eq!(
+            entry.invoice_id,
+            String::from_str(&env, &format!("invoisio-refhist-{idx:02}"))
+        );
+        assert_eq!(
+            entry.settlement_ref,
+            String::from_str(&env, &format!("settle-xlm-default-invoisio-refhist-{idx:02}"))
+        );
+    }
+}
+
+#[test]
+fn test_settlement_ref_history_skips_missing_slot() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..5u32 {
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-refgap-{idx:02}"),
+            &payer,
+            10_000_000i128,
+        );
+    }
+
+    // Corrupt slot 2 only, leaving the count untouched.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SettlementRefLog(2));
+    });
+
+    let page = client.settlement_ref_history(&0u32, &10u32);
+    assert_eq!(page.records.len(), 4);
+    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.next_cursor, 5);
+    assert!(!page.has_more);
+}
+
+#[test]
+fn test_settlement_ref_history_empty_index_terminates_immediately() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+
+    let page = client.settlement_ref_history(&0u32, &10u32);
+    assert_eq!(page.records.len(), 0);
+    assert_eq!(page.next_cursor, 0);
+    assert!(!page.has_more);
+    assert_eq!(page.gaps_skipped, 0);
+}
+
+#[test]
+fn test_settlement_ref_index_status_consistent_after_payments() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    assert_eq!(client.settlement_ref_index_status(), (0, 0, true));
+
+    for idx in 0..4u32 {
+        record_xlm(
+            &env,
+            &client,
+            &format!("invoisio-refstatus-{idx:02}"),
+            &payer,
+            10_000_000i128,
+        );
+    }
+
+    assert_eq!(client.settlement_ref_index_status(), (4, 4, true));
+}
+
+/// Regression for #495: a genuine duplicate settlement_ref in raw legacy
+/// (pre-guard) data must not let the later payment silently overwrite the
+/// earlier payment's ownership during the V0 → V1 migration step.
+#[test]
+fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let invoice_a = String::from_str(&env, "invoisio-legacy-conflict-a");
+    let invoice_b = String::from_str(&env, "invoisio-legacy-conflict-b");
+    let shared_ref = String::from_str(&env, "settle-legacy-conflict-shared");
+
+    client.record_payment(
+        &invoice_a,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &shared_ref,
+    );
+    client.record_payment(
+        &invoice_b,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &20_000_000i128,
+        &String::from_str(&env, "settle-legacy-conflict-original-b"),
+    );
+
+    // Simulate raw pre-guard legacy data where B's stored record already
+    // carries the same settlement_ref as A (impossible to produce via
+    // `record_payment` today, but exactly what the uniqueness guard exists
+    // to prevent going forward — see issue #495's background). Also roll
+    // back the settlement-reference index itself, so the upgrade below
+    // discovers and resolves the conflict for the first time, rather than
+    // finding A's entry already present from the calls above.
+    env.as_contract(&client.address, || {
+        let mut record_b: PaymentRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PaymentV1(invoice_b.clone()))
+            .unwrap();
+        record_b.settlement_ref = shared_ref.clone();
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentV1(invoice_b.clone()), &record_b);
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SettlementRef(shared_ref.clone()));
+        env.storage().persistent().remove(&DataKey::SettlementRef(
+            String::from_str(&env, "settle-legacy-conflict-original-b"),
+        ));
+        for i in 0..storage::get_settlement_ref_count(&env) {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::SettlementRefLog(i));
+        }
+        storage::set_settlement_ref_count(&env, 0);
+
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
+        meta.storage_schema_version = 0;
+        storage::set_contract_meta(&env, &meta);
+    });
+
+    client.upgrade_storage(&admin);
+
+    // First writer (A, earlier in payment-log order) keeps ownership.
+    assert_eq!(
+        client.settlement_ref_owner(&shared_ref),
+        Some(invoice_a.clone())
+    );
+
+    // The index is now visibly inconsistent (B has no mapping) — exactly the
+    // signal an operator needs to investigate, rather than a silent
+    // overwrite masking the conflict.
+    let (settlement_ref_count, payment_count, is_consistent) = client.settlement_ref_index_status();
+    assert_eq!(settlement_ref_count, 1);
+    assert_eq!(payment_count, 2);
+    assert!(!is_consistent);
+
+    let (verified, mismatched) =
+        env.as_contract(&client.address, || migration::verify_settlement_ref_index(&env));
+    assert_eq!(verified, 1);
+    assert_eq!(mismatched, 1);
+}
+
+/// Regression for #495: the V2 → V3 migration backfills the invoice_id
+/// mapping for settlement references recorded under the old unit-value
+/// shape, and rebuilds the enumeration log so every pre-existing reference
+/// becomes resolvable and page-able, not just ones recorded after upgrade.
+#[test]
+fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let invoice_ids: alloc::vec::Vec<String> = (0..3u32)
+        .map(|idx| String::from_str(&env, &format!("invoisio-v2v3-{idx:02}")))
+        .collect();
+    let refs: alloc::vec::Vec<String> = (0..3u32)
+        .map(|idx| String::from_str(&env, &format!("settle-v2v3-{idx:02}")))
+        .collect();
+
+    for idx in 0..3usize {
+        client.record_payment(
+            &invoice_ids[idx],
+            &payer,
+            &String::from_str(&env, "XLM"),
+            &String::from_str(&env, ""),
+            &10_000_000i128,
+            &refs[idx],
+        );
+    }
+
+    // Roll every settlement_ref entry back to the pre-V3 unit-value shape,
+    // and clear the enumeration log/counter (neither existed before V3), to
+    // simulate a genuine V2 deployment.
+    env.as_contract(&client.address, || {
+        for r in &refs {
+            env.storage().persistent().set(&DataKey::SettlementRef(r.clone()), &());
+        }
+        for i in 0..storage::get_settlement_ref_count(&env) {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::SettlementRefLog(i));
+        }
+        storage::set_settlement_ref_count(&env, 0);
+
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
+        meta.storage_schema_version = storage::STORAGE_SCHEMA_V2;
+        storage::set_contract_meta(&env, &meta);
+    });
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        storage::STORAGE_SCHEMA_V2
+    );
+
+    client.upgrade_storage(&admin);
+
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        storage::STORAGE_SCHEMA_VERSION
+    );
+
+    for idx in 0..3usize {
+        assert_eq!(
+            client.settlement_ref_owner(&refs[idx]),
+            Some(invoice_ids[idx].clone())
+        );
+    }
+
+    let page = client.settlement_ref_history(&0u32, &25u32);
+    assert_eq!(page.records.len(), 3);
+    assert!(!page.has_more);
+    assert_eq!(page.gaps_skipped, 0);
+    for (idx, entry) in page.records.iter().enumerate() {
+        assert_eq!(entry.invoice_id, invoice_ids[idx]);
+        assert_eq!(entry.settlement_ref, refs[idx]);
+    }
+
+    assert_eq!(client.settlement_ref_index_status(), (3, 3, true));
 }

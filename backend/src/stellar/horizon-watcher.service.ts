@@ -389,6 +389,24 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
 
         this.anchorToSoroban(invoice, record, txHash).catch(
           async (err: unknown) => {
+            if (err instanceof SorobanContractError) {
+              const benignReason = await this.classifyBenignAnchoringDuplicate(
+                err,
+                invoice,
+                txHash,
+              );
+              if (benignReason) {
+                this.logger.info("horizon.soroban_anchor.duplicate_benign", {
+                  domain: "horizon",
+                  invoiceId: invoice.id,
+                  txHash,
+                  contractErrorCode: err.code,
+                  reason: benignReason,
+                });
+                return;
+              }
+            }
+
             const message = err instanceof Error ? err.message : String(err);
             const permanent = err instanceof SorobanContractError;
 
@@ -432,6 +450,56 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
         );
       },
     );
+  }
+
+  /**
+   * Classify a `PaymentAlreadyRecorded` / `SettlementRefAlreadyUsed`
+   * rejection from `anchorToSoroban` as a benign retry of an
+   * already-successful anchoring attempt, so the watcher doesn't flag a
+   * healthy invoice as a permanent anchoring failure just because it saw the
+   * same Horizon payment twice (e.g. after a transient failure retry, or a
+   * cursor replay following #440).
+   *
+   * - `PaymentAlreadyRecorded` means this invoice's on-chain uniqueness key
+   *   is already recorded — whatever anchored it, this attempt cannot make
+   *   things worse, so it's always benign.
+   * - `SettlementRefAlreadyUsed` is ambiguous on its own (issue #495): it
+   *   could be this same invoice's own prior success, or a genuinely
+   *   different invoice claiming the same Horizon transaction hash. Resolve
+   *   it via `settlement_ref_owner` and compare the owner to this invoice's
+   *   on-chain ID (`invoice.memo`, not the DB `invoice.id`).
+   *
+   * Returns a short reason string when benign (caller should treat the
+   * rejection as success and skip failure recording), or `null` when it's a
+   * genuine conflict or an unrelated contract error that still needs the
+   * caller's normal failure handling. A genuine conflict is logged here with
+   * the conflicting invoice ID so it's directly actionable.
+   */
+  private async classifyBenignAnchoringDuplicate(
+    err: SorobanContractError,
+    invoice: { id: string; memo: string },
+    txHash: string,
+  ): Promise<string | null> {
+    if (err.code === "PaymentAlreadyRecorded") {
+      return "invoice_already_recorded";
+    }
+
+    if (err.code === "SettlementRefAlreadyUsed") {
+      const owner = await this.sorobanService.getSettlementRefOwner(txHash);
+      if (owner === invoice.memo) {
+        return "settlement_ref_owned_by_same_invoice";
+      }
+      if (owner !== null) {
+        this.logger.error("horizon.soroban_anchor.settlement_ref_conflict", {
+          domain: "horizon",
+          invoiceId: invoice.id,
+          txHash,
+          conflictingInvoiceId: owner,
+        });
+      }
+    }
+
+    return null;
   }
 
   private async anchorToSoroban(

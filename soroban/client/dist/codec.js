@@ -12,6 +12,9 @@ exports.encodeBytes32 = encodeBytes32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
+exports.decodeSettlementRefOwner = decodeSettlementRefOwner;
+exports.decodeSettlementRefPage = decodeSettlementRefPage;
+exports.decodeSettlementRefIndexStatus = decodeSettlementRefIndexStatus;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
@@ -195,6 +198,50 @@ function decodeContractConfig(scVal) {
             requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
         },
         paused: Boolean(raw['paused']),
+    };
+}
+/**
+ * Decode the `Option<String>` returned by `settlement_ref_owner()`.
+ *
+ * `scValToNative` resolves an absent Soroban `Option` to `null` or
+ * `undefined` depending on SDK version; both map to `null` here so callers
+ * get a single, unambiguous "not found" sentinel rather than an error (issue
+ * #495) — the same convention `getPendingAdmin()` already uses.
+ */
+function decodeSettlementRefOwner(scVal) {
+    const native = (0, stellar_sdk_1.scValToNative)(scVal);
+    return native === null || native === undefined ? null : String(native);
+}
+function decodeSettlementRefEntryFromNative(raw) {
+    return {
+        settlementRef: String(raw['settlement_ref']),
+        invoiceId: String(raw['invoice_id']),
+    };
+}
+/**
+ * Decode a bounded settlement-reference page returned by
+ * `settlement_ref_history()`.
+ */
+function decodeSettlementRefPage(scVal) {
+    const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const records = raw['records'] ?? [];
+    return {
+        records: records.map((record) => decodeSettlementRefEntryFromNative(record)),
+        nextCursor: Number(raw['next_cursor']),
+        hasMore: Boolean(raw['has_more']),
+        gapsSkipped: Number(raw['gaps_skipped']),
+    };
+}
+/**
+ * Decode the `(u32, u32, bool)` tuple returned by
+ * `settlement_ref_index_status()`.
+ */
+function decodeSettlementRefIndexStatus(scVal) {
+    const [settlementRefCount, paymentCount, isConsistent] = (0, stellar_sdk_1.scValToNative)(scVal);
+    return {
+        settlementRefCount: Number(settlementRefCount),
+        paymentCount: Number(paymentCount),
+        isConsistent: Boolean(isConsistent),
     };
 }
 // ─── Error parsing ────────────────────────────────────────────────────────────

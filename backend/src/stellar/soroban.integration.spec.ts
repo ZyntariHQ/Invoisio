@@ -45,6 +45,7 @@ describe("Soroban Integration", () => {
           provide: SorobanService,
           useValue: {
             recordPayment: jest.fn(),
+            getSettlementRefOwner: jest.fn().mockResolvedValue(null),
           },
         },
         {
@@ -189,6 +190,43 @@ describe("Soroban Integration", () => {
       jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
         invoice: { ...mockInvoice, status: "paid" },
       } as any);
+      // Unauthorized is a genuine configuration/permission problem, not a
+      // duplicate — unlike PaymentAlreadyRecorded / SettlementRefAlreadyUsed
+      // (see the dedicated "duplicate anchoring attempts" tests below, #495),
+      // it must always be surfaced as a permanent failure.
+      jest
+        .spyOn(sorobanService, "recordPayment")
+        .mockRejectedValue(
+          new SorobanContractError(
+            "Unauthorized",
+            9,
+            "Soroban contract error: Unauthorized (code=9)",
+          ),
+        );
+
+      await (horizonWatcher as any).processPayment(
+        mockPaymentRecord,
+        "invoisio-",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // The invoice is still marked paid on Horizon confirmation —
+      // anchoring is a downstream concern, not a payment-confirmation gate.
+      expect(invoicesService.applyHorizonPayment).toHaveBeenCalled();
+      expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
+
+      // But the failure itself must be visible and actionable, not silent.
+      expect(invoicesService.recordAnchoringFailure).toHaveBeenCalledWith(
+        mockInvoice.id,
+        "permanent",
+      );
+    });
+
+    it("should treat PaymentAlreadyRecorded as a benign duplicate, not a failure (#495)", async () => {
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
       jest
         .spyOn(sorobanService, "recordPayment")
         .mockRejectedValue(
@@ -206,12 +244,39 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      // The invoice is still marked paid on Horizon confirmation —
-      // anchoring is a downstream concern, not a payment-confirmation gate.
-      expect(invoicesService.applyHorizonPayment).toHaveBeenCalled();
-      expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
+      // A retry of an already-successful anchoring attempt is not a
+      // failure: no anchoring-failure record, no error log.
+      expect(invoicesService.recordAnchoringFailure).not.toHaveBeenCalled();
+    });
 
-      // But the failure itself must be visible and actionable, not silent.
+    it("should distinguish a SettlementRefAlreadyUsed conflict from a same-invoice retry via settlement_ref_owner (#495)", async () => {
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
+      jest
+        .spyOn(sorobanService, "recordPayment")
+        .mockRejectedValue(
+          new SorobanContractError(
+            "SettlementRefAlreadyUsed",
+            20,
+            "Soroban contract error: SettlementRefAlreadyUsed (code=20)",
+          ),
+        );
+      // A different invoice already owns this settlement reference.
+      jest
+        .spyOn(sorobanService, "getSettlementRefOwner")
+        .mockResolvedValue("some-other-invoice-id");
+
+      await (horizonWatcher as any).processPayment(
+        mockPaymentRecord,
+        "invoisio-",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      expect(sorobanService.getSettlementRefOwner).toHaveBeenCalledWith(
+        mockPaymentRecord.transaction_hash,
+      );
       expect(invoicesService.recordAnchoringFailure).toHaveBeenCalledWith(
         mockInvoice.id,
         "permanent",

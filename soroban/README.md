@@ -660,6 +660,9 @@ Contract v1 (C1) live
 | `payment_count() → u32` | — | Total payments recorded. |
 | `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
 | `payments_by_payer(payer, cursor, limit) → PaymentHistoryPage` | — | Return a bounded page of payments made by one payer. Served from the per-payer index (schema V2) when present; otherwise a filtered scan of the shared history index capped at `MAX_PAYER_SCAN_SLOTS` slots examined per call — an empty page with `has_more: true` is expected mid-pagination on that fallback path. |
+| `settlement_ref_owner(settlement_ref) → invoice_id \| null` | — | Resolve a settlement reference to the invoice that consumed it; `null` when unused. Disambiguates a `SettlementRefAlreadyUsed` rejection: same invoice_id means a benign retry, a different one means a genuine conflict (issue #495). |
+| `settlement_ref_history(cursor, limit) → SettlementRefPage` | — | Return a bounded, cursor-friendly page of the settlement-reference index in write order, for audit/reconciliation. Same gap-skipping and pagination conventions as `payment_history`. |
+| `settlement_ref_index_status() → (settlement_ref_count, payment_count, is_consistent)` | — | O(1) consistency summary: `is_consistent` is `false` when some payment has no recorded settlement-reference mapping (e.g. empty legacy `settlement_ref`, or a duplicate migration deliberately left unresolved). |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
@@ -695,7 +698,7 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 17 | HistoryIndexRebuildFailed | `rebuild_history_index()` failed to rebuild the payment history index; check storage consistency. |
 | 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
 | 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
-| 20 | SettlementRefAlreadyUsed | The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments. |
+| 20 | SettlementRefAlreadyUsed | The settlement reference is already recorded. Ambiguous on its own — call `settlement_ref_owner()` to tell a benign retry (same invoice) from a genuine conflict (different invoice) apart (issue #495). |
 | 21 | MustBePausedForUpgrade | `upgrade()` was called while the contract is not paused; the contract must stay paused for the whole `upgrade()` → `upgrade_storage()` window. |
 
 #### Typed error manifest (off-chain reference)

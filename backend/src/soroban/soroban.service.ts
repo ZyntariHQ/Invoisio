@@ -159,4 +159,28 @@ export class SorobanService implements OnModuleInit {
       return null;
     }
   }
+
+  /**
+   * Resolve a settlement reference to the on-chain invoice_id that consumed
+   * it, or `null` when unused or unresolvable (e.g. Soroban not
+   * initialized, or an RPC error).
+   *
+   * Used to disambiguate a `SettlementRefAlreadyUsed` rejection: compare the
+   * returned invoice_id to the one just attempted — equal means a benign
+   * retry of an already-successful anchoring attempt, different means a
+   * genuine reconciliation conflict (issue #495).
+   */
+  async getSettlementRefOwner(settlementRef: string): Promise<string | null> {
+    if (!this.isInitialized) {
+      return null;
+    }
+    try {
+      return await this.client.getSettlementRefOwner(settlementRef);
+    } catch (error) {
+      this.logger.error(
+        `Failed to resolve settlement_ref owner: ${error}`,
+      );
+      return null;
+    }
+  }
 }

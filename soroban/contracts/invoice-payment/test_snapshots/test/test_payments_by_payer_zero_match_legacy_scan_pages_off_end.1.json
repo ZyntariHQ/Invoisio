@@ -8981,7 +8981,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 2
+                              "u32": 3
                             }
                           }
                         ]

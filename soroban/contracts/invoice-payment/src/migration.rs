@@ -12,22 +12,25 @@
 //! guard applies only to new writes. Deployments that recorded payments
 //! before the guard existed may already hold non-conforming identifiers.
 //! Every function in this module — `collect_all_payment_records`,
-//! `rebuild_payment_history_index`, `migrate_settlement_refs`, and the
-//! schema migrations that call them — reads those identifiers back through
+//! `rebuild_payment_history_index`, `migrate_settlement_refs`,
+//! `migrate_schema_v2_to_v3`, and the schema migrations that call them —
+//! reads those identifiers back through
 //! `get_payment_log_entry` / `get_payment` and never re-validates their
 //! format, so pre-existing non-canonical records migrate, rebuild, and
 //! remain readable exactly like any other record. Only a *new*
 //! `record_payment` call is held to the canonical-form rule.
 
-use soroban_sdk::{Env, Vec};
+use soroban_sdk::{Env, String, Vec};
 
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
     append_payer_entry, clear_payer_indexes, current_contract_meta, ensure_current_contract_meta,
     get_contract_meta, get_history_count, get_payment, get_payment_log_entry,
-    get_storage_schema_version, record_settlement_ref, set_contract_meta, set_history_count,
-    DataKey, PaymentRecord, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_VERSION,
+    get_settlement_ref_count, get_settlement_ref_owner, get_storage_schema_version,
+    is_settlement_ref_used, record_settlement_ref, set_contract_meta, set_history_count,
+    set_settlement_ref_count, DataKey, PaymentRecord, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2,
+    STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -136,6 +139,20 @@ fn clear_history_index(env: &Env) {
     }
     // Reset history count
     set_history_count(env, 0);
+}
+
+/// Clears the settlement-reference write-order enumeration log.
+///
+/// Only touches `SettlementRefLog` / `SettlementRefCount` — never the
+/// primary `SettlementRef(ref) -> invoice_id` keys, which `record_settlement_ref`
+/// overwrites in place regardless of what shape (or absence) preceded them.
+fn clear_settlement_ref_log(env: &Env) {
+    let count = get_settlement_ref_count(env);
+    for i in 0..count {
+        let key = DataKey::SettlementRefLog(i);
+        env.storage().persistent().remove(&key);
+    }
+    set_settlement_ref_count(env, 0);
 }
 
 /// Collects all payment records from persistent storage.
@@ -310,30 +327,48 @@ pub fn migrate_schema_v1_to_v2(env: &Env) -> Result<(), ContractError> {
         write_history_index(env, sorted)?;
     }
 
-    // Update the storage schema version in metadata
+    // Update the storage schema version in metadata. This migration targets
+    // V2 specifically; the upgrade driver runs later steps (e.g. V2 → V3
+    // settlement-reference mapping backfill) separately. See the
+    // maintenance note on `STORAGE_SCHEMA_VERSION` — never stamp that
+    // constant directly from a non-final step.
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
-    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    meta.storage_schema_version = STORAGE_SCHEMA_V2;
     set_contract_meta(env, &meta);
 
     Ok(())
 }
 
-/// Migrates existing settlement references to the global uniqueness index.
+/// Migrates existing settlement references to the reference-to-invoice
+/// index.
 ///
 /// This function scans all payment records and records their settlement_ref
-/// values in the `SettlementRef` index. This ensures that after an upgrade,
-/// existing settlement references are protected from being reused.
+/// → invoice_id mapping. This ensures that after an upgrade, existing
+/// settlement references are both protected from reuse and resolvable back
+/// to the invoice that consumed them (issue #495).
+///
+/// A settlement_ref already present in the index (from an earlier migration
+/// run, or a genuine duplicate in pre-guard legacy data — see issue #497's
+/// history) is **not** overwritten: the existing owner is left in place and
+/// the payment is counted in `conflicts_skipped` rather than `migrated`, so
+/// a real conflict surfaces via the emitted event instead of being silently
+/// masked by the last write winning.
 pub fn migrate_settlement_refs(env: &Env) -> Result<(), ContractError> {
     // Use the payment log to enumerate all invoice IDs
     let payment_count = get_payment_count(env);
     let mut migrated_count = 0u32;
+    let mut conflicts_skipped = 0u32;
 
     for i in 0..payment_count {
         if let Some(invoice_id) = get_payment_log_entry(env, i) {
             if let Ok(record) = get_payment(env, &invoice_id) {
-                // Record the settlement reference as used
-                if !record.settlement_ref.is_empty() {
-                    record_settlement_ref(env, &record.settlement_ref);
+                if record.settlement_ref.is_empty() {
+                    continue;
+                }
+                if is_settlement_ref_used(env, &record.settlement_ref) {
+                    conflicts_skipped += 1;
+                } else {
+                    record_settlement_ref(env, &record.settlement_ref, &record.invoice_id);
                     migrated_count += 1;
                 }
             }
@@ -341,11 +376,137 @@ pub fn migrate_settlement_refs(env: &Env) -> Result<(), ContractError> {
     }
 
     // Emit event for settlement reference migration
-    if migrated_count > 0 {
-        events::emit_settlement_refs_migrated(env, migrated_count);
+    if migrated_count > 0 || conflicts_skipped > 0 {
+        events::emit_settlement_refs_migrated(env, migrated_count, conflicts_skipped);
     }
 
     Ok(())
+}
+
+/// Migration from schema version 2 to version 3.
+///
+/// Schema V3 changes what `DataKey::SettlementRef(ref)` stores: previously a
+/// unit value marking the reference as "used", now the invoice_id that
+/// consumed it, so `settlement_ref_owner` can resolve a reference back to
+/// its owning invoice (issue #495).
+///
+/// Unlike `migrate_settlement_refs` (the V0 → V1 step), every existing entry
+/// is unconditionally rewritten rather than skipped when already present:
+/// this step is fixing the *value shape* of keys already known to be correct
+/// (the pre-V3 write path already enforced settlement_ref uniqueness before
+/// allowing a `record_payment` write), not resolving a genuine duplicate
+/// conflict. Re-deriving from the payment log — the same source of truth
+/// `migrate_settlement_refs` uses — also (re)builds the write-order
+/// enumeration log (`SettlementRefLog`) so `settlement_ref_history` covers
+/// every pre-existing reference, not just ones recorded after this upgrade.
+///
+/// # Verification
+/// The result can be checked against the payment log with
+/// [`verify_settlement_ref_index`]: it re-walks the same payment log and
+/// confirms every non-empty `settlement_ref` resolves back to its own
+/// `invoice_id`.
+///
+/// # Idempotency
+/// The enumeration log (`SettlementRefLog` / `SettlementRefCount`) is reset
+/// to empty before rebuilding, so re-running this step reproduces the same
+/// log rather than appending a second copy of every entry. The primary
+/// `SettlementRef(ref) -> invoice_id` mapping is naturally idempotent too —
+/// writing the same owner twice is a no-op. Never read an existing
+/// `SettlementRef` value here to decide whether to skip it: on a genuine
+/// pre-V3 deployment that value is still the old unit shape, and decoding it
+/// as a `String` traps the transaction — see `get_settlement_ref_owner`.
+pub fn migrate_schema_v2_to_v3(env: &Env) -> Result<(), ContractError> {
+    clear_settlement_ref_log(env);
+
+    let payment_count = get_payment_count(env);
+    let mut migrated_count = 0u32;
+    let mut conflicts_skipped = 0u32;
+    // Refs already (re)written in this pass, tracked in memory rather than
+    // by reading the existing `SettlementRef` value back from storage: a
+    // pre-existing entry may still be in the old unit-value shape, and
+    // decoding that as a `String` traps the transaction. Walking the
+    // payment log in the same order and keeping "first one wins" here
+    // mirrors `migrate_settlement_refs`'s conflict rule exactly, so the two
+    // steps always agree on which invoice owns a duplicated legacy
+    // settlement_ref when both run in the same upgrade (a deployment
+    // starting below V2 runs the V0 → V1 step first, in the same
+    // transaction, immediately before this one).
+    let mut seen: alloc::vec::Vec<String> = alloc::vec::Vec::new();
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if record.settlement_ref.is_empty() {
+                    continue;
+                }
+                if seen.contains(&record.settlement_ref) {
+                    conflicts_skipped += 1;
+                } else {
+                    seen.push(record.settlement_ref.clone());
+                    record_settlement_ref(env, &record.settlement_ref, &record.invoice_id);
+                    migrated_count += 1;
+                }
+            }
+        }
+    }
+
+    if migrated_count > 0 || conflicts_skipped > 0 {
+        events::emit_settlement_refs_migrated(env, migrated_count, conflicts_skipped);
+    }
+
+    // This is the final step in the current chain, so it stamps the running
+    // STORAGE_SCHEMA_VERSION constant directly — see the maintenance note on
+    // that constant if you add a V3 → V4 step later.
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    set_contract_meta(env, &meta);
+
+    Ok(())
+}
+
+/// Verify that the settlement-reference index matches the payment log.
+///
+/// Walks every recorded payment (via the same write-order payment log used
+/// by [`collect_all_payment_records`]) and confirms its non-empty
+/// `settlement_ref` resolves back to its own `invoice_id` through
+/// [`get_settlement_ref_owner`]. Used by tests and available to ops tooling
+/// to confirm `migrate_settlement_refs` / `migrate_schema_v2_to_v3` produced
+/// a consistent mapping (issue #495).
+///
+/// Returns `(verified, mismatched)`:
+/// - `verified` — payments whose settlement_ref correctly resolves back to
+///   their own invoice_id (or that legitimately have no settlement_ref).
+/// - `mismatched` — payments with a non-empty settlement_ref that resolves
+///   to nothing, or to a *different* invoice_id (e.g. a conflict
+///   `migrate_settlement_refs` deliberately skipped rather than overwrite).
+///
+/// O(n) in the number of payments — like `rebuild_payment_history_index`,
+/// this is a maintenance-window operation, not a bounded per-call read, so
+/// it is deliberately not exposed as a contract entrypoint. Callers needing
+/// an on-chain, permissionless check should instead page through
+/// `payment_history` and cross-check `settlement_ref_owner` for each record,
+/// or use the O(1) `settlement_ref_index_status` summary for a quick signal.
+pub fn verify_settlement_ref_index(env: &Env) -> (u32, u32) {
+    let payment_count = get_payment_count(env);
+    let mut verified = 0u32;
+    let mut mismatched = 0u32;
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if record.settlement_ref.is_empty() {
+                    verified += 1;
+                    continue;
+                }
+                match get_settlement_ref_owner(env, &record.settlement_ref) {
+                    Some(owner) if owner == record.invoice_id => verified += 1,
+                    _ => mismatched += 1,
+                }
+            }
+        }
+    }
+
+    (verified, mismatched)
 }
 #[cfg(test)]
 mod tests {
