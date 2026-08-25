@@ -6,7 +6,7 @@ if [ -z "${DATABASE_URL-}" ]; then
   exit 1
 fi
 
-SQL_FILE="$(dirname "$0")/../prisma/migrations/20260825_add_non_blocking_indexes/queries.sql"
+SQL_FILE="$(dirname "$0")/../prisma/non-blocking-indexes/queries.sql"
 
 echo "Running non-blocking index statements from $SQL_FILE"
 
