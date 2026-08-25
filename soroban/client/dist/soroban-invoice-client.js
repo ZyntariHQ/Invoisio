@@ -20,21 +20,19 @@ const TX_TIMEOUT_SECONDS = 30;
  * `Keypair` are initialised once in the constructor and reused across calls.
  *
  * ## Complexity
- * | Method                   | Time                       | Space |
- * |--------------------------|----------------------------|-------|
- * | `recordPayment`          | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getPayment`             | O(1)                       | O(1) |
- * | `hasPayment`             | O(1)                       | O(1) |
- * | `getPaymentCount`        | O(1)                       | O(1) |
- * | `allowAsset`             | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `revokeAsset`            | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setAllowNative`         | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `setPaused`              | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
- * | `getAdmin`               | O(1)                       | O(1) |
- * | `isPaused`               | O(1)                       | O(1) |
- * | `listAssets`             | O(1)                       | O(p) |
- * | `getAllowlistCount`       | O(1)                       | O(1) |
- * | `rebuildAllowlistIndex`  | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | Method           | Time                       | Space |
+ * |------------------|----------------------------|-------|
+ * | `recordPayment`  | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getPayment`     | O(1)                       | O(1) |
+ * | `hasPayment`     | O(1)                       | O(1) |
+ * | `getPaymentCount`| O(1)                       | O(1) |
+ * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`       | O(1)                       | O(1) |
+ * | `isPaused`       | O(1)                       | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -186,10 +184,9 @@ class SorobanInvoiceClient {
      * Remove a `(code, issuer)` token pair from the allowlist.
      *
      * The **contract admin** keypair must be provided via `signerSecretKey`.
+     * Revoking an asset that was never allowlisted is a no-op on-chain.
      *
-     * @throws {SorobanContractError} with code `AssetNotFound` when the pair
-     *   was never in the allowlist — distinguishing a no-op from a real removal.
-     * @throws {SorobanContractError} on other contract-level rejections
+     * @throws {SorobanContractError} on contract-level rejection
      *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
      */
     async revokeAsset(code, issuer) {
@@ -248,16 +245,28 @@ class SorobanInvoiceClient {
         return this.submitWrite(tx);
     }
     /**
-     * Bulk extend the TTLs for the payment log, history index, and specific
-     * payment records within a given bounded range.
+     * Upgrade the deployed contract WASM in place.
+     *
+     * The contract MUST already be paused via `setPaused(true)` — this is
+     * enforced on-chain and the call is rejected with
+     * `MustBePausedForUpgrade` otherwise. See
+     * `soroban/docs/upgrade-runbook.md` for the full
+     * pause → upgrade → upgrade_storage → verify → unpause sequence, and why
+     * the contract must stay paused for that whole window.
      *
      * The **contract admin** keypair must be provided via `signerSecretKey`.
      *
-     * @param startIndex Zero-based start index (inclusive).
-     * @param endIndex Zero-based end index (exclusive).
+     * @param newWasmHash - hex-encoded 32-byte hash of the WASM already
+     *   installed on-chain (e.g. via `stellar contract upload`).
+     * @param newContractVersion - packed semver of the WASM being deployed
+     *   (`MAJOR * 1_000_000 + MINOR * 1_000 + PATCH`), carried in the emitted
+     *   `contract_upgraded` event for off-chain indexers. Not verified
+     *   on-chain against `newWasmHash` — must match what was actually built.
+     *
      * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `Unauthorized`, `MustBePausedForUpgrade`)
      */
-    async extendHistoryTtl(startIndex, endIndex) {
+    async upgrade(newWasmHash, newContractVersion) {
         this.requireSigner();
         const account = await this.server.getAccount(this.keypair.publicKey());
         const caller = this.keypair.publicKey();
@@ -265,7 +274,7 @@ class SorobanInvoiceClient {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call('extend_history_ttl', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeU32)(startIndex), (0, codec_1.encodeU32)(endIndex)))
+            .addOperation(this.contract.call('upgrade', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeBytes32)(newWasmHash), (0, codec_1.encodeU32)(newContractVersion)))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);
@@ -336,71 +345,38 @@ class SorobanInvoiceClient {
         return (0, codec_1.decodePaymentHistoryPage)(retval);
     }
     /**
+     * Fetch a bounded page of payments made by a single payer.
+     *
+     * Two contract read paths are selected automatically per payer:
+     *
+     * - **Per-payer index (default).** Payments recorded after the index was
+     *   introduced (or backfilled by the schema V2 migration /
+     *   `rebuild_history_index`) are served with O(limit) direct reads. Here
+     *   `cursor` is an ordinal into that payer's payment list — start at `0`
+     *   and echo `next_cursor` afterwards.
+     *
+     * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
+     *   not yet migrated), the contract scans the shared history index with
+     *   the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
+     *   per call regardless of how few records match. On this path `cursor`
+     *   is a shared-history-index slot, and **an empty page with
+     *   `has_more: true` is expected** on sparse result sets — keep paging
+     *   from `next_cursor` until it flips to `false`.
+     *
+     * In both paths `limit` is capped by the contract (25), gaps are reported
+     * in `gaps_skipped`, and `has_more: false` terminates pagination.
+     */
+    async getPaymentsByPayer(payer, cursor = 0, limit = 25) {
+        const retval = await this.simulateView('payments_by_payer', (0, codec_1.encodeAddress)(payer), (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
+        return (0, codec_1.decodePaymentHistoryPage)(retval);
+    }
+    /**
      * Return `true` if the contract is currently paused (writes disabled).
      * Permissionless read.
      */
     async isPaused() {
         const retval = await this.simulateView('is_paused');
         return Boolean((0, stellar_sdk_1.scValToNative)(retval));
-    }
-    /**
-     * Return a paginated slice of the allowlisted `(code, issuer)` asset pairs.
-     *
-     * Permissionless read — no admin keypair required.
-     *
-     * @param cursor  Zero-based slot index to start from (default `0`).
-     * @param limit   Maximum entries per page (capped at 25 by the contract).
-     */
-    async listAssets(cursor = 0, limit = 25) {
-        const retval = await this.simulateView('list_assets', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
-        return (0, codec_1.decodeAllowlistPage)(retval);
-    }
-    /**
-     * Return the total number of allowlisted asset pairs.
-     *
-     * Permissionless read. Consistent with the enumeration returned by
-     * `listAssets`: `count === (await listAssets(0, count)).total`.
-     */
-    async getAllowlistCount() {
-        const retval = await this.simulateView('allowlist_count');
-        return Number((0, stellar_sdk_1.scValToNative)(retval));
-    }
-    /**
-     * Rebuild the enumerable allowlist index for legacy deployments.
-     *
-     * Call once after upgrading a deployment that predates this contract version.
-     * Supply the complete list of `(code, issuer)` pairs that were previously
-     * allowlisted. Entries whose on-chain existence sentinel is absent are
-     * silently dropped.
-     *
-     * The **contract admin** keypair must be provided via `signerSecretKey`.
-     *
-     * @throws {SorobanContractError} with code `Unauthorized` if caller is not admin.
-     */
-    async rebuildAllowlistIndex(pairs) {
-        this.requireSigner();
-        const account = await this.server.getAccount(this.keypair.publicKey());
-        const caller = this.keypair.publicKey();
-        const pairsEncoded = pairs.map((p) => 
-        // Each entry is a Soroban struct with two string fields.
-        stellar_sdk_1.xdr.ScVal.scvMap([
-            new stellar_sdk_1.xdr.ScMapEntry({
-                key: stellar_sdk_1.xdr.ScVal.scvSymbol('code'),
-                val: (0, codec_1.encodeString)(p.code),
-            }),
-            new stellar_sdk_1.xdr.ScMapEntry({
-                key: stellar_sdk_1.xdr.ScVal.scvSymbol('issuer'),
-                val: (0, codec_1.encodeString)(p.issuer),
-            }),
-        ]));
-        const tx = new stellar_sdk_1.TransactionBuilder(account, {
-            fee: stellar_sdk_1.BASE_FEE,
-            networkPassphrase: this.config.networkPassphrase,
-        })
-            .addOperation(this.contract.call('rebuild_allowlist_index', (0, codec_1.encodeAddress)(caller), stellar_sdk_1.xdr.ScVal.scvVec(pairsEncoded)))
-            .setTimeout(TX_TIMEOUT_SECONDS)
-            .build();
-        return this.submitWrite(tx);
     }
     // ─── Private helpers ────────────────────────────────────────────────────────
     /**

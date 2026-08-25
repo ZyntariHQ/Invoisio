@@ -47,3 +47,10 @@ allowlist = [
 #
 # To deploy:
 #   INVOISIO_ADMIN_SECRET=S... STELLAR_NETWORK=testnet ./deploy.sh
+#
+# To upgrade an already-deployed contract in place (new WASM, same contract
+# ID), see docs/upgrade-runbook.md and:
+#   ./invoke-pause.sh
+#   ./invoke-upgrade.sh target/wasm32v1-none/release/invoice_payment.wasm <new_version> [--dry-run]
+#   ./invoke-upgrade-storage.sh
+#   ./invoke-unpause.sh

@@ -63,6 +63,7 @@ declare -A ERROR_DESC=(
   [MigrationRequired]="rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first."
   [HistoryIndexIncomplete]="The payment history index is incomplete and must be rebuilt via rebuild_history_index()."
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
+  [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
   [AssetNotFound]="revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal."
   [PaymentArchived]="The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read."
 )
@@ -115,6 +116,7 @@ declare -A METHOD_AUTH=(
   [allow_asset]="admin"
   [revoke_asset]="admin"
   [set_allow_native]="admin"
+  [upgrade]="admin"
   [upgrade_storage]="admin"
   [set_paused]="admin"
   [is_paused]="none"
@@ -144,6 +146,7 @@ declare -A METHOD_DESC=(
   [allow_asset]="Add (code, issuer) to allowlist."
   [revoke_asset]="Remove (code, issuer) from allowlist."
   [set_allow_native]="Toggle native XLM acceptance."
+  [upgrade]="Upgrade the deployed contract WASM in place. Requires the contract to already be paused."
   [upgrade_storage]="Explicitly upgrade storage schema to current version."
   [set_paused]="Pause or unpause the contract. Writes rejected when paused."
   [is_paused]="Return true if the contract is currently paused."
@@ -183,7 +186,7 @@ done
 EVENT_NAMES=(
   InvoicePaymentRecorded AssetAllowlisted AssetRevoked NativeAllowChanged
   StorageSchemaUpgraded ContractPaused AdminTransferProposed AdminTransferAccepted
-  AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated
+  AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated ContractUpgraded
 )
 mapfile -t EVENTS_RS_NAMES < <(grep -B1 '^pub struct \w\+ {' "$EVENTS_RS" | grep -oP '^pub struct \K\w+(?= \{)')
 [ "${#EVENTS_RS_NAMES[@]}" -gt 0 ] || fail "no #[contractevent] structs found in $EVENTS_RS — regex out of date?"
@@ -458,6 +461,18 @@ cat > "$OUT" <<JSON
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
       "required": ["count", "migrated_at"]
+    },
+    "ContractUpgraded": {
+      "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
+      "topic": "contract_upgraded",
+      "fields": {
+        "previous_version": { "type": "integer", "description": "Packed semver of the code that was running when upgrade() was called." },
+        "new_version": { "type": "integer", "description": "Caller-supplied packed semver of the code being deployed. Not verified on-chain against new_wasm_hash." },
+        "new_wasm_hash": { "type": "string", "description": "Hex-encoded 32-byte hash of the newly installed WASM.", "contentEncoding": "hex" },
+        "upgraded_by": { "type": "string", "description": "Admin address that triggered the upgrade." },
+        "upgraded_at": { "type": "integer", "description": "Ledger timestamp when the upgrade occurred." }
+      },
+      "required": ["previous_version", "new_version", "new_wasm_hash", "upgraded_by", "upgraded_at"]
     }
   },
   "errors": {

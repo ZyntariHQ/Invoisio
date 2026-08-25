@@ -39,6 +39,8 @@ Persistent storage contains payment records and history indexes:
 |-----|---------|--------------|
 | `PaymentV1(invoice_id)` | Payment record | Extended on read and write |
 | `PaymentHistory(index)` | History index entry | Extended on read and write |
+| `PayerPaymentCount(payer)` | Per-payer payment total (schema V2) | Extended on read and write |
+| `PayerPaymentIdx(payer, ordinal)` | Per-payer history slot mapping (schema V2) | Extended on read and write |
 | `AllowList(code, issuer)` | Asset allowlist entry | Extended on write only (existence check doesn't extend) |
 
 **Rule**: Read operations should extend TTL when a record exists. Write operations should always extend TTL.
@@ -54,6 +56,7 @@ The following permissionless view functions automatically extend instance storag
 - `payment_count()` - Total payments recorded
 - `version_info()` - Version metadata
 - `payment_history()` - History pagination (extends persistent storage)
+- `payments_by_payer()` - Per-payer history pagination (extends persistent storage)
 - `get_payment()` - Individual payment record (extends persistent storage)
 - `has_payment()` - Payment existence check (extends persistent storage)
 

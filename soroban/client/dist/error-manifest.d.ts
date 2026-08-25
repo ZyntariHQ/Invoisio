@@ -96,12 +96,8 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly meaning: "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.";
 }, {
     readonly code: 21;
-    readonly name: "AssetNotFound";
-    readonly meaning: "revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal.";
-}, {
-    readonly code: 22;
-    readonly name: "PaymentArchived";
-    readonly meaning: "The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read.";
+    readonly name: "MustBePausedForUpgrade";
+    readonly meaning: "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, Env, String, Vec};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 
 pub mod errors;
 pub mod events;
@@ -18,16 +18,18 @@ pub use storage::{
 
 use events::{
     emit_admin_transfer_accepted, emit_admin_transfer_cancelled, emit_admin_transfer_proposed,
-    emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
+    emit_asset_allowlisted, emit_asset_revoked, emit_contract_upgraded, emit_native_allow_changed,
+    emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
-    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_allowlist_count, get_allowlist_page, get_contract_config, get_count, get_payment,
-    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
-    get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
-    is_native_allowed, rebuild_allowlist_index, revoke_asset, set_admin, set_contract_meta,
-    set_native_allowed, set_payment, set_pending_admin,
+    allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
+    bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
+    get_admin, get_allowlist_count, get_allowlist_page, get_contract_config, get_count,
+    get_history_count, get_payment, get_payment_history_page, get_pending_admin,
+    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, rebuild_allowlist_index,
+    revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
+    set_pending_admin,
 };
 
 // Contract
@@ -141,12 +143,12 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
-    /// - `payer`           — Stellar account address that sent the payment
-    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
-    /// - `amount`          — payment amount in smallest denomination (must be > 0)
-    /// - `settlement_ref`  — normalised settlement hash or reference ID for
+    /// - `invoice_id`     — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `payer`          — Stellar account address that sent the payment
+    /// - `asset_code`     — `"XLM"` or token code (e.g. `"USDC"`)
+    /// - `asset_issuer`   — issuer public key for tokens; `""` for native XLM
+    /// - `amount`         — payment amount in smallest denomination (must be > 0)
+    /// - `settlement_ref` — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
     ///                       (must be non-empty, max 128 chars)
     ///
@@ -281,6 +283,11 @@ impl InvoicePaymentContract {
         // 11. Append to deterministic history index for paged reads.
         append_payment_history(&env, &record);
         bump_history_count(&env);
+
+        // 11b. Index the payment by payer so `payments_by_payer` becomes
+        // direct reads instead of a filtered scan of the whole history
+        // (issue #445). The history slot just written is `history_count - 1`.
+        append_payer_entry(&env, &record.payer, get_history_count(&env) - 1);
 
         // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
@@ -582,12 +589,33 @@ impl InvoicePaymentContract {
 
     /// Return all payments made by `payer`, paginated.
     ///
-    /// Scans the deterministic history index and filters by payer address.
-    /// - `cursor` — history index to start scanning from.
-    /// - `limit` — maximum records to return (capped at 25).
+    /// Two read paths, selected automatically per payer:
     ///
-    /// A missing history-index slot is skipped like in `payment_history`;
-    /// see `PaymentHistoryPage.gaps_skipped`.
+    /// **Per-payer index (default).** Every payment written by
+    /// `record_payment` (and every record backfilled by the schema V2
+    /// migration or `rebuild_history_index`) is indexed by payer. When an
+    /// index exists for this payer, each page costs O(limit) direct reads.
+    /// Here `cursor` is an *ordinal* into that payer's payment list — pass
+    /// `0` for the first page and echo `next_cursor` afterwards.
+    ///
+    /// **Bounded scan (fallback).** For payers whose index has not been
+    /// built (pre-V2 data not yet migrated), the call scans the shared
+    /// history index with the filter applied. Because slots belonging to
+    /// other payers are consumed without contributing to the page, the scan
+    /// is capped at [`storage::MAX_PAYER_SCAN_SLOTS`] history slots examined
+    /// per invocation — independent of how many records match and of how
+    /// large the history grows. On this path a payer with no matching
+    /// records returns an *empty page promptly* instead of scanning the
+    /// whole index; **an empty page with `has_more: true` is expected** and
+    /// callers must keep paging from `next_cursor` until it flips to
+    /// `false`. Here `cursor` is a shared-history-index slot.
+    ///
+    /// In both paths:
+    /// - at most [`storage::MAX_PAYMENT_HISTORY_PAGE_SIZE`] records are
+    ///   returned per call (`limit` is capped internally),
+    /// - a missing backing slot is counted in `gaps_skipped` and skipped
+    ///   exactly like in `payment_history`,
+    /// - `has_more == false` terminates paging.
     ///
     /// Permissionless read — no auth required.
     pub fn payments_by_payer(
@@ -596,10 +624,9 @@ impl InvoicePaymentContract {
         cursor: u32,
         limit: u32,
     ) -> PaymentHistoryPage {
-        use storage::{get_history_count, MAX_PAYMENT_HISTORY_PAGE_SIZE};
-        let total = get_history_count(&env);
-        let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
-        let start = core::cmp::min(cursor, total);
+        use storage::{
+            get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
+        };
 
         let mut records = soroban_sdk::Vec::new(&env);
         let mut index = start;
@@ -635,6 +662,100 @@ impl InvoicePaymentContract {
             archived_skipped,
             corrupt_skipped,
         }
+    }
+
+    /// Upgrade the deployed contract WASM in place.
+    ///
+    /// This is the *only* way to change the code running at this contract
+    /// address after deployment. Without it, [`upgrade_storage`] and the
+    /// migration logic in `migration.rs` are unreachable, and a live
+    /// deployment could never receive a bug fix without moving to a brand
+    /// new contract ID and migrating every payment record and every backend
+    /// reference off-chain.
+    ///
+    /// ## Authorization
+    /// Only the **contract admin** may call this.
+    ///
+    /// ## Required ordering (enforced on-chain) — pause for the duration
+    /// The contract **must already be paused** (`set_paused(true)`) before
+    /// calling `upgrade`; otherwise this returns
+    /// [`ContractError::MustBePausedForUpgrade`]. This is enforced, not just
+    /// documented, because every write path (`record_payment`,
+    /// `propose_admin`, ...) calls `ensure_current_contract_meta()`, which
+    /// *unconditionally* backfills `ContractMeta` to match whatever code is
+    /// currently running. If a write landed after `upgrade()` took effect
+    /// but before [`upgrade_storage`] actually ran its migration steps, it
+    /// would silently mark the new schema version as current *before* the
+    /// migration ran — masking the exact corruption `upgrade_storage` exists
+    /// to fix. Staying paused for the whole window closes that gap, and also
+    /// means any `record_payment` transaction submitted around the same time
+    /// as the upgrade (\"in-flight\") simply fails with
+    /// [`ContractError::ContractPaused`] instead of racing the migration.
+    ///
+    /// Full runbook: `soroban/docs/upgrade-runbook.md`. Summary:
+    /// 1. `set_paused(admin, true)`
+    /// 2. `upgrade(admin, new_wasm_hash, new_contract_version)`
+    /// 3. `upgrade_storage(admin)` — now runs under the **new** code
+    /// 4. Verify `config()` / `version_info()` / `payment_history()` look right
+    /// 5. `set_paused(admin, false)`
+    ///
+    /// ## Timing
+    /// Soroban only swaps the executing code for **subsequent**
+    /// invocations — this call itself finishes running the old code.
+    /// `contract_version()` keeps reporting the old version if called again
+    /// in the same transaction, and starts reporting the new version on the
+    /// next top-level invocation (e.g. the following `upgrade_storage` call).
+    ///
+    /// ## `new_contract_version`
+    /// A caller-supplied audit value (the packed semver of the WASM being
+    /// deployed) carried in the emitted event. It is **not** verified
+    /// against `new_wasm_hash` — the currently-running (old) code has no way
+    /// to introspect constants baked into a not-yet-live binary — so it is
+    /// the operator's responsibility to pass the value that actually matches
+    /// the WASM being deployed (the ops script derives it from the build
+    /// it's pushing, not from user input).
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — caller is not admin
+    /// - [`ContractError::MustBePausedForUpgrade`] — contract is not paused
+    ///
+    /// ## Events
+    /// Emits `ContractUpgraded { previous_version, new_version, new_wasm_hash,
+    /// upgraded_by, upgraded_at }` so off-chain indexers can detect the
+    /// transition without polling `contract_version()`.
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        new_wasm_hash: BytesN<32>,
+        new_contract_version: u32,
+    ) -> Result<(), ContractError> {
+        // Verify caller is the current contract admin.
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        // The contract must stay paused for the whole upgrade -> migrate
+        // window — see the ordering rationale above.
+        if !storage::is_paused(&env) {
+            return Err(ContractError::MustBePausedForUpgrade);
+        }
+
+        let previous_version = CONTRACT_VERSION;
+        env.deployer()
+            .update_current_contract_wasm(new_wasm_hash.clone());
+
+        emit_contract_upgraded(
+            &env,
+            previous_version,
+            new_contract_version,
+            new_wasm_hash,
+            admin,
+        );
+
+        Ok(())
     }
 
     /// Migrate on-chain storage layout to the current schema version.

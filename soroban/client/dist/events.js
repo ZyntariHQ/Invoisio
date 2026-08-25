@@ -23,6 +23,23 @@ function toBigInt(value, field) {
     }
 }
 /**
+ * Decode a `BytesN<32>` field (e.g. a WASM hash) into a lowercase hex string.
+ * `scValToNative` returns raw bytes for an `ScBytes` as a `Uint8Array`
+ * (`Buffer` in Node, which extends it); a string is passed through as-is for
+ * callers that already normalised the value upstream.
+ */
+function toHex(value, field) {
+    if (value instanceof Uint8Array) {
+        let hex = '';
+        for (const byte of value)
+            hex += byte.toString(16).padStart(2, '0');
+        return hex;
+    }
+    if (typeof value === 'string')
+        return value;
+    throw new Error(`Field ${field} is not bytes-like: ${JSON.stringify(value)}`);
+}
+/**
  * Field values arrive positionally: `#[contractevent]` structs publish as
  * `ScVec` with fields in declaration order, so decoders index by position.
  * An object form (named keys) is also accepted for forward-compatibility.
@@ -152,6 +169,17 @@ function decodeSorobanEvent(event) {
                     previousAdmin: String(fieldAt(payload, 0, 'previous_admin')),
                     newAdmin: String(fieldAt(payload, 1, 'new_admin')),
                     timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
+                };
+            case 'contract_upgraded':
+                if (!checkArity(payload, 5))
+                    break;
+                return {
+                    type: 'contract_upgraded',
+                    previousVersion: Number(fieldAt(payload, 0, 'previous_version')),
+                    newVersion: Number(fieldAt(payload, 1, 'new_version')),
+                    newWasmHash: toHex(fieldAt(payload, 2, 'new_wasm_hash'), 'new_wasm_hash'),
+                    upgradedBy: String(fieldAt(payload, 3, 'upgraded_by')),
+                    upgradedAt: toBigInt(fieldAt(payload, 4, 'upgraded_at'), 'upgraded_at'),
                 };
             default:
                 return { type: 'unknown', name, reason: 'unrecognized event name' };

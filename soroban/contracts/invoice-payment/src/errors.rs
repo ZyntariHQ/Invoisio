@@ -83,11 +83,17 @@ pub enum ContractError {
     /// Each settlement reference must be globally unique across all payments.
     SettlementRefAlreadyUsed = 20,
 
+    /// `upgrade()` was called while the contract is not paused. The contract
+    /// must stay paused for the entire `upgrade()` → `upgrade_storage()`
+    /// window so no write can land on the new code before storage has been
+    /// migrated — see the doc comment on `upgrade()` in `lib.rs`.
+    MustBePausedForUpgrade = 21,
+
     /// `revoke_asset()` was called for a `(code, issuer)` pair that was never
     /// allowlisted. Callers can use this to distinguish a no-op revoke from a
     /// successful removal.
-    AssetNotFound = 21,
+    AssetNotFound = 22,
 
     /// The invoice payment has been archived.
-    PaymentArchived = 22,
+    PaymentArchived = 23,
 }

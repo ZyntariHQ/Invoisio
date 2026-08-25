@@ -11,6 +11,11 @@ export declare function encodeI128(value: bigint): xdr.ScVal;
 export declare function encodeU32(value: number): xdr.ScVal;
 export declare function encodeBool(value: boolean): xdr.ScVal;
 /**
+ * Encode a hex-encoded 32-byte hash (e.g. a WASM hash) as a Soroban
+ * `BytesN<32>` ScVal. Accepts an optional `0x` prefix.
+ */
+export declare function encodeBytes32(hexHash: string): xdr.ScVal;
+/**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
  * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,

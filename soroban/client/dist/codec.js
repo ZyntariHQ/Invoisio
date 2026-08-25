@@ -5,6 +5,7 @@ exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.encodeBool = encodeBool;
+exports.encodeBytes32 = encodeBytes32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
@@ -32,6 +33,21 @@ function encodeU32(value) {
 }
 function encodeBool(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'bool' });
+}
+/**
+ * Encode a hex-encoded 32-byte hash (e.g. a WASM hash) as a Soroban
+ * `BytesN<32>` ScVal. Accepts an optional `0x` prefix.
+ */
+function encodeBytes32(hexHash) {
+    const clean = hexHash.startsWith('0x') ? hexHash.slice(2) : hexHash;
+    if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
+        throw new Error(`Expected a 32-byte hex-encoded hash (64 hex chars), got: ${hexHash}`);
+    }
+    const bytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) {
+        bytes[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+    }
+    return (0, stellar_sdk_1.nativeToScVal)(bytes, { type: 'bytes' });
 }
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 /**

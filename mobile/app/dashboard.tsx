@@ -16,6 +16,7 @@ import { useWalletAuth } from "../hooks/use-wallet-auth";
 import { useInvoicesList, Invoice } from "../lib/invoices";
 import { useMemo, useEffect, useState, useRef } from "react";
 import { getInvoicesLastSynced } from "../lib/cache";
+import { formatLastSyncTime } from "../lib/sync-coordinator";
 import {
   useInvoiceFilters,
   STATUS_OPTIONS,
@@ -118,6 +119,9 @@ export default function DashboardScreen() {
   }, [invoices]);
 
   const hasActiveFilters = search.trim().length > 0 || status !== "all";
+
+  // Null when missing or malformed, so the UI never renders "Invalid Date".
+  const lastSyncedLabel = formatLastSyncTime(lastSynced);
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -392,12 +396,12 @@ export default function DashboardScreen() {
                   </Link>
                 </View>
               </View>
-              {lastSynced ? (
+              {lastSyncedLabel ? (
                 <Text
                   className="mt-2 text-xs text-slate-400"
                   style={{ fontFamily: "SpaceGrotesk_400Regular" }}
                 >
-                  Last synced: {new Date(lastSynced).toLocaleString()}
+                  Last synced: {lastSyncedLabel}
                 </Text>
               ) : null}
             </View>

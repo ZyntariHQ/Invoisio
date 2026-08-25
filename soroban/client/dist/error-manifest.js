@@ -142,13 +142,8 @@ exports.CONTRACT_ERROR_MANIFEST = [
     },
     {
         code: 21,
-        name: 'AssetNotFound',
-        meaning: 'revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal.',
-    },
-    {
-        code: 22,
-        name: 'PaymentArchived',
-        meaning: 'The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read.',
+        name: 'MustBePausedForUpgrade',
+        meaning: 'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
     },
 ];
 /**
