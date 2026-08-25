@@ -282,7 +282,9 @@
     "HistoryIndexRebuildFailed":   { "code": 17, "description": "rebuild_history_index() failed to rebuild the payment history index; check storage consistency." },
     "MigrationRequired":   { "code": 18, "description": "rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first." },
     "HistoryIndexIncomplete":   { "code": 19, "description": "The payment history index is incomplete and must be rebuilt via rebuild_history_index()." },
-    "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." }
+    "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." },
+    "AssetNotFound":   { "code": 21, "description": "revoke_asset() was called for a (code, issuer) pair that was never in the allowlist; callers can use this to distinguish a no-op from a successful removal." },
+    "PaymentArchived":   { "code": 22, "description": "The on-chain payment record has expired its TTL and was archived by the network; it must be restored before it can be read." }
   },
   "methods": {
     "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
@@ -302,11 +304,15 @@
     "set_allow_native": { "auth": "admin", "description": "Toggle native XLM acceptance." },
     "config": { "auth": "none", "description": "Return ContractConfig snapshot." },
     "payment_history": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },
+    "list_assets": { "auth": "none", "description": "Return a bounded, cursor-paginated AllowlistPage of allowlisted (code, issuer) asset pairs." },
+    "allowlist_count": { "auth": "none", "description": "Return the total number of allowlisted asset pairs." },
+    "rebuild_allowlist_index": { "auth": "admin", "description": "Rebuild the enumerable allowlist index for legacy deployments from a supplied list of (code, issuer) pairs." },
     "payments_by_payer": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer." },
     "upgrade_storage": { "auth": "admin", "description": "Explicitly upgrade storage schema to current version." },
     "set_paused": { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
     "is_paused": { "auth": "none", "description": "Return true if the contract is currently paused." },
     "rebuild_history_index": { "auth": "admin", "description": "Rebuild the payment history index from existing records after a corruption or incomplete migration." },
+    "extend_history_ttl": { "auth": "admin", "description": "Extend the persistent TTL for payment history records within a given index range (archival resilience maintenance)." },
     "history_index_status": { "auth": "none", "description": "Return (history_count, payment_count, is_consistent) diagnostic status for the history index." }
   }
 }
