@@ -11,9 +11,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
-    SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
-    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, MigrationProgress,
+    PaymentHistoryPage, PaymentRecord, SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION,
+    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -730,11 +730,7 @@ impl InvoicePaymentContract {
     /// eventually reads `false`) even over a partially-rebuilt index.
     ///
     /// Permissionless read — no auth required, available while paused.
-    pub fn settlement_ref_history(
-        env: Env,
-        cursor: u32,
-        limit: u32,
-    ) -> storage::SettlementRefPage {
+    pub fn settlement_ref_history(env: Env, cursor: u32, limit: u32) -> storage::SettlementRefPage {
         storage::get_settlement_ref_page(&env, cursor, limit)
     }
 
@@ -990,6 +986,12 @@ impl InvoicePaymentContract {
 
         // Rebuild the index
         crate::migration::rebuild_payment_history_index(&env)
+    }
+
+    /// Return durable maintenance progress. `active` remains true until the
+    /// final bounded chunk has committed.
+    pub fn migration_progress(env: Env) -> MigrationProgress {
+        crate::storage::get_migration_progress(&env)
     }
 
     /// Get the consistency status of the history index.

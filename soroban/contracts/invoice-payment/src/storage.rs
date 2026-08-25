@@ -307,6 +307,8 @@ pub enum DataKey {
     /// `settlement_ref_history` pagination, mirroring `PaymentLog`'s role
     /// for `PaymentHistory`.
     SettlementRefLog(u32),
+    /// Durable cursor for bounded history rebuilds and schema migrations.
+    MigrationProgress,
 }
 
 // Data structures
@@ -369,6 +371,22 @@ pub struct PaymentRecord {
     /// [`is_canonical_identifier`]. Records written before this validation
     /// existed may not conform; they remain readable as-is.
     pub settlement_ref: String,
+}
+
+/// Durable progress for an operator-driven maintenance run.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MigrationProgress {
+    /// 0 means no maintenance operation is active; other values are internal phases.
+    pub phase: u32,
+    /// Next payment/history slot to process.
+    pub cursor: u32,
+    /// Total slots captured when the operation began.
+    pub total: u32,
+    /// Schema version being migrated from (0 for a standalone rebuild).
+    pub schema_from: u32,
+    /// True until the final chunk commits the operation.
+    pub active: bool,
 }
 
 /// A bounded, cursor-friendly slice of payment history.
@@ -955,6 +973,34 @@ pub fn set_payment_count(env: &Env, count: u32) {
     env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
 }
 
+/// Maximum storage records touched by one maintenance invocation.
+pub const MIGRATION_CHUNK_SIZE: u32 = 20;
+
+pub fn get_migration_progress(env: &Env) -> MigrationProgress {
+    env.storage()
+        .instance()
+        .get(&DataKey::MigrationProgress)
+        .unwrap_or(MigrationProgress {
+            phase: 0,
+            cursor: 0,
+            total: 0,
+            schema_from: 0,
+            active: false,
+        })
+}
+
+pub fn set_migration_progress(env: &Env, progress: &MigrationProgress) {
+    env.storage()
+        .instance()
+        .set(&DataKey::MigrationProgress, progress);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+pub fn clear_migration_progress(env: &Env) {
+    env.storage().instance().remove(&DataKey::MigrationProgress);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
 // ─── Payment History Helpers (Instance Storage) ─────────────────────────────
 
 /// Return the number of indexed payment history entries. Bumps instance TTL.
@@ -1097,12 +1143,9 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
     let current = get_storage_schema_version(env);
 
     if current == target_version {
-        // Even if schema is current, ensure history index is complete
-        // This catches cases where migration was interrupted
-        if !is_history_index_consistent(env) {
-            // Rebuild the index if it's incomplete
-            crate::migration::rebuild_payment_history_index(env)?;
-        }
+        // A current schema does not implicitly launch maintenance. Operators
+        // can inspect `migration_progress` / `history_index_status` and drive
+        // the bounded rebuild explicitly.
         return Ok(());
     }
 
@@ -1128,7 +1171,14 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             }
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
-        version += 1;
+        // A migration step persists its cursor and only changes the schema
+        // version after its final chunk. Stop here so one invocation always
+        // has a bounded footprint.
+        let advanced = get_storage_schema_version(env);
+        if advanced == version {
+            return Ok(());
+        }
+        version = advanced;
     }
 
     // Update metadata to reflect new schema version
