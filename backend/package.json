@@ -58,6 +58,8 @@
     "cross-env": "^10.1.0",
     "csv-parse": "^5.6.0",
     "expo-server-sdk": "^6.1.0",
+    "express": "^5.2.1",
+    "helmet": "^8.3.0",
     "ioredis": "^5.10.0",
     "joi": "^17.13.4",
     "multer": "^1.4.5-lts.1",
