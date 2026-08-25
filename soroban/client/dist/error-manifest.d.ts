@@ -61,7 +61,7 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
 }, {
     readonly code: 12;
     readonly name: "ContractPaused";
-    readonly meaning: "The contract is paused and cannot perform the requested operation.";
+    readonly meaning: "The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.";
 }, {
     readonly code: 13;
     readonly name: "InvalidSettlementRef";

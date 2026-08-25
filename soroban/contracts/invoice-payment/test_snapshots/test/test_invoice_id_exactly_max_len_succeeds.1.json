@@ -36,7 +36,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-ref-128"
+                  "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -51,7 +51,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                  "string": "settle-max-len-invoice-id"
                 }
               ]
             }
@@ -214,7 +214,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-ref-128"
+                      "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                     }
                   },
                   {
@@ -230,7 +230,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                      "string": "settle-max-len-invoice-id"
                     }
                   },
                   {
@@ -268,7 +268,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-ref-128"
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
               }
             }
           },
@@ -289,7 +289,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-ref-128"
+                    "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                   }
                 ]
               },
@@ -321,7 +321,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-ref-128"
+                      "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
                     }
                   },
                   {
@@ -337,7 +337,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                      "string": "settle-max-len-invoice-id"
                     }
                   },
                   {
@@ -369,7 +369,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    "string": "settle-max-len-invoice-id"
                   }
                 ]
               },

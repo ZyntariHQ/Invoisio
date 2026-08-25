@@ -654,8 +654,8 @@ Contract v1 (C1) live
 | Method | Auth | Description |
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `settlement_ref` is a non-empty hash/reference ID (≤ 128 chars) for backend deduplication. |
-| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `invoice_id` (≤ 64 chars) and `settlement_ref` (non-empty, ≤ 128 chars) must both be in **canonical form** — lowercase letters, digits, and hyphens only; non-canonical input is rejected, not normalised, since both fields back byte-exact idempotency guards. |
+| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
 | `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
@@ -681,14 +681,14 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 3 | PaymentAlreadyRecorded | `record_payment()` was called with an `invoice_id` already recorded. |
 | 4 | PaymentNotFound | `get_payment()` was called for an `invoice_id` that has no record. |
 | 5 | InvalidAmount | `amount` was zero or negative; payments must be strictly positive. |
-| 6 | InvalidInvoiceId | `invoice_id` was empty or otherwise invalid. |
+| 6 | InvalidInvoiceId | `invoice_id` was empty, exceeded 64 chars, or was not in canonical form (lowercase letters, digits, hyphens only). |
 | 7 | InvalidAsset | `asset_code` empty, or non-XLM asset without `asset_issuer`; or invalid allowlist args. |
 | 8 | AssetNotAllowed | The asset (code, issuer) is not in the admin-controlled allowlist. |
 | 9 | Unauthorized | The caller is not authorized to perform the operation. |
 | 10 | StorageSchemaTooNew | `upgrade_storage()` called on a deployment whose `storage_schema_version` is newer than this WASM knows about. |
 | 11 | StorageSchemaTooOld | `upgrade_storage()` called but the schema is already at or beyond the version this WASM implements. |
 | 12 | ContractPaused | The contract is paused and cannot perform the requested operation. |
-| 13 | InvalidSettlementRef | `settlement_ref` was empty or exceeded the maximum allowed length. |
+| 13 | InvalidSettlementRef | `settlement_ref` was empty, exceeded 128 chars, or was not in canonical form (lowercase letters, digits, hyphens only). |
 | 14 | NoPendingAdmin | `accept_admin()` was called but no admin transfer proposal is pending. |
 | 15 | PendingAdminExists | `propose_admin()` was called while an admin transfer proposal is already pending. |
 | 16 | InvalidProposedAdmin | `propose_admin()` was called with the current admin (or another invalid address). |
@@ -782,12 +782,12 @@ tests) when the client's understanding of the ABI is what's stale.
 
 ```rust
 pub struct PaymentRecord {
-    pub invoice_id:    String,   // e.g. "invoisio-abc123"
+    pub invoice_id:    String,   // e.g. "invoisio-abc123"; canonical, ≤ 64 chars
     pub payer:         Address,  // Stellar account that paid
     pub asset:         Asset,    // Native XLM or Token(code, issuer)
     pub amount:        i128,     // stroops for XLM; token-specific decimals
     pub timestamp:     u64,      // ledger Unix timestamp at recording time
-    pub settlement_ref: String,  // normalised settlement reference (≤ 128 chars)
+    pub settlement_ref: String,  // normalised settlement reference; canonical, ≤ 128 chars
 }
 
 pub enum Asset {

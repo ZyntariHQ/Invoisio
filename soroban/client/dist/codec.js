@@ -1,5 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_SETTLEMENT_REF_LEN = exports.MAX_INVOICE_ID_LEN = void 0;
+exports.isCanonicalIdentifier = isCanonicalIdentifier;
+exports.assertCanonicalIdentifier = assertCanonicalIdentifier;
 exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
@@ -12,6 +15,49 @@ exports.decodeContractConfig = decodeContractConfig;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
+// ─── Identifier canonicalisation ─────────────────────────────────────────────
+//
+// Mirrors `storage::is_canonical_identifier` and the length bounds enforced
+// on-chain by `record_payment` in
+// `soroban/contracts/invoice-payment/src/lib.rs`. Validating here lets a
+// caller fail locally — before spending a transaction — instead of learning
+// about a malformed `invoiceId` or `settlementRef` from a simulation error.
+//
+// Canonical form (both fields): ASCII lowercase letters (`a`-`z`), digits
+// (`0`-`9`), and hyphens (`-`) only. The contract rejects anything else
+// (uppercase, whitespace, other punctuation) rather than normalising it, so
+// this client mirrors that rejection rather than silently lower-casing or
+// trimming input on the caller's behalf.
+/** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
+exports.MAX_INVOICE_ID_LEN = 64;
+/** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
+exports.MAX_SETTLEMENT_REF_LEN = 128;
+const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
+/**
+ * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
+ * consists solely of ASCII lowercase letters, digits, and hyphens.
+ */
+function isCanonicalIdentifier(value, maxLen) {
+    return value.length > 0 && value.length <= maxLen && CANONICAL_IDENTIFIER_PATTERN.test(value);
+}
+/**
+ * Throw a descriptive `Error` if `value` is not a canonical identifier —
+ * empty, too long, or containing anything other than lowercase letters,
+ * digits, and hyphens (e.g. uppercase, whitespace, or other punctuation).
+ *
+ * @param fieldName - used only in the thrown message, e.g. `"invoiceId"`.
+ */
+function assertCanonicalIdentifier(value, maxLen, fieldName) {
+    if (value.length === 0) {
+        throw new Error(`${fieldName} must not be empty`);
+    }
+    if (value.length > maxLen) {
+        throw new Error(`${fieldName} must be at most ${maxLen} characters, got ${value.length}`);
+    }
+    if (!CANONICAL_IDENTIFIER_PATTERN.test(value)) {
+        throw new Error(`${fieldName} must contain only lowercase letters, digits, and hyphens, got: ${value}`);
+    }
+}
 // ─── Encoders (TypeScript → XDR ScVal) ───────────────────────────────────────
 function encodeString(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'string' });

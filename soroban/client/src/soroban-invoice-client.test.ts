@@ -286,6 +286,102 @@ describe('recordPayment', () => {
       args: ['invoisio-abc123', READER, 'XLM', '', amount, 'settle-hash-abc123'],
     });
   });
+
+  it('recordPayment() rejects a non-canonical invoiceId before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'INVOISIO-ABC123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects an invoiceId over MAX_INVOICE_ID_LEN before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'a'.repeat(65),
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects a non-canonical settlementRef before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle hash abc123',
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects a settlementRef over MAX_SETTLEMENT_REF_LEN before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'a'.repeat(129),
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it('recordPayment() rejects an empty invoiceId or settlementRef before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: '',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: 'settle-hash-abc123',
+      }),
+    ).rejects.toThrow(/invoiceId/);
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-abc123',
+        payer: READER,
+        assetCode: 'XLM',
+        assetIssuer: '',
+        amount: 10_000_000n,
+        settlementRef: '',
+      }),
+    ).rejects.toThrow(/settlementRef/);
+
+    expect(submit).not.toHaveBeenCalled();
+  });
 });
 
 describe('admin read method', () => {

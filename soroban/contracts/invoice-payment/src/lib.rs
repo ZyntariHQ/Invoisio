@@ -126,6 +126,20 @@ impl InvoicePaymentContract {
     /// Each `invoice_id` may be recorded **only once**.
     /// Returns [`ContractError::PaymentAlreadyRecorded`] on duplicates.
     ///
+    /// ## Canonicalisation
+    /// `invoice_id` and `settlement_ref` back this idempotency guard and the
+    /// settlement-reference uniqueness guard respectively, and both guards
+    /// compare stored values byte-exactly. To keep case or whitespace
+    /// variants of the same identifier from slipping past those guards, both
+    /// fields must already be in **canonical form** — ASCII lowercase
+    /// letters, digits, and hyphens only, no uppercase and no whitespace
+    /// (leading, trailing, or embedded). Non-canonical input is **rejected**,
+    /// not normalised: the stored key always matches exactly what the caller
+    /// supplied. See [`storage::is_canonical_identifier`] for the exact rule.
+    /// This validation applies only to new writes — payment records already
+    /// on chain from before this guard existed remain readable as-is and are
+    /// never re-validated or rewritten by an upgrade.
+    ///
     /// ## Emitted event
     /// | Field  | Value                                   |
     /// |--------|-----------------------------------------|
@@ -138,20 +152,26 @@ impl InvoicePaymentContract {
     /// ```
     ///
     /// ## Parameters
-    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`)
+    /// - `invoice_id`      — unique invoice identifier (e.g. `"invoisio-abc123"`);
+    ///                       must be non-empty, max [`storage::MAX_INVOICE_ID_LEN`]
+    ///                       chars, and in canonical form (see above)
     /// - `payer`           — Stellar account address that sent the payment
     /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
     /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
     /// - `amount`          — payment amount in smallest denomination (must be > 0)
     /// - `settlement_ref`  — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
-    ///                       (must be non-empty, max 128 chars)
+    ///                       (must be non-empty, max [`storage::MAX_SETTLEMENT_REF_LEN`]
+    ///                       chars, and in canonical form — see above)
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
     /// - [`ContractError::ContractPaused`] — contract is paused; payment log is frozen
-    /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is an empty string
-    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty or exceeds 128 chars
+    /// - [`ContractError::InvalidInvoiceId`] — `invoice_id` is empty, exceeds
+    ///   [`storage::MAX_INVOICE_ID_LEN`] chars, or is not in canonical form
+    /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty,
+    ///   exceeds [`storage::MAX_SETTLEMENT_REF_LEN`] chars, or is not in
+    ///   canonical form
     /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
@@ -184,6 +204,22 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidInvoiceId);
         }
 
+        // invoice_id length guard — reject unreasonably long identifiers so
+        // an oversized invoice_id can't inflate ledger rent (it is duplicated
+        // across PaymentV1, PaymentLog, and every PaymentHistory slot). See
+        // `storage::MAX_INVOICE_ID_LEN` for the rationale.
+        if invoice_id.len() > storage::MAX_INVOICE_ID_LEN {
+            return Err(ContractError::InvalidInvoiceId);
+        }
+
+        // invoice_id canonical-form guard — `has_payment` compares invoice_id
+        // byte-exactly, so case and whitespace variants of the same ID must
+        // be rejected rather than silently treated as distinct invoices. See
+        // `storage::is_canonical_identifier` for the exact rule.
+        if !storage::is_canonical_identifier(&invoice_id) {
+            return Err(ContractError::InvalidInvoiceId);
+        }
+
         // settlement_ref must be non-empty.
         if settlement_ref.is_empty() {
             return Err(ContractError::InvalidSettlementRef);
@@ -192,7 +228,15 @@ impl InvoicePaymentContract {
         // settlement_ref length guard — reject unreasonably long references
         // (e.g. a full transaction blob pasted by mistake).
         // A SHA-256 hex string is 64 chars; this allows some headroom.
-        if settlement_ref.len() > 128 {
+        if settlement_ref.len() > storage::MAX_SETTLEMENT_REF_LEN {
+            return Err(ContractError::InvalidSettlementRef);
+        }
+
+        // settlement_ref canonical-form guard — enforces the "normalised"
+        // claim in its documentation and closes the same byte-exact-
+        // comparison gap as the invoice_id guard above, this time against
+        // `is_settlement_ref_used`. See `storage::is_canonical_identifier`.
+        if !storage::is_canonical_identifier(&settlement_ref) {
             return Err(ContractError::InvalidSettlementRef);
         }
 

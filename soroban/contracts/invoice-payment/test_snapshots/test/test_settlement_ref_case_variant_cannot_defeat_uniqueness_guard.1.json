@@ -36,7 +36,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-ref-128"
+                  "string": "invoisio-canon-ref-dup-1"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -51,7 +51,7 @@
                   "i128": "10000000"
                 },
                 {
-                  "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                  "string": "settle-canon-ref-dup"
                 }
               ]
             }
@@ -60,6 +60,7 @@
         }
       ]
     ],
+    [],
     []
   ],
   "ledger": {
@@ -214,7 +215,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-ref-128"
+                      "string": "invoisio-canon-ref-dup-1"
                     }
                   },
                   {
@@ -230,7 +231,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                      "string": "settle-canon-ref-dup"
                     }
                   },
                   {
@@ -268,7 +269,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-ref-128"
+                "string": "invoisio-canon-ref-dup-1"
               }
             }
           },
@@ -289,7 +290,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-ref-128"
+                    "string": "invoisio-canon-ref-dup-1"
                   }
                 ]
               },
@@ -321,7 +322,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-ref-128"
+                      "string": "invoisio-canon-ref-dup-1"
                     }
                   },
                   {
@@ -337,7 +338,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                      "string": "settle-canon-ref-dup"
                     }
                   },
                   {
@@ -369,7 +370,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                    "string": "settle-canon-ref-dup"
                   }
                 ]
               },

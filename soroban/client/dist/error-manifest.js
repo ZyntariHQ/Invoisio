@@ -98,7 +98,7 @@ exports.CONTRACT_ERROR_MANIFEST = [
     {
         code: 12,
         name: 'ContractPaused',
-        meaning: 'The contract is paused and cannot perform the requested operation.',
+        meaning: 'The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.',
     },
     {
         code: 13,
