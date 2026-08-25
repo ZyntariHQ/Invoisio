@@ -9,6 +9,7 @@ import {
   PaymentRecord,
   SettlementRefEntry,
   SettlementRefIndexStatus,
+  MigrationProgress,
   SettlementRefPage,
   SorobanContractError,
 } from './types';
@@ -277,6 +278,12 @@ export function decodeSettlementRefIndexStatus(scVal: xdr.ScVal): SettlementRefI
     paymentCount: Number(paymentCount),
     isConsistent: Boolean(isConsistent),
   };
+}
+
+/** Decode durable, bounded migration progress. */
+export function decodeMigrationProgress(scVal: xdr.ScVal): MigrationProgress {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  return { phase: Number(raw['phase']), cursor: Number(raw['cursor']), total: Number(raw['total']), schemaFrom: Number(raw['schema_from']), active: Boolean(raw['active']) };
 }
 
 // ─── Error parsing ────────────────────────────────────────────────────────────
