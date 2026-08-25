@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { WebhooksService } from "./webhooks.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { ConfigService } from "@nestjs/config";
 import axios from "axios";
 import {
   BadRequestException,
@@ -59,10 +60,15 @@ describe("WebhooksService", () => {
       callback(mockTransactionClient),
     );
 
+    const mockConfigService = {
+      get: jest.fn().mockReturnValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhooksService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 
