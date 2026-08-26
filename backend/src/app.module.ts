@@ -38,7 +38,13 @@ import { Module } from "@nestjs/common";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ".env",
-      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig, webhooksConfig],
+      load: [
+        appConfig,
+        stellarConfig,
+        throttlerConfig,
+        observabilityConfig,
+        webhooksConfig,
+      ],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
         CORS_ORIGIN: Joi.string().default("http://localhost:3000"),
@@ -95,7 +101,8 @@ import { Module } from "@nestjs/common";
           then: Joi.string().min(56).required().messages({
             "any.required":
               "SOROBAN_CONTRACT_ID is required when SOROBAN_ANCHORING_ENABLED=true",
-            "string.min": "SOROBAN_CONTRACT_ID must be a valid Stellar contract ID (56+ characters)",
+            "string.min":
+              "SOROBAN_CONTRACT_ID must be a valid Stellar contract ID (56+ characters)",
             "string.empty":
               "SOROBAN_CONTRACT_ID must not be empty when SOROBAN_ANCHORING_ENABLED=true",
           }),
@@ -106,7 +113,8 @@ import { Module } from "@nestjs/common";
           then: Joi.string().min(56).required().messages({
             "any.required":
               "ADMIN_SECRET_KEY is required when SOROBAN_ANCHORING_ENABLED=true",
-            "string.min": "ADMIN_SECRET_KEY must be a valid Stellar secret key (56+ characters)",
+            "string.min":
+              "ADMIN_SECRET_KEY must be a valid Stellar secret key (56+ characters)",
             "string.empty":
               "ADMIN_SECRET_KEY must not be empty when SOROBAN_ANCHORING_ENABLED=true",
           }),

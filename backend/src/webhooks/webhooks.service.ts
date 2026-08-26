@@ -710,13 +710,17 @@ export class WebhooksService implements OnModuleDestroy {
     );
 
     if (!retentionDays || retentionDays <= 0) {
-      this.logger.debug("Webhook retention disabled or invalid; skipping cleanup.");
+      this.logger.debug(
+        "Webhook retention disabled or invalid; skipping cleanup.",
+      );
       return;
     }
 
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
 
-    this.logger.log(`Cleaning webhook deliveries older than ${cutoff.toISOString()}`);
+    this.logger.log(
+      `Cleaning webhook deliveries older than ${cutoff.toISOString()}`,
+    );
 
     // Delete in small batches to avoid long-running transactions and heavy locks.
     const BATCH_SIZE = 1000;
