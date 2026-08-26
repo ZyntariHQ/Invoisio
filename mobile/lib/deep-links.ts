@@ -1,5 +1,26 @@
 import { Linking } from "react-native";
 
+/**
+ * Supported deep-link route types.
+ *
+ * --------------------------------------------------------------------------
+ * ROUTE CONTRACT — KEEP THESE IN SYNC:
+ *   1. mobile/app.json → android.intentFilters (Android pathPrefix / pathPattern)
+ *   2. mobile/lib/deep-links.ts → DeepLinkType, LINK_TYPES, route parsing
+ *   3. mobile/lib/share-links.ts → generateDeepLink / generateWebUrl types
+ *
+ * If you add a new route type, update ALL THREE locations above.
+ * --------------------------------------------------------------------------
+ *
+ * Routes that REQUIRE an :id segment (parsed and validated):
+ *   - invoice   → /invoice/:id        (merchant invoice detail)
+ *   - payment   → /payment/:id or /pay/:id (payment view, "pay" is an alias)
+ *   - receipt   → /receipt/:id      (receipt detail)
+ *
+ * Routes WITHOUT an :id segment (bare path only):
+ *   - dashboard     → /dashboard or /     (root path defaults to dashboard)
+ *   - create-invoice → /create-invoice  (new invoice form)
+ */
 export type DeepLinkType =
   | "invoice"
   | "payment"
@@ -18,17 +39,42 @@ export interface DeepLinkRouter {
   push(href: string): void;
 }
 
+/** Web hostnames treated as authoritative universal-link sources. */
 const WEB_HOSTS = new Set(["invoisio.com"]);
-const ID_LINK_TYPES = new Set<DeepLinkType>(["invoice", "payment", "receipt"]);
-const LINK_TYPES = new Set<DeepLinkType>([
+
+/**
+ * Route types that carry a resource identifier in the second path segment.
+ *   /{type}/{id}
+ */
+export const ID_LINK_TYPES: ReadonlySet<DeepLinkType> = new Set<DeepLinkType>([
+  "invoice",
+  "payment",
+  "receipt",
+]);
+
+/**
+ * Every route type path segments we accept from incoming links.
+ * Union of id-bearing routes and static entry points.
+ */
+export const LINK_TYPES: ReadonlySet<DeepLinkType> = new Set<DeepLinkType>([
   ...ID_LINK_TYPES,
   "dashboard",
   "create-invoice",
   "drafts",
 ]);
 
+/**
+ * Alternative path segment aliases.
+ *   web path → canonical DeepLinkType
+ * Used when parsing; kept next to LINK_TYPES above so they stay in sync.
+ */
+export const PATH_ALIASES: Readonly<Record<string, DeepLinkType>> = {
+  pay: "payment",
+};
+
 function normaliseType(value: string): DeepLinkType | null {
-  const type = value === "pay" ? "payment" : value;
+  const aliased = PATH_ALIASES[value];
+  const type = aliased ?? value;
   return LINK_TYPES.has(type as DeepLinkType) ? (type as DeepLinkType) : null;
 }
 

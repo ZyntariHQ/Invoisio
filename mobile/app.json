@@ -37,6 +37,21 @@
             {
               "scheme": "https",
               "host": "invoisio.com",
+              "pathPattern": "^$"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
+              "pathPrefix": "/dashboard"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
+              "pathPrefix": "/create-invoice"
+            },
+            {
+              "scheme": "https",
+              "host": "invoisio.com",
               "pathPrefix": "/invoice"
             },
             {
