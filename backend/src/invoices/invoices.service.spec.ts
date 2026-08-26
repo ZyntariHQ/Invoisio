@@ -103,6 +103,28 @@ describe("InvoicesService", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       },
+      {
+        id: "invoice-a-draft",
+        merchantId: MERCHANT_A,
+        userId: USER_A,
+        invoiceNumber: "DRAFT-001",
+        clientName: "Untitled Client",
+        clientEmail: "",
+        description: "not yet published",
+        amount: 300,
+        assetCode: "XLM",
+        assetIssuer: null,
+        memo: "draft-memo-1",
+        memoType: "ID",
+        status: "draft",
+        // Real draft rows set isDraft: true explicitly (DraftService), but
+        // the public-invoice fix intentionally gates on `status`, not
+        // `isDraft` — see the comment on PUBLIC_SAFE_INVOICE_STATUSES.
+        isDraft: true,
+        destinationAddress: mockStellarService.getMerchantPublicKey(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     ];
 
     const statusHistories: any[] = [
@@ -426,6 +448,49 @@ describe("InvoicesService", () => {
       const found = await service.findByMemo("1001");
       expect(found).not.toBeNull();
       expect(found!.memo).toBe("1001");
+    });
+  });
+
+  describe("findPublicInvoice", () => {
+    it("returns null for a draft invoice, never exposing its details", async () => {
+      const found = await service.findPublicInvoice("invoice-a-draft");
+      expect(found).toBeNull();
+    });
+
+    it("returns null for a cancelled invoice", async () => {
+      await service.cancelInvoice("invoice-a-1", MERCHANT_A);
+      const found = await service.findPublicInvoice("invoice-a-1");
+      expect(found).toBeNull();
+    });
+
+    it("returns null for an unknown invoice ID", async () => {
+      const found = await service.findPublicInvoice("does-not-exist");
+      expect(found).toBeNull();
+    });
+
+    it("returns payer-safe fields for a pending (published) invoice", async () => {
+      const found = await service.findPublicInvoice("invoice-a-1");
+      expect(found).not.toBeNull();
+      expect(found!.id).toBe("invoice-a-1");
+      expect(found!.status).toBe("pending");
+      expect(found!.amount).toBeDefined();
+    });
+
+    it("returns partially_paid, paid, and overdue invoices", async () => {
+      for (const status of ["partially_paid", "paid", "overdue"] as const) {
+        await service.updateStatus("invoice-a-1", status, MERCHANT_A);
+        const found = await service.findPublicInvoice("invoice-a-1");
+        expect(found).not.toBeNull();
+        expect(found!.status).toBe(status);
+      }
+    });
+
+    it("does not leak draft-only fields when access is denied", async () => {
+      const found = await service.findPublicInvoice("invoice-a-draft");
+      expect(found).toBeNull();
+      // A null response is indistinguishable from "unknown ID" — the
+      // caller (controller) must not learn the invoice exists but is
+      // merely unpublished.
     });
   });
 
