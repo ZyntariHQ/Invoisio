@@ -106,6 +106,7 @@ model User {
   webhookDeadLetters  WebhookDeadLetter[]
   recurringSchedules  RecurringSchedule[]
   pushNotifications PushNotification[]
+  refreshSessions   RefreshSession[]
 
   @@index([merchantId])
   @@map("users")

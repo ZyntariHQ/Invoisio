@@ -77,13 +77,13 @@ export function useWalletAuth(): UseWalletAuthReturn {
       }
 
       // Step 5: Verify signature with backend and get JWT
-      const { accessToken } = await authService.verifySignature(
+      const { accessToken, refreshToken } = await authService.verifySignature(
         userPublicKey,
         signature,
       );
 
-      // Step 6: Store auth data securely
-      await setAuth(accessToken, userPublicKey);
+      // Successfully authenticated
+      await setAuth(accessToken, refreshToken, userPublicKey);
 
       console.log("Authentication successful!");
     } catch (err) {

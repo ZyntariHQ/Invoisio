@@ -6,25 +6,27 @@ const AUTH_STORAGE_KEY = "@invoisio:auth";
 
 interface AuthState {
   accessToken: string | null;
+  refreshToken: string | null;
   publicKey: string | null;
   expiresAt: number | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 
   // Actions
-  setAuth: (accessToken: string, publicKey: string) => Promise<void>;
+  setAuth: (accessToken: string, refreshToken: string, publicKey: string) => Promise<void>;
   clearAuth: () => Promise<void>;
   loadAuth: () => Promise<boolean>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
   accessToken: null,
+  refreshToken: null,
   publicKey: null,
   expiresAt: null,
   isAuthenticated: false,
   isLoading: true,
 
-  setAuth: async (accessToken: string, publicKey: string) => {
+  setAuth: async (accessToken: string, refreshToken: string, publicKey: string) => {
     try {
       const expiresAt = authService.decodeTokenExpiry(accessToken);
       if (
@@ -34,13 +36,14 @@ export const useAuthStore = create<AuthState>((set) => ({
       ) {
         throw new Error("Cannot persist invalid authentication data");
       }
-      const authData = { accessToken, publicKey, expiresAt };
+      const authData = { accessToken, refreshToken, publicKey, expiresAt };
       await SecureStore.setItemAsync(
         AUTH_STORAGE_KEY,
         JSON.stringify(authData),
       );
       set({
         accessToken,
+        refreshToken,
         publicKey,
         expiresAt,
         isAuthenticated: true,
@@ -57,6 +60,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
       set({
         accessToken: null,
+        refreshToken: null,
         publicKey: null,
         expiresAt: null,
         isAuthenticated: false,
@@ -79,11 +83,13 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       const authData = JSON.parse(authDataString) as {
         accessToken?: string;
+        refreshToken?: string;
         publicKey?: string;
         expiresAt?: number | null;
       };
 
       const storedAccessToken = authData.accessToken;
+      const storedRefreshToken = authData.refreshToken;
       const storedPublicKey = authData.publicKey;
       const hasValidIdentity =
         typeof storedAccessToken === "string" &&
@@ -98,11 +104,13 @@ export const useAuthStore = create<AuthState>((set) => ({
             ? authData.expiresAt
             : authService.decodeTokenExpiry(storedAccessToken);
 
-        // Local expiry check first — works offline and avoids a wasted request.
-        if (expiresAt == null || Date.now() >= expiresAt) {
+        // If it's expired locally but we have a refresh token, we shouldn't wipe it
+        // yet, because the interceptor can refresh it.
+        if (!storedRefreshToken && (expiresAt == null || Date.now() >= expiresAt)) {
           await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
           set({
             accessToken: null,
+            refreshToken: null,
             publicKey: null,
             expiresAt: null,
             isAuthenticated: false,
@@ -111,15 +119,15 @@ export const useAuthStore = create<AuthState>((set) => ({
           return false;
         }
 
-        // Confirm with the backend. A network failure ("unknown") keeps the
-        // restored session so transient connectivity issues do not log the
-        // merchant out; only an explicit rejection clears credentials.
+        // Confirm with the backend. If expired, the interceptor will refresh it here.
+        // A network failure ("unknown") keeps the restored session.
         const status = await authService.verifyToken(storedAccessToken);
 
         if (status === "invalid") {
           await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
           set({
             accessToken: null,
+            refreshToken: null,
             publicKey: null,
             expiresAt: null,
             isAuthenticated: false,
@@ -128,10 +136,20 @@ export const useAuthStore = create<AuthState>((set) => ({
           return false;
         }
 
+        // We use getState to capture potentially refreshed tokens from the interceptor
+        // which might have executed during `verifyToken()`.
+        const currentState = useAuthStore.getState();
+        const finalAccessToken = currentState.accessToken ?? storedAccessToken;
+        const finalRefreshToken = currentState.refreshToken ?? storedRefreshToken;
+        const finalExpiresAt = currentState.accessToken 
+          ? authService.decodeTokenExpiry(currentState.accessToken) 
+          : expiresAt;
+
         set({
-          accessToken: storedAccessToken,
+          accessToken: finalAccessToken,
+          refreshToken: finalRefreshToken,
           publicKey: storedPublicKey,
-          expiresAt,
+          expiresAt: finalExpiresAt,
           isAuthenticated: true,
           isLoading: false,
         });
@@ -141,6 +159,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
       set({
         accessToken: null,
+        refreshToken: null,
         publicKey: null,
         expiresAt: null,
         isAuthenticated: false,
@@ -156,6 +175,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       set({
         accessToken: null,
+        refreshToken: null,
         publicKey: null,
         expiresAt: null,
         isAuthenticated: false,

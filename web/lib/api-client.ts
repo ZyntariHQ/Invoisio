@@ -41,6 +41,14 @@ export function getApiAccessToken(): string | null {
   return accessToken;
 }
 
+export function setApiRefreshToken(token: string | null): void {
+  refreshToken = token;
+}
+
+export function getApiRefreshToken(): string | null {
+  return refreshToken;
+}
+
 export function extractApiErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
     const err = error as AxiosError<{ message?: string | string[] }>;

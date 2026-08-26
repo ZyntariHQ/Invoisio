@@ -12,6 +12,8 @@ import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
 
 const NONCE_TTL_MS = 2 * 60 * 1000; // 2 minutes
 const NONCE_REGENERATION_GRACE_MS = 0; // immediate invalidation on regeneration
+const REFRESH_IDLE_TIMEOUT_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+const REFRESH_ABSOLUTE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 @Injectable()
 export class AuthService {
@@ -121,7 +123,9 @@ export class AuthService {
    *   4. format check    → BadRequestException  (only reached with a real nonce)
    *   5. crypto verify   → UnauthorizedException
    */
-  async verify(dto: VerifyRequestDto): Promise<{ accessToken: string }> {
+  async verify(
+    dto: VerifyRequestDto,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
     this.assertValidPublicKey(dto.publicKey);
 
     this.logger.info("auth.verify.start", {
@@ -196,6 +200,19 @@ export class AuthService {
     };
     const accessToken = this.jwtService.sign(payload);
 
+    const refreshToken = crypto.randomBytes(32).toString("hex");
+    const familyId = crypto.randomUUID();
+    const now = Date.now();
+    await this.prisma.refreshSession.create({
+      data: {
+        userId: user.id,
+        token: refreshToken,
+        familyId,
+        expiresAt: new Date(now + REFRESH_IDLE_TIMEOUT_MS),
+        absoluteExpiresAt: new Date(now + REFRESH_ABSOLUTE_TIMEOUT_MS),
+      },
+    });
+
     this.logger.info("auth.verify.success", {
       domain: "auth",
       event: "verify_succeeded",
@@ -204,18 +221,105 @@ export class AuthService {
       publicKey: dto.publicKey,
     });
 
-    return { accessToken };
+    return { accessToken, refreshToken };
+  }
+
+  /**
+   * Refresh the user's session using a valid refresh token.
+   */
+  async refresh(
+    refreshToken: string,
+  ): Promise<{ accessToken: string; refreshToken: string }> {
+    const session = await this.prisma.refreshSession.findUnique({
+      where: { token: refreshToken },
+      include: { user: true },
+    });
+
+    if (!session) {
+      throw new UnauthorizedException("Invalid refresh token.");
+    }
+
+    const now = Date.now();
+    const isExpired =
+      now > session.expiresAt.getTime() ||
+      now > session.absoluteExpiresAt.getTime();
+
+    if (session.isRevoked) {
+      // Reuse of a rotated/revoked token detected.
+      // Invalidate the entire family and bump token version.
+      await this.prisma.refreshSession.updateMany({
+        where: { familyId: session.familyId },
+        data: { isRevoked: true },
+      });
+      await this.prisma.user.update({
+        where: { id: session.userId },
+        data: { tokenVersion: { increment: 1 } } as any,
+      });
+      this.logger.warn("auth.refresh.compromised", {
+        domain: "auth",
+        event: "refresh_compromised",
+        reason: "revoked_token_reuse",
+        userId: session.userId,
+        familyId: session.familyId,
+      });
+      throw new UnauthorizedException("Session compromised. Please log in again.");
+    }
+
+    if (isExpired) {
+      throw new UnauthorizedException("Refresh token has expired.");
+    }
+
+    // Mark current token as revoked
+    await this.prisma.refreshSession.update({
+      where: { id: session.id },
+      data: { isRevoked: true },
+    });
+
+    const newRefreshToken = crypto.randomBytes(32).toString("hex");
+    await this.prisma.refreshSession.create({
+      data: {
+        userId: session.userId,
+        token: newRefreshToken,
+        familyId: session.familyId,
+        expiresAt: new Date(now + REFRESH_IDLE_TIMEOUT_MS),
+        absoluteExpiresAt: session.absoluteExpiresAt,
+      },
+    });
+
+    const payload = {
+      sub: session.user.id,
+      publicKey: session.user.publicKey,
+      merchantId: session.user.merchantId,
+      tokenVersion: (session.user as any).tokenVersion ?? 0,
+    };
+    const accessToken = this.jwtService.sign(payload);
+
+    this.logger.info("auth.refresh.success", {
+      domain: "auth",
+      event: "refresh_succeeded",
+      userId: session.userId,
+      familyId: session.familyId,
+    });
+
+    return { accessToken, refreshToken: newRefreshToken };
   }
 
   /**
    * Invalidate active JWTs for the current user by bumping the token version.
    * Any token minted with the previous version will fail validation.
+   * Also revokes all active refresh sessions for the user.
    */
   async logout(userId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { tokenVersion: { increment: 1 } } as any,
-    });
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { tokenVersion: { increment: 1 } } as any,
+      }),
+      this.prisma.refreshSession.updateMany({
+        where: { userId },
+        data: { isRevoked: true },
+      }),
+    ]);
 
     this.logger.info("auth.logout", {
       domain: "auth",

@@ -394,6 +394,7 @@ class SyncCoordinator {
       if (loginResult) {
         await useAuthStore.getState().setAuth(
           loginResult.response.accessToken,
+          loginResult.response.refreshToken,
           loginResult.publicKey
         );
       }
