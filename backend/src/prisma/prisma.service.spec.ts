@@ -1,6 +1,6 @@
 import { Logger } from "@nestjs/common";
 import { prismaExtensionCallback } from "./prisma.service";
-import { MerchantContextService } from "./merchant-context.service";
+import { MerchantContextService, UNSCOPED_MERCHANT_CONTEXT } from "./merchant-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 
 type Deps = Parameters<typeof prismaExtensionCallback>[0];
@@ -120,7 +120,6 @@ describe("prismaExtensionCallback", () => {
   });
 
   it("passes args through unchanged when UNSCOPED_MERCHANT_CONTEXT is in scope", async () => {
-    const { UNSCOPED_MERCHANT_CONTEXT } = require("./merchant-context.service");
     const deps = buildDeps({
       merchantContext: {
         getMerchantId: jest.fn().mockReturnValue(UNSCOPED_MERCHANT_CONTEXT),
