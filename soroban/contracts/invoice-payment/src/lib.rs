@@ -5,7 +5,6 @@ use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 pub mod errors;
 pub mod events;
 pub mod migration;
-pub mod migration_helpers;
 pub mod storage;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
