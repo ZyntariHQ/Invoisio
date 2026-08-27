@@ -56,16 +56,17 @@ CONFIG_OUTPUT=$(stellar contract invoke \
     exit 3
 }
 
-# In Soroban, config returns a JSON object. We can check the native_allowed and requires_token_allowlist fields.
+# In Soroban, config returns a JSON object. We can check the native_allowed field.
+# There is no requires_token_allowlist field: every non-native asset always
+# requires allowlisting in this contract, so that field would only ever
+# report a constant, never real state (issue #464) — it was removed. Use
+# ./invoke-list-allowlist.sh / allowlist_count to inspect the actual
+# allowlist instead of inferring policy from config().
 NATIVE_ALLOWED=$(echo "$CONFIG_OUTPUT" | grep -o '"native_allowed":[^,]*' | head -n 1 | cut -d: -f2 | tr -d '[:space:]"}' || true)
-REQUIRES_TOKEN=$(echo "$CONFIG_OUTPUT" | grep -o '"requires_token_allowlist":[^,]*' | head -n 1 | cut -d: -f2 | tr -d '[:space:]"}' || true)
 
 # Fallback parser for non-JSON formatted text representations (if any)
 if [ -z "$NATIVE_ALLOWED" ]; then
     NATIVE_ALLOWED=$(echo "$CONFIG_OUTPUT" | grep -i "native_allowed" | grep -o -E "true|false" || echo "unknown")
-fi
-if [ -z "$REQUIRES_TOKEN" ]; then
-    REQUIRES_TOKEN=$(echo "$CONFIG_OUTPUT" | grep -i "requires_token_allowlist" | grep -o -E "true|false" || echo "unknown")
 fi
 
 echo "Allowlist Configuration Status:"
@@ -79,17 +80,9 @@ else
     echo "   (Payer cannot pay in native Stellar XLM. To enable, run ./invoke-set-allow-native.sh true)"
 fi
 
-if [ "$REQUIRES_TOKEN" = "true" ]; then
-    echo "🔒 Token Allowlist: Enabled (requires_token_allowlist=true)"
-    echo "   (Stellar tokens must be explicitly allowlisted before record_payment accepts them)"
-else
-    echo "🔓 Token Allowlist: Disabled (requires_token_allowlist=false)"
-    echo "   (Any Stellar token is allowed)"
-fi
-
 echo ""
 echo "Operations Guidance:"
-echo "  - To list all configured assets, run: ./invoke-list-assets.sh"
+echo "  - To list every allowlisted token, run: ./invoke-list-allowlist.sh"
 echo "  - To allow a token, run:            ./invoke-allow-asset.sh <code> <issuer>"
 echo "  - To revoke a token, run:           ./invoke-revoke-asset.sh <code> <issuer>"
 echo ""

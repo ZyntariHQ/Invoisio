@@ -3,7 +3,7 @@
   "title": "Invoisio Invoice Payment Contract Schema",
   "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
   "contract_version": "1.0.0",
-  "storage_schema_version": 3,
+  "storage_schema_version": 4,
   "types": {
     "Asset": {
       "description": "Asset type: native XLM or a Stellar-issued token.",
@@ -85,19 +85,15 @@
       "additionalProperties": false
     },
     "AllowlistMode": {
-      "description": "Asset allowlist policy for this contract instance.",
+      "description": "Asset allowlist policy for this contract instance. There is no requires_token_allowlist field: every non-native asset always requires allowlisting in this contract, so a field for it would only ever report a constant, never real state. Use allowed_assets()/allowlist_count() to inspect the actual allowlist.",
       "type": "object",
       "properties": {
         "native_allowed": {
           "type": "boolean",
           "description": "Whether native XLM payments are accepted."
-        },
-        "requires_token_allowlist": {
-          "type": "boolean",
-          "description": "Whether issued assets must be explicitly allowlisted. Currently always true."
         }
       },
-      "required": ["native_allowed", "requires_token_allowlist"],
+      "required": ["native_allowed"],
       "additionalProperties": false
     },
     "ContractConfig": {
@@ -189,6 +185,49 @@
         "gaps_skipped": {
           "type": "integer",
           "description": "Number of index slots in this page's range that were expected to hold an entry but did not (e.g. a corrupted or partially-rebuilt index). Always 0 for a healthy index.",
+          "minimum": 0
+        }
+      },
+      "required": ["records", "next_cursor", "has_more", "gaps_skipped"],
+      "additionalProperties": false
+    },
+    "AllowlistEntry": {
+      "description": "A single allowlisted (code, issuer) pair, as recorded by allow_asset() or backfilled by migration.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Asset code (e.g. USDC)."
+        },
+        "issuer": {
+          "type": "string",
+          "description": "Issuer Stellar account address (G...)."
+        }
+      },
+      "required": ["code", "issuer"],
+      "additionalProperties": false
+    },
+    "AllowlistPage": {
+      "description": "Bounded, cursor-friendly slice of the currently-allowlisted assets returned by allowed_assets(). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions, except a hole here is a normal outcome of revoke_asset(), not only a sign of corruption.",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/types/AllowlistEntry" },
+          "description": "Entries returned for this page, in write (allow) order."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        },
+        "gaps_skipped": {
+          "type": "integer",
+          "description": "Number of log slots in this page's range that have been revoked (or, on a legacy pre-migration deployment, not yet backfilled).",
           "minimum": 0
         }
       },
@@ -305,6 +344,15 @@
       },
       "required": ["count", "conflicts_skipped", "migrated_at"]
     },
+    "AllowlistIndexBackfilled": {
+      "description": "Emitted by the V3 -> V4 storage migration after backfilling the allowlist enumeration index from payment history. discovered is not necessarily the deployment's full allowlist: an asset allowlisted but never paid with before the upgrade is not discoverable this way (Soroban has no key enumeration).",
+      "topic": "allowlist_index_backfilled",
+      "fields": {
+        "discovered": { "type": "integer", "description": "Number of distinct, still-allowed (code, issuer) pairs newly indexed.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["discovered", "migrated_at"]
+    },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
       "topic": "contract_upgraded",
@@ -356,6 +404,8 @@
     "cancel_admin_transfer": { "auth": "admin", "description": "Cancel a pending admin transfer proposed via propose_admin()." },
     "allow_asset": { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
     "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
+    "allowed_assets": { "auth": "none", "description": "Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs." },
+    "allowlist_count": { "auth": "none", "description": "Return the number of currently-allowlisted (code, issuer) pairs." },
     "set_allow_native": { "auth": "admin", "description": "Toggle native XLM acceptance." },
     "config": { "auth": "none", "description": "Return ContractConfig snapshot." },
     "payment_history": { "auth": "none", "description": "Return a bounded, cursor-paginated PaymentHistoryPage across all payments." },

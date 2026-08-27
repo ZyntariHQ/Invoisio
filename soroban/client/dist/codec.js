@@ -14,6 +14,7 @@ exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
 exports.decodeContractConfig = decodeContractConfig;
 exports.decodeSettlementRefOwner = decodeSettlementRefOwner;
 exports.decodeSettlementRefPage = decodeSettlementRefPage;
+exports.decodeAllowlistPage = decodeAllowlistPage;
 exports.decodeSettlementRefIndexStatus = decodeSettlementRefIndexStatus;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
@@ -177,7 +178,6 @@ function decodePaymentHistoryPage(scVal) {
  * - version.contract_version
  * - version.storage_schema_version
  * - allowlist_mode.native_allowed
- * - allowlist_mode.requires_token_allowlist
  */
 function decodeContractConfig(scVal) {
     const raw = (0, stellar_sdk_1.scValToNative)(scVal);
@@ -195,7 +195,6 @@ function decodeContractConfig(scVal) {
         },
         allowlistMode: {
             nativeAllowed: Boolean(allowlistMode['native_allowed']),
-            requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
         },
         paused: Boolean(raw['paused']),
     };
@@ -227,6 +226,25 @@ function decodeSettlementRefPage(scVal) {
     const records = raw['records'] ?? [];
     return {
         records: records.map((record) => decodeSettlementRefEntryFromNative(record)),
+        nextCursor: Number(raw['next_cursor']),
+        hasMore: Boolean(raw['has_more']),
+        gapsSkipped: Number(raw['gaps_skipped']),
+    };
+}
+function decodeAllowlistEntryFromNative(raw) {
+    return {
+        code: String(raw['code']),
+        issuer: String(raw['issuer']),
+    };
+}
+/**
+ * Decode a bounded allowlist page returned by `allowed_assets()`.
+ */
+function decodeAllowlistPage(scVal) {
+    const raw = (0, stellar_sdk_1.scValToNative)(scVal);
+    const records = raw['records'] ?? [];
+    return {
+        records: records.map((record) => decodeAllowlistEntryFromNative(record)),
         nextCursor: Number(raw['next_cursor']),
         hasMore: Boolean(raw['has_more']),
         gapsSkipped: Number(raw['gaps_skipped']),

@@ -11,6 +11,7 @@ import {
 } from '@stellar/stellar-sdk';
 
 import {
+  AllowlistPage,
   ContractConfig,
   PaymentHistoryPage,
   PaymentRecord,
@@ -22,6 +23,7 @@ import {
 } from './types';
 import {
   assertCanonicalIdentifier,
+  decodeAllowlistPage,
   decodeContractConfig,
   decodePaymentRecord,
   decodePaymentHistoryPage,
@@ -72,6 +74,7 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
+ * | `getAllowlistCount` | O(1)                    | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -643,6 +646,45 @@ export class SorobanInvoiceClient {
   async getSettlementRefIndexStatus(): Promise<SettlementRefIndexStatus> {
     const retval = await this.simulateView('settlement_ref_index_status');
     return decodeSettlementRefIndexStatus(retval);
+  }
+
+  /**
+   * Fetch a bounded page of the currently-allowlisted `(code, issuer)`
+   * pairs, so operators can enumerate and audit the allowlist without
+   * already knowing which pairs to ask `isAssetAllowed`-style checks about
+   * (issue #464).
+   *
+   * `cursor` is the next write-order slot to read; `limit` is capped by the
+   * contract, mirroring `getPaymentHistory`/`getSettlementRefHistory`. A
+   * revoked (or, on a legacy pre-migration deployment, not-yet-backfilled)
+   * slot is skipped and counted in `gapsSkipped` rather than stalling
+   * pagination — keep paging from `nextCursor` until `hasMore` is `false`.
+   * Use `getAllowlistCount` to size paging or detect drift.
+   *
+   * Permissionless read.
+   */
+  async getAllowedAssets(cursor = 0, limit = 25): Promise<AllowlistPage> {
+    const retval = await this.simulateView(
+      'allowed_assets',
+      encodeU32(cursor),
+      encodeU32(limit),
+    );
+    return decodeAllowlistPage(retval);
+  }
+
+  /**
+   * Return the number of currently-allowlisted `(code, issuer)` pairs.
+   *
+   * Decrements on `revokeAsset`, unlike the enumeration log's own
+   * write-order length — this always matches the number of entries
+   * `getAllowedAssets` returns across a full scan, after any sequence of
+   * adds and revokes (issue #464).
+   *
+   * O(1) — a stored counter, not a scan. Permissionless read.
+   */
+  async getAllowlistCount(): Promise<number> {
+    const retval = await this.simulateView('allowlist_count');
+    return Number(scValToNative(retval));
   }
 
   // ─── Private helpers ────────────────────────────────────────────────────────

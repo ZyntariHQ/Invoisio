@@ -86,7 +86,6 @@ fn test_config_before_initialize_reports_uninitialized_state() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: false,
-                requires_token_allowlist: true,
             },
             paused: false
         }
@@ -110,7 +109,6 @@ fn test_config_after_initialize_returns_high_level_snapshot() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: false,
-                requires_token_allowlist: true,
             },
             paused: false
         }
@@ -1705,7 +1703,6 @@ fn test_config_reflects_allowlist_mode_changes() {
             },
             allowlist_mode: AllowlistMode {
                 native_allowed: true,
-                requires_token_allowlist: true,
             },
             paused: false
         }
@@ -2943,6 +2940,295 @@ fn test_revoke_asset_idempotent_double_revoke() {
     assert!(result.is_ok(), "double-revoke must be idempotent");
 }
 
+/// A caller with no prior knowledge of which assets are allowlisted must be
+/// able to discover all of them via `allowed_assets` alone (issue #464).
+#[test]
+fn test_allowed_assets_enumerates_without_prior_knowledge() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let pairs = [
+        ("USDC", "GBIssuerUSDC"),
+        ("EURT", "GBIssuerEURT"),
+        ("GBPT", "GBIssuerGBPT"),
+    ];
+    for (code, issuer) in pairs {
+        client.allow_asset(
+            &String::from_str(&env, code),
+            &String::from_str(&env, issuer),
+        );
+    }
+
+    let page = client.allowed_assets(&0u32, &25u32);
+    assert_eq!(page.records.len(), 3);
+    assert!(!page.has_more);
+    assert_eq!(page.gaps_skipped, 0);
+
+    let found: alloc::vec::Vec<(String, String)> = page
+        .records
+        .iter()
+        .map(|entry| (entry.code.clone(), entry.issuer.clone()))
+        .collect();
+    for (code, issuer) in pairs {
+        assert!(found.contains(&(String::from_str(&env, code), String::from_str(&env, issuer))));
+    }
+}
+
+/// Pagination must be bounded by the page cap and must terminate — mirrors
+/// `test_settlement_ref_history_pages_in_write_order` / the #418 pagination
+/// fix's regression test.
+#[test]
+fn test_allowed_assets_pagination_terminates_with_bounded_pages() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    for idx in 0..30u32 {
+        client.allow_asset(
+            &String::from_str(&env, &format!("A{idx:02}")),
+            &String::from_str(&env, "GBIssuerShared"),
+        );
+    }
+
+    let mut collected: alloc::vec::Vec<storage::AllowlistEntry> = alloc::vec::Vec::new();
+    let mut cursor = 0u32;
+    let mut iterations = 0u32;
+    loop {
+        iterations += 1;
+        assert!(iterations <= 10, "pagination did not terminate");
+
+        let page = client.allowed_assets(&cursor, &10u32);
+        assert!(page.records.len() as u32 <= 10, "page exceeded the cap");
+        assert!(page.next_cursor > cursor || !page.has_more);
+
+        collected.extend(page.records.iter());
+        cursor = page.next_cursor;
+        if !page.has_more {
+            break;
+        }
+    }
+
+    assert_eq!(collected.len(), 30);
+    assert_eq!(collected.len() as u32, client.allowlist_count());
+}
+
+/// `allowlist_count()` must track the live membership exactly through an
+/// arbitrary sequence of adds and revokes — not the write-order log length,
+/// which only ever grows (issue #464).
+#[test]
+fn test_allowlist_count_matches_enumerable_entries_after_adds_and_revokes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBIssuerCount");
+    let a = String::from_str(&env, "AAAA");
+    let b = String::from_str(&env, "BBBB");
+    let c = String::from_str(&env, "CCCC");
+
+    client.allow_asset(&a, &issuer);
+    client.allow_asset(&b, &issuer);
+    client.allow_asset(&c, &issuer);
+    assert_eq!(client.allowlist_count(), 3);
+
+    client.revoke_asset(&b, &issuer);
+    assert_eq!(client.allowlist_count(), 2);
+
+    // Re-adding after revoke restores membership and the count.
+    client.allow_asset(&b, &issuer);
+    assert_eq!(client.allowlist_count(), 3);
+
+    client.revoke_asset(&a, &issuer);
+    client.revoke_asset(&c, &issuer);
+    assert_eq!(client.allowlist_count(), 1);
+
+    // The count must match a full enumeration scan exactly.
+    let page = client.allowed_assets(&0u32, &25u32);
+    let live: alloc::vec::Vec<_> = page
+        .records
+        .iter()
+        .map(|entry| (entry.code.clone(), entry.issuer.clone()))
+        .collect();
+    assert_eq!(live.len() as u32, client.allowlist_count());
+    assert_eq!(live, alloc::vec![(b.clone(), issuer.clone())]);
+}
+
+/// Revoking an asset must remove it from the enumeration, not just from
+/// `is_asset_allowed` (issue #464).
+#[test]
+fn test_revoke_asset_removes_it_from_enumeration() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let issuer = String::from_str(&env, "GBIssuerRevokeEnum");
+    let kept = String::from_str(&env, "KEEP");
+    let revoked = String::from_str(&env, "GONE");
+
+    client.allow_asset(&kept, &issuer);
+    client.allow_asset(&revoked, &issuer);
+    client.revoke_asset(&revoked, &issuer);
+
+    let page = client.allowed_assets(&0u32, &25u32);
+    let codes: alloc::vec::Vec<String> = page.records.iter().map(|entry| entry.code).collect();
+    assert!(codes.contains(&kept));
+    assert!(!codes.contains(&revoked));
+}
+
+/// `allow_asset` must reject any `code` that `record_payment` would reject
+/// as invalid — specifically, the 12-character Stellar asset-code length
+/// cap — so a pair that can never be paid cannot be added (issue #464).
+#[test]
+fn test_allow_asset_rejects_code_longer_than_twelve_chars() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let result = client.try_allow_asset(
+        &String::from_str(&env, "ABCDEFGHIJKLM"), // 13 chars
+        &String::from_str(
+            &env,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ),
+    );
+    assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
+
+    // A 12-char code — the boundary record_payment itself accepts — must
+    // still be allowed.
+    client.allow_asset(
+        &String::from_str(&env, "ABCDEFGHIJKL"), // 12 chars
+        &String::from_str(
+            &env,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ),
+    );
+    assert_eq!(client.allowlist_count(), 1);
+}
+
+/// A no-op revoke (never allowlisted) must be distinguishable from a real
+/// one purely by event emission — `AssetRevoked` fires only when an entry
+/// actually existed (issue #464). `test_allowlist_events_emitted` already
+/// confirms a real revoke emits it; this covers the no-op side.
+#[test]
+fn test_revoke_asset_emits_no_event_when_never_allowlisted() {
+    use soroban_sdk::testutils::Events as _;
+
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let phantom_code = String::from_str(&env, "GHOST");
+    let issuer = String::from_str(&env, "GBIssuerEventDiff");
+
+    // env.events().all() only reflects the last invocation, so this must be
+    // asserted immediately after the one call under test.
+    client.revoke_asset(&phantom_code, &issuer);
+    assert_eq!(
+        env.events().all(),
+        soroban_sdk::vec![&env],
+        "a no-op revoke on a never-allowlisted pair must not emit AssetRevoked"
+    );
+}
+
+/// Re-running `migrate_schema_v3_to_v4` (or running it after the admin has
+/// already re-allowed some pairs post-upgrade) must not create duplicate
+/// log entries or double-count `allowlist_count()` (issue #464).
+#[test]
+fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBLegacyIssuer");
+
+    // Simulate a pre-schema-V4 deployment: the asset was allowlisted and
+    // paid with using only the legacy code path (no enumeration index).
+    client.allow_asset(&code, &issuer);
+    client.record_payment(
+        &String::from_str(&env, "inv-legacy-allowlist"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-legacy-allowlist"),
+    );
+
+    // Wipe the enumeration index the live allow_asset call above already
+    // built, and roll the schema back to V3, to reproduce a genuine legacy
+    // deployment that predates the index entirely.
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AllowListLog(0u32));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AllowListIndex(code.clone(), issuer.clone()));
+        env.storage().instance().set(&DataKey::AllowListCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowListLogCount, &0u32);
+
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
+        meta.storage_schema_version = storage::STORAGE_SCHEMA_V3;
+        storage::set_contract_meta(&env, &meta);
+    });
+    assert_eq!(client.allowlist_count(), 0);
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        storage::STORAGE_SCHEMA_V3
+    );
+
+    let result = client.try_upgrade_storage(&admin);
+    assert!(result.is_ok());
+
+    assert_eq!(client.allowlist_count(), 1);
+    let page = client.allowed_assets(&0u32, &25u32);
+    assert_eq!(page.records.len(), 1);
+    assert_eq!(page.records.get(0).unwrap().code, code);
+    assert_eq!(page.records.get(0).unwrap().issuer, issuer);
+}
+
+/// Re-running the V3 → V4 migration step directly (simulating it running
+/// after the admin already re-allowed a pair post-upgrade) must not
+/// duplicate the log entry or double-count `allowlist_count()` (issue #464).
+#[test]
+fn test_migrate_schema_v3_to_v4_is_idempotent() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let code = String::from_str(&env, "USDC");
+    let issuer = String::from_str(&env, "GBLegacyIssuer2");
+
+    client.allow_asset(&code, &issuer);
+    client.record_payment(
+        &String::from_str(&env, "inv-legacy-allowlist-2"),
+        &payer,
+        &code,
+        &issuer,
+        &100i128,
+        &String::from_str(&env, "settle-legacy-allowlist-2"),
+    );
+    assert_eq!(client.allowlist_count(), 1);
+
+    // Run the migration step directly, twice, against a deployment that is
+    // already fully indexed (as if the admin had re-allowed the pair after
+    // an earlier partial migration run).
+    env.as_contract(&client.address, || {
+        crate::migration::migrate_schema_v3_to_v4(&env).unwrap();
+        crate::migration::migrate_schema_v3_to_v4(&env).unwrap();
+    });
+
+    assert_eq!(client.allowlist_count(), 1);
+    let page = client.allowed_assets(&0u32, &25u32);
+    assert_eq!(page.records.len(), 1);
+}
+
 /// Calling `allow_asset` before `initialize()` must return
 /// [`ContractError::NotInitialized`] because `get_admin` fails first.
 #[test]
@@ -3942,7 +4228,6 @@ fn test_regression_config_after_upgrade_reflects_all_fields() {
         }
     );
     assert!(!config.allowlist_mode.native_allowed);
-    assert!(config.allowlist_mode.requires_token_allowlist);
     assert!(!config.paused);
 }
 

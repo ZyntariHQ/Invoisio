@@ -626,6 +626,112 @@ describe('getSettlementRefIndexStatus', () => {
   });
 });
 
+describe('getAllowedAssets', () => {
+  it('decodes a page of allowlisted (code, issuer) pairs', async () => {
+    const page = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('records', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([
+          xdr.ScVal.scvMap([
+            new xdr.ScMapEntry({
+              key: nativeToScVal('code', { type: 'symbol' }),
+              val: nativeToScVal('USDC', { type: 'string' }),
+            }),
+            new xdr.ScMapEntry({
+              key: nativeToScVal('issuer', { type: 'symbol' }),
+              val: nativeToScVal(ISSUER, { type: 'string' }),
+            }),
+          ]),
+        ]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('next_cursor', { type: 'symbol' }),
+        val: nativeToScVal(1, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('has_more', { type: 'symbol' }),
+        val: nativeToScVal(false, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('gaps_skipped', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+    ]);
+
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(page);
+      },
+    );
+
+    await expect(makeClient().getAllowedAssets(0, 25)).resolves.toEqual({
+      records: [{ code: 'USDC', issuer: ISSUER }],
+      nextCursor: 1,
+      hasMore: false,
+      gapsSkipped: 0,
+    });
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'allowed_assets',
+      args: [0, 25],
+    });
+  });
+
+  it('defaults cursor to 0 and limit to 25', async () => {
+    const emptyPage = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('records', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('next_cursor', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('has_more', { type: 'symbol' }),
+        val: nativeToScVal(false, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('gaps_skipped', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+    ]);
+
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(emptyPage);
+      },
+    );
+
+    await makeClient().getAllowedAssets();
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'allowed_assets',
+      args: [0, 25],
+    });
+  });
+});
+
+describe('getAllowlistCount', () => {
+  it('decodes the live allowlist count', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(nativeToScVal(3, { type: 'u32' }));
+      },
+    );
+
+    await expect(makeClient().getAllowlistCount()).resolves.toBe(3);
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'allowlist_count',
+      args: [],
+    });
+  });
+});
+
 describe('config read method', () => {
   it('getConfig() decodes the complete contract config snapshot including paused flag', async () => {
     const configVal = xdr.ScVal.scvMap([
@@ -661,10 +767,6 @@ describe('config read method', () => {
             key: nativeToScVal('native_allowed', { type: 'symbol' }),
             val: nativeToScVal(true, { type: 'bool' }),
           }),
-          new xdr.ScMapEntry({
-            key: nativeToScVal('requires_token_allowlist', { type: 'symbol' }),
-            val: nativeToScVal(true, { type: 'bool' }),
-          }),
         ]),
       }),
       new xdr.ScMapEntry({
@@ -694,7 +796,6 @@ describe('config read method', () => {
       },
       allowlistMode: {
         nativeAllowed: true,
-        requiresTokenAllowlist: true,
       },
       paused: true,
     });

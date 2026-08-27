@@ -33,6 +33,7 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
+ * | `getAllowlistCount` | O(1)                    | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -518,6 +519,39 @@ class SorobanInvoiceClient {
     async getSettlementRefIndexStatus() {
         const retval = await this.simulateView('settlement_ref_index_status');
         return (0, codec_1.decodeSettlementRefIndexStatus)(retval);
+    }
+    /**
+     * Fetch a bounded page of the currently-allowlisted `(code, issuer)`
+     * pairs, so operators can enumerate and audit the allowlist without
+     * already knowing which pairs to ask `isAssetAllowed`-style checks about
+     * (issue #464).
+     *
+     * `cursor` is the next write-order slot to read; `limit` is capped by the
+     * contract, mirroring `getPaymentHistory`/`getSettlementRefHistory`. A
+     * revoked (or, on a legacy pre-migration deployment, not-yet-backfilled)
+     * slot is skipped and counted in `gapsSkipped` rather than stalling
+     * pagination — keep paging from `nextCursor` until `hasMore` is `false`.
+     * Use `getAllowlistCount` to size paging or detect drift.
+     *
+     * Permissionless read.
+     */
+    async getAllowedAssets(cursor = 0, limit = 25) {
+        const retval = await this.simulateView('allowed_assets', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
+        return (0, codec_1.decodeAllowlistPage)(retval);
+    }
+    /**
+     * Return the number of currently-allowlisted `(code, issuer)` pairs.
+     *
+     * Decrements on `revokeAsset`, unlike the enumeration log's own
+     * write-order length — this always matches the number of entries
+     * `getAllowedAssets` returns across a full scan, after any sequence of
+     * adds and revokes (issue #464).
+     *
+     * O(1) — a stored counter, not a scan. Permissionless read.
+     */
+    async getAllowlistCount() {
+        const retval = await this.simulateView('allowlist_count');
+        return Number((0, stellar_sdk_1.scValToNative)(retval));
     }
     // ─── Private helpers ────────────────────────────────────────────────────────
     /**

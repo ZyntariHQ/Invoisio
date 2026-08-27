@@ -66,20 +66,21 @@ pub const CONTRACT_VERSION_MINOR: u32 = 0;
 pub const CONTRACT_VERSION_PATCH: u32 = 0;
 /// Current storage schema version.
 ///
-/// V3 changes what `DataKey::SettlementRef(ref)` stores: previously a unit
-/// value marking the reference as "used", now the invoice_id that consumed
-/// it, so `settlement_ref_owner` can resolve a reference back to its owning
-/// invoice. Backfilled for legacy deployments by `migrate_schema_v2_to_v3`.
-/// See issue #495.
+/// V4 adds a write-order enumeration index (`AllowListLog` /
+/// `AllowListCount` / `AllowListIndex`) for the asset allowlist, so
+/// `allowed_assets()`/`allowlist_count()` can enumerate it instead of
+/// requiring callers to already know which pairs to ask `is_asset_allowed`
+/// about. Backfilled for legacy deployments (to the extent recoverable —
+/// see its doc comment) by `migrate_schema_v3_to_v4`. See issue #464.
 ///
 /// **Maintenance note:** each migration step function stamps
 /// `ContractMeta.storage_schema_version` with the fixed constant for the
 /// version *it* reaches (e.g. `migrate_schema_v1_to_v2` stamps
 /// `STORAGE_SCHEMA_V2`), never this constant directly — `upgrade_storage_schema`
 /// is what stamps `STORAGE_SCHEMA_VERSION` once every step up to the final
-/// target has run. If you add a new final step (e.g. V3 → V4), change the
+/// target has run. If you add a new final step (e.g. V4 → V5), change the
 /// previous final step to stamp its own fixed constant instead of this one.
-pub const STORAGE_SCHEMA_VERSION: u32 = 3;
+pub const STORAGE_SCHEMA_VERSION: u32 = 4;
 
 /// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
 pub const STORAGE_SCHEMA_V1: u32 = 1;
@@ -87,6 +88,12 @@ pub const STORAGE_SCHEMA_V1: u32 = 1;
 /// Schema version that introduced the per-payer payment index
 /// (`PayerPaymentCount` / `PayerPaymentIdx`). See issue #445.
 pub const STORAGE_SCHEMA_V2: u32 = 2;
+
+/// Schema version that changed what `DataKey::SettlementRef(ref)` stores:
+/// previously a unit value marking the reference as "used", now the
+/// invoice_id that consumed it, so `settlement_ref_owner` can resolve a
+/// reference back to its owning invoice. See issue #495.
+pub const STORAGE_SCHEMA_V3: u32 = 3;
 
 /// Legacy deployments (before explicit version metadata existed).
 pub const LEGACY_CONTRACT_VERSION: u32 = 0;
@@ -108,6 +115,10 @@ pub const MAX_PAYMENT_HISTORY_PAGE_SIZE: u32 = 25;
 /// Maximum number of settlement-reference entries returned in one
 /// `settlement_ref_history` page. Mirrors `MAX_PAYMENT_HISTORY_PAGE_SIZE`.
 pub const MAX_SETTLEMENT_REF_PAGE_SIZE: u32 = 25;
+
+/// Maximum number of allowlist entries returned in one `allowed_assets`
+/// page. Mirrors `MAX_PAYMENT_HISTORY_PAGE_SIZE`.
+pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
 
 // ─── Identifier Canonicalisation ────────────────────────────────────────────
 //
@@ -210,15 +221,17 @@ pub fn current_contract_meta() -> ContractMeta {
 
 /// Stable, high-level summary of allowlist policy for integration consumers.
 ///
-/// `requires_token_allowlist` is currently always `true`: issued assets must be
-/// explicitly added via `allow_asset(code, issuer)` before `record_payment`
-/// accepts them. `native_allowed` reflects the mutable XLM toggle controlled by
-/// `set_allow_native`.
+/// `native_allowed` reflects the mutable XLM toggle controlled by
+/// `set_allow_native`. There is no `requires_token_allowlist` field: every
+/// non-native asset always requires allowlisting in this contract (see
+/// `record_payment`) — there is no code path where it's optional — so a
+/// field for it would only ever report a constant, never real state (issue
+/// #464). Use `allowed_assets()`/`allowlist_count()` to inspect the actual
+/// allowlist instead of inferring policy from this struct.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AllowlistMode {
     pub native_allowed: bool,
-    pub requires_token_allowlist: bool,
 }
 
 /// Stable read model for ops tooling and client integrations.
@@ -307,6 +320,32 @@ pub enum DataKey {
     /// `settlement_ref_history` pagination, mirroring `PaymentLog`'s role
     /// for `PaymentHistory`.
     SettlementRefLog(u32),
+    /// Write-order enumeration log of currently-allowlisted assets, in
+    /// **persistent** storage. Key: `AllowListLog(slot) -> AllowlistEntry`.
+    /// Unlike `PaymentLog`/`SettlementRefLog`, a slot can become a hole:
+    /// `revoke_asset` removes it, so it is skipped (not treated as the end
+    /// of the log) by `allowed_assets` pagination, exactly like a
+    /// partially-rebuilt `PaymentHistory` slot (issue #464).
+    AllowListLog(u32),
+    /// Reverse index from an allowlisted `(code, issuer)` pair to its slot
+    /// in `AllowListLog`, in **persistent** storage. Lets `revoke_asset`
+    /// remove the pair's log entry in O(1) without scanning the log.
+    /// Absence means the pair is either not allowlisted, or allowlisted
+    /// but not yet indexed (a legacy entry predating schema V4, until
+    /// `allow_asset` is called for it again or the V3 → V4 migration
+    /// backfills it from payment history).
+    AllowListIndex(String, String),
+    /// Running count of **currently-allowlisted** assets (i.e. `AllowListLog`
+    /// entries that are not holes), in **instance** storage. Distinct from
+    /// the log's own write-order length: revoking an asset decrements this
+    /// count but never shrinks the log itself. This is the count `allowed_assets`
+    /// callers should use to size their paging and detect drift.
+    AllowListCount,
+    /// Write-order length of `AllowListLog` (the next slot index to assign),
+    /// in **instance** storage. Only grows — never decremented by
+    /// `revoke_asset` — since it is a slot-capacity bound for pagination,
+    /// not a live membership count (`AllowListCount` is that).
+    AllowListLogCount,
 }
 
 // Data structures
@@ -415,6 +454,39 @@ pub struct SettlementRefPage {
     pub gaps_skipped: u32,
 }
 
+/// A single allowlisted `(code, issuer)` pair, as recorded by `allow_asset`
+/// or backfilled by migration. Used both as the stored enumeration-log
+/// value and as a page record in [`AllowlistPage`].
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllowlistEntry {
+    pub code: String,
+    pub issuer: String,
+}
+
+/// A bounded, cursor-friendly slice of the currently-allowlisted assets.
+/// Mirrors [`PaymentHistoryPage`]'s pagination and gap-skipping conventions.
+/// Unlike `PaymentHistoryPage`/`SettlementRefPage`, holes here are a normal,
+/// expected outcome of `revoke_asset` rather than only a sign of corruption.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllowlistPage {
+    /// Entries returned for this page, in write (allow) order. A revoked
+    /// asset never appears here again unless `allow_asset` is called for it
+    /// a second time, which assigns it a fresh slot.
+    pub records: Vec<AllowlistEntry>,
+    /// Cursor to pass to the next call.
+    pub next_cursor: u32,
+    /// True when more entries are available after `next_cursor`.
+    pub has_more: bool,
+    /// Number of log slots in `[cursor, next_cursor)` that have been
+    /// revoked (or, for a legacy pre-migration deployment, not yet
+    /// backfilled). Not an error signal by itself the way it is for
+    /// `PaymentHistoryPage` — a growing count here across the whole log is
+    /// simply the accumulated history of every revoke ever made.
+    pub gaps_skipped: u32,
+}
+
 // ─── Version Helpers (Instance Storage) ──────────────────────────────────────
 
 /// Get contract metadata from instance storage. Bumps TTL if present.
@@ -496,7 +568,6 @@ pub fn get_contract_config(env: &Env) -> ContractConfig {
         },
         allowlist_mode: AllowlistMode {
             native_allowed: is_native_allowed(env),
-            requires_token_allowlist: true,
         },
         paused: is_paused(env),
     };
@@ -1042,6 +1113,14 @@ pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
 }
 
 /// Add an asset to the allowlist and bump TTL.
+///
+/// Also indexes the pair into the write-order enumeration log
+/// (`AllowListLog`/`AllowListCount`) via [`backfill_allowlist_index`] if it
+/// isn't indexed yet — covering both a genuinely new pair and a legacy
+/// pre-schema-V4 pair being re-allowed. A pair that is already indexed
+/// (including a redundant re-allow of a currently-allowed pair) is left
+/// untouched, so re-allowing never creates a duplicate log entry or
+/// double-counts `allowlist_count()`.
 pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     // We store a unit value since we only care about existence.
@@ -1049,12 +1128,183 @@ pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+
+    backfill_allowlist_index(env, code, issuer);
 }
 
 /// Remove an asset from the allowlist.
-pub fn revoke_asset(env: &Env, code: &String, issuer: &String) {
+///
+/// Returns `true` if the pair was allowlisted and is now removed, `false`
+/// if it was never allowlisted (a safe no-op) — lets the caller (`lib.rs`)
+/// decide whether to emit `AssetRevoked`, so revoking a never-allowlisted
+/// pair is distinguishable from revoking a real entry (issue #464).
+pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
+    if !env.storage().persistent().has(&key) {
+        return false;
+    }
     env.storage().persistent().remove(&key);
+
+    // Remove the pair's enumeration-log entry, if it has one. A currently
+    // allowed pair predating schema V4 that has not yet been backfilled
+    // (see `migrate_schema_v3_to_v4`) has no `AllowListIndex` entry — that
+    // is not an error, just nothing left to remove from the enumeration.
+    let index_key = DataKey::AllowListIndex(code.clone(), issuer.clone());
+    let slot: Option<u32> = env.storage().persistent().get(&index_key);
+    if let Some(slot) = slot {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::AllowListLog(slot));
+        env.storage().persistent().remove(&index_key);
+        decrement_allowlist_count(env);
+    }
+
+    true
+}
+
+/// Index `(code, issuer)` into the write-order enumeration log if it isn't
+/// indexed yet. No-ops (returns `false`) if `AllowListIndex` already has an
+/// entry for this pair. Does **not** touch the primary `AllowList(code,
+/// issuer)` existence key — callers are responsible for that separately
+/// (see `allow_asset`) or have already confirmed it exists (see
+/// `migrate_schema_v3_to_v4`).
+///
+/// Shared by `allow_asset` (the live write path) and the schema V3 → V4
+/// migration (backfilling legacy pre-index entries from payment history),
+/// so both paths agree on exactly one rule for "is this pair indexed yet".
+pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &String) -> bool {
+    let index_key = DataKey::AllowListIndex(code.clone(), issuer.clone());
+    if env.storage().persistent().has(&index_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_key, MIN_TTL, BUMP_TTL);
+        return false;
+    }
+
+    let slot = get_allowlist_log_count(env);
+    let log_key = DataKey::AllowListLog(slot);
+    let entry = AllowlistEntry {
+        code: code.clone(),
+        issuer: issuer.clone(),
+    };
+    env.storage().persistent().set(&log_key, &entry);
+    env.storage()
+        .persistent()
+        .extend_ttl(&log_key, MIN_TTL, BUMP_TTL);
+
+    env.storage().persistent().set(&index_key, &slot);
+    env.storage()
+        .persistent()
+        .extend_ttl(&index_key, MIN_TTL, BUMP_TTL);
+
+    set_allowlist_log_count(env, slot + 1);
+    bump_allowlist_count(env);
+    true
+}
+
+/// Return the number of **currently-allowlisted** assets. Bumps instance TTL.
+///
+/// This is the count `allowed_assets` callers should use to size their
+/// paging and detect drift — it decrements on `revoke_asset`, unlike the
+/// log's own write-order length (see `AllowListLogCount`).
+pub fn get_allowlist_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::AllowListCount)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+fn bump_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowListCount, &(count + 1u32));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+fn decrement_allowlist_count(env: &Env) {
+    let count = get_allowlist_count(env);
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowListCount, &count.saturating_sub(1));
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Return the write-order length of `AllowListLog` (the next slot index to
+/// assign). Bumps instance TTL. Only grows — see the field doc on
+/// `DataKey::AllowListLogCount`.
+fn get_allowlist_log_count(env: &Env) -> u32 {
+    let count = env
+        .storage()
+        .instance()
+        .get(&DataKey::AllowListLogCount)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    count
+}
+
+fn set_allowlist_log_count(env: &Env, count: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::AllowListLogCount, &count);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Look up the allowlist log entry at write-order `slot`. Extends
+/// persistent TTL if the entry exists.
+fn get_allowlist_log_entry(env: &Env, slot: u32) -> Option<AllowlistEntry> {
+    let key = DataKey::AllowListLog(slot);
+    let entry: Option<AllowlistEntry> = env.storage().persistent().get(&key);
+    if entry.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    entry
+}
+
+/// Read a bounded page of the currently-allowlisted assets starting at
+/// `cursor`.
+///
+/// Mirrors [`get_payment_history_page`]/[`get_settlement_ref_page`]'s
+/// gap-skipping and termination guarantees: a revoked (or, on a legacy
+/// deployment, not-yet-backfilled) slot is skipped rather than treated as
+/// the end of the log, so `index` always advances by at least one slot per
+/// iteration and `next_cursor` can never repeat a `cursor` the caller
+/// already passed in. `has_more` reflects whether any slot at or after
+/// `next_cursor` remains to be scanned.
+///
+/// Extends instance TTL for the counters and persistent TTL for entries read.
+pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
+    let total = get_allowlist_log_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_ALLOWLIST_PAGE_SIZE);
+    let start = core::cmp::min(cursor, total);
+
+    let mut records: Vec<AllowlistEntry> = Vec::new(env);
+    let mut index = start;
+    let mut collected: u32 = 0;
+    let mut gaps_skipped: u32 = 0;
+
+    while index < total && collected < capped_limit {
+        match get_allowlist_log_entry(env, index) {
+            Some(entry) => {
+                records.push_back(entry);
+                collected += 1;
+            }
+            None => gaps_skipped += 1,
+        }
+        index += 1;
+    }
+
+    AllowlistPage {
+        records,
+        next_cursor: index,
+        has_more: index < total,
+        gaps_skipped,
+    }
 }
 
 // ─── Pause Helpers ──────────────────────────────────────────────────────────
@@ -1125,6 +1375,10 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             2 => {
                 // V2 → V3: backfill settlement_ref → invoice_id mapping (#495)
                 crate::migration::migrate_schema_v2_to_v3(env)?;
+            }
+            3 => {
+                // V3 → V4: backfill the allowlist enumeration index (#464)
+                crate::migration::migrate_schema_v3_to_v4(env)?;
             }
             _ => return Err(ContractError::StorageSchemaTooOld),
         }

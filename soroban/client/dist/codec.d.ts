@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { ContractConfig, PaymentHistoryPage, PaymentRecord, SettlementRefIndexStatus, SettlementRefPage, SorobanContractError } from './types';
+import { AllowlistPage, ContractConfig, PaymentHistoryPage, PaymentRecord, SettlementRefIndexStatus, SettlementRefPage, SorobanContractError } from './types';
 /** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
 export declare const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
@@ -55,7 +55,6 @@ export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHisto
  * - version.contract_version
  * - version.storage_schema_version
  * - allowlist_mode.native_allowed
- * - allowlist_mode.requires_token_allowlist
  */
 export declare function decodeContractConfig(scVal: xdr.ScVal): ContractConfig;
 /**
@@ -72,6 +71,10 @@ export declare function decodeSettlementRefOwner(scVal: xdr.ScVal): string | nul
  * `settlement_ref_history()`.
  */
 export declare function decodeSettlementRefPage(scVal: xdr.ScVal): SettlementRefPage;
+/**
+ * Decode a bounded allowlist page returned by `allowed_assets()`.
+ */
+export declare function decodeAllowlistPage(scVal: xdr.ScVal): AllowlistPage;
 /**
  * Decode the `(u32, u32, bool)` tuple returned by
  * `settlement_ref_index_status()`.
