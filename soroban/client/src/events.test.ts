@@ -28,18 +28,20 @@ describe('decodeSorobanEvent', () => {
         nativeToScVal('USDC', { type: 'string' }),
         nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
         nativeToScVal(BigInt(12_500_000), { type: 'i128' }),
+        nativeToScVal(7, { type: 'u32' }),
         nativeToScVal('settlement-abc-123', { type: 'string' }),
       ),
     };
 
     expect(decodeSorobanEvent(event)).toEqual({
       type: 'invoice_payment_recorded',
-      schemaVersion: 1,
+      schemaVersion: EVENT_SCHEMA_VERSION,
       invoiceId: 'INV-2049',
       payer: G_PAYER,
       assetCode: 'USDC',
       assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       amount: BigInt(12_500_000),
+      assetDecimals: 7,
       settlementRef: 'settlement-abc-123',
     });
   });
@@ -48,12 +50,13 @@ describe('decodeSorobanEvent', () => {
     const event: SorobanEventInput = {
       topics: [topic('invoice_payment_recorded')],
       data: vecPayload(
-        nativeToScVal(2, { type: 'u32' }),
+        nativeToScVal(3, { type: 'u32' }),
         nativeToScVal('INV-1', { type: 'string' }),
         nativeToScVal(G_PAYER, { type: 'address' }),
         nativeToScVal('USDC', { type: 'string' }),
         nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
         nativeToScVal(BigInt(1), { type: 'i128' }),
+        nativeToScVal(7, { type: 'u32' }),
         nativeToScVal('ref', { type: 'string' }),
       ),
     };
@@ -61,7 +64,7 @@ describe('decodeSorobanEvent', () => {
     expect(decodeSorobanEvent(event)).toEqual({
       type: 'unknown',
       name: 'invoice_payment_recorded',
-      reason: 'unsupported schema version 2 (client supports 1)',
+      reason: `unsupported schema version 3 (client supports ${EVENT_SCHEMA_VERSION})`,
     });
   });
 
@@ -232,12 +235,13 @@ describe('decodeSorobanEvent', () => {
 
   it('decodes an invoice_payment_recorded event from a struct/object payload', () => {
     const structScVal = xdr.ScVal.scvMap([
-      new xdr.ScMapEntry({ key: nativeToScVal('schema_version', { type: 'symbol' }), val: nativeToScVal(1, { type: 'u32' }) }),
+      new xdr.ScMapEntry({ key: nativeToScVal('schema_version', { type: 'symbol' }), val: nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('invoice_id', { type: 'symbol' }), val: nativeToScVal('INV-2049', { type: 'string' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('payer', { type: 'symbol' }), val: nativeToScVal(G_PAYER, { type: 'address' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('asset_code', { type: 'symbol' }), val: nativeToScVal('USDC', { type: 'string' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('asset_issuer', { type: 'symbol' }), val: nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('amount', { type: 'symbol' }), val: nativeToScVal(BigInt(12_500_000), { type: 'i128' }) }),
+      new xdr.ScMapEntry({ key: nativeToScVal('asset_decimals', { type: 'symbol' }), val: nativeToScVal(7, { type: 'u32' }) }),
       new xdr.ScMapEntry({ key: nativeToScVal('settlement_ref', { type: 'symbol' }), val: nativeToScVal('settlement-abc-123', { type: 'string' }) }),
     ]);
 
@@ -248,12 +252,13 @@ describe('decodeSorobanEvent', () => {
 
     expect(decodeSorobanEvent(event)).toEqual({
       type: 'invoice_payment_recorded',
-      schemaVersion: 1,
+      schemaVersion: EVENT_SCHEMA_VERSION,
       invoiceId: 'INV-2049',
       payer: G_PAYER,
       assetCode: 'USDC',
       assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       amount: BigInt(12_500_000),
+      assetDecimals: 7,
       settlementRef: 'settlement-abc-123',
     });
   });

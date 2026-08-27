@@ -21,9 +21,9 @@ use events::{
     emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payer_entry, append_payment_history, append_payment_log, bump_count,
+    append_payer_entry, append_payment_history, append_payment_log, bump_count,
     bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
-    get_admin, get_contract_config, get_count, get_history_count, get_payment,
+    get_admin, get_asset_decimals, get_contract_config, get_count, get_history_count, get_payment,
     get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
     get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
     is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
@@ -198,7 +198,9 @@ impl InvoicePaymentContract {
     /// - `payer`           — Stellar account address that sent the payment
     /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
     /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
-    /// - `amount`          — payment amount in smallest denomination (must be > 0)
+    /// - `amount`          — payment amount in the asset's smallest denomination
+    ///                       (must be > 0 and fit in `i128`). The stored
+    ///                       record carries `asset_decimals` for formatting.
     /// - `settlement_ref`  — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
     ///                       (must be non-empty, max [`storage::MAX_SETTLEMENT_REF_LEN`]
@@ -316,10 +318,17 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 4. Amount guard: must be strictly positive and within i64::MAX.
-        if amount <= 0 || amount > i64::MAX as i128 {
+        // 4. Amount guard: use the full positive range of the i128 storage type.
+        if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
+
+        let asset_decimals = if is_xlm {
+            7
+        } else {
+            get_asset_decimals(&env, &asset_code, &asset_issuer)
+                .ok_or(ContractError::AssetNotAllowed)?
+        };
 
         // 5. Idempotency guard: check invoice_id uniqueness.
         if has_payment(&env, &invoice_id) {
@@ -349,6 +358,7 @@ impl InvoicePaymentContract {
             payer,
             asset,
             amount,
+            asset_decimals,
             timestamp: env.ledger().timestamp(),
             settlement_ref: settlement_ref.clone(),
         };
@@ -382,6 +392,7 @@ impl InvoicePaymentContract {
             asset_code,
             asset_issuer,
             record.amount,
+            record.asset_decimals,
             settlement_ref,
         );
 
@@ -586,7 +597,9 @@ impl InvoicePaymentContract {
         Ok(())
     }
 
-    /// Add a `(code, issuer)` token pair to the allowlist.
+    /// Add a `(code, issuer)` token pair to the allowlist using the legacy
+    /// Stellar seven-decimal scale. Use `allow_asset_with_decimals` for other
+    /// token precisions.
     ///
     /// The **contract admin** must authorise this call.
     ///
@@ -604,6 +617,17 @@ impl InvoicePaymentContract {
     /// cannot silently change which assets are acceptable, and a suspect
     /// admin key cannot pre-stage new allowlist entries for later use.
     pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+        Self::allow_asset_with_decimals(env, code, issuer, 7)
+    }
+
+    /// Add a token and record its decimal precision. The admin must verify
+    /// this value against the token contract's `decimals()` before calling.
+    pub fn allow_asset_with_decimals(
+        env: Env,
+        code: String,
+        issuer: String,
+        decimals: u32,
+    ) -> Result<(), ContractError> {
         if storage::is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
@@ -617,7 +641,10 @@ impl InvoicePaymentContract {
         if code.len() > 12 {
             return Err(ContractError::InvalidAsset);
         }
-        allow_asset(&env, &code, &issuer);
+        if decimals > 18 {
+            return Err(ContractError::InvalidAsset);
+        }
+        storage::allow_asset_with_decimals(&env, &code, &issuer, decimals);
         emit_asset_allowlisted(&env, code, issuer);
         Ok(())
     }

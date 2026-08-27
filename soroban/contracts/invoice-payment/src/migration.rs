@@ -32,6 +32,7 @@ use crate::storage::{
     migrate_legacy_payment_key, record_settlement_ref, set_contract_meta, set_history_count,
     set_settlement_ref_count, DataKey, LegacyMigrationOutcome, PaymentRecord,
     MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3,
+    STORAGE_SCHEMA_V4,
     STORAGE_SCHEMA_VERSION,
 };
 
@@ -525,9 +526,23 @@ pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
     }
 
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
-    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    meta.storage_schema_version = STORAGE_SCHEMA_V4;
     set_contract_meta(env, &meta);
 
+    Ok(())
+}
+
+/// Migration from schema V4 to V5.
+///
+/// Precision cannot be reconstructed from a bare historical amount. Existing
+/// records therefore remain readable with `asset_decimals = 0` (unknown),
+/// while new allowlist entries and payments carry verified metadata. This
+/// intentionally avoids inventing a seven-decimal value for an arbitrary
+/// token.
+pub fn migrate_schema_v4_to_v5(env: &Env) -> Result<(), ContractError> {
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    set_contract_meta(env, &meta);
     Ok(())
 }
 
@@ -718,6 +733,7 @@ mod tests {
             payer: Address::generate(&env),
             asset: crate::storage::Asset::Native,
             amount: 99_000_000i128,
+            asset_decimals: 7,
             timestamp: 99u64,
             settlement_ref: String::from_str(&env, "divergent-ref"),
         };
