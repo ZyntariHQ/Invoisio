@@ -3,7 +3,7 @@ use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 /// Schema version for the `invoice_payment_recorded` event payload.
 /// Bumped only when the payload shape changes in a breaking way so that
 /// off-chain indexers can detect and adapt to the event format.
-pub const EVENT_SCHEMA_VERSION: u32 = 1;
+pub const EVENT_SCHEMA_VERSION: u32 = 2;
 
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +14,8 @@ pub struct InvoicePaymentRecorded {
     pub asset_code: String,
     pub asset_issuer: String,
     pub amount: i128,
+    /// Decimal places for the asset's smallest denomination.
+    pub asset_decimals: u32,
     pub settlement_ref: String,
 }
 
@@ -40,6 +42,7 @@ pub fn emit_payment_recorded(
     asset_code: String,
     asset_issuer: String,
     amount: i128,
+    asset_decimals: u32,
     settlement_ref: String,
 ) {
     let payload = InvoicePaymentRecorded {
@@ -49,6 +52,7 @@ pub fn emit_payment_recorded(
         asset_code,
         asset_issuer,
         amount,
+        asset_decimals,
         settlement_ref,
     };
 

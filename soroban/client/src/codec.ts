@@ -171,6 +171,7 @@ function decodePaymentRecordFromNative(raw: Record<string, unknown>): PaymentRec
     payer: String(raw['payer']),
     asset: decodeAsset(raw['asset']),
     amount: BigInt(raw['amount'] as bigint | number | string),
+    assetDecimals: Number(raw['asset_decimals'] ?? 0),
     timestamp: BigInt(raw['timestamp'] as bigint | number | string),
     settlementRef: String(raw['settlement_ref']),
   };

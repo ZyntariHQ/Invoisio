@@ -564,8 +564,9 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
@@ -858,6 +859,7 @@ fn test_get_payment_reads_legacy_key_without_writing() {
         payer,
         asset: Asset::Native,
         amount: 10_000_000i128,
+        asset_decimals: 7,
         timestamp: 1234u64,
         settlement_ref: String::from_str(&env, "legacy"),
     };
@@ -1289,8 +1291,9 @@ fn test_record_payment_emits_payment_recorded_event() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
@@ -1886,22 +1889,22 @@ fn test_asset_code_exactly_12_chars_succeeds() {
 }
 
 #[test]
-fn test_amount_above_max_returns_error() {
+fn test_amount_at_i128_max_succeeds() {
     let env = Env::default();
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
-    // One stroop above the i64::MAX boundary must be rejected.
-    let result = client.try_record_payment(
-        &String::from_str(&env, "invoisio-amount-too-big"),
+    let invoice_id = String::from_str(&env, "invoisio-amount-i128-max");
+    client.record_payment(
+        &invoice_id,
         &payer,
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
-        &(i64::MAX as i128 + 1),
+        &i128::MAX,
         &String::from_str(&env, "settle-big-amount"),
     );
-    assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
+    assert!(client.has_payment(&invoice_id));
 }
 
 #[test]
@@ -1912,16 +1915,41 @@ fn test_amount_at_max_succeeds() {
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
     let invoice_id = String::from_str(&env, "invoisio-amount-at-max");
-    // Exactly i64::MAX is the largest allowed amount.
+    // The full positive i128 range is supported by the storage type.
     client.record_payment(
         &invoice_id,
         &payer,
         &String::from_str(&env, "XLM"),
         &String::from_str(&env, ""),
-        &(i64::MAX as i128),
+        &i128::MAX,
         &String::from_str(&env, "settle-max-amount"),
     );
     assert!(client.has_payment(&invoice_id));
+}
+
+#[test]
+fn test_non_seven_decimal_asset_precision_round_trip() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    let code = String::from_str(&env, "EURT");
+    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    client.allow_asset_with_decimals(&code, &issuer, &6);
+
+    let invoice_id = String::from_str(&env, "invoisio-six-decimals");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &code,
+        &issuer,
+        &1_234_567i128,
+        &String::from_str(&env, "settle-six-decimals"),
+    );
+
+    let record = client.get_payment(&invoice_id);
+    assert_eq!(record.amount, 1_234_567i128);
+    assert_eq!(record.asset_decimals, 6);
 }
 
 // Upgrade compatibility tests
@@ -1946,6 +1974,7 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
         payer: payer1.clone(),
         asset: Asset::Native,
         amount: 10_000_000i128,
+        asset_decimals: 7,
         timestamp: 1000u64,
         settlement_ref: String::from_str(&env, "legacy-001"),
     };
@@ -1954,6 +1983,7 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
         payer: payer2.clone(),
         asset: Asset::Native,
         amount: 20_000_000i128,
+        asset_decimals: 7,
         timestamp: 2000u64,
         settlement_ref: String::from_str(&env, "legacy-002"),
     };
@@ -1962,6 +1992,7 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
         payer: payer3.clone(),
         asset: Asset::Native,
         amount: 30_000_000i128,
+        asset_decimals: 7,
         timestamp: 3000u64,
         settlement_ref: String::from_str(&env, "legacy-003"),
     };
@@ -2036,6 +2067,7 @@ fn test_mixed_legacy_and_new_payments() {
         payer: legacy_payer.clone(),
         asset: Asset::Native,
         amount: 10_000_000,
+        asset_decimals: 7,
         timestamp: 1234,
         settlement_ref: String::from_str(&env, "legacy-mix"),
     };
@@ -2176,6 +2208,7 @@ fn test_upgrade_storage_preserves_payment_records() {
         payer: payer.clone(),
         asset: Asset::Native,
         amount: 10_000_000i128,
+        asset_decimals: 7,
         timestamp: 1234u64,
         settlement_ref: String::from_str(&env, "legacy-migration"),
     };
@@ -2821,8 +2854,9 @@ fn test_settlement_ref_emitted_in_event() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
@@ -4158,6 +4192,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
             payer: payers.get(0).unwrap(),
             asset: Asset::Native,
             amount: 5_000_000i128,
+            asset_decimals: 7,
             timestamp: 100u64,
             settlement_ref: String::from_str(&env, "reg-ref-001"),
         },
@@ -4169,6 +4204,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
                 String::from_str(&env, "GBIssuer"),
             ),
             amount: 100_000_000i128,
+            asset_decimals: 7,
             timestamp: 200u64,
             settlement_ref: String::from_str(&env, "reg-ref-002"),
         },
@@ -4177,6 +4213,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
             payer: payers.get(2).unwrap(),
             asset: Asset::Native,
             amount: 15_000_000i128,
+            asset_decimals: 7,
             timestamp: 300u64,
             settlement_ref: String::from_str(&env, "reg-ref-003"),
         },
@@ -4480,6 +4517,7 @@ fn test_regression_payment_history_after_upgrade() {
             payer: Address::generate(&env),
             asset: Asset::Native,
             amount: 1_000_000i128,
+            asset_decimals: 7,
             timestamp: 100u64,
             settlement_ref: String::from_str(&env, "hist-ref-001"),
         },
@@ -4488,6 +4526,7 @@ fn test_regression_payment_history_after_upgrade() {
             payer: Address::generate(&env),
             asset: Asset::Native,
             amount: 2_000_000i128,
+            asset_decimals: 7,
             timestamp: 200u64,
             settlement_ref: String::from_str(&env, "hist-ref-002"),
         },
@@ -4496,6 +4535,7 @@ fn test_regression_payment_history_after_upgrade() {
             payer: Address::generate(&env),
             asset: Asset::Native,
             amount: 3_000_000i128,
+            asset_decimals: 7,
             timestamp: 300u64,
             settlement_ref: String::from_str(&env, "hist-ref-003"),
         },
@@ -4590,6 +4630,7 @@ fn test_regression_legacy_record_fields_preserved_after_upgrade() {
         payer: payer.clone(),
         asset: Asset::Token(usdc_code.clone(), usdc_issuer.clone()),
         amount: 42_500_000i128,
+        asset_decimals: 7,
         timestamp: 9999u64,
         settlement_ref: String::from_str(&env, "sha256-abcdef"),
     };
@@ -5132,6 +5173,7 @@ fn fabricate_history_slot(
             payer: payer.clone(),
             asset: storage::Asset::Native,
             amount: 1_000_000i128,
+            asset_decimals: 7,
             timestamp: slot as u64,
             settlement_ref: String::from_str(env, &format!("settle-fab-{slot:04}")),
         };
@@ -6497,6 +6539,7 @@ fn seed_legacy_payment(env: &Env, client: &InvoicePaymentContractClient, invoice
         payer,
         asset: Asset::Native,
         amount: 1_000_000i128,
+        asset_decimals: 7,
         timestamp: 1u64,
         settlement_ref: String::from_str(env, "legacy-seed"),
     };
