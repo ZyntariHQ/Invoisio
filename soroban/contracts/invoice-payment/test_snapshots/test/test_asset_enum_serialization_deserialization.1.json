@@ -269,7 +269,9 @@
                 ]
               },
               "durability": "persistent",
-              "val": "void"
+              "val": {
+                "u32": 7
+              }
             }
           },
           "ext": "v0"
@@ -336,6 +338,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "issuer"
                     },
                     "val": {
@@ -343,93 +353,6 @@
                     }
                   }
                 ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 2
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
               }
             }
           },
@@ -479,6 +402,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -498,7 +429,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-xlm"
+                      "string": "e1b820221ea09514b0db1f2d4da57adcdcdf265cae44c6ffb42eeabeefab7604"
                     }
                   },
                   {
@@ -565,6 +496,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -584,7 +523,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-usdc"
+                      "string": "4ab453ba22e7c9bec30aebf2324b063ba85302aa949c430f9c98e315a248472c"
                     }
                   },
                   {
@@ -699,6 +638,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -718,7 +665,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-xlm"
+                      "string": "e1b820221ea09514b0db1f2d4da57adcdcdf265cae44c6ffb42eeabeefab7604"
                     }
                   },
                   {
@@ -785,6 +732,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -804,7 +759,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-usdc"
+                      "string": "4ab453ba22e7c9bec30aebf2324b063ba85302aa949c430f9c98e315a248472c"
                     }
                   },
                   {
@@ -836,7 +791,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-serde-usdc"
+                    "string": "4ab453ba22e7c9bec30aebf2324b063ba85302aa949c430f9c98e315a248472c"
                   }
                 ]
               },
@@ -863,7 +818,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-serde-xlm"
+                    "string": "e1b820221ea09514b0db1f2d4da57adcdcdf265cae44c6ffb42eeabeefab7604"
                   }
                 ]
               },
@@ -910,7 +865,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-xlm"
+                      "string": "e1b820221ea09514b0db1f2d4da57adcdcdf265cae44c6ffb42eeabeefab7604"
                     }
                   }
                 ]
@@ -954,7 +909,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-serde-usdc"
+                      "string": "4ab453ba22e7c9bec30aebf2324b063ba85302aa949c430f9c98e315a248472c"
                     }
                   }
                 ]
@@ -1051,7 +1006,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 5
                             }
                           }
                         ]

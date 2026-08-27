@@ -101,12 +101,11 @@ declare -A METHOD_AUTH=(
   [record_payment]="admin"
   [get_payment]="none"
   [has_payment]="none"
-  [payment_count]="none"
-  [payment_history]="none"
-  [payments_by_payer]="none"
+  [payment_count]="admin"
+  [payment_history]="admin"
   [settlement_ref_owner]="none"
-  [settlement_ref_history]="none"
-  [settlement_ref_index_status]="none"
+  [settlement_ref_history]="admin"
+  [settlement_ref_index_status]="admin"
   [config]="none"
   [contract_version]="none"
   [version_info]="none"
@@ -126,7 +125,7 @@ declare -A METHOD_AUTH=(
   [set_paused]="admin"
   [is_paused]="none"
   [rebuild_history_index]="admin"
-  [history_index_status]="none"
+  [history_index_status]="admin"
   [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
@@ -134,12 +133,11 @@ declare -A METHOD_DESC=(
   [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded."
   [get_payment]="Return PaymentRecord for invoice_id."
   [has_payment]="Return true if a payment exists for invoice_id."
-  [payment_count]="Return total recorded payment count."
-  [payment_history]="Return a bounded, cursor-paginated PaymentHistoryPage across all payments."
-  [payments_by_payer]="Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer."
-  [settlement_ref_owner]="Resolve a settlement reference to the invoice_id that consumed it; None if unused."
-  [settlement_ref_history]="Return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order."
-  [settlement_ref_index_status]="Return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
+  [payment_count]="Admin-gated (issue #512): return total recorded payment count."
+  [payment_history]="Admin-gated (issue #512): return a bounded, cursor-paginated PaymentHistoryPage across all payments."
+  [settlement_ref_owner]="Resolve a settlement reference (plaintext) to the invoice_id that consumed it; None if unused. Hashes internally to the stored commitment (issue #512)."
+  [settlement_ref_history]="Admin-gated (issue #512): return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order. Each entry's settlement_ref is a SHA-256 commitment, not plaintext."
+  [settlement_ref_index_status]="Admin-gated (issue #512): return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
   [config]="Return ContractConfig snapshot."
   [contract_version]="Return packed semver as u32."
   [version_info]="Return on-chain ContractMeta."
@@ -159,7 +157,7 @@ declare -A METHOD_DESC=(
   [set_paused]="Pause or unpause the contract. Writes rejected when paused."
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
-  [history_index_status]="Return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [history_index_status]="Admin-gated (issue #512): return (history_count, payment_count, is_consistent) diagnostic status for the history index."
   [migrate_legacy_payments]="Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)."
 )
 
@@ -273,9 +271,7 @@ cat > "$OUT" <<JSON
         },
         "settlement_ref": {
           "type": "string",
-          "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation (e.g. SHA-256 hex). Max 128 chars.",
-          "minLength": 1,
-          "maxLength": 128
+          "description": "SHA-256 commitment (64-char lowercase hex) of the settlement reference passed to record_payment() — not the plaintext value itself (issue #512). A caller that already holds the plaintext can dedupe/verify by hashing its own copy the same way, or by calling settlement_ref_owner() with the plaintext directly."
         }
       },
       "required": ["invoice_id", "payer", "asset", "amount", "asset_decimals", "timestamp", "settlement_ref"],
@@ -340,7 +336,7 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
-      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() and payments_by_payer().",
+      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() (admin-gated, issue #512).",
       "type": "object",
       "properties": {
         "records": {
@@ -367,7 +363,7 @@ cat > "$OUT" <<JSON
       "properties": {
         "settlement_ref": {
           "type": "string",
-          "description": "Normalised settlement reference (e.g. SHA-256 hex)."
+          "description": "SHA-256 commitment of the settlement reference — never the plaintext (issue #512)."
         },
         "invoice_id": {
           "type": "string",
@@ -378,7 +374,7 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "SettlementRefPage": {
-      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history(). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
+      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history() (admin-gated, issue #512). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
       "type": "object",
       "properties": {
         "records": {
@@ -456,18 +452,13 @@ cat > "$OUT" <<JSON
   },
   "events": {
     "InvoicePaymentRecorded": {
-      "description": "Emitted by record_payment(). Primary indexer event — carries the full payment details.",
+      "description": "Emitted by record_payment(). As of issue #512 this is minimized to signal only that an invoice_id was recorded — no payer, asset, amount, or settlement_ref. A consumer that needs the full record must already know invoice_id and call get_payment(invoice_id).",
       "topic": "invoice_payment_recorded",
       "fields": {
-        "invoice_id":   { "type": "string",  "description": "Unique invoice identifier." },
-        "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
-        "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
-        "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
-        "amount":       { "type": "integer", "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals.", "minimum": 1 },
-        "asset_decimals": { "type": "integer", "description": "Decimal places for the asset; 0 means legacy precision unknown.", "minimum": 0, "maximum": 18 },
-        "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
+        "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." },
+        "schema_version": { "type": "integer", "description": "Event payload schema version. Bumped to 2 for issue #512's payload shrink.", "minimum": 1 }
       },
-      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "asset_decimals", "settlement_ref"]
+      "required": ["invoice_id", "schema_version"]
     },
     "AssetAllowlisted": {
       "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",

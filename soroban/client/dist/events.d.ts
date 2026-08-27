@@ -5,16 +5,18 @@ import { xdr } from '@stellar/stellar-sdk';
  * `contracts/invoice-payment/src/events.rs` — bump both together when the
  * payload shape changes in a breaking way.
  */
-export declare const EVENT_SCHEMA_VERSION = 1;
+export declare const EVENT_SCHEMA_VERSION = 2;
+/**
+ * As of issue #512 this event carries only `schemaVersion` and `invoiceId` —
+ * no payer, asset, amount, asset_decimals, or settlement_ref. A public event
+ * carrying the full record previously bypassed every read-method
+ * access-control decision in the contract; a consumer that needs the full
+ * record must already know `invoiceId` and call `getPayment(invoiceId)`.
+ */
 export type InvoicePaymentRecordedEvent = {
     type: 'invoice_payment_recorded';
     schemaVersion: number;
     invoiceId: string;
-    payer: string;
-    assetCode: string;
-    assetIssuer: string;
-    amount: bigint;
-    settlementRef: string;
 };
 export type AssetAllowlistedEvent = {
     type: 'asset_allowlisted';

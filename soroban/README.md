@@ -580,7 +580,8 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | **Two-step admin handoff** | `propose_admin` (current admin) + `accept_admin` (proposed admin) — no single transaction can change the admin, so a lost/compromised key can never hand off alone |
 | **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
 | **Persistent storage** | Records survive ledger archival windows |
-| **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
+| **Minimized events** | Only `schema_version` + `invoice_id` in each event (issue #512); a subscriber that needs the full record must already know `invoice_id` and call `get_payment` |
+| **Privacy-by-default reads** | Bulk/volume reads (`payment_history`, `payment_count`, `settlement_ref_history`, `settlement_ref_index_status`, `history_index_status`) are admin-gated; `settlement_ref` is stored as a SHA-256 commitment, not plaintext (issue #512) — see `contracts/invoice-payment/README.md`'s "Disclosure guarantee / threat model" section |
 
 #### Admin transfer flow
 
@@ -639,6 +640,29 @@ under the new code to migrate on-chain storage to the new
 `./invoke-upgrade.sh` (supports `--dry-run`) and `./invoke-upgrade-storage.sh`,
 alongside the existing `./invoke-pause.sh` / `./invoke-unpause.sh`.
 
+#### Permanence for existing deployments (issue #512)
+
+An upgrade changes contract *behavior* going forward — it cannot un-publish
+data already on-chain. On a deployment that recorded payments before
+upgrading to the issue #512 privacy fix:
+
+- Every pre-upgrade `invoice_payment_recorded` event already carries the
+  full legacy payload (payer, asset, amount, plaintext settlement_ref) and
+  stays permanently retrievable from Horizon/RPC event history.
+- Every pre-upgrade `PaymentRecord.settlement_ref` was stored as
+  **plaintext**; the settlement-reference migrations backfill a
+  commitment-keyed lookup index from it, but do **not** rewrite that
+  original field — `get_payment` on an old record still returns the
+  original plaintext value.
+- Anything already read via the now-removed `payments_by_payer` or the
+  now-admin-gated bulk reads before an operator upgrades was, and remains,
+  exposed to whoever read it.
+
+Treat any such deployment as having its full payment history, payer
+identities, and settlement references already exposed. The fix protects
+only payments recorded **after** the upgrade. Full detail:
+[`contracts/invoice-payment/README.md`](contracts/invoice-payment/README.md#permanence-for-existing-deployments).
+
 #### Event compatibility policy
 
 - Keep the existing `PaymentRecorded` event and topic (`payment_recorded`) stable for v1 consumers.
@@ -682,12 +706,11 @@ Contract v1 (C1) live
 | `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `invoice_id` (≤ 64 chars) and `settlement_ref` (non-empty, ≤ 128 chars) must both be in **canonical form** — lowercase letters, digits, and hyphens only; non-canonical input is rejected, not normalised, since both fields back byte-exact idempotency guards. |
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). Pure read — falls back to a pre-schema-versioning legacy key for an unmigrated record, but never writes it (issue #508); use `migrate_legacy_payments` to actually migrate one. |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
-| `payment_count() → u32` | — | Total payments recorded. |
-| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
-| `payments_by_payer(payer, cursor, limit) → PaymentHistoryPage` | — | Return a bounded page of payments made by one payer. Served from the per-payer index (schema V2) when present; otherwise a filtered scan of the shared history index capped at `MAX_PAYER_SCAN_SLOTS` slots examined per call — an empty page with `has_more: true` is expected mid-pagination on that fallback path. |
-| `settlement_ref_owner(settlement_ref) → invoice_id \| null` | — | Resolve a settlement reference to the invoice that consumed it; `null` when unused. Disambiguates a `SettlementRefAlreadyUsed` rejection: same invoice_id means a benign retry, a different one means a genuine conflict (issue #495). |
-| `settlement_ref_history(cursor, limit) → SettlementRefPage` | — | Return a bounded, cursor-friendly page of the settlement-reference index in write order, for audit/reconciliation. Same gap-skipping and pagination conventions as `payment_history`. |
-| `settlement_ref_index_status() → (settlement_ref_count, payment_count, is_consistent)` | — | O(1) consistency summary: `is_consistent` is `false` when some payment has no recorded settlement-reference mapping (e.g. empty legacy `settlement_ref`, or a duplicate migration deliberately left unresolved). |
+| `payment_count(admin) → u32` | admin | Total payments recorded. **Admin-gated** (issue #512): raw payment volume is bulk platform-activity data, not tied to an identifier the caller already knows. |
+| `payment_history(admin, cursor, limit) → PaymentHistoryPage` | admin | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. **Admin-gated** (issue #512): bulk enumeration of every payment is exactly the disclosure this contract's privacy guarantee exists to prevent for anyone but the admin. `payments_by_payer` was removed entirely for the same reason — it served no documented product need and was the sharpest disclosure (issue #512). |
+| `settlement_ref_owner(settlement_ref) → invoice_id \| null` | — | Resolve a settlement reference to the invoice that consumed it; `null` when unused. `settlement_ref` here is the **plaintext** the caller already possesses — it's hashed internally to the commitment actually used as the storage key (issue #512), so this method can't be used to discover a reference the caller doesn't already have. Disambiguates a `SettlementRefAlreadyUsed` rejection: same invoice_id means a benign retry, a different one means a genuine conflict (issue #495). |
+| `settlement_ref_history(admin, cursor, limit) → SettlementRefPage` | admin | Return a bounded, cursor-friendly page of the settlement-reference index in write order, for audit/reconciliation. Same gap-skipping and pagination conventions as `payment_history`. Each entry's `settlement_ref` is a SHA-256 commitment, not the plaintext (issue #512). **Admin-gated.** |
+| `settlement_ref_index_status(admin) → (settlement_ref_count, payment_count, is_consistent)` | admin | O(1) consistency summary: `is_consistent` is `false` when some payment has no recorded settlement-reference mapping (e.g. empty legacy `settlement_ref`, or a duplicate migration deliberately left unresolved). **Admin-gated** (issue #512): a volume summary, like `payment_count`. |
 | `allow_asset(code, issuer)` | admin | Add `(code, issuer)` to the allowlist. `code` is held to the same rule `record_payment` enforces: non-empty and ≤ 12 characters. Idempotent — re-allowing an already-allowed pair is a no-op. |
 | `revoke_asset(code, issuer)` | admin | Remove `(code, issuer)` from the allowlist. Revoking a pair that was never allowlisted is a safe no-op, but unlike a real revoke it does **not** emit `AssetRevoked` — the two are distinguishable by event emission alone (issue #464). |
 | `allowed_assets(cursor, limit) → AllowlistPage` | — | Return a bounded, cursor-friendly page of currently-allowlisted `(code, issuer)` pairs, so callers can enumerate the allowlist without already knowing which pairs to ask about. Same gap-skipping and pagination conventions as `payment_history`; a hole here is a normal outcome of `revoke_asset`, not only a sign of corruption (issue #464). |
@@ -700,8 +723,9 @@ Contract v1 (C1) live
 | `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
 | `upgrade(admin, new_wasm_hash, new_contract_version)` | admin | Swap the deployed WASM in place (`env.deployer().update_current_contract_wasm`). Requires the contract to already be paused. See [`docs/upgrade-runbook.md`](docs/upgrade-runbook.md). |
 | `migrate_legacy_payments(admin, invoice_ids) → (migrated, already_current, not_found)` | admin | Migrate a caller-supplied, bounded batch (≤ `MAX_LEGACY_MIGRATION_BATCH`, 20) of legacy `Payment(invoice_id)` keys to `PaymentV1`, removing each legacy entry as it migrates so a record never sits under two keys. The caller supplies the batch because a legacy record predates the on-chain index other migrations use to discover records — there's no way to enumerate them on-chain. Idempotent per id; safely resumable across calls (issue #508). |
+| `history_index_status(admin) → (history_count, payment_count, is_consistent)` | admin | O(1) diagnostic comparing the two counters. **Admin-gated** (issue #512): a volume summary, like `payment_count`. |
 
-`payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
+`payment_history(admin, cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded. See "Disclosure guarantee / threat model" in `contracts/invoice-payment/README.md` for which reads are admin-gated and why.
 
 ### Contract error codes
 
@@ -821,7 +845,8 @@ pub struct PaymentRecord {
     pub asset:         Asset,    // Native XLM or Token(code, issuer)
     pub amount:        i128,     // stroops for XLM; token-specific decimals
     pub timestamp:     u64,      // ledger Unix timestamp at recording time
-    pub settlement_ref: String,  // normalised settlement reference; canonical, ≤ 128 chars
+    pub settlement_ref: String,  // SHA-256 commitment of the settlement reference passed to
+                                  // record_payment — not the plaintext itself (issue #512)
 }
 
 pub enum Asset {
@@ -834,16 +859,18 @@ pub enum Asset {
 
 ### Emitted events
 
-Every `record_payment` call publishes a flattened event payload so off-chain indexers and backends can parse it reliably:
+Every `record_payment` call publishes a minimized event payload (issue #512) — just enough to signal that a payment was recorded, not what it contains:
 
 ```
 Topics : (Symbol "invoice_payment_recorded")
-Data   : InvoicePaymentRecorded { schema_version, invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref }
+Data   : InvoicePaymentRecorded { schema_version, invoice_id }
 ```
+
+Before issue #512 this event carried the full payment record (`payer`, `asset_code`, `asset_issuer`, `amount`, `settlement_ref`). That completely bypassed every read-method access-control decision in the contract: anyone streaming `getEvents` could reconstruct the entire payment ledger regardless of which read methods were permissionless. The event now only tells a consumer *that* `invoice_id` was recorded — a consumer that needs the full record must already know `invoice_id` and call `get_payment(invoice_id)` (unauthenticated, gated only on already knowing the id).
 
 Note: The `tx_hash` is not directly inside the payload, but is automatically included by Horizon in the event envelope when fetching via RPC.
 
-The leading `schema_version` field (currently `1`, see `EVENT_SCHEMA_VERSION` in `events.rs`) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
+The leading `schema_version` field (currently `2`, see `EVENT_SCHEMA_VERSION` in `events.rs` — bumped from `1` for the issue #512 payload shrink) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
 
 Subscribe and decode via CLI:
 ```sh
@@ -1062,7 +1089,11 @@ const result = await client.recordPayment({
   assetCode: 'USDC',
   assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   amount: 1_500_000_000n,
-  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference
+  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference the
+                                      // backend generated. The contract stores a SHA-256
+                                      // COMMITMENT of this value on-chain, not the string
+                                      // itself (issue #512) — the backend that generated
+                                      // it can still dedupe/verify by hashing its own copy.
 });
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
 
@@ -1116,9 +1147,18 @@ const exists = await client.hasPayment('invoisio-abc123');
 if (exists) {
   const record = await client.getPayment('invoisio-abc123');
   console.log(record.invoiceId, record.amount, record.timestamp);
+  // record.settlementRef is a SHA-256 commitment, not the plaintext (issue #512).
 }
 
-const total = await client.getPaymentCount();
+// ── Read (admin-gated bulk/volume reads — issue #512) ────────────────────────
+// payment_count/payment_history/settlement_ref_history/settlement_ref_index_status
+// all enumerate or summarize activity across the whole contract, so they're
+// gated to the admin — pass the admin's PUBLIC key (adminPublicKey). No secret
+// key is required for the read itself; Soroban treats the transaction's own
+// source account as implicitly authorising its own require_auth() check during
+// simulation.
+const ADMIN_PUBLIC_KEY = process.env.MERCHANT_PUBLIC_KEY!; // the contract admin's G... address
+const total = await client.getPaymentCount(ADMIN_PUBLIC_KEY);
 console.log(`Total payments on-chain: ${total}`);
 ```
 

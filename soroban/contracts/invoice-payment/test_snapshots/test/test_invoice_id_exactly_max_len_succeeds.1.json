@@ -122,63 +122,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -211,6 +154,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -230,7 +181,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-len-invoice-id"
+                      "string": "991f86e465a88d641cb811e20f4d1323be9f2c6e076c2f85ed45af47031e8497"
                     }
                   },
                   {
@@ -318,6 +269,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -337,7 +296,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-len-invoice-id"
+                      "string": "991f86e465a88d641cb811e20f4d1323be9f2c6e076c2f85ed45af47031e8497"
                     }
                   },
                   {
@@ -369,7 +328,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-max-len-invoice-id"
+                    "string": "991f86e465a88d641cb811e20f4d1323be9f2c6e076c2f85ed45af47031e8497"
                   }
                 ]
               },
@@ -416,7 +375,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-len-invoice-id"
+                      "string": "991f86e465a88d641cb811e20f4d1323be9f2c6e076c2f85ed45af47031e8497"
                     }
                   }
                 ]
@@ -489,7 +448,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 5
                             }
                           }
                         ]

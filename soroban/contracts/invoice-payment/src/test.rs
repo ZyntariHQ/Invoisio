@@ -20,6 +20,14 @@ fn setup(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
     (client, admin)
 }
 
+/// Compute the SHA-256 commitment `record_payment` stores for a plaintext
+/// settlement reference — mirrors `storage::commit_settlement_ref` exactly,
+/// so tests assert against the same value the contract actually persists
+/// (issue #512), never the plaintext.
+fn settlement_commitment(env: &Env, plaintext: &str) -> String {
+    crate::storage::commit_settlement_ref(env, &String::from_str(env, plaintext))
+}
+
 /// XLM payment helper: 1 XLM = 10_000_000 stroops.
 fn record_xlm(
     env: &Env,
@@ -48,9 +56,10 @@ fn record_xlm(
 fn test_initialize_sets_admin_and_zero_count() {
     let env = Env::default();
     let (client, admin) = setup(&env);
+    env.mock_all_auths();
 
     assert_eq!(client.admin(), admin);
-    assert_eq!(client.payment_count(), 0);
+    assert_eq!(client.payment_count(&admin), 0);
 }
 
 #[test]
@@ -162,7 +171,7 @@ fn test_record_payment_xlm_stores_record() {
     assert_eq!(record.amount, 10_000_000i128);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-xlm-abc123")
+        settlement_commitment(&env, "settle-xlm-abc123")
     );
 }
 
@@ -198,7 +207,7 @@ fn test_record_payment_usdc_stores_issuer() {
     assert_eq!(record.amount, 50_000_000i128);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-usdc-01")
+        settlement_commitment(&env, "settle-usdc-01")
     );
 }
 
@@ -213,7 +222,7 @@ fn test_record_payment_increments_count() {
     record_xlm(&env, &client, "invoisio-002", &payer, 20_000_000);
     record_xlm(&env, &client, "invoisio-003", &payer, 30_000_000);
 
-    assert_eq!(client.payment_count(), 3);
+    assert_eq!(client.payment_count(&_admin), 3);
 }
 
 #[test]
@@ -237,7 +246,7 @@ fn test_payment_history_pages_deterministically() {
         );
     }
 
-    let first_page = client.payment_history(&0u32, &2u32);
+    let first_page = client.payment_history(&_admin, &0u32, &2u32);
     assert_eq!(first_page.records.len(), 2);
     assert_eq!(first_page.next_cursor, 2);
     assert!(first_page.has_more);
@@ -250,7 +259,7 @@ fn test_payment_history_pages_deterministically() {
         String::from_str(&env, "invoisio-history-01")
     );
 
-    let second_page = client.payment_history(&first_page.next_cursor, &2u32);
+    let second_page = client.payment_history(&_admin, &first_page.next_cursor, &2u32);
     assert_eq!(second_page.records.len(), 1);
     assert_eq!(second_page.next_cursor, 3);
     assert!(!second_page.has_more);
@@ -259,7 +268,7 @@ fn test_payment_history_pages_deterministically() {
         String::from_str(&env, "invoisio-history-02")
     );
 
-    let empty_page = client.payment_history(&99u32, &2u32);
+    let empty_page = client.payment_history(&_admin, &99u32, &2u32);
     assert_eq!(empty_page.records.len(), 0);
     assert_eq!(empty_page.next_cursor, 3);
     assert!(!empty_page.has_more);
@@ -286,12 +295,12 @@ fn test_payment_history_page_size_is_capped() {
         );
     }
 
-    let first_page = client.payment_history(&0u32, &100u32);
+    let first_page = client.payment_history(&_admin, &0u32, &100u32);
     assert_eq!(first_page.records.len(), 25);
     assert_eq!(first_page.next_cursor, 25);
     assert!(first_page.has_more);
 
-    let second_page = client.payment_history(&first_page.next_cursor, &100u32);
+    let second_page = client.payment_history(&_admin, &first_page.next_cursor, &100u32);
     assert_eq!(second_page.records.len(), 1);
     assert_eq!(second_page.next_cursor, 26);
     assert!(!second_page.has_more);
@@ -329,7 +338,7 @@ fn test_payment_history_skips_missing_slot_mid_page() {
             .remove(&DataKey::PaymentHistory(2));
     });
 
-    let page = client.payment_history(&0u32, &10u32);
+    let page = client.payment_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 4);
     assert_eq!(page.gaps_skipped, 1);
     assert_eq!(page.next_cursor, 5);
@@ -387,7 +396,7 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
         iterations += 1;
         assert!(iterations <= 10, "pagination loop did not terminate");
 
-        let page = client.payment_history(&cursor, &2u32);
+        let page = client.payment_history(&_admin, &cursor, &2u32);
         // The cursor must always make forward progress — a repeated cursor
         // is exactly the deadlock this test guards against.
         assert!(page.next_cursor > cursor || !page.has_more);
@@ -404,51 +413,6 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
     assert_eq!(total_records, 5);
     assert_eq!(total_gaps, 1);
     assert_eq!(cursor, 6);
-}
-
-/// Regression test for #418 (scan path): `payments_by_payer` on the bounded
-/// scan fallback must skip a missing slot the same way `payment_history`
-/// does, distinguishing a real gap from a slot that belongs to a different
-/// payer.
-///
-/// With the per-payer index intact (#445), corruption in *another payer's*
-/// slot is no longer visible in this payer's page — the second half of the
-/// test pins that improvement.
-#[test]
-fn test_payments_by_payer_skips_missing_slot() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other_payer = Address::generate(&env);
-
-    record_xlm(&env, &client, "invoisio-mine-00", &payer, 10_000_000);
-    record_xlm(&env, &client, "invoisio-theirs", &other_payer, 20_000_000);
-    record_xlm(&env, &client, "invoisio-mine-01", &payer, 30_000_000);
-
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PaymentHistory(1));
-    });
-
-    // Indexed path: the removed slot belongs to another payer, so this
-    // payer's view is unaffected by it.
-    let indexed = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(indexed.records.len(), 2);
-    assert_eq!(indexed.gaps_skipped, 0);
-    assert_eq!(indexed.next_cursor, 2);
-    assert!(!indexed.has_more);
-
-    // Scan fallback: the shared-index walk sees the hole and reports it.
-    strip_payer_index(&env, &client, &payer);
-    let page = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(page.records.len(), 2);
-    assert_eq!(page.gaps_skipped, 1);
-    assert_eq!(page.next_cursor, 3);
-    assert!(!page.has_more);
 }
 
 /// Regression test for #418: once a corrupted index has been repaired via
@@ -479,13 +443,13 @@ fn test_payment_history_has_no_gaps_after_rebuild() {
             .remove(&DataKey::PaymentHistory(1));
     });
 
-    let corrupted = client.payment_history(&0u32, &10u32);
+    let corrupted = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(corrupted.gaps_skipped, 1);
     assert_eq!(corrupted.records.len(), 3);
 
     client.rebuild_history_index(&admin);
 
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.gaps_skipped, 0);
     assert_eq!(rebuilt.records.len(), 4);
     assert!(!rebuilt.has_more);
@@ -541,12 +505,10 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
 
     // Check event BEFORE any further contract call; env.events().all() returns
     // events from the last invocation only and is overwritten on the next call.
+    // As of issue #512 the event carries only schema_version + invoice_id —
+    // no payer/asset/amount/settlement_ref — so a public event stream can no
+    // longer be used to bulk-browse the payment ledger.
     let inv_val: soroban_sdk::Val = invoice_id.clone().into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.clone().into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-dedup-happy").into_val(&env);
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -560,12 +522,6 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -574,7 +530,7 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
     );
 
     // Counter must be 1 and record must be present.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id));
 }
 
@@ -601,7 +557,7 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
         &10_000_000i128,
         &String::from_str(&env, "settle-dedup-dup2"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 
     // Second payment with the identical invoice_id — must fail.
     let result = client.try_record_payment(
@@ -622,7 +578,7 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
     );
 
     // State must be completely unchanged: counter still 1.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 /// AC-3 Cross-asset duplicate: attempting to record a payment for an already
@@ -652,7 +608,7 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
         &10_000_000i128,
         &String::from_str(&env, "settle-cross-xlm"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 
     // Second attempt: same invoice_id but USDC — must fail.
     let result = client.try_record_payment(
@@ -670,7 +626,7 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
     );
 
     // Counter must remain 1 — no additional write took place.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -955,7 +911,7 @@ fn test_new_admin_can_record_payment_after_accept() {
     let payer = Address::generate(&env);
     record_xlm(&env, &client, "invoisio-new-admin", &payer, 7_000_000);
 
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&new_admin), 1);
 }
 
 #[test]
@@ -1268,12 +1224,8 @@ fn test_record_payment_emits_payment_recorded_event() {
     // otherwise the buffer is overwritten with that call's (empty) events.
 
     let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-event-test").into_val(&env);
 
+    // As of issue #512 the event carries only schema_version + invoice_id.
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -1287,12 +1239,6 @@ fn test_record_payment_emits_payment_recorded_event() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -1477,7 +1423,7 @@ fn test_record_payment_multiple_asset_types() {
     assert_eq!(x_eurt_record.asset, Asset::Token(eurt_code, eurt_issuer));
 
     // Verify payment count
-    assert_eq!(client.payment_count(), 3);
+    assert_eq!(client.payment_count(&_admin), 3);
 }
 
 #[test]
@@ -1934,7 +1880,10 @@ fn test_non_seven_decimal_asset_precision_round_trip() {
     let (client, _admin) = setup(&env);
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "EURT");
-    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
     client.allow_asset_with_decimals(&code, &issuer, &6);
 
     let invoice_id = String::from_str(&env, "invoisio-six-decimals");
@@ -2022,7 +1971,9 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
     // under their legacy keys until explicitly migrated.
     for id in invoice_ids.iter() {
         let has_v1 = env.as_contract(&client.address, || {
-            env.storage().persistent().has(&DataKey::PaymentV1(id.clone()))
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(id.clone()))
         });
         assert!(!has_v1, "a bare read must not migrate the legacy record");
     }
@@ -2037,8 +1988,12 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
     for id in invoice_ids.iter() {
         let (has_v1, has_legacy) = env.as_contract(&client.address, || {
             (
-                env.storage().persistent().has(&DataKey::PaymentV1(id.clone())),
-                env.storage().persistent().has(&DataKey::Payment(id.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::PaymentV1(id.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Payment(id.clone())),
             )
         });
         assert!(has_v1, "record must exist under PaymentV1 after migration");
@@ -2246,10 +2201,8 @@ fn test_upgrade_storage_preserves_payment_records() {
     );
 
     // The explicit, admin-gated migration is what actually moves it.
-    let (migrated, already_current, not_found) = client.migrate_legacy_payments(
-        &admin,
-        &soroban_sdk::vec![&env, invoice_id.clone()],
-    );
+    let (migrated, already_current, not_found) =
+        client.migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, invoice_id.clone()]);
     assert_eq!((migrated, already_current, not_found), (1, 0, 0));
 
     let final_read = client.get_payment(&invoice_id);
@@ -2434,8 +2387,8 @@ mod upgrade_wasm_integration {
         }
 
         let admin_before = client.admin();
-        let history_before = client.payment_history(&0u32, &10u32);
-        let count_before = client.payment_count();
+        let history_before = client.payment_history(&admin, &0u32, &10u32);
+        let count_before = client.payment_count(&admin);
         let native_allowed_before = client.config().allowlist_mode.native_allowed;
 
         // Step 1: pause (required by upgrade()).
@@ -2450,8 +2403,8 @@ mod upgrade_wasm_integration {
 
         // Step 4: verify state survived, and that the new code is live.
         assert_eq!(client.admin(), admin_before);
-        assert_eq!(client.payment_count(), count_before);
-        let history_after = client.payment_history(&0u32, &10u32);
+        assert_eq!(client.payment_count(&admin), count_before);
+        let history_after = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history_after.records.len(), history_before.records.len());
         for (before, after) in history_before
             .records
@@ -2484,7 +2437,7 @@ mod upgrade_wasm_integration {
             &50_000_000i128,
             &String::from_str(&env, "settle-wasm-upgrade-post"),
         );
-        assert_eq!(client.payment_count(), count_before + 1);
+        assert_eq!(client.payment_count(&admin), count_before + 1);
     }
 }
 
@@ -2526,7 +2479,7 @@ fn test_pause_prevents_record_payment() {
         &10_000_000i128,
         &String::from_str(&env, "settle-unpaused"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
 }
 
 #[test]
@@ -2553,7 +2506,7 @@ fn test_pause_allows_reads() {
 
     // All read operations should still work
     assert!(client.has_payment(&String::from_str(&env, "invoisio-read-test")));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
     assert!(
         client
             .get_payment(&String::from_str(&env, "invoisio-read-test"))
@@ -2561,7 +2514,10 @@ fn test_pause_allows_reads() {
             .len()
             > 0
     );
-    assert_eq!(client.payment_history(&0u32, &10u32).records.len(), 1);
+    assert_eq!(
+        client.payment_history(&admin, &0u32, &10u32).records.len(),
+        1
+    );
 }
 
 #[test]
@@ -2735,7 +2691,14 @@ fn test_record_payment_with_settlement_ref_stores_and_returns() {
     );
 
     let record = client.get_payment(&invoice_id);
-    assert_eq!(record.settlement_ref, settlement_ref);
+    // The stored value is the SHA-256 commitment of what was supplied, not
+    // the plaintext (issue #512) — the plaintext is never recoverable from
+    // on-chain data.
+    assert_eq!(
+        record.settlement_ref,
+        settlement_commitment(&env, "sha256-abcdef1234567890")
+    );
+    assert_ne!(record.settlement_ref, settlement_ref);
 }
 
 #[test]
@@ -2804,7 +2767,10 @@ fn test_settlement_ref_exactly_128_chars_succeeds() {
         &ref_128,
     );
     let record = client.get_payment(&invoice_id);
-    assert_eq!(record.settlement_ref, ref_128);
+    assert_eq!(
+        record.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_128)
+    );
 }
 
 #[test]
@@ -2831,12 +2797,11 @@ fn test_settlement_ref_emitted_in_event() {
     );
 
     let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = settlement_ref.clone().into_val(&env);
+    let _ = payer; // no longer part of the minimized event (issue #512)
+    let _ = settlement_ref; // ditto — dropped from the event entirely
 
+    // As of issue #512 the event carries only schema_version + invoice_id —
+    // not even the settlement_ref commitment.
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -2850,12 +2815,6 @@ fn test_settlement_ref_emitted_in_event() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -2890,7 +2849,7 @@ fn test_settlement_ref_usdc_payment() {
     let record = client.get_payment(&invoice_id);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-usdc-hash-789")
+        settlement_commitment(&env, "settle-usdc-hash-789")
     );
 }
 
@@ -3255,7 +3214,9 @@ fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
         env.storage()
             .persistent()
             .remove(&DataKey::AllowListIndex(code.clone(), issuer.clone()));
-        env.storage().instance().set(&DataKey::AllowListCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowListCount, &0u32);
         env.storage()
             .instance()
             .set(&DataKey::AllowListLogCount, &0u32);
@@ -4293,8 +4254,12 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
 
         let (has_v1, has_legacy) = env.as_contract(&client.address, || {
             (
-                env.storage().persistent().has(&DataKey::PaymentV1(inv.clone())),
-                env.storage().persistent().has(&DataKey::Payment(inv.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::PaymentV1(inv.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Payment(inv.clone())),
             )
         });
         assert!(has_v1, "payment must be migrated to V1 key");
@@ -4312,7 +4277,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
         &7_000_000i128,
         &String::from_str(&env, "reg-new-ref"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
     let has_v1 = env.as_contract(&client.address, || {
         env.storage()
             .persistent()
@@ -4485,7 +4450,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
 
     // Read still works.
     assert!(client.has_payment(&String::from_str(&env, "reg-post-upgrade")));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
 
     // Unpause and verify writes resume.
     client.set_paused(&admin, &false);
@@ -4497,7 +4462,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
         &100i128,
         &String::from_str(&env, "reg-after-ref"),
     );
-    assert_eq!(client.payment_count(), 2);
+    assert_eq!(client.payment_count(&admin), 2);
 }
 
 /// Payment history pagination must work correctly after an upgrade from V0
@@ -4560,7 +4525,7 @@ fn test_regression_payment_history_after_upgrade() {
     client.upgrade_storage(&admin);
 
     // Verify history pagination: page 1 of 2.
-    let page1 = client.payment_history(&0u32, &2u32);
+    let page1 = client.payment_history(&admin, &0u32, &2u32);
     assert_eq!(page1.records.len(), 2);
     assert_eq!(
         page1.records.get(0).unwrap().invoice_id,
@@ -4573,7 +4538,7 @@ fn test_regression_payment_history_after_upgrade() {
     assert!(page1.has_more);
 
     // Page 2.
-    let page2 = client.payment_history(&page1.next_cursor, &2u32);
+    let page2 = client.payment_history(&admin, &page1.next_cursor, &2u32);
     assert_eq!(page2.records.len(), 1);
     assert_eq!(
         page2.records.get(0).unwrap().invoice_id,
@@ -4679,7 +4644,7 @@ fn test_upgrade_storage_rebuilds_history_index() {
     }
 
     // Verify initial history
-    let history = client.payment_history(&0u32, &10u32);
+    let history = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(history.records.len(), 5);
 
     // Simulate a legacy deployment by clearing metadata
@@ -4696,7 +4661,7 @@ fn test_upgrade_storage_rebuilds_history_index() {
     });
 
     // History should now be empty
-    let empty = client.payment_history(&0u32, &10u32);
+    let empty = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(empty.records.len(), 0);
 
     // Upgrade storage - should rebuild index
@@ -4704,7 +4669,7 @@ fn test_upgrade_storage_rebuilds_history_index() {
     assert!(result.is_ok());
 
     // History should be restored
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.records.len(), 5);
     assert_eq!(rebuilt.next_cursor, 5);
     assert!(!rebuilt.has_more);
@@ -4743,7 +4708,7 @@ fn test_rebuild_history_index_manual() {
     });
 
     // Verify history is empty
-    let empty = client.payment_history(&0u32, &10u32);
+    let empty = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(empty.records.len(), 0);
 
     // Manually rebuild
@@ -4751,7 +4716,7 @@ fn test_rebuild_history_index_manual() {
     assert!(result.is_ok());
 
     // History should be restored
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.records.len(), 3);
 }
 
@@ -4762,7 +4727,7 @@ fn test_history_index_status() {
     let (client, admin) = setup(&env);
 
     // Check initial status
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 0);
     assert_eq!(payment_count, 0);
     assert!(is_consistent);
@@ -4783,7 +4748,7 @@ fn test_history_index_status() {
     }
 
     // Status should show consistency
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 3);
     assert_eq!(payment_count, 3);
     assert!(is_consistent);
@@ -4796,7 +4761,7 @@ fn test_history_index_status() {
     });
 
     // Status should show inconsistency
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 1);
     assert_eq!(payment_count, 3);
     assert!(!is_consistent);
@@ -4806,10 +4771,187 @@ fn test_history_index_status() {
     assert!(result.is_ok());
 
     // Status should show consistency again
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 3);
     assert_eq!(payment_count, 3);
     assert!(is_consistent);
+}
+
+// ─── Issue #512: bulk/volume reads are admin-gated ─────────────────────────
+//
+// `payment_history`, `payment_count`, `history_index_status`,
+// `settlement_ref_history`, and `settlement_ref_index_status` all enumerate
+// or summarize activity across the whole contract, so — unlike `get_payment`
+// or `settlement_ref_owner`, which only ever answer about an identifier the
+// caller already supplied — they must reject a non-admin caller and work
+// normally for the admin, mirroring `rebuild_history_index`'s auth pattern.
+
+#[test]
+fn test_payment_history_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_payment_history(&attacker, &0u32, &10u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_payment_history_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-history", &payer, 10_000_000);
+
+    let page = client.payment_history(&admin, &0u32, &10u32);
+    assert_eq!(page.records.len(), 1);
+}
+
+#[test]
+fn test_payment_count_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_payment_count(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_payment_count_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-count", &payer, 10_000_000);
+
+    assert_eq!(client.payment_count(&admin), 1);
+}
+
+#[test]
+fn test_history_index_status_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_history_index_status(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_history_index_status_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
+    assert_eq!((history_count, payment_count, is_consistent), (0, 0, true));
+}
+
+#[test]
+fn test_settlement_ref_history_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_settlement_ref_history(&attacker, &0u32, &10u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_settlement_ref_history_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-refhist", &payer, 10_000_000);
+
+    let page = client.settlement_ref_history(&admin, &0u32, &10u32);
+    assert_eq!(page.records.len(), 1);
+}
+
+#[test]
+fn test_settlement_ref_index_status_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_settlement_ref_index_status(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_settlement_ref_index_status_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    assert_eq!(client.settlement_ref_index_status(&admin), (0, 0, true));
+}
+
+// ─── Issue #512: settlement_ref is a SHA-256 commitment, not plaintext ─────
+
+#[test]
+fn test_settlement_ref_commitment_differs_for_different_plaintexts_same_length() {
+    let env = Env::default();
+    // Same length (12 chars), different content — commitments must differ.
+    let a = settlement_commitment(&env, "settle-aaaa1");
+    let b = settlement_commitment(&env, "settle-bbbb1");
+    assert_eq!(a.len(), b.len());
+    assert_ne!(a, b);
+}
+
+#[test]
+fn test_settlement_ref_commitment_is_deterministic() {
+    let env = Env::default();
+    // The same plaintext always hashes to the same commitment, so dedup via
+    // the settlement-reference uniqueness guard still works.
+    let a = settlement_commitment(&env, "settle-deterministic");
+    let b = settlement_commitment(&env, "settle-deterministic");
+    assert_eq!(a, b);
+    assert_eq!(a.len(), 64); // lowercase hex-encoded SHA-256 digest
+}
+
+#[test]
+fn test_settlement_ref_owner_resolves_correct_plaintext_and_rejects_wrong_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "invoisio-commitment-resolve");
+    let settlement_ref = String::from_str(&env, "settle-commitment-resolve");
+
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // The correct plaintext resolves to the invoice.
+    assert_eq!(
+        client.settlement_ref_owner(&settlement_ref),
+        Some(invoice_id)
+    );
+
+    // A wrong/unrelated plaintext — even one of the same length — resolves
+    // to nothing: the contract never stored the plaintext to compare against
+    // directly, only its commitment.
+    let wrong = String::from_str(&env, "settle-wrong-unrelated");
+    assert_eq!(client.settlement_ref_owner(&wrong), None);
 }
 
 #[test]
@@ -4877,7 +5019,7 @@ fn test_settlement_ref_cannot_be_reused_for_different_invoice() {
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -4923,7 +5065,7 @@ fn test_settlement_ref_cannot_be_reused_with_different_asset() {
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -4964,16 +5106,22 @@ fn test_unique_settlement_refs_for_different_invoices_succeed() {
     );
 
     // Both payments should succeed
-    assert_eq!(client.payment_count(), 2);
+    assert_eq!(client.payment_count(&_admin), 2);
     assert!(client.has_payment(&invoice_id_1));
     assert!(client.has_payment(&invoice_id_2));
 
-    // Verify settlement refs are stored correctly
+    // Verify settlement refs are stored as their commitments, not plaintext.
     let record1 = client.get_payment(&invoice_id_1);
-    assert_eq!(record1.settlement_ref, ref_1);
+    assert_eq!(
+        record1.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_1)
+    );
 
     let record2 = client.get_payment(&invoice_id_2);
-    assert_eq!(record2.settlement_ref, ref_2);
+    assert_eq!(
+        record2.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_2)
+    );
 }
 
 /// Test that settlement_ref uniqueness is enforced even when invoice_id is different.
@@ -5013,7 +5161,7 @@ fn test_settlement_ref_reuse_fails_even_with_different_payer() {
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -5069,7 +5217,7 @@ fn test_settlement_ref_check_happens_after_invoice_id_check() {
     assert_eq!(result2, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only one payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 /// Test that empty settlement_ref is rejected (existing test, but verify error code).
@@ -5129,507 +5277,8 @@ fn test_settlement_ref_not_consumed_on_failed_transaction() {
     );
 
     // Verify payment succeeded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_2));
-}
-
-// ─── Issue #445: bounded payments_by_payer scan + per-payer index ──────────
-
-/// Number of history slots a single `payments_by_payer` invocation may
-/// examine on the scan fallback path (mirrors `storage::MAX_PAYER_SCAN_SLOTS`).
-const PAGER_SCAN_CAP: u32 = storage::MAX_PAYER_SCAN_SLOTS;
-
-/// Simulate legacy (pre-per-payer-index) storage for `payer` by removing the
-/// payer's index keys, forcing `payments_by_payer` onto the bounded-scan path.
-fn strip_payer_index(env: &Env, client: &InvoicePaymentContractClient, payer: &Address) {
-    let count = env.as_contract(&client.address, || {
-        let count = storage::get_payer_payment_count(env, payer).unwrap_or(0u32);
-        for ordinal in 0..count {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-        }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PayerPaymentCount(payer.clone()));
-        count
-    });
-    assert!(count > 0, "payer had no index entries to strip");
-}
-
-/// Write a synthetic `PaymentHistory` slot without going through
-/// `record_payment`. Lets read-path tests build histories larger than one
-/// scan cap cheaply (hundreds of slots), with no per-payer index entries so
-/// queries fall back to the bounded scan exactly like pre-V2 data.
-fn fabricate_history_slot(
-    env: &Env,
-    client: &InvoicePaymentContractClient,
-    slot: u32,
-    payer: &Address,
-) {
-    env.as_contract(&client.address, || {
-        let record = storage::PaymentRecord {
-            invoice_id: String::from_str(env, &format!("fabricated-{slot:04}")),
-            payer: payer.clone(),
-            asset: storage::Asset::Native,
-            amount: 1_000_000i128,
-            asset_decimals: 7,
-            timestamp: slot as u64,
-            settlement_ref: String::from_str(env, &format!("settle-fab-{slot:04}")),
-        };
-        env.storage()
-            .persistent()
-            .set(&DataKey::PaymentHistory(slot), &record);
-    });
-}
-
-/// Fabricate `total` contiguous history slots owned by `payer_at(slot)` and
-/// set `HistoryCount` accordingly.
-fn fabricate_history<F>(env: &Env, client: &InvoicePaymentContractClient, total: u32, payer_at: F)
-where
-    F: Fn(u32) -> Address,
-{
-    for slot in 0..total {
-        fabricate_history_slot(env, client, slot, &payer_at(slot));
-    }
-    env.as_contract(&client.address, || {
-        storage::set_history_count(env, total);
-    });
-}
-
-/// Regression test for #445: a large history with sparse payer matches must
-/// page through completely via the per-payer index without ever examining
-/// unbounded work, and every matching record must be returned exactly once,
-/// in insertion order.
-#[test]
-fn test_payments_by_payer_sparse_matches_page_through_completely() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // 61 payments total; the target payer owns every 6th record → 11
-    // matches spread across the whole index.
-    let total = 61u32;
-    let mut expected: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
-    for idx in 0..total {
-        let owner = if idx % 6 == 0 { &payer } else { &other };
-        let invoice_id = format!("invoisio-sparse-{idx:02}");
-        record_xlm(
-            &env,
-            &client,
-            &invoice_id,
-            owner,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-        if idx % 6 == 0 {
-            expected.push_back(String::from_str(&env, &invoice_id));
-        }
-    }
-
-    // Page through with a small limit; collect everything.
-    let mut seen: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
-    let mut cursor = 0u32;
-    let mut calls = 0u32;
-    loop {
-        let page = client.payments_by_payer(&payer, &cursor, &5u32);
-        for rec in page.records.iter() {
-            seen.push_back(rec.invoice_id.clone());
-        }
-        cursor = page.next_cursor;
-        calls += 1;
-        if !page.has_more {
-            break;
-        }
-        assert!(calls < 50, "pagination did not terminate");
-    }
-
-    assert_eq!(seen.len(), expected.len());
-    for (got, want) in seen.iter().zip(expected.iter()) {
-        assert_eq!(got, want);
-    }
-    assert_eq!(calls, 3, "11 records at limit 5 should take 3 pages");
-}
-
-/// Regression test for #445 (scan fallback): with no per-payer index entries
-/// (simulating pre-V2 data), each call examines at most
-/// `MAX_PAYER_SCAN_SLOTS` history slots, even when nothing matches, and
-/// paging still terminates over the whole sparse result set.
-#[test]
-fn test_payments_by_payer_bounded_scan_caps_work_per_call() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // Grow the history well past several scan caps with only two early
-    // matches for the target payer. Fabricated slots carry no index entries,
-    // so the read falls back to the bounded scan.
-    let total = PAGER_SCAN_CAP * 6 + 40; // 520 slots
-    fabricate_history(&env, &client, total, |slot| {
-        if slot == 1 || slot == 4 {
-            payer.clone()
-        } else {
-            other.clone()
-        }
-    });
-
-    // First call: bounded work. The cursor must advance by exactly the cap;
-    // both early hits fall inside the first capped window.
-    let first = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(first.records.len(), 2);
-    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
-    assert!(first.has_more);
-
-    // A zero-match window still advances by exactly the cap and reports
-    // has_more so callers keep going instead of stalling.
-    let mut cursor = first.next_cursor;
-    let mut pages = 1u32;
-    while cursor < total {
-        let page = client.payments_by_payer(&payer, &cursor, &25u32);
-        let examined = page.next_cursor - cursor;
-        assert!(
-            examined <= PAGER_SCAN_CAP,
-            "call examined {} slots > cap {}",
-            examined,
-            PAGER_SCAN_CAP
-        );
-        cursor = page.next_cursor;
-        pages += 1;
-        assert!(
-            !page.records.is_empty() || page.has_more || cursor >= total,
-            "stalled: empty page without progress"
-        );
-        assert!(pages <= 10, "paging did not terminate");
-    }
-    assert_eq!(
-        pages, 7,
-        "520 slots / cap 80 should need ceil(520/80)=7 calls"
-    );
-}
-
-/// Regression test for #445: a payer whose per-payer index exists but who
-/// has no recorded payments returns an empty page immediately.
-#[test]
-fn test_payments_by_payer_zero_match_returns_empty_promptly() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let other = Address::generate(&env);
-    let stranger = Address::generate(&env); // never recorded a payment
-
-    for idx in 0..30u32 {
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-zero-{idx:02}"),
-            &other,
-            1_000_000i128,
-        );
-    }
-
-    let page = client.payments_by_payer(&stranger, &0u32, &25u32);
-    assert_eq!(page.records.len(), 0);
-    assert_eq!(page.gaps_skipped, 0);
-    assert!(!page.has_more);
-}
-
-/// Regression test for #445 (scan fallback): a never-seen payer against
-/// *legacy* data larger than one scan cap gets an empty first page with
-/// has_more set — documented behaviour — and paging walks off the end
-/// cleanly without ever scanning more than the cap per call.
-#[test]
-fn test_payments_by_payer_zero_match_legacy_scan_pages_off_end() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let other = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let total = PAGER_SCAN_CAP + 30;
-    fabricate_history(&env, &client, total, |_| other.clone());
-
-    // The stranger never paid, so they have no index entries; the read falls
-    // back to the bounded scan directly (nothing to strip).
-    let first = client.payments_by_payer(&stranger, &0u32, &25u32);
-    assert_eq!(first.records.len(), 0);
-    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
-    assert!(first.has_more, "empty page must signal callers to continue");
-
-    let second = client.payments_by_payer(&stranger, &first.next_cursor, &25u32);
-    assert_eq!(second.records.len(), 0);
-    assert_eq!(second.next_cursor, total);
-    assert!(!second.has_more);
-}
-
-/// Regression test for #445: matches spanning multiple pages are returned in
-/// order with correct termination, including when the final page is partial.
-#[test]
-fn test_payments_by_payer_multi_page_span_in_order() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // Pattern: payer, filler, filler repeated — 7 payer payments spread over
-    // 28 history slots. With limit 3 that forces 3 pages (3/3/1).
-    let mut expected_idx: u32 = 0;
-    for idx in 0..28u32 {
-        let is_target = idx % 4 == 0 && expected_idx < 7;
-        let owner = if is_target { &payer } else { &other };
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-multi-{idx:02}"),
-            owner,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-        if is_target {
-            expected_idx += 1;
-        }
-    }
-    assert_eq!(expected_idx, 7);
-
-    let mut collected: alloc::vec::Vec<i128> = alloc::vec::Vec::new();
-    let mut cursor = 0u32;
-    loop {
-        let page = client.payments_by_payer(&payer, &cursor, &3u32);
-        for rec in page.records.iter() {
-            collected.push(rec.amount);
-        }
-        cursor = page.next_cursor;
-        if !page.has_more {
-            break;
-        }
-    }
-    assert_eq!(collected.len(), 7);
-    // Amounts encode original slot order: every 4th payment starting at 0.
-    for (n, amount) in collected.iter().enumerate() {
-        assert_eq!(*amount, ((n as i128) * 4 + 1) * 1_000_000i128);
-    }
-}
-
-/// Regression test for #445: bounded-work assertion via the CPU budget —
-/// a single zero-match call against a large history must stay far below the
-/// ledger budget now that the scan is capped.
-#[test]
-fn test_payments_by_payer_single_call_cpu_stays_bounded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    let total = PAGER_SCAN_CAP + 100;
-    fabricate_history(&env, &client, total, |slot| {
-        if slot == 0 {
-            payer.clone()
-        } else {
-            other.clone()
-        }
-    });
-
-    let before = env.cost_estimate().budget().cpu_instruction_cost();
-    let page = client.payments_by_payer(&payer, &0u32, &25u32);
-    let after = env.cost_estimate().budget().cpu_instruction_cost();
-
-    assert_eq!(page.records.len(), 1);
-    // One capped invocation must consume well under the ~100M instruction
-    // ledger budget; a full uncapped scan of this size would already be
-    // several times larger and grows linearly forever with history length.
-    let used = after - before;
-    assert!(
-        used < 20_000_000u64,
-        "single capped call consumed {} CPU instructions",
-        used
-    );
-}
-
-/// Regression test for #445: gap semantics are preserved on the per-payer
-/// index path — a removed backing history slot for one of the payer's own
-/// ordinals counts in `gaps_skipped` without stalling or mis-ordering the
-/// remaining records.
-#[test]
-fn test_payments_by_payer_index_path_skips_gap_like_payment_history() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    record_xlm(&env, &client, "invoisio-gap-a", &payer, 10_000_000);
-    record_xlm(&env, &client, "invoisio-gap-b", &other, 20_000_000);
-    record_xlm(&env, &client, "invoisio-gap-c", &payer, 30_000_000);
-
-    // Corrupt the shared history slot backing the payer's ordinal 1
-    // (slot 2 — their second recorded payment).
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PaymentHistory(2));
-    });
-
-    let page = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(page.records.len(), 1);
-    assert_eq!(
-        page.records.get(0).unwrap().invoice_id,
-        String::from_str(&env, "invoisio-gap-a")
-    );
-    assert_eq!(page.gaps_skipped, 1);
-    assert!(!page.has_more);
-}
-
-/// Regression test for #445: `rebuild_history_index` reconstructs per-payer
-/// indexes for pre-existing payments, moving payers back onto the direct-
-/// read path after a rebuild (e.g. following corruption repair).
-#[test]
-fn test_rebuild_history_index_builds_payer_indexes() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    for idx in 0..8u32 {
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-rebuild-payer-{idx:02}"),
-            &payer,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-    }
-
-    // Wipe the payer's index entries entirely (as if the contract was
-    // upgraded from a pre-V2 deployment).
-    env.as_contract(&client.address, || {
-        for ordinal in 0..8u32 {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-        }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PayerPaymentCount(payer.clone()));
-    });
-
-    // Before rebuild: bounded-scan fallback serves the data correctly.
-    let scanned = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(scanned.records.len(), 8);
-    assert_eq!(scanned.gaps_skipped, 0);
-
-    client.rebuild_history_index(&admin);
-
-    // After rebuild: direct-read path returns identical results.
-    let indexed = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(indexed.records.len(), 8);
-    assert_eq!(indexed.gaps_skipped, 0);
-    assert!(!indexed.has_more);
-    for n in 0..8u32 {
-        let rec = indexed.records.get(n).unwrap();
-        assert_eq!(
-            rec.invoice_id,
-            String::from_str(&env, &format!("invoisio-rebuild-payer-{n:02}"))
-        );
-    }
-}
-
-/// Regression test for #445: the schema V1 → V2 migration backfills
-/// per-payer indexes without data loss, and is idempotent.
-#[test]
-fn test_migration_v1_to_v2_backfills_payer_indexes() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer_a = Address::generate(&env);
-    let payer_b = Address::generate(&env);
-    // Kept small deliberately: since #495 the V1 → V2 → V3 upgrade path now
-    // runs two full-rebuild migration steps (payer indexes, then the
-    // settlement-reference index) in the same transaction, and Soroban caps
-    // total footprint entries per invocation. A larger payment count here
-    // would exceed that budget before the general chunked/resumable
-    // migration work lands (issue #480).
-    for idx in 0..6u32 {
-        let payer = if idx % 3 == 0 { &payer_a } else { &payer_b };
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-mig-{idx:02}"),
-            payer,
-            1_000_000i128,
-        );
-    }
-
-    // Roll storage metadata back to V1 and wipe payer indexes to simulate a
-    // V1-era deployment.
-    env.as_contract(&client.address, || {
-        let mut meta =
-            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
-        meta.storage_schema_version = storage::STORAGE_SCHEMA_V1;
-        storage::set_contract_meta(&env, &meta);
-        for payer in [payer_a.clone(), payer_b.clone()] {
-            let count = storage::get_payer_payment_count(&env, &payer).unwrap_or(0u32);
-            for ordinal in 0..count {
-                env.storage()
-                    .persistent()
-                    .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-            }
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentCount(payer.clone()));
-        }
-    });
-    assert_eq!(
-        client.version_info().storage_schema_version,
-        storage::STORAGE_SCHEMA_V1
-    );
-
-    // Run the upgrade driver; it must route through migrate_schema_v1_to_v2.
-    let admin = client.admin();
-    client.upgrade_storage(&admin);
-
-    assert_eq!(
-        client.version_info().storage_schema_version,
-        storage::STORAGE_SCHEMA_VERSION
-    );
-
-    // Both payers are back on the direct-read path with complete results.
-    for payer in [&payer_a, &payer_b] {
-        let mut total = 0u32;
-        let mut cursor = 0u32;
-        loop {
-            let page = client.payments_by_payer(payer, &cursor, &2u32);
-            total += page.records.len() as u32;
-            cursor = page.next_cursor;
-            if !page.has_more {
-                break;
-            }
-        }
-        let expected = if payer == &payer_a { 2 } else { 4 };
-        assert_eq!(total, expected);
-
-        // Idempotency: running the migration again is safe.
-        client.upgrade_storage(&admin);
-        let again = client.payments_by_payer(payer, &0u32, &25u32);
-        assert_eq!(again.records.len() as u32, expected);
-        assert_eq!(again.gaps_skipped, 0);
-    }
 }
 
 // ─── Additional Pause-Scope Tests: Issue #482 ───────────────────────────────
@@ -5671,11 +5320,7 @@ fn test_cancel_admin_transfer_blocked_while_paused() {
         Some(proposed.clone()),
         "pending_admin must NOT be cleared by a failed paused cancellation"
     );
-    assert_eq!(
-        client.admin(),
-        admin,
-        "admin must remain unchanged"
-    );
+    assert_eq!(client.admin(), admin, "admin must remain unchanged");
 
     // Lift containment — cancellation must now succeed normally.
     client.set_paused(&admin, &false);
@@ -5711,7 +5356,10 @@ fn test_upgrade_storage_succeeds_while_paused() {
         cfg.version.storage_schema_version, STORAGE_SCHEMA_VERSION,
         "storage schema must be current after a paused migration"
     );
-    assert!(client.is_paused(), "contract must remain paused after migration");
+    assert!(
+        client.is_paused(),
+        "contract must remain paused after migration"
+    );
 }
 
 /// `rebuild_history_index` is deliberately **exempt** from the pause guard.
@@ -5741,20 +5389,30 @@ fn test_rebuild_history_index_succeeds_while_paused() {
             &set,
         );
     }
-    let before = client.payment_history(&0u32, &25u32);
-    assert_eq!(before.records.len() as u32, N, "precondition: N payments recorded");
+    let before = client.payment_history(&admin, &0u32, &25u32);
+    assert_eq!(
+        before.records.len() as u32,
+        N,
+        "precondition: N payments recorded"
+    );
 
     // Wipe the history index entries (simulate corruption that rebuild fixes).
     env.as_contract(&client.address, || {
         for i in 0..N {
-            env.storage().persistent().remove(&DataKey::PaymentHistory(i));
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PaymentHistory(i));
         }
         env.storage()
             .instance()
             .set(&DataKey::PaymentHistoryCount, &0u32);
     });
-    let cleared = client.payment_history(&0u32, &25u32);
-    assert_eq!(cleared.records.len(), 0, "precondition: history index cleared");
+    let cleared = client.payment_history(&admin, &0u32, &25u32);
+    assert_eq!(
+        cleared.records.len(),
+        0,
+        "precondition: history index cleared"
+    );
 
     // ── Pause, then rebuild — must NOT be blocked ───────────────────────
     client.set_paused(&admin, &true);
@@ -5767,16 +5425,20 @@ fn test_rebuild_history_index_succeeds_while_paused() {
     );
 
     // Verify the index was actually rebuilt during the paused window.
-    let restored = client.payment_history(&0u32, &25u32);
+    let restored = client.payment_history(&admin, &0u32, &25u32);
     assert_eq!(
-        restored.records.len() as u32, N,
+        restored.records.len() as u32,
+        N,
         "history index must be fully restored by a paused rebuild"
     );
     assert_eq!(
         restored.gaps_skipped, 0,
         "restored history must report zero gaps"
     );
-    assert!(client.is_paused(), "contract must remain paused after rebuild");
+    assert!(
+        client.is_paused(),
+        "contract must remain paused after rebuild"
+    );
 }
 
 // ─── invoice_id / settlement_ref canonicalisation (issue #497) ─────────────
@@ -5946,7 +5608,7 @@ fn test_invoice_id_case_variant_cannot_defeat_idempotency_guard() {
         &String::from_str(&env, "settle-canon-dup-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -5978,7 +5640,7 @@ fn test_invoice_id_whitespace_variant_cannot_defeat_idempotency_guard() {
         &String::from_str(&env, "settle-canon-ws-dup-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6072,7 +5734,7 @@ fn test_settlement_ref_case_variant_cannot_defeat_uniqueness_guard() {
         &String::from_str(&env, "SETTLE-CANON-REF-DUP"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6102,7 +5764,7 @@ fn test_settlement_ref_whitespace_variant_cannot_defeat_uniqueness_guard() {
         &String::from_str(&env, "settle-canon-ref-ws "),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6237,7 +5899,7 @@ fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
         client.settlement_ref_owner(&settlement_ref),
         Some(invoice_a)
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6262,7 +5924,7 @@ fn test_settlement_ref_history_pages_in_write_order() {
     let mut collected: alloc::vec::Vec<storage::SettlementRefEntry> = alloc::vec::Vec::new();
     let mut cursor = 0u32;
     loop {
-        let page = client.settlement_ref_history(&cursor, &2u32);
+        let page = client.settlement_ref_history(&_admin, &cursor, &2u32);
         assert!(page.records.len() as u32 <= 2);
         assert_eq!(page.gaps_skipped, 0);
         collected.extend(page.records.iter());
@@ -6280,7 +5942,10 @@ fn test_settlement_ref_history_pages_in_write_order() {
         );
         assert_eq!(
             entry.settlement_ref,
-            String::from_str(&env, &format!("settle-xlm-default-invoisio-refhist-{idx:02}"))
+            settlement_commitment(
+                &env,
+                &format!("settle-xlm-default-invoisio-refhist-{idx:02}")
+            )
         );
     }
 }
@@ -6311,7 +5976,7 @@ fn test_settlement_ref_history_skips_missing_slot() {
             .remove(&DataKey::SettlementRefLog(2));
     });
 
-    let page = client.settlement_ref_history(&0u32, &10u32);
+    let page = client.settlement_ref_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 4);
     assert_eq!(page.gaps_skipped, 1);
     assert_eq!(page.next_cursor, 5);
@@ -6322,8 +5987,9 @@ fn test_settlement_ref_history_skips_missing_slot() {
 fn test_settlement_ref_history_empty_index_terminates_immediately() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
+    env.mock_all_auths();
 
-    let page = client.settlement_ref_history(&0u32, &10u32);
+    let page = client.settlement_ref_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 0);
     assert_eq!(page.next_cursor, 0);
     assert!(!page.has_more);
@@ -6339,7 +6005,7 @@ fn test_settlement_ref_index_status_consistent_after_payments() {
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
 
-    assert_eq!(client.settlement_ref_index_status(), (0, 0, true));
+    assert_eq!(client.settlement_ref_index_status(&_admin), (0, 0, true));
 
     for idx in 0..4u32 {
         record_xlm(
@@ -6351,7 +6017,7 @@ fn test_settlement_ref_index_status_consistent_after_payments() {
         );
     }
 
-    assert_eq!(client.settlement_ref_index_status(), (4, 4, true));
+    assert_eq!(client.settlement_ref_index_status(&_admin), (4, 4, true));
 }
 
 /// Regression for #495: a genuine duplicate settlement_ref in raw legacy
@@ -6387,14 +6053,27 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
         &String::from_str(&env, "settle-legacy-conflict-original-b"),
     );
 
-    // Simulate raw pre-guard legacy data where B's stored record already
-    // carries the same settlement_ref as A (impossible to produce via
-    // `record_payment` today, but exactly what the uniqueness guard exists
-    // to prevent going forward — see issue #495's background). Also roll
-    // back the settlement-reference index itself, so the upgrade below
-    // discovers and resolves the conflict for the first time, rather than
-    // finding A's entry already present from the calls above.
+    // Simulate raw pre-guard legacy data where both A and B's stored records
+    // carry the *plaintext* settlement_ref, and it's the same for both
+    // (impossible to produce via `record_payment` today, but exactly what
+    // the uniqueness guard exists to prevent going forward — see issue
+    // #495's background). Pre-commitment (issue #512) legacy data stored the
+    // plaintext directly in `PaymentRecord.settlement_ref`, which is what
+    // `migrate_settlement_refs` expects to read and hash. Also roll back the
+    // settlement-reference index itself, so the upgrade below discovers and
+    // resolves the conflict for the first time, rather than finding A's
+    // entry already present from the calls above.
     env.as_contract(&client.address, || {
+        let mut record_a: PaymentRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PaymentV1(invoice_a.clone()))
+            .unwrap();
+        record_a.settlement_ref = shared_ref.clone();
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentV1(invoice_a.clone()), &record_a);
+
         let mut record_b: PaymentRecord = env
             .storage()
             .persistent()
@@ -6407,10 +6086,16 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
 
         env.storage()
             .persistent()
-            .remove(&DataKey::SettlementRef(shared_ref.clone()));
-        env.storage().persistent().remove(&DataKey::SettlementRef(
-            String::from_str(&env, "settle-legacy-conflict-original-b"),
-        ));
+            .remove(&DataKey::SettlementRef(storage::commit_settlement_ref(
+                &env,
+                &shared_ref,
+            )));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SettlementRef(storage::commit_settlement_ref(
+                &env,
+                &String::from_str(&env, "settle-legacy-conflict-original-b"),
+            )));
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
                 .persistent()
@@ -6435,13 +6120,15 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
     // The index is now visibly inconsistent (B has no mapping) — exactly the
     // signal an operator needs to investigate, rather than a silent
     // overwrite masking the conflict.
-    let (settlement_ref_count, payment_count, is_consistent) = client.settlement_ref_index_status();
+    let (settlement_ref_count, payment_count, is_consistent) =
+        client.settlement_ref_index_status(&admin);
     assert_eq!(settlement_ref_count, 1);
     assert_eq!(payment_count, 2);
     assert!(!is_consistent);
 
-    let (verified, mismatched) =
-        env.as_contract(&client.address, || migration::verify_settlement_ref_index(&env));
+    let (verified, mismatched) = env.as_contract(&client.address, || {
+        migration::verify_settlement_ref_index(&env)
+    });
     assert_eq!(verified, 1);
     assert_eq!(mismatched, 1);
 }
@@ -6479,10 +6166,26 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
 
     // Roll every settlement_ref entry back to the pre-V3 unit-value shape,
     // and clear the enumeration log/counter (neither existed before V3), to
-    // simulate a genuine V2 deployment.
+    // simulate a genuine V2 deployment. A genuine pre-#512 V2 deployment also
+    // stored the *plaintext* settlement_ref directly on `PaymentRecord` (the
+    // commitment scheme didn't exist yet) — roll that back too, since
+    // `migrate_schema_v2_to_v3` derives everything it writes from
+    // `PaymentRecord.settlement_ref`, not from the raw `SettlementRef` keys.
     env.as_contract(&client.address, || {
-        for r in &refs {
-            env.storage().persistent().set(&DataKey::SettlementRef(r.clone()), &());
+        for (idx, r) in refs.iter().enumerate() {
+            env.storage()
+                .persistent()
+                .set(&DataKey::SettlementRef(r.clone()), &());
+
+            let mut record: PaymentRecord = env
+                .storage()
+                .persistent()
+                .get(&DataKey::PaymentV1(invoice_ids[idx].clone()))
+                .unwrap();
+            record.settlement_ref = r.clone();
+            env.storage()
+                .persistent()
+                .set(&DataKey::PaymentV1(invoice_ids[idx].clone()), &record);
         }
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
@@ -6515,16 +6218,19 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
         );
     }
 
-    let page = client.settlement_ref_history(&0u32, &25u32);
+    let page = client.settlement_ref_history(&admin, &0u32, &25u32);
     assert_eq!(page.records.len(), 3);
     assert!(!page.has_more);
     assert_eq!(page.gaps_skipped, 0);
     for (idx, entry) in page.records.iter().enumerate() {
         assert_eq!(entry.invoice_id, invoice_ids[idx]);
-        assert_eq!(entry.settlement_ref, refs[idx]);
+        assert_eq!(
+            entry.settlement_ref,
+            crate::storage::commit_settlement_ref(&env, &refs[idx])
+        );
     }
 
-    assert_eq!(client.settlement_ref_index_status(), (3, 3, true));
+    assert_eq!(client.settlement_ref_index_status(&admin), (3, 3, true));
 }
 
 // ─── migrate_legacy_payments (issue #508) ──────────────────────────────────
@@ -6576,12 +6282,17 @@ fn test_migrate_legacy_payments_rejects_non_admin() {
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &client.address,
             fn_name: "migrate_legacy_payments",
-            args: (attacker.clone(), soroban_sdk::vec![&env, invoice_id.clone()]).into_val(&env),
+            args: (
+                attacker.clone(),
+                soroban_sdk::vec![&env, invoice_id.clone()],
+            )
+                .into_val(&env),
             sub_invokes: &[],
         },
     }]);
 
-    let result = client.try_migrate_legacy_payments(&attacker, &soroban_sdk::vec![&env, invoice_id.clone()]);
+    let result =
+        client.try_migrate_legacy_payments(&attacker, &soroban_sdk::vec![&env, invoice_id.clone()]);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 
     // The legacy record must be untouched by the rejected attempt.
@@ -6718,11 +6429,11 @@ fn test_migrate_legacy_payments_works_while_paused() {
     );
 }
 
-/// Regression for #508: exercising every permissionless read method must
-/// leave every counter and the legacy-record key layout exactly as it was.
-/// TTL extension is the only footprint effect any of these may have, and
-/// TTL has no observable value here, so an unchanged counter/key set is a
-/// direct proxy for "no data write happened".
+/// Regression for #508: exercising every read method (permissionless and
+/// admin-gated) must leave every counter and the legacy-record key layout
+/// exactly as it was. TTL extension is the only footprint effect any of
+/// these may have, and TTL has no observable value here, so an unchanged
+/// counter/key set is a direct proxy for "no data write happened".
 #[test]
 fn test_permissionless_reads_do_not_mutate_state() {
     let env = Env::default();
@@ -6732,7 +6443,10 @@ fn test_permissionless_reads_do_not_mutate_state() {
     client.set_allow_native(&true);
     client.allow_asset(
         &String::from_str(&env, "USDC"),
-        &String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
+        &String::from_str(
+            &env,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ),
     );
 
     let payer = Address::generate(&env);
@@ -6754,10 +6468,10 @@ fn test_permissionless_reads_do_not_mutate_state() {
 
     let snapshot = || {
         (
-            client.payment_count(),
-            client.settlement_ref_index_status(),
+            client.payment_count(&admin),
+            client.settlement_ref_index_status(&admin),
             client.allowlist_count(),
-            client.history_index_status(),
+            client.history_index_status(&admin),
             env.as_contract(&client.address, || {
                 (
                     env.storage()
@@ -6773,17 +6487,16 @@ fn test_permissionless_reads_do_not_mutate_state() {
 
     let before = snapshot();
 
-    // Exercise every permissionless read method.
+    // Exercise every read method — permissionless and admin-gated alike.
     let _ = client.get_payment(&invoice_id);
     let _ = client.get_payment(&legacy_id);
     let _ = client.has_payment(&invoice_id);
     let _ = client.has_payment(&legacy_id);
-    let _ = client.payment_count();
-    let _ = client.payment_history(&0u32, &10u32);
-    let _ = client.payments_by_payer(&payer, &0u32, &10u32);
+    let _ = client.payment_count(&admin);
+    let _ = client.payment_history(&admin, &0u32, &10u32);
     let _ = client.settlement_ref_owner(&settlement_ref);
-    let _ = client.settlement_ref_history(&0u32, &10u32);
-    let _ = client.settlement_ref_index_status();
+    let _ = client.settlement_ref_history(&admin, &0u32, &10u32);
+    let _ = client.settlement_ref_index_status(&admin);
     let _ = client.allowed_assets(&0u32, &10u32);
     let _ = client.allowlist_count();
     let _ = client.contract_version();
@@ -6792,19 +6505,17 @@ fn test_permissionless_reads_do_not_mutate_state() {
     let _ = client.pending_admin();
     let _ = client.config();
     let _ = client.is_paused();
-    let _ = client.history_index_status();
+    let _ = client.history_index_status(&admin);
 
     let after = snapshot();
     assert_eq!(
         before, after,
-        "no permissionless read may change a counter or the legacy-key layout"
+        "no read may change a counter or the legacy-key layout"
     );
 
     // The admin/write path is unaffected by this — confirm a fresh admin
     // action still works normally afterward.
-    let result = client.try_migrate_legacy_payments(
-        &admin,
-        &soroban_sdk::vec![&env, legacy_id.clone()],
-    );
+    let result =
+        client.try_migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, legacy_id.clone()]);
     assert!(result.is_ok());
 }

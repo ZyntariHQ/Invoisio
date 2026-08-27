@@ -10,7 +10,7 @@ const stellar_sdk_1 = require("@stellar/stellar-sdk");
  * `contracts/invoice-payment/src/events.rs` — bump both together when the
  * payload shape changes in a breaking way.
  */
-exports.EVENT_SCHEMA_VERSION = 1;
+exports.EVENT_SCHEMA_VERSION = 2;
 function parseScVal(value) {
     return typeof value === 'string' ? stellar_sdk_1.xdr.ScVal.fromXDR(value, 'base64') : value;
 }
@@ -70,11 +70,6 @@ function decodePaymentEvent(payload) {
         type: 'invoice_payment_recorded',
         schemaVersion,
         invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
-        payer: String(fieldAt(payload, 2, 'payer')),
-        assetCode: String(fieldAt(payload, 3, 'asset_code')),
-        assetIssuer: String(fieldAt(payload, 4, 'asset_issuer')),
-        amount: toBigInt(fieldAt(payload, 5, 'amount'), 'amount'),
-        settlementRef: String(fieldAt(payload, 6, 'settlement_ref')),
     };
 }
 /**
@@ -108,7 +103,7 @@ function decodeSorobanEvent(event) {
     try {
         switch (name) {
             case 'invoice_payment_recorded':
-                if (!checkArity(payload, 7))
+                if (!checkArity(payload, 2))
                     break;
                 return decodePaymentEvent(payload);
             case 'asset_allowlisted':

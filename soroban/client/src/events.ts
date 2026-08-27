@@ -10,16 +10,17 @@ export const EVENT_SCHEMA_VERSION = 2;
 
 // ─── Decoded event types (discriminated on `type`) ──────────────────────────
 
+/**
+ * As of issue #512 this event carries only `schemaVersion` and `invoiceId` —
+ * no payer, asset, amount, asset_decimals, or settlement_ref. A public event
+ * carrying the full record previously bypassed every read-method
+ * access-control decision in the contract; a consumer that needs the full
+ * record must already know `invoiceId` and call `getPayment(invoiceId)`.
+ */
 export type InvoicePaymentRecordedEvent = {
   type: 'invoice_payment_recorded';
   schemaVersion: number;
   invoiceId: string;
-  payer: string;
-  assetCode: string;
-  assetIssuer: string;
-  amount: bigint;
-  assetDecimals: number;
-  settlementRef: string;
 };
 
 export type AssetAllowlistedEvent = {
@@ -174,12 +175,6 @@ function decodePaymentEvent(payload: unknown[] | Record<string, unknown>): Decod
     type: 'invoice_payment_recorded',
     schemaVersion,
     invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
-    payer: String(fieldAt(payload, 2, 'payer')),
-    assetCode: String(fieldAt(payload, 3, 'asset_code')),
-    assetIssuer: String(fieldAt(payload, 4, 'asset_issuer')),
-    amount: toBigInt(fieldAt(payload, 5, 'amount'), 'amount'),
-    assetDecimals: Number(fieldAt(payload, 6, 'asset_decimals')),
-    settlementRef: String(fieldAt(payload, 7, 'settlement_ref')),
   };
 }
 
@@ -215,7 +210,7 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
   try {
     switch (name) {
       case 'invoice_payment_recorded':
-        if (!checkArity(payload, 7)) break;
+        if (!checkArity(payload, 2)) break;
         return decodePaymentEvent(payload);
       case 'asset_allowlisted':
         if (!checkArity(payload, 2)) break;

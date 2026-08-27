@@ -175,7 +175,25 @@
     [],
     [],
     [],
-    []
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "payment_count",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -313,6 +331,26 @@
           "data": {
             "contract_data": {
               "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "8370022561469687789"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "vec": [
@@ -328,7 +366,9 @@
                 ]
               },
               "durability": "persistent",
-              "val": "void"
+              "val": {
+                "u32": 7
+              }
             }
           },
           "ext": "v0"
@@ -356,7 +396,9 @@
                 ]
               },
               "durability": "persistent",
-              "val": "void"
+              "val": {
+                "u32": 7
+              }
             }
           },
           "ext": "v0"
@@ -453,6 +495,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "issuer"
                     },
                     "val": {
@@ -497,6 +547,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "issuer"
                     },
                     "val": {
@@ -504,123 +562,6 @@
                     }
                   }
                 ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 3
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 2
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 2
               }
             }
           },
@@ -670,6 +611,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -689,7 +638,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-xlm"
+                      "string": "370e97dc7d8bc3777a7424ab81fc1fe998d28aefdcc0813c9102934b386a8fe6"
                     }
                   },
                   {
@@ -756,6 +705,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -775,7 +732,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-usdc"
+                      "string": "faa0f0baf6723f052ab61fb596bbee8898b8517148a65f3c5bb6eb26ee13d82f"
                     }
                   },
                   {
@@ -842,6 +799,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -861,7 +826,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-eurt"
+                      "string": "4e263b182c5c8534dd6cdfb333fe1a9409ea51a84565bf1bb8ebc88c5d309505"
                     }
                   },
                   {
@@ -1009,6 +974,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1028,7 +1001,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-eurt"
+                      "string": "4e263b182c5c8534dd6cdfb333fe1a9409ea51a84565bf1bb8ebc88c5d309505"
                     }
                   },
                   {
@@ -1095,6 +1068,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1114,7 +1095,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-usdc"
+                      "string": "faa0f0baf6723f052ab61fb596bbee8898b8517148a65f3c5bb6eb26ee13d82f"
                     }
                   },
                   {
@@ -1175,6 +1156,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1194,7 +1183,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-xlm"
+                      "string": "370e97dc7d8bc3777a7424ab81fc1fe998d28aefdcc0813c9102934b386a8fe6"
                     }
                   },
                   {
@@ -1226,7 +1215,34 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-multi-eurt"
+                    "string": "370e97dc7d8bc3777a7424ab81fc1fe998d28aefdcc0813c9102934b386a8fe6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "string": "invoisio-xlm-001"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "4e263b182c5c8534dd6cdfb333fe1a9409ea51a84565bf1bb8ebc88c5d309505"
                   }
                 ]
               },
@@ -1253,40 +1269,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-multi-usdc"
+                    "string": "faa0f0baf6723f052ab61fb596bbee8898b8517148a65f3c5bb6eb26ee13d82f"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
                 "string": "invoisio-usdc-001"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRef"
-                  },
-                  {
-                    "string": "settle-multi-xlm"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "invoisio-xlm-001"
               }
             }
           },
@@ -1327,7 +1316,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-xlm"
+                      "string": "370e97dc7d8bc3777a7424ab81fc1fe998d28aefdcc0813c9102934b386a8fe6"
                     }
                   }
                 ]
@@ -1371,7 +1360,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-usdc"
+                      "string": "faa0f0baf6723f052ab61fb596bbee8898b8517148a65f3c5bb6eb26ee13d82f"
                     }
                   }
                 ]
@@ -1415,7 +1404,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-multi-eurt"
+                      "string": "4e263b182c5c8534dd6cdfb333fe1a9409ea51a84565bf1bb8ebc88c5d309505"
                     }
                   }
                 ]
@@ -1512,7 +1501,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 5
                             }
                           }
                         ]

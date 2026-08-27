@@ -151,11 +151,11 @@ Tracks invoice payments on-chain so the backend can reconcile Soroban events wit
 | Method | Description |
 |--------|-------------|
 | `initialize(admin)` | One-time setup; sets the backend service account as admin. |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | Persist record + emit `("payment","recorded")` event. |
-| `get_payment(invoice_id)` | Return stored `PaymentRecord`. |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | Persist record + emit `invoice_payment_recorded` event. |
+| `get_payment(invoice_id)` | Return stored `PaymentRecord` for an `invoice_id` you already know. |
 | `has_payment(invoice_id)` | Non-panicking existence check. |
 
-Every `record_payment` emits a Soroban event carrying the full `PaymentRecord`, enabling any indexer to subscribe via `stellar events` CLI or the Soroban RPC `getEvents` endpoint.
+The contract's read surface is designed around a **privacy-preserving verification** guarantee: a party who already knows a specific `invoice_id` or settlement reference can fully verify it (`get_payment`, `settlement_ref_owner`), but bulk enumeration of every payment, a payer's full history, or aggregate volume is restricted to the admin (Invoisio's own backend), and the settlement reference stored on-chain is a one-way commitment, not the plaintext Horizon transaction hash. The `record_payment` event itself now carries only the `invoice_id`, not the full record — so streaming events can't be used to bulk-browse the payment ledger either. This does *not* mean payment amounts or payer addresses are ever encrypted or hidden from the admin, and it does not make already-published on-chain data retractable — see [`soroban/contracts/invoice-payment/README.md`](soroban/contracts/invoice-payment/README.md) for the full disclosure guarantee and its permanence caveats.
 
 - Native Stellar payments:
   - Destination: `MERCHANT_PUBLIC_KEY`
@@ -163,7 +163,7 @@ Every `record_payment` emits a Soroban event carrying the full `PaymentRecord`, 
   - Memo: `MEMO_PREFIX + <invoiceId>` for off‑chain matching
 - Soroban (`soroban/`):
   - `invoice-payment` contract records and indexes payment state
-  - Events consumers can stream: topics `("payment", "recorded")`
+  - Event consumers can stream: topic `invoice_payment_recorded`
   - Future room for programmable discounts, escrow, or milestone payments
 
 See [`soroban/README.md`](soroban/README.md) for full build, deploy, and invocation instructions.

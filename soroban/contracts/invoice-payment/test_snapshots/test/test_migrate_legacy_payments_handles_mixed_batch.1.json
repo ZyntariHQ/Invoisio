@@ -175,63 +175,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -264,6 +207,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -283,7 +234,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-mixed-b"
+                      "string": "f3ae154641ef9ab9c349aeb7fe0bd60f315aee50a60cd75548a78cee15ba65dc"
                     }
                   },
                   {
@@ -371,6 +322,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -451,6 +410,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -470,7 +437,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-mixed-b"
+                      "string": "f3ae154641ef9ab9c349aeb7fe0bd60f315aee50a60cd75548a78cee15ba65dc"
                     }
                   },
                   {
@@ -502,7 +469,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-mixed-b"
+                    "string": "f3ae154641ef9ab9c349aeb7fe0bd60f315aee50a60cd75548a78cee15ba65dc"
                   }
                 ]
               },
@@ -549,7 +516,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-mixed-b"
+                      "string": "f3ae154641ef9ab9c349aeb7fe0bd60f315aee50a60cd75548a78cee15ba65dc"
                     }
                   }
                 ]
@@ -622,7 +589,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 5
                             }
                           }
                         ]

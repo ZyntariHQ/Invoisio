@@ -139,7 +139,9 @@
                 ]
               },
               "durability": "persistent",
-              "val": "void"
+              "val": {
+                "u32": 7
+              }
             }
           },
           "ext": "v0"
@@ -206,6 +208,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "issuer"
                     },
                     "val": {
@@ -213,63 +223,6 @@
                     }
                   }
                 ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
               }
             }
           },
@@ -325,6 +278,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -344,7 +305,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-legacy-allowlist-2"
+                      "string": "51fdb5b90c90f6a56437a49bbff388d0c4588a730af701b1570387dedece90d7"
                     }
                   },
                   {
@@ -438,6 +399,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -457,7 +426,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-legacy-allowlist-2"
+                      "string": "51fdb5b90c90f6a56437a49bbff388d0c4588a730af701b1570387dedece90d7"
                     }
                   },
                   {
@@ -489,7 +458,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-legacy-allowlist-2"
+                    "string": "51fdb5b90c90f6a56437a49bbff388d0c4588a730af701b1570387dedece90d7"
                   }
                 ]
               },
@@ -536,7 +505,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-legacy-allowlist-2"
+                      "string": "51fdb5b90c90f6a56437a49bbff388d0c4588a730af701b1570387dedece90d7"
                     }
                   }
                 ]
