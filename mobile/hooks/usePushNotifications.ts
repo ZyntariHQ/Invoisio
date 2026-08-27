@@ -5,9 +5,16 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { getNotificationDeepLink } from "../lib/notification-deep-links";
 
+export interface PushNotificationDiagnostics {
+  permissionStatus: Notifications.PermissionStatus | "UNDETERMINED";
+  isDevice: boolean;
+  tokenError?: string;
+}
+
 export interface PushNotificationState {
   expoPushToken?: Notifications.ExpoPushToken | undefined;
   notification?: Notifications.Notification | undefined;
+  diagnostics: PushNotificationDiagnostics;
 }
 
 interface UsePushNotificationsOptions {
@@ -34,6 +41,10 @@ export const usePushNotifications = ({
   const [notification, setNotification] = useState<
     Notifications.Notification | undefined
   >();
+  const [diagnostics, setDiagnostics] = useState<PushNotificationDiagnostics>({
+    permissionStatus: "UNDETERMINED",
+    isDevice: Device.isDevice,
+  });
 
   const notificationListener =
     useRef<Notifications.EventSubscription | undefined>(undefined);
@@ -47,13 +58,17 @@ export const usePushNotifications = ({
       const { status: existingStatus } =
         await Notifications.getPermissionsAsync();
       let finalStatus = existingStatus;
+      
+      setDiagnostics((prev) => ({ ...prev, permissionStatus: existingStatus }));
 
       if (existingStatus !== Notifications.PermissionStatus.GRANTED) {
         const { status } = await Notifications.requestPermissionsAsync();
         finalStatus = status;
+        setDiagnostics((prev) => ({ ...prev, permissionStatus: status }));
       }
       if (finalStatus !== Notifications.PermissionStatus.GRANTED) {
         console.warn("Failed to get push token for push notification");
+        setDiagnostics((prev) => ({ ...prev, tokenError: "Permission not granted" }));
         return;
       }
 
@@ -82,9 +97,11 @@ export const usePushNotifications = ({
         token = await Notifications.getExpoPushTokenAsync(tokenOptions);
       } catch (e: unknown) {
         console.warn("Failed to get expo push token:", e);
+        setDiagnostics((prev) => ({ ...prev, tokenError: e instanceof Error ? e.message : String(e) }));
       }
     } else {
       console.warn("Must be using a physical device for Push Notifications");
+      setDiagnostics((prev) => ({ ...prev, tokenError: "Must be using a physical device" }));
     }
 
     if (Platform.OS === "android") {
@@ -148,5 +165,6 @@ export const usePushNotifications = ({
   return {
     expoPushToken,
     notification,
+    diagnostics,
   };
 };

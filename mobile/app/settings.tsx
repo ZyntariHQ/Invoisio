@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   AccessibilityInfo,
+  Linking,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -33,7 +34,7 @@ export default function SettingsScreen() {
   const [pushLoading, setPushLoading] = useState(false);
 
   // Initialize push notification token
-  const { expoPushToken } = usePushNotifications({
+  const { expoPushToken, diagnostics } = usePushNotifications({
     onDeepLink: (url) => {
       router.push(url);
     },
@@ -429,6 +430,67 @@ export default function SettingsScreen() {
               trackColor={{ false: "#334155", true: "#3b82f6" }}
               thumbColor={pushEnabled ? "#ffffff" : "#94a3b8"}
             />
+          </View>
+
+          {/* Diagnostics Section */}
+          <View className="mt-4 pt-4 border-t border-white/10">
+            <Text
+              className="text-xs uppercase tracking-[0.2em] text-[#7dd3fc] mb-3"
+              style={{ fontFamily: "SpaceGrotesk_500Medium" }}
+            >
+              Diagnostic Info
+            </Text>
+
+            <View className="flex-col gap-2">
+              <View className="flex-row justify-between items-center">
+                <Text className="text-slate-400 text-xs" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>Device Type</Text>
+                <Text className={`text-xs ${diagnostics.isDevice ? 'text-emerald-400' : 'text-amber-400'}`} style={{ fontFamily: "SpaceGrotesk_500Medium" }}>
+                  {diagnostics.isDevice ? "Physical Device" : "Simulator"}
+                </Text>
+              </View>
+
+              <View className="flex-row justify-between items-center">
+                <Text className="text-slate-400 text-xs" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>Permission Status</Text>
+                <Text className={`text-xs ${diagnostics.permissionStatus === 'granted' ? 'text-emerald-400' : diagnostics.permissionStatus === 'denied' ? 'text-red-400' : 'text-amber-400'}`} style={{ fontFamily: "SpaceGrotesk_500Medium" }}>
+                  {diagnostics.permissionStatus.toUpperCase()}
+                </Text>
+              </View>
+
+              <View className="flex-row justify-between items-center">
+                <Text className="text-slate-400 text-xs" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>Token Registration</Text>
+                <Text className={`text-xs ${expoPushToken ? 'text-emerald-400' : 'text-red-400'}`} style={{ fontFamily: "SpaceGrotesk_500Medium" }} numberOfLines={1} ellipsizeMode="tail">
+                  {expoPushToken ? "Success" : "Failed / Pending"}
+                </Text>
+              </View>
+
+              {diagnostics.tokenError && (
+                <View className="mt-2 bg-red-500/10 p-3 rounded-lg border border-red-500/20">
+                  <Text className="text-red-400 text-xs" style={{ fontFamily: "SpaceGrotesk_500Medium" }}>Error Details:</Text>
+                  <Text className="text-red-400/80 text-xs mt-1" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>{diagnostics.tokenError}</Text>
+                </View>
+              )}
+
+              {/* Recovery Guidance */}
+              {!diagnostics.isDevice && (
+                <Text className="text-amber-400/80 text-xs mt-2" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>
+                  Push notifications do not work on simulators. Please test on a physical device.
+                </Text>
+              )}
+
+              {diagnostics.permissionStatus === 'denied' && (
+                <View className="mt-2">
+                  <Text className="text-amber-400/80 text-xs mb-2" style={{ fontFamily: "SpaceGrotesk_400Regular" }}>
+                    Notifications are disabled in your OS settings. You must enable them to receive alerts.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => Linking.openSettings()}
+                    className="bg-amber-500/20 py-2 px-4 rounded-lg self-start border border-amber-500/30"
+                  >
+                    <Text className="text-amber-400 text-xs" style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}>Open App Settings</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </ScrollView>
