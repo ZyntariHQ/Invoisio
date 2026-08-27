@@ -29,7 +29,7 @@ jobs:
         with:
           toolchain: "1.91.0"
           targets: wasm32v1-none
-    components: clippy, rustfmt
+          components: clippy, rustfmt
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
