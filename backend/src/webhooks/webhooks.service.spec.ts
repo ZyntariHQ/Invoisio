@@ -642,7 +642,9 @@ describe("WebhooksService", () => {
     });
 
     it("applies an optional status filter", async () => {
-      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue([] as any);
+      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue(
+        [] as any,
+      );
 
       await service.listMerchantDeadLetters("merchant-B", {
         status: "pending_retry" as any,

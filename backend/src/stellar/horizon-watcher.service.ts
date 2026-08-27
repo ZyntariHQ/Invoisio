@@ -564,13 +564,16 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
       ?.split(",")
       .map((entry) => entry.trim().split("="))
       .find(([code]) => code === assetCode)?.[1];
-    const precision = Number.isInteger(Number(decimals)) ? Number(decimals) : 7;
+    const precision = Number.isInteger(Number(decimals))
+      ? Number(decimals)
+      : 7;
     if (precision < 0 || precision > 18) {
       throw new Error(`Invalid decimal precision configured for ${assetCode}`);
     }
-    return dec
-      .times(new Prisma.Decimal(10).pow(precision))
-      .toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
+    return dec.times(new Prisma.Decimal(10).pow(precision)).toFixed(
+      0,
+      Prisma.Decimal.ROUND_HALF_UP,
+    );
   }
 
   private resolveMemoId(rawMemo: string, memoPrefix: string): string | null {
