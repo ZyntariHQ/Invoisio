@@ -649,6 +649,151 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_all_payment_records_uses_payment_log_when_history_is_empty() {
+        let env = Env::default();
+        let (client, _admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("log-only-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("log-only-ref-{:02}", i)),
+            );
+        }
+
+        env.as_contract(&client.address, || {
+            for i in 0..3u32 {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::PaymentHistory(i));
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &0u32);
+        });
+
+        let records = env.as_contract(&client.address, || {
+            collect_all_payment_records(&env).unwrap()
+        });
+        assert_eq!(records.len(), 3);
+        assert_eq!(
+            records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "log-only-00")
+        );
+        assert_eq!(
+            records.get(2).unwrap().invoice_id,
+            String::from_str(&env, "log-only-02")
+        );
+    }
+
+    #[test]
+    fn test_collect_all_payment_records_ignores_divergent_history_slots() {
+        let env = Env::default();
+        let (client, _admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..2u32 {
+            let invoice_id = String::from_str(&env, &format!("canonical-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("canonical-ref-{:02}", i)),
+            );
+        }
+
+        let divergent = PaymentRecord {
+            invoice_id: String::from_str(&env, "divergent-history-only"),
+            payer: Address::generate(&env),
+            asset: crate::storage::Asset::Native,
+            amount: 99_000_000i128,
+            timestamp: 99u64,
+            settlement_ref: String::from_str(&env, "divergent-ref"),
+        };
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::PaymentHistory(0), &divergent);
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &1u32);
+        });
+
+        let records = env.as_contract(&client.address, || {
+            collect_all_payment_records(&env).unwrap()
+        });
+        assert_eq!(records.len(), 2);
+        assert_eq!(
+            records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "canonical-00")
+        );
+        assert_eq!(
+            records.get(1).unwrap().invoice_id,
+            String::from_str(&env, "canonical-01")
+        );
+    }
+
+    #[test]
+    fn test_rebuild_history_index_repairs_partial_history_from_payment_log() {
+        let env = Env::default();
+        let (client, admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("partial-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("partial-ref-{:02}", i)),
+            );
+        }
+
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PaymentHistory(1));
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &3u32);
+        });
+
+        let result = client.try_rebuild_history_index(&admin);
+        assert!(result.is_ok());
+
+        let history = client.payment_history(&0u32, &10u32);
+        assert_eq!(history.records.len(), 3);
+        assert_eq!(
+            history.records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "partial-00")
+        );
+        assert_eq!(
+            history.records.get(1).unwrap().invoice_id,
+            String::from_str(&env, "partial-01")
+        );
+        assert_eq!(
+            history.records.get(2).unwrap().invoice_id,
+            String::from_str(&env, "partial-02")
+        );
+        assert_eq!(client.history_index_status(), (3, 3, true));
+    }
+
+    #[test]
     fn test_rebuild_history_index_empty() {
         let env = Env::default();
         let (client, _admin) = setup_test(&env);
