@@ -28,6 +28,8 @@ Instance storage contains critical contract state that must remain available:
 | `PaymentCount` | Total payment counter | Extended on every read and write |
 | `PaymentHistoryCount` | History index counter | Extended on every read and write |
 | `ContractMeta` | Version metadata | Extended on every read and write |
+| `AllowListCount` | Live allowlist membership counter (schema V4, issue #464) | Extended on every read and write |
+| `AllowListLogCount` | Allowlist enumeration log write-order length (schema V4, issue #464) | Extended on every read and write |
 
 **Rule**: Every instance storage read MUST call `extend_ttl(MIN_TTL, BUMP_TTL)` after the read. Every instance storage write MUST call `extend_ttl(MIN_TTL, BUMP_TTL)` after the write.
 
@@ -41,7 +43,9 @@ Persistent storage contains payment records and history indexes:
 | `PaymentHistory(index)` | History index entry | Extended on read and write |
 | `PayerPaymentCount(payer)` | Per-payer payment total (schema V2) | Extended on read and write |
 | `PayerPaymentIdx(payer, ordinal)` | Per-payer history slot mapping (schema V2) | Extended on read and write |
-| `AllowList(code, issuer)` | Asset allowlist entry | Extended on write only (existence check doesn't extend) |
+| `AllowList(code, issuer)` | Asset allowlist entry | Extended on read (when present) and write |
+| `AllowListLog(slot)` | Allowlist enumeration log entry (schema V4, issue #464) | Extended on read (when present) and write; removed (a hole) on `revoke_asset` |
+| `AllowListIndex(code, issuer)` | Reverse lookup from a pair to its `AllowListLog` slot (schema V4, issue #464) | Extended on write; removed on `revoke_asset` |
 
 **Rule**: Read operations should extend TTL when a record exists. Write operations should always extend TTL.
 

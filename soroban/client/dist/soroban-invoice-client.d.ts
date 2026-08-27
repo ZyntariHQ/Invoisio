@@ -1,4 +1,4 @@
-import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SettlementRefIndexStatus, SettlementRefPage, SorobanInvoiceClientConfig, TransactionResult } from './types';
+import { AllowlistPage, ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams, SettlementRefIndexStatus, SettlementRefPage, SorobanInvoiceClientConfig, TransactionResult } from './types';
 /**
  * Minimal client helper for the Invoisio `invoice-payment` Soroban contract.
  *
@@ -20,6 +20,7 @@ import { ContractConfig, PaymentHistoryPage, PaymentRecord, RecordPaymentParams,
  * | `upgrade`        | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
  * | `getAdmin`       | O(1)                       | O(1) |
  * | `isPaused`       | O(1)                       | O(1) |
+ * | `getAllowlistCount` | O(1)                    | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -349,6 +350,33 @@ export declare class SorobanInvoiceClient {
      * Permissionless read.
      */
     getSettlementRefIndexStatus(): Promise<SettlementRefIndexStatus>;
+    /**
+     * Fetch a bounded page of the currently-allowlisted `(code, issuer)`
+     * pairs, so operators can enumerate and audit the allowlist without
+     * already knowing which pairs to ask `isAssetAllowed`-style checks about
+     * (issue #464).
+     *
+     * `cursor` is the next write-order slot to read; `limit` is capped by the
+     * contract, mirroring `getPaymentHistory`/`getSettlementRefHistory`. A
+     * revoked (or, on a legacy pre-migration deployment, not-yet-backfilled)
+     * slot is skipped and counted in `gapsSkipped` rather than stalling
+     * pagination — keep paging from `nextCursor` until `hasMore` is `false`.
+     * Use `getAllowlistCount` to size paging or detect drift.
+     *
+     * Permissionless read.
+     */
+    getAllowedAssets(cursor?: number, limit?: number): Promise<AllowlistPage>;
+    /**
+     * Return the number of currently-allowlisted `(code, issuer)` pairs.
+     *
+     * Decrements on `revokeAsset`, unlike the enumeration log's own
+     * write-order length — this always matches the number of entries
+     * `getAllowedAssets` returns across a full scan, after any sequence of
+     * adds and revokes (issue #464).
+     *
+     * O(1) — a stored counter, not a scan. Permissionless read.
+     */
+    getAllowlistCount(): Promise<number>;
     /**
      * Simulate, sign, submit, and await a write transaction with the configured
      * signer keypair. Shared by all admin-gated write operations.

@@ -225,6 +225,27 @@ pub fn emit_settlement_refs_migrated(env: &Env, count: u32, conflicts_skipped: u
     payload.publish(env);
 }
 
+/// Emitted by `migrate_schema_v3_to_v4` (issue #464) after backfilling the
+/// allowlist enumeration index from payment history. `discovered` counts
+/// distinct, still-allowed `(code, issuer)` pairs newly indexed. It is not
+/// necessarily the deployment's full allowlist — see that migration's doc
+/// comment for the recovery limit (an asset allowlisted but never paid with
+/// before the upgrade is not discoverable this way).
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct AllowlistIndexBackfilled {
+    pub discovered: u32,
+    pub migrated_at: u64,
+}
+
+pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
+    let payload = AllowlistIndexBackfilled {
+        discovered,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
 /// Event emitted by `upgrade()` when the contract admin swaps the deployed
 /// WASM in place via `env.deployer().update_current_contract_wasm(...)`.
 ///

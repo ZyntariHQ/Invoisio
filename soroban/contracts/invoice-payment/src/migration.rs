@@ -25,12 +25,12 @@ use soroban_sdk::{Env, String, Vec};
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    append_payer_entry, clear_payer_indexes, current_contract_meta, ensure_current_contract_meta,
-    get_contract_meta, get_history_count, get_payment, get_payment_log_entry,
-    get_settlement_ref_count, get_settlement_ref_owner, get_storage_schema_version,
-    is_settlement_ref_used, record_settlement_ref, set_contract_meta, set_history_count,
-    set_settlement_ref_count, DataKey, PaymentRecord, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2,
-    STORAGE_SCHEMA_VERSION,
+    append_payer_entry, backfill_allowlist_index, clear_payer_indexes, current_contract_meta,
+    ensure_current_contract_meta, get_contract_meta, get_history_count, get_payment,
+    get_payment_log_entry, get_settlement_ref_count, get_settlement_ref_owner,
+    get_storage_schema_version, is_asset_allowed, is_settlement_ref_used, record_settlement_ref,
+    set_contract_meta, set_history_count, set_settlement_ref_count, DataKey, PaymentRecord,
+    STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -454,9 +454,74 @@ pub fn migrate_schema_v2_to_v3(env: &Env) -> Result<(), ContractError> {
         events::emit_settlement_refs_migrated(env, migrated_count, conflicts_skipped);
     }
 
-    // This is the final step in the current chain, so it stamps the running
-    // STORAGE_SCHEMA_VERSION constant directly — see the maintenance note on
-    // that constant if you add a V3 → V4 step later.
+    // No longer the final step in the chain (V4 added the allowlist
+    // enumeration index, #464) — stamp this step's own fixed constant per
+    // the maintenance note on STORAGE_SCHEMA_VERSION, not that constant
+    // directly.
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_V3;
+    set_contract_meta(env, &meta);
+
+    Ok(())
+}
+
+/// Migration from schema version 3 to version 4.
+///
+/// Schema V4 adds a write-order enumeration index (`AllowListLog` /
+/// `AllowListCount` / `AllowListIndex`) alongside the existing
+/// `AllowList(code, issuer)` existence keys, so `allowed_assets()` /
+/// `allowlist_count()` can paginate and size the allowlist instead of
+/// requiring callers to already know which pairs to ask `is_asset_allowed`
+/// about (issue #464).
+///
+/// # A fundamental recovery limit — read before relying on this
+/// Soroban has no key enumeration, so there is no way to discover every
+/// `AllowList(code, issuer)` key that exists on a legacy deployment
+/// directly. This migration recovers every allowlisted asset that has been
+/// used in at least one payment, by replaying the payment log (the same
+/// technique `migrate_settlement_refs` uses) and checking each distinct
+/// token seen against `is_asset_allowed`. An asset that was allowlisted but
+/// has never been paid with before this upgrade runs is **not** recoverable
+/// this way: it stays allowlisted — `is_asset_allowed`/`record_payment` are
+/// completely unaffected, since this migration never touches the primary
+/// `AllowList` key — but it will not appear in `allowed_assets()` /
+/// count towards `allowlist_count()` until the admin calls `allow_asset`
+/// for it again post-upgrade (a no-op on the existence check, but it
+/// backfills the enumeration index via `backfill_allowlist_index`).
+///
+/// # Idempotency
+/// Every discovered pair is backfilled through
+/// [`crate::storage::backfill_allowlist_index`], which no-ops on a pair
+/// that is already indexed. So re-running this step, or running it after
+/// the admin has already called `allow_asset` post-upgrade for some pairs,
+/// never creates a duplicate log entry or double-counts `allowlist_count()`.
+pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
+    let payment_count = get_payment_count(env);
+    let mut discovered = 0u32;
+    let mut seen: alloc::vec::Vec<(String, String)> = alloc::vec::Vec::new();
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if let crate::storage::Asset::Token(code, issuer) = record.asset {
+                    if seen.iter().any(|(c, iss)| c == &code && iss == &issuer) {
+                        continue;
+                    }
+                    seen.push((code.clone(), issuer.clone()));
+                    if is_asset_allowed(env, &code, &issuer)
+                        && backfill_allowlist_index(env, &code, &issuer)
+                    {
+                        discovered += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if discovered > 0 {
+        events::emit_allowlist_index_backfilled(env, discovered);
+    }
+
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
     set_contract_meta(env, &meta);

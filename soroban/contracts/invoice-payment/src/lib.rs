@@ -11,9 +11,9 @@ pub mod storage;
 // Re-export the main types so `use super::*` in test.rs picks them up.
 pub use errors::ContractError;
 pub use storage::{
-    AllowlistMode, Asset, ContractConfig, ContractMeta, DataKey, PaymentHistoryPage, PaymentRecord,
-    SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION, CONTRACT_VERSION_MAJOR,
-    CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    AllowlistEntry, AllowlistMode, AllowlistPage, Asset, ContractConfig, ContractMeta, DataKey,
+    PaymentHistoryPage, PaymentRecord, SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION,
+    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -550,6 +550,13 @@ impl InvoicePaymentContract {
     ///
     /// The **contract admin** must authorise this call.
     ///
+    /// `code` is held to the same rule `record_payment` enforces for
+    /// `asset_code`: non-empty and at most 12 characters (Stellar's asset
+    /// code length limit). Without this check, a pair that violates the
+    /// stricter rule could be allowlisted successfully and then permanently
+    /// fail every payment attempt with `InvalidAsset`, with no way to see
+    /// the bad entry sitting in the list (issue #464).
+    ///
     /// ## Pause interaction
     /// Rejected with [`ContractError::ContractPaused`] when the contract is
     /// paused. The asset allowlist is part of the contract's control plane
@@ -565,6 +572,11 @@ impl InvoicePaymentContract {
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
+        // Stellar asset code max length is 12 characters — mirrors
+        // record_payment's asset_code validation exactly.
+        if code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
         allow_asset(&env, &code, &issuer);
         emit_asset_allowlisted(&env, code, issuer);
         Ok(())
@@ -572,7 +584,11 @@ impl InvoicePaymentContract {
 
     /// Remove a `(code, issuer)` token pair from the allowlist.
     ///
-    /// The **contract admin** must authorise this call.
+    /// The **contract admin** must authorise this call. Revoking a pair that
+    /// was never allowlisted is a safe no-op (`Ok(())`, no panic) — but
+    /// unlike a real revoke, it does **not** emit [`AssetRevoked`], so
+    /// off-chain observers can distinguish "an entry was actually removed"
+    /// from "nothing changed" (issue #464).
     ///
     /// ## Pause interaction
     /// Rejected with [`ContractError::ContractPaused`] when the contract is
@@ -588,9 +604,41 @@ impl InvoicePaymentContract {
         if code.is_empty() || issuer.is_empty() {
             return Err(ContractError::InvalidAsset);
         }
-        revoke_asset(&env, &code, &issuer);
-        emit_asset_revoked(&env, code, issuer);
+        let removed = revoke_asset(&env, &code, &issuer);
+        if removed {
+            emit_asset_revoked(&env, code, issuer);
+        }
         Ok(())
+    }
+
+    /// Return a paginated list of every currently-allowlisted `(code,
+    /// issuer)` pair.
+    ///
+    /// - `cursor` — write-order slot to start from (pass `0` for the first
+    ///   page).
+    /// - `limit` — maximum entries to return (capped internally at 25).
+    ///
+    /// A revoked (or, on a legacy pre-schema-V4 deployment, not-yet-backfilled
+    /// — see `migrate_schema_v3_to_v4`) slot is skipped rather than treated
+    /// as the end of the list, so `next_cursor` always advances and a caller
+    /// looping on `has_more` cannot get stuck. Use `allowlist_count()` to
+    /// size paging or detect drift against the number of entries actually
+    /// returned across a full scan.
+    ///
+    /// Permissionless read — no auth required.
+    pub fn allowed_assets(env: Env, cursor: u32, limit: u32) -> AllowlistPage {
+        storage::get_allowlist_page(&env, cursor, limit)
+    }
+
+    /// Return the number of currently-allowlisted `(code, issuer)` pairs.
+    ///
+    /// Decrements on `revoke_asset`, unlike a write-order log length — this
+    /// always matches the number of entries `allowed_assets()` returns
+    /// across a full scan, after any sequence of adds and revokes.
+    ///
+    /// Permissionless read — no auth required.
+    pub fn allowlist_count(env: Env) -> u32 {
+        storage::get_allowlist_count(&env)
     }
 
     /// Toggle whether native XLM payments are permitted.

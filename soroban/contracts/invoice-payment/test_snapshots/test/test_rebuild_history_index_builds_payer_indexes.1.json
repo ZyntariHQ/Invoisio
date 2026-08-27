@@ -2969,7 +2969,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 3
+                              "u32": 4
                             }
                           }
                         ]

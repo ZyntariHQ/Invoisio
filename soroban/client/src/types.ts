@@ -17,14 +17,14 @@ export type Asset = AssetNative | AssetToken;
 /**
  * Stable summary of the contract's asset-acceptance policy.
  *
- * `requiresTokenAllowlist` is currently always `true`: issued Stellar assets
- * must be explicitly allowlisted on-chain before `record_payment` accepts them.
+ * There is no `requiresTokenAllowlist` field: every non-native asset always
+ * requires allowlisting in this contract, so a field for it would only ever
+ * report a constant, never real state (issue #464). Use
+ * `getAllowedAssets()`/`getAllowlistCount()` to inspect the actual allowlist.
  */
 export interface AllowlistMode {
   /** Whether native XLM payments are currently accepted. */
   readonly nativeAllowed: boolean;
-  /** Whether non-native assets must be explicitly allowlisted. */
-  readonly requiresTokenAllowlist: boolean;
 }
 
 /** On-chain version metadata attached to contract state. */
@@ -106,6 +106,30 @@ export interface SettlementRefPage {
   readonly hasMore: boolean;
   /** Number of index slots in this page's range that were expected to hold
    * an entry but did not (e.g. a corrupted or partially-rebuilt index). */
+  readonly gapsSkipped: number;
+}
+
+/**
+ * A single allowlisted `(code, issuer)` pair, as recorded by `allow_asset`
+ * or backfilled by migration.
+ */
+export interface AllowlistEntry {
+  readonly code: string;
+  readonly issuer: string;
+}
+
+/**
+ * Bounded, cursor-friendly page of the currently-allowlisted assets returned
+ * by `getAllowedAssets()`/`allowed_assets()`. Mirrors `SettlementRefPage`'s
+ * pagination conventions, except a hole here is a normal outcome of
+ * `revokeAsset()`, not only a sign of corruption.
+ */
+export interface AllowlistPage {
+  readonly records: AllowlistEntry[];
+  readonly nextCursor: number;
+  readonly hasMore: boolean;
+  /** Number of log slots in this page's range that have been revoked (or,
+   * on a legacy pre-migration deployment, not yet backfilled). */
   readonly gapsSkipped: number;
 }
 

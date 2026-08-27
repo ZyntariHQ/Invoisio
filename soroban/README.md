@@ -24,6 +24,7 @@ soroban/
 │   ── Read-only operational inspection ──
 ├── invoke-inspect-config.sh        # [READ-ONLY] Inspect full contract config (human-readable)
 ├── invoke-inspect-allowlist.sh     # [READ-ONLY] Inspect allowlist policy and settings
+├── invoke-list-allowlist.sh        # [READ-ONLY] Page through allowlisted (code, issuer) pairs
 ├── invoke-is-paused.sh             # [READ-ONLY] Check if contract is currently paused
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
@@ -225,8 +226,7 @@ version metadata, and current allowlist policy:
     "storage_schema_version": 1
   },
   "allowlist_mode": {
-    "native_allowed": false,
-    "requires_token_allowlist": true
+    "native_allowed": false
   }
 }
 ```
@@ -367,8 +367,12 @@ Returns a stable JSON snapshot with:
 - `initialized` — whether `initialize(admin)` has been called
 - `version.contract_version` — packed semver for the state-writing contract build
 - `version.storage_schema_version` — storage layout version
-- `allowlist_mode.native_allowed` — whether native XLM is accepted
-- `allowlist_mode.requires_token_allowlist` — whether issued assets must be explicitly allowlisted
+- `allowlist_mode.native_allowed` — whether native XLM is accepted. There is
+  no `requires_token_allowlist` field: every non-native asset always
+  requires allowlisting in this contract, so a field for it would only ever
+  report a constant, never real state (issue #464). Use
+  `./invoke-list-allowlist.sh` / `allowlist_count()` to inspect the actual
+  allowlist instead of inferring policy from `config()`.
 
 ### `./invoke-has-payment.sh`
 
@@ -453,7 +457,7 @@ Storage Schema Version: 1
 
 ### `./invoke-inspect-allowlist.sh`
 
-Displays the allowlist policy — whether native XLM is accepted and whether Stellar tokens must be explicitly allowlisted — with actionable next-step guidance.
+Displays the native-XLM allowlist policy, with actionable next-step guidance. For the actual list of allowlisted tokens, use `./invoke-list-allowlist.sh` instead (issue #464).
 
 **Usage:**
 ```bash
@@ -470,8 +474,7 @@ STELLAR_NETWORK=mainnet ./invoke-inspect-allowlist.sh
 
 **What it shows:**
 - Native XLM permission status with guidance to enable/disable
-- Token allowlist mode (`requires_token_allowlist`)
-- Pointers to `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
+- Pointers to `invoke-list-allowlist.sh` / `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
 
 **Example output:**
 ```
@@ -485,14 +488,36 @@ Allowlist Configuration Status:
 -----------------------------------------
 ❌ Native XLM: Denied
    (To enable, run ./invoke-set-allow-native.sh true)
-🔒 Token Allowlist: Enabled (requires_token_allowlist=true)
-   (Stellar tokens must be explicitly allowlisted before record_payment accepts them)
 
 Operations Guidance:
-  - To list all configured assets, run: ./invoke-list-assets.sh
+  - To list every allowlisted token, run: ./invoke-list-allowlist.sh
   - To allow a token, run:            ./invoke-allow-asset.sh <code> <issuer>
   - To revoke a token, run:           ./invoke-revoke-asset.sh <code> <issuer>
 ```
+
+---
+
+### `./invoke-list-allowlist.sh`
+
+Retrieves a bounded, cursor-paginated page of the currently-allowlisted `(code, issuer)` pairs, so operators can enumerate and audit the allowlist without already knowing which pairs to ask about (issue #464).
+
+**Usage:**
+```bash
+./invoke-list-allowlist.sh [cursor] [limit]
+
+# First page, default limit (25)
+./invoke-list-allowlist.sh
+
+# Next page
+./invoke-list-allowlist.sh 25
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+A revoked (or, on a legacy pre-schema-V4 deployment, not-yet-backfilled) slot is skipped rather than treated as the end of the list — keep paging from `next_cursor` until `has_more` is `false`. For a single O(1) count instead of paging through everything, invoke `allowlist_count` directly.
 
 ---
 
@@ -663,6 +688,10 @@ Contract v1 (C1) live
 | `settlement_ref_owner(settlement_ref) → invoice_id \| null` | — | Resolve a settlement reference to the invoice that consumed it; `null` when unused. Disambiguates a `SettlementRefAlreadyUsed` rejection: same invoice_id means a benign retry, a different one means a genuine conflict (issue #495). |
 | `settlement_ref_history(cursor, limit) → SettlementRefPage` | — | Return a bounded, cursor-friendly page of the settlement-reference index in write order, for audit/reconciliation. Same gap-skipping and pagination conventions as `payment_history`. |
 | `settlement_ref_index_status() → (settlement_ref_count, payment_count, is_consistent)` | — | O(1) consistency summary: `is_consistent` is `false` when some payment has no recorded settlement-reference mapping (e.g. empty legacy `settlement_ref`, or a duplicate migration deliberately left unresolved). |
+| `allow_asset(code, issuer)` | admin | Add `(code, issuer)` to the allowlist. `code` is held to the same rule `record_payment` enforces: non-empty and ≤ 12 characters. Idempotent — re-allowing an already-allowed pair is a no-op. |
+| `revoke_asset(code, issuer)` | admin | Remove `(code, issuer)` from the allowlist. Revoking a pair that was never allowlisted is a safe no-op, but unlike a real revoke it does **not** emit `AssetRevoked` — the two are distinguishable by event emission alone (issue #464). |
+| `allowed_assets(cursor, limit) → AllowlistPage` | — | Return a bounded, cursor-friendly page of currently-allowlisted `(code, issuer)` pairs, so callers can enumerate the allowlist without already knowing which pairs to ask about. Same gap-skipping and pagination conventions as `payment_history`; a hole here is a normal outcome of `revoke_asset`, not only a sign of corruption (issue #464). |
+| `allowlist_count() → u32` | — | O(1) count of currently-allowlisted pairs — decrements on `revoke_asset`, unlike the enumeration log's write-order length. Matches the number of entries `allowed_assets` returns across a full scan (issue #464). |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
@@ -1062,6 +1091,20 @@ try {
     console.error(`allow_asset rejected [${err.code}] (${err.numericCode})`);
   }
 }
+
+// Enumerate and audit the allowlist without already knowing which pairs to
+// ask about (issue #464):
+const allowlistCount = await client.getAllowlistCount();
+let cursor = 0;
+while (true) {
+  const page = await client.getAllowedAssets(cursor, 25);
+  for (const { code, issuer } of page.records) {
+    console.log(`allowed: ${code} / ${issuer}`);
+  }
+  if (!page.hasMore) break;
+  cursor = page.nextCursor;
+}
+console.log(`Total allowlisted assets: ${allowlistCount}`);
 
 // ── Read (permissionless) ────────────────────────────────────────────────────
 const config = await client.getConfig();

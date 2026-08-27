@@ -1,6 +1,8 @@
 import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 
 import {
+  AllowlistEntry,
+  AllowlistPage,
   ContractConfig,
   Asset,
   ContractErrorCode,
@@ -197,7 +199,6 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
  * - version.contract_version
  * - version.storage_schema_version
  * - allowlist_mode.native_allowed
- * - allowlist_mode.requires_token_allowlist
  */
 export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
   const raw = scValToNative(scVal) as Record<string, unknown>;
@@ -218,9 +219,6 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
     },
     allowlistMode: {
       nativeAllowed: Boolean(allowlistMode['native_allowed']),
-      requiresTokenAllowlist: Boolean(
-        allowlistMode['requires_token_allowlist'],
-      ),
     },
     paused: Boolean(raw['paused']),
   };
@@ -256,6 +254,28 @@ export function decodeSettlementRefPage(scVal: xdr.ScVal): SettlementRefPage {
 
   return {
     records: records.map((record) => decodeSettlementRefEntryFromNative(record)),
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
+    gapsSkipped: Number(raw['gaps_skipped']),
+  };
+}
+
+function decodeAllowlistEntryFromNative(raw: Record<string, unknown>): AllowlistEntry {
+  return {
+    code: String(raw['code']),
+    issuer: String(raw['issuer']),
+  };
+}
+
+/**
+ * Decode a bounded allowlist page returned by `allowed_assets()`.
+ */
+export function decodeAllowlistPage(scVal: xdr.ScVal): AllowlistPage {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const records = (raw['records'] as Record<string, unknown>[] | undefined) ?? [];
+
+  return {
+    records: records.map((record) => decodeAllowlistEntryFromNative(record)),
     nextCursor: Number(raw['next_cursor']),
     hasMore: Boolean(raw['has_more']),
     gapsSkipped: Number(raw['gaps_skipped']),

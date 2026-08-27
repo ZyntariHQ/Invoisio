@@ -28,8 +28,10 @@ async function main() {
     contractVersion: config.version.contractVersion,
     storageSchemaVersion: config.version.storageSchemaVersion,
     nativeAllowed: config.allowlistMode.nativeAllowed,
-    requiresTokenAllowlist: config.allowlistMode.requiresTokenAllowlist,
   });
+
+  const allowlistCount = await client.getAllowlistCount();
+  console.log(`Allowlisted assets: ${allowlistCount}`);
 }
 
 main().catch((error) => {
