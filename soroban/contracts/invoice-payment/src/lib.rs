@@ -1,6 +1,6 @@
 #![no_std]
 extern crate alloc;
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 
 pub mod errors;
 pub mod events;
@@ -74,10 +74,40 @@ use storage::{
 ///     a successor and the proposed address must later accept before the role
 ///     actually transfers. This replaces the old single-step `set_admin`,
 ///     ensuring no admin change can happen without both parties acting.
-/// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `payment_history`, `contract_version`, `version_info`, `admin`,
-///   `pending_admin`) are permissionless, so any account can inspect on-chain
-///   payment state.
+/// - **Read methods** are permissionless, so any account can inspect
+///   on-chain payment state. Every one of them is a pure read: none writes,
+///   duplicates, or deletes record data — only the current admin can do
+///   that, via `record_payment` or the maintenance methods below (issue
+///   #508 removed the one exception, `get_payment`'s old legacy-key
+///   copy-on-read; see its doc comment and `storage::get_payment`).
+///
+///   | Method                        | Extends TTL on a hit? | Notes                                                              |
+///   |--------------------------------|:---:|---------------------------------------------------------------------------------|
+///   | `get_payment`                  | yes | Falls back to the legacy key for a not-yet-migrated record; never writes it     |
+///   | `has_payment`                  | yes | Existence check only (`.has()`), same v1-then-legacy fallback                   |
+///   | `payment_count`                | yes | Instance counter read                                                           |
+///   | `payment_history`               | yes | Per history-index slot returned                                                |
+///   | `payments_by_payer`            | yes | Per-payer index or bounded scan; per slot examined                             |
+///   | `settlement_ref_owner`         | yes | Only on a used reference                                                       |
+///   | `settlement_ref_history`       | yes | Per settlement-reference log slot returned                                     |
+///   | `settlement_ref_index_status`  | yes | Two instance counters, O(1)                                                     |
+///   | `allowed_assets`               | yes | Per allowlist-log slot returned                                                |
+///   | `allowlist_count`              | yes | Instance counter read                                                          |
+///   | `contract_version`             | no  | Compiled-in constant; no storage access at all                                 |
+///   | `version_info`                 | yes | Instance `ContractMeta` read                                                   |
+///   | `admin`                        | yes | Instance read                                                                  |
+///   | `pending_admin`                | yes | Instance read                                                                  |
+///   | `config`                       | yes | Aggregates several of the instance reads above                                 |
+///   | `is_paused`                    | yes | Instance read                                                                  |
+///   | `history_index_status`        | yes | Two instance counters, O(1)                                                     |
+///
+///   "Extends TTL on a hit" means the call touches a read-write **footprint**
+///   (Soroban tracks TTL on the entry's own key) but never changes the
+///   entry's *value* — it is not a data write, and `simulateTransaction`
+///   (the RPC read path, `invoke-*.sh`, etc.) computes this automatically,
+///   so these methods remain usable as pure simulated reads. See the "TTL
+///   bumps vs. data writes" note on `storage.rs`'s TTL Policy header for the
+///   full reasoning.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
@@ -365,6 +395,17 @@ impl InvoicePaymentContract {
     /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
     /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded.
     /// Use [`has_payment`] first if existence is uncertain.
+    ///
+    /// ## Legacy records
+    /// A record predating schema V1 is still found via a fallback to its
+    /// legacy storage key, and is returned identically either way — but this
+    /// call never migrates it (no data write happens here at all; see
+    /// `storage::get_payment`'s doc comment). It stays under the legacy key
+    /// until an admin calls `migrate_legacy_payments` for it.
+    ///
+    /// Permissionless read — no auth required. Extends persistent TTL on the
+    /// key that holds the record (a footprint touch, not a data write — see
+    /// the "Access control model" doc above).
     pub fn get_payment(env: Env, invoice_id: String) -> Result<PaymentRecord, ContractError> {
         if invoice_id.is_empty() {
             return Err(ContractError::InvalidInvoiceId);
@@ -957,12 +998,17 @@ impl InvoicePaymentContract {
     /// | `upgrade`                | yes        | The WASM-upgrade runbook *requires* pausing first; see `upgrade()` docs  |
     /// | `upgrade_storage`        | yes        | Storage migration runs between `upgrade()` and the final unpause         |
     /// | `rebuild_history_index`  | yes        | Administrative recovery; may run in the upgrade window or standalone    |
+    /// | `migrate_legacy_payments`| yes        | Administrative cleanup of legacy keys; may run standalone (issue #508)  |
     ///
     /// All read entrypoints (`config`, `admin`, `pending_admin`, `is_paused`,
-    /// `get_payment`, `payment_count`, `payment_history`, `payments_by_payer`,
+    /// `get_payment`, `has_payment`, `payment_count`, `payment_history`,
+    /// `payments_by_payer`, `settlement_ref_owner`, `settlement_ref_history`,
+    /// `settlement_ref_index_status`, `allowed_assets`, `allowlist_count`,
     /// `contract_version`, `version_info`, `history_index_status`) remain
     /// permissionless and available while paused — auditing and investigation
-    /// must never be blocked by the emergency stop.
+    /// must never be blocked by the emergency stop. See the module-level
+    /// "Access control model" doc for each read method's write-footprint
+    /// guarantee.
     ///
     /// ## Authorization
     /// Only the contract admin can call this method.
@@ -1038,6 +1084,66 @@ impl InvoicePaymentContract {
 
         // Rebuild the index
         crate::migration::rebuild_payment_history_index(&env)
+    }
+
+    /// Migrate a caller-supplied batch of legacy (pre-schema-versioning)
+    /// `Payment(invoice_id)` records to the versioned `PaymentV1` key,
+    /// removing each legacy entry as it migrates — so a record never sits
+    /// under two keys, paying rent twice, after this call (issue #508).
+    ///
+    /// ## Why the caller supplies the invoice_ids
+    /// A genuinely legacy record predates the `PaymentLog` write-order index
+    /// every other migration in this contract uses to discover records, so
+    /// there is no on-chain way to enumerate which invoice_ids still need
+    /// migrating — see `migration::migrate_legacy_payments`'s doc comment.
+    /// The operator supplies the batch from off-chain records of which
+    /// invoice_ids exist (e.g. the backend's own database).
+    ///
+    /// ## Bounded and resumable
+    /// Rejects a batch larger than [`storage::MAX_LEGACY_MIGRATION_BATCH`]
+    /// with [`ContractError::LegacyPaymentMigrationBatchTooLarge`] rather
+    /// than silently truncating it. Each invoice_id migrates independently
+    /// and idempotently (an already-migrated or never-existing id is simply
+    /// counted, never an error), so a large backlog can be split across as
+    /// many calls as needed, and any call can be safely retried.
+    ///
+    /// Returns `(migrated, already_current, not_found)`:
+    /// - `migrated` — legacy entries actually copied to `PaymentV1` and
+    ///   removed from the legacy key this call.
+    /// - `already_current` — ids already under `PaymentV1`; nothing to do.
+    /// - `not_found` — ids with no record under either key (e.g. a typo in
+    ///   the supplied batch).
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard, like [`rebuild_history_index`] —
+    /// this is administrative cleanup of storage layout, not a
+    /// control-plane change, and must remain usable during containment.
+    /// Admin-gated regardless.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — caller is not admin
+    /// - [`ContractError::LegacyPaymentMigrationBatchTooLarge`] — more than
+    ///   [`storage::MAX_LEGACY_MIGRATION_BATCH`] invoice_ids in one call
+    ///
+    /// ## Events
+    /// Emits `LegacyPaymentsMigrated { migrated, migrated_at }` when at
+    /// least one record was actually migrated this call.
+    pub fn migrate_legacy_payments(
+        env: Env,
+        admin: Address,
+        invoice_ids: Vec<String>,
+    ) -> Result<(u32, u32, u32), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        crate::migration::migrate_legacy_payments(&env, &invoice_ids)
     }
 
     /// Get the consistency status of the history index.

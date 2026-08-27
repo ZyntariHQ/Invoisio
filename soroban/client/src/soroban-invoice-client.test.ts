@@ -870,3 +870,58 @@ describe('upgrade()', () => {
     expect(sendSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('migrateLegacyPayments()', () => {
+  it('submits migrate_legacy_payments(caller, invoice_ids) and returns the tx result', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(async (tx) => {
+      prepared = tx as Transaction;
+      return {
+        status: 'PENDING',
+        hash: TX_HASH,
+        latestLedger: LEDGER,
+        latestLedgerCloseTime: 0,
+      };
+    });
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(async () =>
+      getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    const client = makeClient(signer.secret());
+    const result = await client.migrateLegacyPayments(['invoisio-legacy-001', 'invoisio-legacy-002']);
+
+    expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'migrate_legacy_payments',
+      args: [SIGNER_PUBLIC, ['invoisio-legacy-001', 'invoisio-legacy-002']],
+    });
+  });
+
+  it('rejects a batch over MAX_LEGACY_MIGRATION_BATCH before submitting', async () => {
+    const sendSpy = vi
+      .spyOn(rpc.Server.prototype, 'sendTransaction')
+      .mockImplementation(async () => {
+        throw new Error('sendTransaction should not be reached for an oversized batch');
+      });
+
+    const client = makeClient(signer.secret());
+    const tooMany = Array.from({ length: 21 }, (_, i) => `invoisio-batch-${i}`);
+    await expect(client.migrateLegacyPayments(tooMany)).rejects.toThrow(
+      /at most 20 entries/,
+    );
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects when no signerSecretKey is configured', async () => {
+    const client = makeClient();
+    await expect(client.migrateLegacyPayments(['invoisio-legacy-001'])).rejects.toThrow(
+      'signerSecretKey is required for write operations',
+    );
+  });
+});

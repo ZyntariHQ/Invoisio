@@ -5,6 +5,13 @@ export declare const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
 export declare const MAX_SETTLEMENT_REF_LEN = 128;
 /**
+ * Maximum number of invoice ids accepted in one `migrateLegacyPayments`
+ * call. Mirrors `storage::MAX_LEGACY_MIGRATION_BATCH` — exceeding it fails
+ * on-chain with `LegacyPaymentMigrationBatchTooLarge` rather than silently
+ * truncating; split a larger backlog across multiple calls instead.
+ */
+export declare const MAX_LEGACY_MIGRATION_BATCH = 20;
+/**
  * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
  * consists solely of ASCII lowercase letters, digits, and hyphens.
  */
@@ -27,6 +34,8 @@ export declare function encodeAddress(address: string): xdr.ScVal;
 export declare function encodeI128(value: bigint): xdr.ScVal;
 export declare function encodeU32(value: number): xdr.ScVal;
 export declare function encodeBool(value: boolean): xdr.ScVal;
+/** Encode a `Vec<String>` argument, e.g. for `migrate_legacy_payments`. */
+export declare function encodeStringVec(values: string[]): xdr.ScVal;
 /**
  * Encode a hex-encoded 32-byte hash (e.g. a WASM hash) as a Soroban
  * `BytesN<32>` ScVal. Accepts an optional `0x` prefix.

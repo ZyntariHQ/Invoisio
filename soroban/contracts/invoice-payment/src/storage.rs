@@ -48,6 +48,29 @@ use soroban_sdk::{contracttype, Address, Env, String, Vec};
 // Maintenance:
 // - If adding a new instance storage read, ALWAYS add `extend_ttl` after the read
 // - If adding a new instance storage write, ALWAYS add `extend_ttl` after the write
+//
+// TTL bumps vs. data writes — reads and simulation (issue #508):
+// - `extend_ttl` only pushes out a ledger entry's rent-paid live-until
+//   ledger; it never touches the entry's stored VALUE. It is technically
+//   part of a transaction's read-write footprint (Soroban tracks TTL on the
+//   same key), but it never creates, duplicates, or deletes a record — a
+//   fundamentally different, much lighter operation than a real `.set()` or
+//   `.remove()`.
+// - Every permissionless read in this contract extends TTL on a hit and
+//   nothing more. `simulateTransaction` (the RPC read path, `invoke-*.sh`,
+//   etc.) computes and returns this footprint automatically and correctly —
+//   it is expected and does not make a read "fail" or require a real
+//   submitted transaction; this is the normal, documented Soroban pattern
+//   for "bump on access" storage.
+// - What genuinely breaks read-only usage is a read that also mutates
+//   *data* — e.g. `get_payment`'s legacy-key fallback used to copy the
+//   record into the versioned key on every hit (issue #508). That has been
+//   removed: `get_payment`/`has_payment` are pure reads (TTL bump only); the
+//   copy-and-clean-up-the-legacy-key step now only happens through the
+//   explicit, admin-gated `migrate_legacy_payment_key` /
+//   `migration::migrate_legacy_payments`.
+// - See the "Access control model" doc on `InvoicePaymentContract` in
+//   `lib.rs` for the per-method footprint guarantee.
 // ============================================================================
 
 // TTL budget
@@ -119,6 +142,22 @@ pub const MAX_SETTLEMENT_REF_PAGE_SIZE: u32 = 25;
 /// Maximum number of allowlist entries returned in one `allowed_assets`
 /// page. Mirrors `MAX_PAYMENT_HISTORY_PAGE_SIZE`.
 pub const MAX_ALLOWLIST_PAGE_SIZE: u32 = 25;
+
+/// Maximum number of invoice_ids accepted in one `migrate_legacy_payments`
+/// call. Exceeding this fails fast with
+/// `ContractError::LegacyPaymentMigrationBatchTooLarge` rather than silently
+/// truncating a write the caller expected to fully apply — split a larger
+/// backlog across multiple calls instead (issue #508).
+///
+/// Each id that actually migrates costs up to 4 footprint entries (read
+/// `PaymentV1`, read the legacy key, write `PaymentV1`, remove the legacy
+/// key) — 2 of them writes. Soroban caps a single invocation at 100 total
+/// footprint entries and 50 write entries; at 25 per batch a worst case
+/// (every id migrates) measured 105 footprint / 51 writes and was rejected
+/// by the network's own resource limits. 20 leaves comfortable headroom
+/// (≤80 footprint / ≤40 writes) for that overhead plus the admin-auth
+/// check's own instance-storage touch.
+pub const MAX_LEGACY_MIGRATION_BATCH: u32 = 20;
 
 // ─── Identifier Canonicalisation ────────────────────────────────────────────
 //
@@ -678,7 +717,20 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
     false
 }
 
-/// Read a stored [`PaymentRecord`]. Extends persistent storage TTL.
+/// Read a stored [`PaymentRecord`]. Extends persistent storage TTL on
+/// whichever key (`PaymentV1` or the legacy `Payment` key) actually holds the
+/// record.
+///
+/// # No data write (issue #508)
+/// This is a **pure read**. It never copies a legacy record to `PaymentV1`
+/// and never removes anything — extending an entry's TTL only pushes out its
+/// rent-paid live-until ledger, it does not touch the stored value, so a
+/// permissionless caller can never use this to create, duplicate, or delete
+/// state. Migrating a legacy `Payment(invoice_id)` entry to `PaymentV1` (and
+/// removing the legacy copy) only happens through the explicit, admin-gated
+/// [`migrate_legacy_payment_key`], called via `migrate_legacy_payments` in
+/// `lib.rs`. Before this fix, this function performed that copy itself on
+/// every legacy hit and never removed the old key — see issue #508.
 ///
 /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded for
 /// `invoice_id`.
@@ -692,22 +744,70 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
         return Ok(record);
     }
 
+    // Legacy compatibility fallback: still a read-only lookup by a different
+    // key, not a migration. A record found here remains under the legacy key
+    // until an admin explicitly migrates it.
     let legacy_key = payment_key_legacy(invoice_id);
     let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
     match legacy_record {
         Some(record) => {
-            // Legacy compatibility path: read old key and copy it into the
-            // versioned schema key so future lookups are on the new layout.
             env.storage()
                 .persistent()
                 .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+            Ok(record)
+        }
+        None => Err(ContractError::PaymentNotFound),
+    }
+}
+
+/// Outcome of attempting to migrate one invoice's legacy `Payment(invoice_id)`
+/// entry, returned by [`migrate_legacy_payment_key`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LegacyMigrationOutcome {
+    /// A legacy entry existed and has been copied to `PaymentV1` and removed
+    /// from the legacy key — the record now exists under exactly one key.
+    Migrated,
+    /// Already under `PaymentV1` (possibly from a prior migration call);
+    /// nothing to do.
+    AlreadyCurrent,
+    /// No record exists under either key for this invoice_id.
+    NotFound,
+}
+
+/// Migrate a single invoice's legacy `Payment(invoice_id)` entry to the
+/// versioned `PaymentV1` key, removing the legacy entry so the record exists
+/// under exactly one storage key afterward.
+///
+/// This is the **only** place a legacy record is ever copied to `PaymentV1`
+/// — [`get_payment`] and [`has_payment`] are pure reads and never do this
+/// (issue #508). Only called from the admin-gated
+/// `migration::migrate_legacy_payments` batch entrypoint, never from a
+/// permissionless path.
+///
+/// Idempotent: calling this again for an already-migrated or never-existing
+/// `invoice_id` is a safe no-op that reports [`LegacyMigrationOutcome::AlreadyCurrent`]
+/// / [`LegacyMigrationOutcome::NotFound`] respectively, never an error.
+pub fn migrate_legacy_payment_key(env: &Env, invoice_id: &String) -> LegacyMigrationOutcome {
+    let v1_key = payment_key_v1(invoice_id);
+    if env.storage().persistent().has(&v1_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
+        return LegacyMigrationOutcome::AlreadyCurrent;
+    }
+
+    let legacy_key = payment_key_legacy(invoice_id);
+    let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
+    match legacy_record {
+        Some(record) => {
             env.storage().persistent().set(&v1_key, &record);
             env.storage()
                 .persistent()
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
-            Ok(record)
+            env.storage().persistent().remove(&legacy_key);
+            LegacyMigrationOutcome::Migrated
         }
-        None => Err(ContractError::PaymentNotFound),
+        None => LegacyMigrationOutcome::NotFound,
     }
 }
 

@@ -64,6 +64,7 @@ declare -A ERROR_DESC=(
   [HistoryIndexIncomplete]="The payment history index is incomplete and must be rebuilt via rebuild_history_index()."
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
+  [LegacyPaymentMigrationBatchTooLarge]="migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -125,6 +126,7 @@ declare -A METHOD_AUTH=(
   [is_paused]="none"
   [rebuild_history_index]="admin"
   [history_index_status]="none"
+  [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
   [initialize]="One-time setup; sets the admin."
@@ -156,6 +158,7 @@ declare -A METHOD_DESC=(
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
   [history_index_status]="Return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [migrate_legacy_payments]="Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)."
 )
 
 # "pub fn name(" lines inside the #[contractimpl] block, in declaration order.
@@ -187,7 +190,7 @@ EVENT_NAMES=(
   InvoicePaymentRecorded AssetAllowlisted AssetRevoked NativeAllowChanged
   StorageSchemaUpgraded ContractPaused AdminTransferProposed AdminTransferAccepted
   AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated ContractUpgraded
-  AllowlistIndexBackfilled
+  AllowlistIndexBackfilled LegacyPaymentsMigrated
 )
 mapfile -t EVENTS_RS_NAMES < <(grep -B1 '^pub struct \w\+ {' "$EVENTS_RS" | grep -oP '^pub struct \K\w+(?= \{)')
 [ "${#EVENTS_RS_NAMES[@]}" -gt 0 ] || fail "no #[contractevent] structs found in $EVENTS_RS — regex out of date?"
@@ -554,6 +557,15 @@ cat > "$OUT" <<JSON
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
       "required": ["discovered", "migrated_at"]
+    },
+    "LegacyPaymentsMigrated": {
+      "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",
+      "topic": "legacy_payments_migrated",
+      "fields": {
+        "migrated": { "type": "integer", "description": "Number of legacy entries actually migrated (copied to PaymentV1 and removed from the legacy key) this call.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["migrated", "migrated_at"]
     },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",

@@ -353,6 +353,15 @@
       },
       "required": ["discovered", "migrated_at"]
     },
+    "LegacyPaymentsMigrated": {
+      "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",
+      "topic": "legacy_payments_migrated",
+      "fields": {
+        "migrated": { "type": "integer", "description": "Number of legacy entries actually migrated (copied to PaymentV1 and removed from the legacy key) this call.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["migrated", "migrated_at"]
+    },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
       "topic": "contract_upgraded",
@@ -387,7 +396,8 @@
     "MigrationRequired":   { "code": 18, "description": "rebuild_history_index() was called on a deployment whose storage schema is not yet current; run upgrade_storage() first." },
     "HistoryIndexIncomplete":   { "code": 19, "description": "The payment history index is incomplete and must be rebuilt via rebuild_history_index()." },
     "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." },
-    "MustBePausedForUpgrade":   { "code": 21, "description": "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window." }
+    "MustBePausedForUpgrade":   { "code": 21, "description": "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window." },
+    "LegacyPaymentMigrationBatchTooLarge":   { "code": 22, "description": "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls." }
   },
   "methods": {
     "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
@@ -418,6 +428,7 @@
     "set_paused": { "auth": "admin", "description": "Pause or unpause the contract. Writes rejected when paused." },
     "is_paused": { "auth": "none", "description": "Return true if the contract is currently paused." },
     "rebuild_history_index": { "auth": "admin", "description": "Rebuild the payment history index from existing records after a corruption or incomplete migration." },
+    "migrate_legacy_payments": { "auth": "admin", "description": "Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)." },
     "history_index_status": { "auth": "none", "description": "Return (history_count, payment_count, is_consistent) diagnostic status for the history index." }
   }
 }

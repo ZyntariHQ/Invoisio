@@ -98,6 +98,10 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 21;
     readonly name: "MustBePausedForUpgrade";
     readonly meaning: "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.";
+}, {
+    readonly code: 22;
+    readonly name: "LegacyPaymentMigrationBatchTooLarge";
+    readonly meaning: "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

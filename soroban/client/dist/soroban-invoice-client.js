@@ -371,6 +371,55 @@ class SorobanInvoiceClient {
             .build();
         return this.submitWrite(tx);
     }
+    /**
+     * Migrate a caller-supplied, bounded batch of legacy (pre-schema-
+     * versioning) `Payment(invoiceId)` records to the versioned `PaymentV1`
+     * key, removing each legacy entry as it migrates — so a record never sits
+     * under two keys, paying rent twice (issue #508).
+     *
+     * ## Why the caller supplies the invoice ids
+     * A genuinely legacy record predates the on-chain write-order index every
+     * other migration uses to discover records, so there is no way for the
+     * contract to enumerate which invoice ids still need migrating. Supply
+     * the batch from your own off-chain records (e.g. the backend database).
+     *
+     * ## Bounded and resumable
+     * At most {@link MAX_LEGACY_MIGRATION_BATCH} ids per call — the contract
+     * rejects a larger batch with `LegacyPaymentMigrationBatchTooLarge` rather
+     * than silently truncating it. Each id migrates independently and
+     * idempotently, so split a larger backlog across multiple calls, or
+     * safely retry the same batch.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * ## Reading the result
+     * Like every other write method here, this returns only the submitted
+     * transaction's `{ hash, ledger }` — the contract's own
+     * `(migrated, already_current, not_found)` return value is not decoded
+     * from the transaction result. To see the counts, read the emitted
+     * `LegacyPaymentsMigrated` event (`migrated` only, when at least one id
+     * migrated) or simulate the same call read-only beforehand.
+     *
+     * @throws {Error} if `invoiceIds.length` exceeds {@link MAX_LEGACY_MIGRATION_BATCH}
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `Unauthorized`, `LegacyPaymentMigrationBatchTooLarge`)
+     */
+    async migrateLegacyPayments(invoiceIds) {
+        this.requireSigner();
+        if (invoiceIds.length > codec_1.MAX_LEGACY_MIGRATION_BATCH) {
+            throw new Error(`invoiceIds must have at most ${codec_1.MAX_LEGACY_MIGRATION_BATCH} entries, got ${invoiceIds.length}`);
+        }
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('migrate_legacy_payments', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeStringVec)(invoiceIds)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
     // ─── Read operations (permissionless) ──────────────────────────────────────
     /**
      * Return the stable high-level contract configuration snapshot.
