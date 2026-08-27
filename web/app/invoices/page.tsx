@@ -4,13 +4,18 @@ import { useState, useMemo, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Copy, Upload } from "lucide-react";
+import { Copy, Upload, Download } from "lucide-react";
 import { apiClient } from "@/lib/api-client";
 import { WalletAuthControls } from "@/components/wallet-auth-controls";
 import { RequireAuth } from "@/components/require-auth";
 import { DraftList } from "@/components/DraftList";
 import { CSVUploadDialog, type ImportSummary } from "@/components/CSVUploadDialog";
 import { ImportResultsDisplay } from "@/components/ImportResultsDisplay";
+import {
+  exportInvoicesToCsv,
+  CSV_EXPORT_SOFT_LIMIT,
+  type ExportResult,
+} from "@/lib/csv-export";
 
 interface Invoice {
   id: string;
@@ -158,6 +163,9 @@ function InvoicesContent() {
   // CSV Import state
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [importResults, setImportResults] = useState<ImportSummary | null>(null);
+
+  // CSV Export notice (shown after an export completes)
+  const [csvExportNotice, setCsvExportNotice] = useState<ExportResult | null>(null);
 
   // Bulk selection
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -541,6 +549,29 @@ function InvoicesContent() {
     URL.revokeObjectURL(url);
   };
 
+  /**
+   * Export the entire filtered working set to CSV.
+   * Warns the user if the result was truncated due to the hard limit,
+   * or if the export is large (soft limit) via the notice banner.
+   */
+  const exportAllAsCSV = () => {
+    const result = exportInvoicesToCsv(filteredInvoices, "invoices");
+    if (result.truncated || result.exported >= CSV_EXPORT_SOFT_LIMIT) {
+      setCsvExportNotice(result);
+    }
+  };
+
+  /**
+   * Export only the currently selected invoices to CSV.
+   */
+  const exportSelectedAsCSV = () => {
+    const selected = filteredInvoices.filter((inv) => selectedIds.has(inv.id));
+    const result = exportInvoicesToCsv(selected, "invoices-selected");
+    if (result.truncated || result.exported >= CSV_EXPORT_SOFT_LIMIT) {
+      setCsvExportNotice(result);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "paid":
@@ -613,6 +644,21 @@ function InvoicesContent() {
             >
               <Upload className="h-4 w-4" />
               Import CSV
+            </button>
+            <button
+              type="button"
+              onClick={exportAllAsCSV}
+              disabled={filteredInvoices.length === 0}
+              aria-label="Export filtered invoices as CSV"
+              title={
+                filteredInvoices.length === 0
+                  ? "No invoices to export"
+                  : `Export ${filteredInvoices.length} filtered invoice${filteredInvoices.length !== 1 ? "s" : ""} to CSV`
+              }
+              className="inline-flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download className="h-4 w-4" />
+              Export CSV
             </button>
             <Link
               href="/invoices/new"
@@ -1269,6 +1315,14 @@ function InvoicesContent() {
                       </button>
                       <button
                         type="button"
+                        onClick={exportSelectedAsCSV}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Export CSV
+                      </button>
+                      <button
+                        type="button"
                         disabled
                         title="Coming soon"
                         className="inline-flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-1.5 text-xs font-semibold text-gray-500 shadow-sm ring-1 ring-inset ring-gray-300 cursor-not-allowed"
@@ -1283,6 +1337,76 @@ function InvoicesContent() {
                         Clear
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* CSV Export Notice */}
+                {csvExportNotice && (
+                  <div
+                    role="alert"
+                    aria-live="polite"
+                    className={`mb-4 flex items-start justify-between rounded-xl border px-4 py-3 shadow-sm ${
+                      csvExportNotice.truncated
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-amber-200 bg-amber-50"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <svg
+                        className={`mt-0.5 h-5 w-5 flex-shrink-0 ${
+                          csvExportNotice.truncated ? "text-rose-500" : "text-amber-500"
+                        }`}
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          fillRule="evenodd"
+                          d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z"
+                          clipRule="evenodd"
+                        />
+                      </svg>
+                      <div>
+                        {csvExportNotice.truncated ? (
+                          <>
+                            <p className="text-sm font-semibold text-rose-800">
+                              Export truncated to {csvExportNotice.exported.toLocaleString()} rows
+                            </p>
+                            <p className="mt-0.5 text-xs text-rose-700">
+                              Your filtered set contains{" "}
+                              {csvExportNotice.total.toLocaleString()} invoices, which exceeds the
+                              single-file limit of {(5000).toLocaleString()}. Load more data in
+                              smaller filtered batches to export the full set.
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm font-semibold text-amber-800">
+                              Large export — {csvExportNotice.exported.toLocaleString()} rows downloaded
+                            </p>
+                            <p className="mt-0.5 text-xs text-amber-700">
+                              Only loaded pages are included. Use{" "}
+                              <strong>Load More</strong> to fetch additional invoices before
+                              exporting if you need the complete history.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Dismiss export notice"
+                      onClick={() => setCsvExportNotice(null)}
+                      className={`ml-4 flex-shrink-0 rounded-md p-1 transition-colors ${
+                        csvExportNotice.truncated
+                          ? "text-rose-400 hover:bg-rose-100 hover:text-rose-600"
+                          : "text-amber-400 hover:bg-amber-100 hover:text-amber-600"
+                      }`}
+                    >
+                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
                   </div>
                 )}
 
@@ -1450,6 +1574,13 @@ function InvoicesContent() {
                         </span>{" "}
                         total invoices
                       </p>
+                      {hasNextPage && (
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          CSV export includes only loaded invoices. Use{" "}
+                          <strong>Load More</strong> to fetch additional pages
+                          before exporting.
+                        </p>
+                      )}
                     </div>
                     <div>
                       <nav
