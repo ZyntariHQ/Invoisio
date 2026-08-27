@@ -680,7 +680,7 @@ Contract v1 (C1) live
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
 | `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `invoice_id` (≤ 64 chars) and `settlement_ref` (non-empty, ≤ 128 chars) must both be in **canonical form** — lowercase letters, digits, and hyphens only; non-canonical input is rejected, not normalised, since both fields back byte-exact idempotency guards. |
-| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). |
+| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). Pure read — falls back to a pre-schema-versioning legacy key for an unmigrated record, but never writes it (issue #508); use `migrate_legacy_payments` to actually migrate one. |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
 | `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
@@ -699,6 +699,7 @@ Contract v1 (C1) live
 | `propose_admin(new_admin)` | admin | Step 1 of two-step admin handoff: propose the next admin (current admin signs). |
 | `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
 | `upgrade(admin, new_wasm_hash, new_contract_version)` | admin | Swap the deployed WASM in place (`env.deployer().update_current_contract_wasm`). Requires the contract to already be paused. See [`docs/upgrade-runbook.md`](docs/upgrade-runbook.md). |
+| `migrate_legacy_payments(admin, invoice_ids) → (migrated, already_current, not_found)` | admin | Migrate a caller-supplied, bounded batch (≤ `MAX_LEGACY_MIGRATION_BATCH`, 20) of legacy `Payment(invoice_id)` keys to `PaymentV1`, removing each legacy entry as it migrates so a record never sits under two keys. The caller supplies the batch because a legacy record predates the on-chain index other migrations use to discover records — there's no way to enumerate them on-chain. Idempotent per id; safely resumable across calls (issue #508). |
 
 `payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
@@ -729,6 +730,7 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
 | 20 | SettlementRefAlreadyUsed | The settlement reference is already recorded. Ambiguous on its own — call `settlement_ref_owner()` to tell a benign retry (same invoice) from a genuine conflict (different invoice) apart (issue #495). |
 | 21 | MustBePausedForUpgrade | `upgrade()` was called while the contract is not paused; the contract must stay paused for the whole `upgrade()` → `upgrade_storage()` window. |
+| 22 | LegacyPaymentMigrationBatchTooLarge | `migrate_legacy_payments()` was called with more invoice_ids than `MAX_LEGACY_MIGRATION_BATCH` (20) in one call; split the batch across multiple calls. |
 
 #### Typed error manifest (off-chain reference)
 

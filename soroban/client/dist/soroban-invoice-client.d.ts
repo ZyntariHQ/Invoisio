@@ -240,6 +240,40 @@ export declare class SorobanInvoiceClient {
      */
     upgrade(newWasmHash: string, newContractVersion: number): Promise<TransactionResult>;
     /**
+     * Migrate a caller-supplied, bounded batch of legacy (pre-schema-
+     * versioning) `Payment(invoiceId)` records to the versioned `PaymentV1`
+     * key, removing each legacy entry as it migrates — so a record never sits
+     * under two keys, paying rent twice (issue #508).
+     *
+     * ## Why the caller supplies the invoice ids
+     * A genuinely legacy record predates the on-chain write-order index every
+     * other migration uses to discover records, so there is no way for the
+     * contract to enumerate which invoice ids still need migrating. Supply
+     * the batch from your own off-chain records (e.g. the backend database).
+     *
+     * ## Bounded and resumable
+     * At most {@link MAX_LEGACY_MIGRATION_BATCH} ids per call — the contract
+     * rejects a larger batch with `LegacyPaymentMigrationBatchTooLarge` rather
+     * than silently truncating it. Each id migrates independently and
+     * idempotently, so split a larger backlog across multiple calls, or
+     * safely retry the same batch.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * ## Reading the result
+     * Like every other write method here, this returns only the submitted
+     * transaction's `{ hash, ledger }` — the contract's own
+     * `(migrated, already_current, not_found)` return value is not decoded
+     * from the transaction result. To see the counts, read the emitted
+     * `LegacyPaymentsMigrated` event (`migrated` only, when at least one id
+     * migrated) or simulate the same call read-only beforehand.
+     *
+     * @throws {Error} if `invoiceIds.length` exceeds {@link MAX_LEGACY_MIGRATION_BATCH}
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `Unauthorized`, `LegacyPaymentMigrationBatchTooLarge`)
+     */
+    migrateLegacyPayments(invoiceIds: string[]): Promise<TransactionResult>;
+    /**
      * Return the stable high-level contract configuration snapshot.
      *
      * This is the preferred single-call read for deployment checks, backend

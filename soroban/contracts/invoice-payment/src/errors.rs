@@ -81,6 +81,7 @@ pub enum ContractError {
     /// | `upgrade`                | yes     | The WASM-upgrade runbook *requires* `set_paused(true)` first             |
     /// | `upgrade_storage`        | yes     | Storage migration must run between `upgrade()` and the final unpause      |
     /// | `rebuild_history_index`  | yes     | Administrative recovery, may run during the upgrade window or standalone |
+    /// | `migrate_legacy_payments`| yes     | Administrative cleanup of legacy keys, not a control-plane change (#508) |
     /// | All read entrypoints     | yes     | Investigation and auditing must remain possible during containment        |
     ContractPaused = 12,
 
@@ -129,4 +130,10 @@ pub enum ContractError {
     /// window so no write can land on the new code before storage has been
     /// migrated — see the doc comment on `upgrade()` in `lib.rs`.
     MustBePausedForUpgrade = 21,
+
+    /// `migrate_legacy_payments()` was called with more invoice_ids than
+    /// `storage::MAX_LEGACY_MIGRATION_BATCH` in one call. Split the batch
+    /// across multiple calls — each invoice_id migrates independently and
+    /// idempotently, so the operation is safely resumable (issue #508).
+    LegacyPaymentMigrationBatchTooLarge = 22,
 }

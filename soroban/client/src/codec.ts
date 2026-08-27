@@ -35,6 +35,14 @@ export const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
 export const MAX_SETTLEMENT_REF_LEN = 128;
 
+/**
+ * Maximum number of invoice ids accepted in one `migrateLegacyPayments`
+ * call. Mirrors `storage::MAX_LEGACY_MIGRATION_BATCH` — exceeding it fails
+ * on-chain with `LegacyPaymentMigrationBatchTooLarge` rather than silently
+ * truncating; split a larger backlog across multiple calls instead.
+ */
+export const MAX_LEGACY_MIGRATION_BATCH = 20;
+
 const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
 
 /**
@@ -95,6 +103,11 @@ export function encodeU32(value: number): xdr.ScVal {
 
 export function encodeBool(value: boolean): xdr.ScVal {
   return nativeToScVal(value, { type: 'bool' });
+}
+
+/** Encode a `Vec<String>` argument, e.g. for `migrate_legacy_payments`. */
+export function encodeStringVec(values: string[]): xdr.ScVal {
+  return xdr.ScVal.scvVec(values.map((value) => encodeString(value)));
 }
 
 /**

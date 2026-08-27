@@ -165,6 +165,12 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
   },
+  {
+    code: 22,
+    name: 'LegacyPaymentMigrationBatchTooLarge',
+    meaning:
+      'migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */

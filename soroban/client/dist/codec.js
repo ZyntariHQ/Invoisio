@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.MAX_SETTLEMENT_REF_LEN = exports.MAX_INVOICE_ID_LEN = void 0;
+exports.MAX_LEGACY_MIGRATION_BATCH = exports.MAX_SETTLEMENT_REF_LEN = exports.MAX_INVOICE_ID_LEN = void 0;
 exports.isCanonicalIdentifier = isCanonicalIdentifier;
 exports.assertCanonicalIdentifier = assertCanonicalIdentifier;
 exports.encodeString = encodeString;
@@ -8,6 +8,7 @@ exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.encodeBool = encodeBool;
+exports.encodeStringVec = encodeStringVec;
 exports.encodeBytes32 = encodeBytes32;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
@@ -36,6 +37,13 @@ const types_1 = require("./types");
 exports.MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
 exports.MAX_SETTLEMENT_REF_LEN = 128;
+/**
+ * Maximum number of invoice ids accepted in one `migrateLegacyPayments`
+ * call. Mirrors `storage::MAX_LEGACY_MIGRATION_BATCH` — exceeding it fails
+ * on-chain with `LegacyPaymentMigrationBatchTooLarge` rather than silently
+ * truncating; split a larger backlog across multiple calls instead.
+ */
+exports.MAX_LEGACY_MIGRATION_BATCH = 20;
 const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
 /**
  * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
@@ -82,6 +90,10 @@ function encodeU32(value) {
 }
 function encodeBool(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'bool' });
+}
+/** Encode a `Vec<String>` argument, e.g. for `migrate_legacy_payments`. */
+function encodeStringVec(values) {
+    return stellar_sdk_1.xdr.ScVal.scvVec(values.map((value) => encodeString(value)));
 }
 /**
  * Encode a hex-encoded 32-byte hash (e.g. a WASM hash) as a Soroban

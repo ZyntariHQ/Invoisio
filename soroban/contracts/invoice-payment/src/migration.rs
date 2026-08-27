@@ -28,9 +28,11 @@ use crate::storage::{
     append_payer_entry, backfill_allowlist_index, clear_payer_indexes, current_contract_meta,
     ensure_current_contract_meta, get_contract_meta, get_history_count, get_payment,
     get_payment_log_entry, get_settlement_ref_count, get_settlement_ref_owner,
-    get_storage_schema_version, is_asset_allowed, is_settlement_ref_used, record_settlement_ref,
-    set_contract_meta, set_history_count, set_settlement_ref_count, DataKey, PaymentRecord,
-    STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3, STORAGE_SCHEMA_VERSION,
+    get_storage_schema_version, is_asset_allowed, is_settlement_ref_used,
+    migrate_legacy_payment_key, record_settlement_ref, set_contract_meta, set_history_count,
+    set_settlement_ref_count, DataKey, LegacyMigrationOutcome, PaymentRecord,
+    MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3,
+    STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -527,6 +529,58 @@ pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
     set_contract_meta(env, &meta);
 
     Ok(())
+}
+
+/// Migrate a caller-supplied batch of legacy `Payment(invoice_id)` keys to
+/// `PaymentV1`, removing each legacy entry as it migrates so a record never
+/// sits under two keys afterward (issue #508).
+///
+/// ## Why this can't be driven by the payment log
+/// Every other migration in this module discovers records via `PaymentLog`
+/// (the write-order index `record_payment` has always populated — see
+/// issues #445, #495, #464). A genuinely legacy `Payment(invoice_id)` entry
+/// predates `PaymentLog`'s introduction entirely: it was written by code
+/// that never appended to that log, so there is no on-chain way to
+/// enumerate which invoice_ids still need migrating. The caller — the
+/// operator, working from off-chain records of which invoice_ids exist —
+/// must supply the batch explicitly.
+///
+/// ## Bounded and resumable
+/// Rejects a batch larger than [`MAX_LEGACY_MIGRATION_BATCH`] with
+/// [`ContractError::LegacyPaymentMigrationBatchTooLarge`] rather than
+/// silently truncating a write the caller expected to fully apply,
+/// mirroring the general chunking approach from issue #480. Each id is
+/// migrated independently through [`migrate_legacy_payment_key`], which is
+/// idempotent (an already-migrated or never-existing id is just counted,
+/// never an error) — so a full backlog can be split across as many calls as
+/// needed, and any call can be safely retried.
+///
+/// Returns `(migrated, already_current, not_found)`.
+pub fn migrate_legacy_payments(
+    env: &Env,
+    invoice_ids: &Vec<String>,
+) -> Result<(u32, u32, u32), ContractError> {
+    if invoice_ids.len() > MAX_LEGACY_MIGRATION_BATCH {
+        return Err(ContractError::LegacyPaymentMigrationBatchTooLarge);
+    }
+
+    let mut migrated = 0u32;
+    let mut already_current = 0u32;
+    let mut not_found = 0u32;
+
+    for invoice_id in invoice_ids.iter() {
+        match migrate_legacy_payment_key(env, &invoice_id) {
+            LegacyMigrationOutcome::Migrated => migrated += 1,
+            LegacyMigrationOutcome::AlreadyCurrent => already_current += 1,
+            LegacyMigrationOutcome::NotFound => not_found += 1,
+        }
+    }
+
+    if migrated > 0 {
+        events::emit_legacy_payments_migrated(env, migrated);
+    }
+
+    Ok((migrated, already_current, not_found))
 }
 
 /// Verify that the settlement-reference index matches the payment log.

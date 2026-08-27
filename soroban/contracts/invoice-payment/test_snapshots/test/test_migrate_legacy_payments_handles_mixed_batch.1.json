@@ -37,7 +37,7 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "invoisio-new-mix"
+                  "string": "invoisio-legacy-mixed-b"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
@@ -49,10 +49,10 @@
                   "string": ""
                 },
                 {
-                  "i128": "20000000"
+                  "i128": "5000000"
                 },
                 {
-                  "string": "settle-new-mix"
+                  "string": "settle-mixed-b"
                 }
               ]
             }
@@ -61,8 +61,38 @@
         }
       ]
     ],
-    [],
-    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "migrate_legacy_payments",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "vec": [
+                    {
+                      "string": "invoisio-legacy-mixed-a"
+                    },
+                    {
+                      "string": "invoisio-legacy-mixed-b"
+                    },
+                    {
+                      "string": "invoisio-legacy-mixed-c"
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
@@ -85,6 +115,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "801925984706572462"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "1033654523790656264"
                 }
               },
               "durability": "temporary",
@@ -182,86 +232,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "Payment"
-                  },
-                  {
-                    "string": "invoisio-legacy-mix"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "symbol": "amount"
-                    },
-                    "val": {
-                      "i128": "10000000"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "asset"
-                    },
-                    "val": {
-                      "vec": [
-                        {
-                          "symbol": "Native"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "invoice_id"
-                    },
-                    "val": {
-                      "string": "invoisio-legacy-mix"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "payer"
-                    },
-                    "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "settlement_ref"
-                    },
-                    "val": {
-                      "string": "legacy-mix"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "timestamp"
-                    },
-                    "val": {
-                      "u64": "1234"
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -277,7 +247,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "20000000"
+                      "i128": "5000000"
                     }
                   },
                   {
@@ -297,7 +267,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-new-mix"
+                      "string": "invoisio-legacy-mixed-b"
                     }
                   },
                   {
@@ -313,7 +283,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-new-mix"
+                      "string": "settle-mixed-b"
                     }
                   },
                   {
@@ -351,7 +321,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-new-mix"
+                "string": "invoisio-legacy-mixed-b"
               }
             }
           },
@@ -372,7 +342,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "invoisio-new-mix"
+                    "string": "invoisio-legacy-mixed-a"
                   }
                 ]
               },
@@ -384,7 +354,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "20000000"
+                      "i128": "1000000"
                     }
                   },
                   {
@@ -404,7 +374,87 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-new-mix"
+                      "string": "invoisio-legacy-mixed-a"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "payer"
+                    },
+                    "val": {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "legacy-seed"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "timestamp"
+                    },
+                    "val": {
+                      "u64": "1"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "PaymentV1"
+                  },
+                  {
+                    "string": "invoisio-legacy-mixed-b"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "amount"
+                    },
+                    "val": {
+                      "i128": "5000000"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset"
+                    },
+                    "val": {
+                      "vec": [
+                        {
+                          "symbol": "Native"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "invoice_id"
+                    },
+                    "val": {
+                      "string": "invoisio-legacy-mixed-b"
                     }
                   },
                   {
@@ -420,7 +470,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-new-mix"
+                      "string": "settle-mixed-b"
                     }
                   },
                   {
@@ -452,13 +502,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-new-mix"
+                    "string": "settle-mixed-b"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "invoisio-new-mix"
+                "string": "invoisio-legacy-mixed-b"
               }
             }
           },
@@ -491,7 +541,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "invoisio-new-mix"
+                      "string": "invoisio-legacy-mixed-b"
                     }
                   },
                   {
@@ -499,7 +549,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-new-mix"
+                      "string": "settle-mixed-b"
                     }
                   }
                 ]

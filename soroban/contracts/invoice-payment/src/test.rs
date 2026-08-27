@@ -841,8 +841,13 @@ fn test_get_payment_empty_invoice_id_returns_error() {
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
 }
 
+/// Regression for #508: `get_payment` reads a legacy record correctly via
+/// its fallback key, but is a pure read — it must never write a `PaymentV1`
+/// copy or touch the legacy entry. Calling it repeatedly must not change
+/// that. Migration only happens through the explicit, admin-gated
+/// `migrate_legacy_payments`.
 #[test]
-fn test_get_payment_reads_and_migrates_legacy_key() {
+fn test_get_payment_reads_legacy_key_without_writing() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
 
@@ -863,14 +868,23 @@ fn test_get_payment_reads_and_migrates_legacy_key() {
             .set(&DataKey::Payment(invoice_id.clone()), &legacy_record);
     });
 
-    let loaded = client.get_payment(&invoice_id);
-    assert_eq!(loaded, legacy_record);
-    let migrated = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .has(&DataKey::PaymentV1(invoice_id.clone()))
-    });
-    assert!(migrated);
+    for _ in 0..3 {
+        let loaded = client.get_payment(&invoice_id);
+        assert_eq!(loaded, legacy_record);
+
+        let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+            (
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::PaymentV1(invoice_id.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Payment(invoice_id.clone())),
+            )
+        });
+        assert!(!has_v1, "get_payment must never write a PaymentV1 copy");
+        assert!(has_legacy, "the legacy entry must be untouched");
+    }
 }
 
 #[test]
@@ -1912,9 +1926,10 @@ fn test_amount_at_max_succeeds() {
 
 // Upgrade compatibility tests
 #[test]
-fn test_multiple_legacy_payments_read_and_migrated() {
+fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
     let env = Env::default();
-    let (client, _admin) = setup(&env);
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
 
     let invoice_ids = soroban_sdk::vec![
         &env,
@@ -1972,25 +1987,39 @@ fn test_multiple_legacy_payments_read_and_migrated() {
     let loaded3 = client.get_payment(&invoice_ids.get(2).unwrap());
     assert_eq!(loaded3, record3);
 
-    // Verify all were migrated to v1 keys
-    let migrated1 = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .has(&DataKey::PaymentV1(invoice_ids.get(0).unwrap().clone()))
-    });
-    assert!(migrated1);
-    let migrated2 = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .has(&DataKey::PaymentV1(invoice_ids.get(1).unwrap().clone()))
-    });
-    assert!(migrated2);
-    let migrated3 = env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .has(&DataKey::PaymentV1(invoice_ids.get(2).unwrap().clone()))
-    });
-    assert!(migrated3);
+    // Reads alone must NOT migrate anything (issue #508) — all three stay
+    // under their legacy keys until explicitly migrated.
+    for id in invoice_ids.iter() {
+        let has_v1 = env.as_contract(&client.address, || {
+            env.storage().persistent().has(&DataKey::PaymentV1(id.clone()))
+        });
+        assert!(!has_v1, "a bare read must not migrate the legacy record");
+    }
+
+    // Explicit, admin-gated migration actually moves them.
+    let (migrated, already_current, not_found) =
+        client.migrate_legacy_payments(&admin, &invoice_ids);
+    assert_eq!(migrated, 3);
+    assert_eq!(already_current, 0);
+    assert_eq!(not_found, 0);
+
+    for id in invoice_ids.iter() {
+        let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+            (
+                env.storage().persistent().has(&DataKey::PaymentV1(id.clone())),
+                env.storage().persistent().has(&DataKey::Payment(id.clone())),
+            )
+        });
+        assert!(has_v1, "record must exist under PaymentV1 after migration");
+        assert!(!has_legacy, "legacy key must be removed after migration");
+    }
+
+    // Re-running the same batch is a safe no-op (idempotent, resumable).
+    let (migrated2, already_current2, not_found2) =
+        client.migrate_legacy_payments(&admin, &invoice_ids);
+    assert_eq!(migrated2, 0);
+    assert_eq!(already_current2, 3);
+    assert_eq!(not_found2, 0);
 }
 
 #[test]
@@ -2036,13 +2065,14 @@ fn test_mixed_legacy_and_new_payments() {
     assert_eq!(loaded_new.invoice_id, new_invoice_id);
     assert_eq!(loaded_new.amount, 20_000_000);
 
-    // Verify legacy was migrated
-    let migrated = env.as_contract(&client.address, || {
+    // Reading the legacy record must NOT migrate it (issue #508) — it stays
+    // under its legacy key until explicitly migrated.
+    let has_v1 = env.as_contract(&client.address, || {
         env.storage()
             .persistent()
             .has(&DataKey::PaymentV1(legacy_invoice_id.clone()))
     });
-    assert!(migrated);
+    assert!(!has_v1, "a bare read must not migrate the legacy record");
 }
 
 #[test]
@@ -2167,17 +2197,42 @@ fn test_upgrade_storage_preserves_payment_records() {
     let result = client.try_upgrade_storage(&admin);
     assert!(result.is_ok());
 
-    // Verify record is still readable and migrated
-    let migrated = client.get_payment(&invoice_id);
-    assert_eq!(migrated, legacy_record);
-
-    // Verify it was migrated to v1 key
-    let has_v1 = env.as_contract(&client.address, || {
+    // upgrade_storage cannot discover this record — a genuinely legacy
+    // Payment(invoice_id) key predates PaymentLog entirely (issue #508), so
+    // it stays under the legacy key and is still readable via the fallback.
+    let after_upgrade = client.get_payment(&invoice_id);
+    assert_eq!(after_upgrade, legacy_record);
+    let has_v1_after_upgrade = env.as_contract(&client.address, || {
         env.storage()
             .persistent()
             .has(&DataKey::PaymentV1(invoice_id.clone()))
     });
-    assert!(has_v1);
+    assert!(
+        !has_v1_after_upgrade,
+        "upgrade_storage cannot discover a pre-PaymentLog legacy record"
+    );
+
+    // The explicit, admin-gated migration is what actually moves it.
+    let (migrated, already_current, not_found) = client.migrate_legacy_payments(
+        &admin,
+        &soroban_sdk::vec![&env, invoice_id.clone()],
+    );
+    assert_eq!((migrated, already_current, not_found), (1, 0, 0));
+
+    let final_read = client.get_payment(&invoice_id);
+    assert_eq!(final_read, legacy_record);
+    let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+        (
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(invoice_id.clone())),
+            env.storage()
+                .persistent()
+                .has(&DataKey::Payment(invoice_id.clone())),
+        )
+    });
+    assert!(has_v1, "record must exist under PaymentV1 after migration");
+    assert!(!has_legacy, "legacy key must be removed after migration");
 }
 
 #[test]
@@ -4166,7 +4221,12 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
         }
     );
 
-    // 5. Verify all payments readable and migrated to V1 keys.
+    // 5. All payments remain readable after upgrade_storage — but a
+    //    genuinely legacy Payment(invoice_id) key predates PaymentLog
+    //    entirely, so upgrade_storage cannot discover or migrate it
+    //    (issue #508). It stays under the legacy key until the admin
+    //    explicitly migrates it via migrate_legacy_payments.
+    let mut legacy_ids: soroban_sdk::Vec<String> = soroban_sdk::vec![&env];
     for i in 0..3u32 {
         let inv = records.get(i).unwrap().invoice_id.clone();
         let loaded = client.get_payment(&inv);
@@ -4177,7 +4237,31 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
                 .persistent()
                 .has(&DataKey::PaymentV1(inv.clone()))
         });
+        assert!(
+            !has_v1,
+            "upgrade_storage cannot discover a pre-PaymentLog legacy record"
+        );
+        legacy_ids.push_back(inv);
+    }
+
+    // Explicit migration moves all three to PaymentV1 and removes the
+    // legacy keys.
+    let (migrated, already_current, not_found) =
+        client.migrate_legacy_payments(&admin, &legacy_ids);
+    assert_eq!((migrated, already_current, not_found), (3, 0, 0));
+    for i in 0..3u32 {
+        let inv = records.get(i).unwrap().invoice_id.clone();
+        let loaded = client.get_payment(&inv);
+        assert_eq!(loaded, records.get(i).unwrap());
+
+        let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+            (
+                env.storage().persistent().has(&DataKey::PaymentV1(inv.clone())),
+                env.storage().persistent().has(&DataKey::Payment(inv.clone())),
+            )
+        });
         assert!(has_v1, "payment must be migrated to V1 key");
+        assert!(!has_legacy, "legacy key must be removed after migration");
     }
 
     // 6. Record a new payment after upgrade — must succeed and use V1 key.
@@ -6399,4 +6483,285 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
     }
 
     assert_eq!(client.settlement_ref_index_status(), (3, 3, true));
+}
+
+// ─── migrate_legacy_payments (issue #508) ──────────────────────────────────
+
+/// Seed a raw legacy `Payment(invoice_id)` entry, bypassing `record_payment`
+/// entirely — this is what a genuinely pre-schema-versioning record looks
+/// like, with no corresponding `PaymentLog`/`PaymentCount` entry.
+fn seed_legacy_payment(env: &Env, client: &InvoicePaymentContractClient, invoice_id: &String) {
+    let payer = Address::generate(env);
+    let record = PaymentRecord {
+        invoice_id: invoice_id.clone(),
+        payer,
+        asset: Asset::Native,
+        amount: 1_000_000i128,
+        timestamp: 1u64,
+        settlement_ref: String::from_str(env, "legacy-seed"),
+    };
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::Payment(invoice_id.clone()), &record);
+    });
+}
+
+#[test]
+fn test_migrate_legacy_payments_reports_not_found_for_unknown_id() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let unknown = String::from_str(&env, "invoisio-never-existed");
+    let (migrated, already_current, not_found) =
+        client.migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, unknown]);
+    assert_eq!((migrated, already_current, not_found), (0, 0, 1));
+}
+
+#[test]
+fn test_migrate_legacy_payments_rejects_non_admin() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-legacy-auth");
+    seed_legacy_payment(&env, &client, &invoice_id);
+
+    env.mock_auths(&[soroban_sdk::testutils::MockAuth {
+        address: &attacker,
+        invoke: &soroban_sdk::testutils::MockAuthInvoke {
+            contract: &client.address,
+            fn_name: "migrate_legacy_payments",
+            args: (attacker.clone(), soroban_sdk::vec![&env, invoice_id.clone()]).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    let result = client.try_migrate_legacy_payments(&attacker, &soroban_sdk::vec![&env, invoice_id.clone()]);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+
+    // The legacy record must be untouched by the rejected attempt.
+    let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+        (
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(invoice_id.clone())),
+            env.storage()
+                .persistent()
+                .has(&DataKey::Payment(invoice_id.clone())),
+        )
+    });
+    assert!(!has_v1);
+    assert!(has_legacy);
+}
+
+#[test]
+fn test_migrate_legacy_payments_rejects_batch_over_max() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let mut ids: soroban_sdk::Vec<String> = soroban_sdk::vec![&env];
+    for i in 0..(storage::MAX_LEGACY_MIGRATION_BATCH + 1) {
+        ids.push_back(String::from_str(&env, &format!("invoisio-batch-{i:03}")));
+    }
+
+    let result = client.try_migrate_legacy_payments(&admin, &ids);
+    assert_eq!(
+        result,
+        Err(Ok(ContractError::LegacyPaymentMigrationBatchTooLarge))
+    );
+}
+
+#[test]
+fn test_migrate_legacy_payments_accepts_batch_at_max() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let mut ids: soroban_sdk::Vec<String> = soroban_sdk::vec![&env];
+    for i in 0..storage::MAX_LEGACY_MIGRATION_BATCH {
+        let id = String::from_str(&env, &format!("invoisio-batch-{i:03}"));
+        seed_legacy_payment(&env, &client, &id);
+        ids.push_back(id);
+    }
+
+    let (migrated, already_current, not_found) = client.migrate_legacy_payments(&admin, &ids);
+    assert_eq!(migrated, storage::MAX_LEGACY_MIGRATION_BATCH);
+    assert_eq!(already_current, 0);
+    assert_eq!(not_found, 0);
+}
+
+#[test]
+fn test_migrate_legacy_payments_handles_mixed_batch() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let to_migrate = String::from_str(&env, "invoisio-legacy-mixed-a");
+    seed_legacy_payment(&env, &client, &to_migrate);
+
+    // Already-current: record a real payment via the normal write path, so
+    // it's already under PaymentV1.
+    client.set_allow_native(&true);
+    let already_current_id = String::from_str(&env, "invoisio-legacy-mixed-b");
+    client.record_payment(
+        &already_current_id,
+        &Address::generate(&env),
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &5_000_000i128,
+        &String::from_str(&env, "settle-mixed-b"),
+    );
+
+    let unknown_id = String::from_str(&env, "invoisio-legacy-mixed-c");
+
+    let batch = soroban_sdk::vec![
+        &env,
+        to_migrate.clone(),
+        already_current_id.clone(),
+        unknown_id
+    ];
+    let (migrated, already_current, not_found) = client.migrate_legacy_payments(&admin, &batch);
+    assert_eq!(migrated, 1);
+    assert_eq!(already_current, 1);
+    assert_eq!(not_found, 1);
+
+    let (has_v1, has_legacy) = env.as_contract(&client.address, || {
+        (
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(to_migrate.clone())),
+            env.storage()
+                .persistent()
+                .has(&DataKey::Payment(to_migrate.clone())),
+        )
+    });
+    assert!(has_v1);
+    assert!(!has_legacy);
+}
+
+#[test]
+fn test_migrate_legacy_payments_before_init_returns_not_initialized() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, ());
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    let result = client.try_migrate_legacy_payments(
+        &admin,
+        &soroban_sdk::vec![&env, String::from_str(&env, "invoisio-x")],
+    );
+    assert_eq!(result, Err(Ok(ContractError::NotInitialized)));
+}
+
+#[test]
+fn test_migrate_legacy_payments_works_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "invoisio-legacy-paused-mig");
+    seed_legacy_payment(&env, &client, &invoice_id);
+
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    let result = client.try_migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, invoice_id]);
+    assert!(
+        result.is_ok(),
+        "migrate_legacy_payments must be exempt from the pause guard"
+    );
+}
+
+/// Regression for #508: exercising every permissionless read method must
+/// leave every counter and the legacy-record key layout exactly as it was.
+/// TTL extension is the only footprint effect any of these may have, and
+/// TTL has no observable value here, so an unchanged counter/key set is a
+/// direct proxy for "no data write happened".
+#[test]
+fn test_permissionless_reads_do_not_mutate_state() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    client.set_allow_native(&true);
+    client.allow_asset(
+        &String::from_str(&env, "USDC"),
+        &String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
+    );
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "invoisio-readonly-001");
+    let settlement_ref = String::from_str(&env, "settle-readonly-001");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &String::from_str(&env, "XLM"),
+        &String::from_str(&env, ""),
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // A legacy record too, so get_payment/has_payment exercise the fallback
+    // path specifically.
+    let legacy_id = String::from_str(&env, "invoisio-readonly-legacy");
+    seed_legacy_payment(&env, &client, &legacy_id);
+
+    let snapshot = || {
+        (
+            client.payment_count(),
+            client.settlement_ref_index_status(),
+            client.allowlist_count(),
+            client.history_index_status(),
+            env.as_contract(&client.address, || {
+                (
+                    env.storage()
+                        .persistent()
+                        .has(&DataKey::PaymentV1(legacy_id.clone())),
+                    env.storage()
+                        .persistent()
+                        .has(&DataKey::Payment(legacy_id.clone())),
+                )
+            }),
+        )
+    };
+
+    let before = snapshot();
+
+    // Exercise every permissionless read method.
+    let _ = client.get_payment(&invoice_id);
+    let _ = client.get_payment(&legacy_id);
+    let _ = client.has_payment(&invoice_id);
+    let _ = client.has_payment(&legacy_id);
+    let _ = client.payment_count();
+    let _ = client.payment_history(&0u32, &10u32);
+    let _ = client.payments_by_payer(&payer, &0u32, &10u32);
+    let _ = client.settlement_ref_owner(&settlement_ref);
+    let _ = client.settlement_ref_history(&0u32, &10u32);
+    let _ = client.settlement_ref_index_status();
+    let _ = client.allowed_assets(&0u32, &10u32);
+    let _ = client.allowlist_count();
+    let _ = client.contract_version();
+    let _ = client.version_info();
+    let _ = client.admin();
+    let _ = client.pending_admin();
+    let _ = client.config();
+    let _ = client.is_paused();
+    let _ = client.history_index_status();
+
+    let after = snapshot();
+    assert_eq!(
+        before, after,
+        "no permissionless read may change a counter or the legacy-key layout"
+    );
+
+    // The admin/write path is unaffected by this — confirm a fresh admin
+    // action still works normally afterward.
+    let result = client.try_migrate_legacy_payments(
+        &admin,
+        &soroban_sdk::vec![&env, legacy_id.clone()],
+    );
+    assert!(result.is_ok());
 }

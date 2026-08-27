@@ -246,6 +246,25 @@ pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
     payload.publish(env);
 }
 
+/// Emitted by `migrate_legacy_payments()` when at least one legacy
+/// `Payment(invoice_id)` entry was migrated to `PaymentV1` and its legacy
+/// copy removed. `migrated` counts entries actually migrated in this call —
+/// it excludes ids that were already current or not found (issue #508).
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegacyPaymentsMigrated {
+    pub migrated: u32,
+    pub migrated_at: u64,
+}
+
+pub fn emit_legacy_payments_migrated(env: &Env, migrated: u32) {
+    let payload = LegacyPaymentsMigrated {
+        migrated,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
+
 /// Event emitted by `upgrade()` when the contract admin swaps the deployed
 /// WASM in place via `env.deployer().update_current_contract_wasm(...)`.
 ///
