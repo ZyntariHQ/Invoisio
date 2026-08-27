@@ -98,10 +98,32 @@ describe("prismaExtensionCallback", () => {
     expect(query).toHaveBeenCalledWith({ where: { id: "wd-1" } });
   });
 
-  it("passes args through unchanged when no merchant is in scope", async () => {
+  it("logs an error when no merchant is in scope for a scoped model", async () => {
     const deps = buildDeps({
       merchantContext: {
         getMerchantId: jest.fn().mockReturnValue(undefined),
+      } as unknown as MerchantContextService,
+    });
+    const query = jest.fn().mockResolvedValue([]);
+
+    await prismaExtensionCallback(deps, {
+      model: "Invoice",
+      operation: "findMany",
+      args: { where: { status: "pending" } },
+      query,
+    });
+
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "[TenantScope] Invoice.findMany executed without a merchant context",
+    );
+    expect(query).toHaveBeenCalledWith({ where: { status: "pending" } });
+  });
+
+  it("passes args through unchanged when UNSCOPED_MERCHANT_CONTEXT is in scope", async () => {
+    const { UNSCOPED_MERCHANT_CONTEXT } = require("./merchant-context.service");
+    const deps = buildDeps({
+      merchantContext: {
+        getMerchantId: jest.fn().mockReturnValue(UNSCOPED_MERCHANT_CONTEXT),
       } as unknown as MerchantContextService,
     });
     const query = jest.fn().mockResolvedValue([]);
