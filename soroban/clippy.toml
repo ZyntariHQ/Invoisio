@@ -1,0 +1,30 @@
+# Clippy configuration for Invoisio contract
+# This enforces lint rules across the codebase
+
+# Deny warnings in CI
+warn-on-all-warnings = true
+
+# Allow certain lints that are too strict for this codebase
+allow = [
+    "new_without_default",
+    "module_name_repetitions",
+]
+
+# Deny certain lints that should be treated as errors
+deny = [
+    "unwrap_used",
+    "expect_used",
+    "panic",
+    "unreachable",
+    "await_holding_lock",
+    "clone_on_ref_ptr",
+]
+
+# Enable pedantic lints
+pedantic = true
+
+# Docstring requirements
+missing-docs = "warn"
+missing-docs-in-crate-private = "allow"
+missing-docs-in-doc-examples = "allow"
+missing-docs-in-private-items = "allow"

@@ -13,7 +13,8 @@ test: build
 
 fmt:
 	cargo fmt --all
-
+fmt-check:
+        cargo fmt -- --check
 clean:
 	cargo clean
 
@@ -56,17 +57,23 @@ invoke-initialize:
 # Usage: make invoke-record-payment CONTRACT_ID=<id> \
 #          INVOICE_ID=invoisio-abc123 PAYER=<G...> \
 #          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000
+# Record a sample invoice payment
+# Usage: make invoke-record-payment CONTRACT_ID=<id> \
+#          INVOICE_ID=invoisio-abc123 PAYER=<G...> \
+#          SETTLEMENT_REF=<ref> \
+#          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000
 invoke-record-payment:
-	stellar contract invoke \
-	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
-	  --network testnet \
-	  -- record_payment \
-	  --invoice_id   "$(INVOICE_ID)" \
-	  --payer        "$(PAYER)" \
-	  --asset_code   "$(ASSET_CODE)" \
-	  --asset_issuer "$(ASSET_ISSUER)" \
-	  --amount       $(AMOUNT)
+        stellar contract invoke \
+          --id $(CONTRACT_ID) \
+          --source invoisio-admin \
+          --network testnet \
+          -- record_payment \
+          --invoice_id     "$(INVOICE_ID)" \
+          --payer          "$(PAYER)" \
+          --settlement_ref "$(SETTLEMENT_REF)" \
+          --asset_code     "$(ASSET_CODE)" \
+          --asset_issuer   "$(ASSET_ISSUER)" \
+          --amount         $(AMOUNT)
 
 # Read back a recorded payment
 # Usage: make invoke-get-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123

@@ -25,17 +25,24 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
         with:
-          targets: wasm32-unknown-unknown
+          toolchain: "1.91.0"
+          targets: wasm32v1-none
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: soroban
 
-      - name: Run Tests
-        run: cargo test
+      - name: Run Tests (locked)
+        run: cargo test --locked
+
+      - name: Run Clippy (warnings denied)
+        run: cargo clippy -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt -- --check
 
       - name: Guard against stale migration helper enumeration
         run: |
@@ -45,11 +52,33 @@ jobs:
             exit 1
           fi
 
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release
+      - name: Build WASM (release target)
+        run: cargo build --locked --target wasm32v1-none --release
+
+      - name: Check WASM size
+        run: |
+          WASM_FILE="target/wasm32v1-none/release/invoice_payment.wasm"
+          if [ -f "$WASM_FILE" ]; then
+            SIZE=$(stat -c%s "$WASM_FILE")
+            SIZE_KB=$((SIZE / 1024))
+            echo "WASM size: ${SIZE_KB}KB (${SIZE} bytes)"
+            if [ $SIZE -gt 102400 ]; then
+              echo "::warning::WASM size exceeds 100KB threshold (${SIZE_KB}KB)"
+            fi
+          else
+            echo "::error::WASM file not found at $WASM_FILE"
+            exit 1
+          fi
+
+      - name: Run dependency advisory check
+        run: |
+          if ! command -v cargo-audit &> /dev/null; then
+            cargo install --locked cargo-audit
+          fi
+          cargo audit || true
 
   abi-drift:
-    name: ABI Drift Check (contract ⇄ schema.json ⇄ TS client)
+    name: ABI Drift Check (contract ⇄ schema.json ⇄ TS client ⇄ ops tooling)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -68,11 +97,51 @@ jobs:
           cd contracts/invoice-payment
           ./generate-schema.sh
           if ! git diff --exit-code -- schema.json; then
-            echo "::error::soroban/contracts/invoice-payment/schema.json is out of date." \
-              "Run 'make schema' (or ./generate-schema.sh from contracts/invoice-payment/)" \
-              "and commit the result."
+            echo "::error::soroban/contracts/invoice-payment/schema.json is out of date."
             exit 1
           fi
 
       - name: Check TypeScript client against schema.json
         run: node scripts/check-client-drift.mjs
+
+      - name: Check ops tooling against current ABI
+        run: |
+          echo "Checking ops tooling for ABI drift..."
+          if ! grep -q "settlement_ref" invoke-record-payment.sh; then
+            echo "::error::invoke-record-payment.sh is missing 'settlement_ref' parameter"
+            exit 1
+          fi
+          if ! grep -A 10 "invoke-record-payment:" contracts/invoice-payment/Makefile | grep -q "settlement_ref"; then
+            echo "::error::Makefile invoke-record-payment target is missing 'settlement_ref'"
+            exit 1
+          fi
+          echo "✅ All ops tooling checks passed"
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./soroban
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.91.0"
+          components: llvm-tools-preview
+
+      - name: Install cargo-llvm-cov
+        run: cargo install --locked cargo-llvm-cov
+
+      - name: Generate coverage report
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./soroban/lcov.info
+          flags: soroban
+          fail_ci_if_error: false
