@@ -21,7 +21,11 @@ import express from "express";
  * - Request body size limit (10MB)
  */
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app =
+    await NestFactory.create<
+      import("@nestjs/platform-express").NestExpressApplication
+    >(AppModule);
+  app.set("trust proxy", 1);
 
   // Get config service
   const configService = app.get(ConfigService);

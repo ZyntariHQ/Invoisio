@@ -9,7 +9,7 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
-import { Auth, CurrentUser } from "./guard/auth.guard";
+import { Auth, Public, CurrentUser } from "./guard/auth.guard";
 import { User } from "../users/user.entity";
 
 @Controller("auth")
@@ -20,6 +20,7 @@ export class AuthController {
    * POST /auth/nonce
    * Returns a unique nonce for the given Stellar public key.
    */
+  @Public()
   @Post("nonce")
   @Throttle({ default: { limit: 5, ttl: 900 } }) // 5 requests per 15 minutes
   @HttpCode(HttpStatus.OK)
@@ -31,6 +32,7 @@ export class AuthController {
    * POST /auth/verify
    * Verifies the signed nonce and issues a JWT.
    */
+  @Public()
   @Post("verify")
   @Throttle({ default: { limit: 5, ttl: 900 } }) // 5 requests per 15 minutes
   @HttpCode(HttpStatus.OK)
