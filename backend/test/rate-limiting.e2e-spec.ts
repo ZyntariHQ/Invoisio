@@ -1,5 +1,5 @@
+import { Keypair } from "@stellar/stellar-sdk";
 import { PrismaService } from "../src/prisma/prisma.service";
-import { AuthService } from "../src/auth/auth.service";
 import { InvoicesService } from "../src/invoices/invoices.service";
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
@@ -34,8 +34,7 @@ describe("Rate Limiting (e2e)", () => {
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
 
     process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
-    process.env.JWT_SECRET =
-      "e2e-test-secret-must-be-long-enough-32-chars-long";
+    process.env.JWT_SECRET = "e2e-test-secret-must-be-long-enough-32-chars-long";
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -45,28 +44,44 @@ describe("Rate Limiting (e2e)", () => {
     await app.init();
 
     const prisma = app.get(PrismaService);
-    jest.spyOn(prisma.user, "findUnique").mockImplementation(async (args) => ({
-      id: args?.where?.id || "e2e-test-user",
-      merchantId: "merchant-" + (args?.where?.id || "e2e-test-user"),
-      publicKey: "GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBZT2WSIGODNZV265U",
-      tokenVersion: 1,
-    }));
-
-    const auth = app.get(AuthService);
-    jest
-      .spyOn(auth, "verify")
-      .mockImplementation(async () => ({ accessToken: "mock-token" }));
-    jest.spyOn(auth, "generateNonce").mockImplementation(async () => ({
-      nonce: "mock-nonce",
-      expiresAt: new Date().toISOString(),
-    }));
+    
+    global.mockDb = global.mockDb || { users: {} };
+    
+    jest.spyOn(prisma.user, "findUnique").mockImplementation(async (args) => {
+      const key = args.where.publicKey || args.where.id;
+      return global.mockDb.users[key] || null;
+    });
+    
+    jest.spyOn(prisma.user, "create").mockImplementation(async (args) => {
+      const u = { ...args.data, id: "u-" + args.data.publicKey, tokenVersion: 1 };
+      global.mockDb.users[args.data.publicKey] = u;
+      global.mockDb.users[u.id] = u;
+      return u;
+    });
+    
+    jest.spyOn(prisma.user, "update").mockImplementation(async (args) => {
+      const key = args.where.publicKey || args.where.id;
+      const u = global.mockDb.users[key];
+      if (u) {
+        const oldNonce = u.nonce;
+        const oldNonceExpiresAt = u.nonceExpiresAt;
+        Object.assign(u, args.data);
+        if (args.data.nonce === null) { u.nonce = oldNonce; u.nonceExpiresAt = oldNonceExpiresAt; u.nonceUsedAt = null; }
+      }
+      return u;
+    });
+    
+    jest.spyOn(prisma.merchant, "upsert").mockImplementation(async () => ({}));
+    jest.spyOn(prisma.merchant, "create").mockImplementation(async () => ({}));
 
     const inv = app.get(InvoicesService);
     jest.spyOn(inv, "create").mockImplementation(async () => ({ id: "inv-1" }));
 
+
     // Generate a valid JWT for protected endpoints
     const jwtService = app.get(JwtService);
     jwtToken = jwtService.sign({ sub: "e2e-test-user", tokenVersion: 1 });
+    global.mockDb.users["e2e-test-user"] = { id: "e2e-test-user", merchantId: "m-1", tokenVersion: 1 };
   });
 
   afterEach(async () => {
@@ -74,8 +89,9 @@ describe("Rate Limiting (e2e)", () => {
   });
 
   describe("Auth endpoints rate limiting", () => {
-    const testPublicKey =
-      "GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBZT2WSIGODNZV265U";
+    const kp = Keypair.random();
+    const testPublicKey = kp.publicKey();
+    
 
     it("should allow first 5 requests to /auth/nonce", async () => {
       for (let i = 0; i < 5; i++) {
@@ -125,7 +141,7 @@ describe("Rate Limiting (e2e)", () => {
           .post("/auth/verify")
           .send({
             publicKey: testPublicKey,
-            signedNonce: "mock-signature",
+            signedNonce: kp.sign(Buffer.from(nonce, "utf-8")).toString("base64"),
             nonce: nonce,
           })
           .expect(200); // Will fail signature verification but shouldn't be rate limited
@@ -147,7 +163,7 @@ describe("Rate Limiting (e2e)", () => {
           .post("/auth/verify")
           .send({
             publicKey: testPublicKey,
-            signedNonce: "mock-signature",
+            signedNonce: kp.sign(Buffer.from(nonce, "utf-8")).toString("base64"),
             nonce: nonce,
           })
           .expect(200);
@@ -158,7 +174,7 @@ describe("Rate Limiting (e2e)", () => {
         .post("/auth/verify")
         .send({
           publicKey: testPublicKey,
-          signedNonce: "mock-signature",
+          signedNonce: kp.sign(Buffer.from(nonce, "utf-8")).toString("base64"),
           nonce: nonce,
         })
         .expect(429)
@@ -171,14 +187,7 @@ describe("Rate Limiting (e2e)", () => {
   });
 
   describe("Invoice creation rate limiting", () => {
-    const invoiceData = {
-      invoiceNumber: "INV-123",
-      clientName: "Test Client",
-      clientEmail: "test@example.com",
-      amount: 100,
-      asset_code: "XLM",
-      description: "Test invoice",
-    };
+    const invoiceData = { invoiceNumber: "INV-123", clientName: "Test Client", clientEmail: "test@example.com", amount: 100, asset_code: "XLM", description: "Test invoice" };
 
     it("should allow first 20 invoice creation requests", async () => {
       for (let i = 0; i < 20; i++) {
@@ -216,10 +225,8 @@ describe("Rate Limiting (e2e)", () => {
     it("should not rate limit different users", async () => {
       // Create JWT for a different user
       const jwtService = app.get(JwtService);
-      const differentJwtToken = jwtService.sign({
-        sub: "different-test-user",
-        tokenVersion: 1,
-      });
+      const differentJwtToken = jwtService.sign({ sub: "different-test-user", tokenVersion: 1 });
+      global.mockDb.users["different-test-user"] = { id: "different-test-user", merchantId: "m-2", tokenVersion: 1 };
 
       // Make 20 requests with first user
       for (let i = 0; i < 20; i++) {
@@ -247,9 +254,10 @@ describe("Rate Limiting (e2e)", () => {
   });
 
   describe("Rate limit headers", () => {
+    const kp2 = Keypair.random();
+    const testPublicKey = kp2.publicKey();
     it("should include proper headers in 429 responses", async () => {
-      const testPublicKey =
-        "GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBZT2WSIGODNZV265U";
+      
 
       // Make 5 requests to hit the limit
       for (let i = 0; i < 5; i++) {
