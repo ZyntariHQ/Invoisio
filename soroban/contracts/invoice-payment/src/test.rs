@@ -1945,7 +1945,7 @@ fn test_non_seven_decimal_asset_precision_round_trip() {
         &String::from_str(&env, "settle-six-decimals"),
     );
 
-    let record = client.get_payment(&invoice_id).unwrap();
+    let record = client.get_payment(&invoice_id);
     assert_eq!(record.amount, 1_234_567i128);
     assert_eq!(record.asset_decimals, 6);
 }

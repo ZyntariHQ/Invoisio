@@ -471,12 +471,12 @@ struct LegacyPaymentRecord {
 }
 
 fn read_payment_value(env: &Env, key: &DataKey) -> Option<PaymentRecord> {
-    if let Some(record) = env.storage().persistent().get::<PaymentRecord>(key) {
+    let current: Option<PaymentRecord> = env.storage().persistent().get(key);
+    if let Some(record) = current {
         return Some(record);
     }
-    env.storage()
-        .persistent()
-        .get::<LegacyPaymentRecord>(key)
+    let legacy: Option<LegacyPaymentRecord> = env.storage().persistent().get(key);
+    legacy
         .map(|legacy| PaymentRecord {
             invoice_id: legacy.invoice_id,
             payer: legacy.payer,

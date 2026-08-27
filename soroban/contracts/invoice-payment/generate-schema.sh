@@ -116,6 +116,7 @@ declare -A METHOD_AUTH=(
   [accept_admin]="proposed_admin"
   [cancel_admin_transfer]="admin"
   [allow_asset]="admin"
+  [allow_asset_with_decimals]="admin"
   [revoke_asset]="admin"
   [allowed_assets]="none"
   [allowlist_count]="none"
@@ -148,6 +149,7 @@ declare -A METHOD_DESC=(
   [accept_admin]="Step 2 of two-step handoff: accept the role and become admin."
   [cancel_admin_transfer]="Cancel a pending admin transfer proposed via propose_admin()."
   [allow_asset]="Add (code, issuer) to allowlist."
+  [allow_asset_with_decimals]="Add (code, issuer) to allowlist with recorded decimal precision."
   [revoke_asset]="Remove (code, issuer) from allowlist."
   [allowed_assets]="Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs."
   [allowlist_count]="Return the number of currently-allowlisted (code, issuer) pairs."
@@ -255,8 +257,14 @@ cat > "$OUT" <<JSON
         },
         "amount": {
           "type": "integer",
-          "description": "Payment amount in the asset's smallest unit (stroops for XLM; 7-decimal units for USDC). Must be > 0.",
+          "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals. Must be > 0.",
           "minimum": 1
+        },
+        "asset_decimals": {
+          "type": "integer",
+          "description": "Decimal places for the asset; 0 means legacy precision unknown.",
+          "minimum": 0,
+          "maximum": 18
         },
         "timestamp": {
           "type": "integer",
@@ -270,7 +278,7 @@ cat > "$OUT" <<JSON
           "maxLength": 128
         }
       },
-      "required": ["invoice_id", "payer", "asset", "amount", "timestamp", "settlement_ref"],
+      "required": ["invoice_id", "payer", "asset", "amount", "asset_decimals", "timestamp", "settlement_ref"],
       "additionalProperties": false
     },
     "ContractMeta": {
@@ -407,9 +415,15 @@ cat > "$OUT" <<JSON
         "issuer": {
           "type": "string",
           "description": "Issuer Stellar account address (G...)."
+        },
+        "decimals": {
+          "type": "integer",
+          "description": "Decimal places recorded for the asset.",
+          "minimum": 0,
+          "maximum": 18
         }
       },
-      "required": ["code", "issuer"],
+      "required": ["code", "issuer", "decimals"],
       "additionalProperties": false
     },
     "AllowlistPage": {
@@ -449,10 +463,11 @@ cat > "$OUT" <<JSON
         "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
         "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
         "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
-        "amount":       { "type": "integer", "description": "Payment amount in smallest denomination. Must be > 0.", "minimum": 1 },
+        "amount":       { "type": "integer", "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals.", "minimum": 1 },
+        "asset_decimals": { "type": "integer", "description": "Decimal places for the asset; 0 means legacy precision unknown.", "minimum": 0, "maximum": 18 },
         "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
       },
-      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "settlement_ref"]
+      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "asset_decimals", "settlement_ref"]
     },
     "AssetAllowlisted": {
       "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
