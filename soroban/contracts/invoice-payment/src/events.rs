@@ -3,26 +3,34 @@ use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 /// Schema version for the `invoice_payment_recorded` event payload.
 /// Bumped only when the payload shape changes in a breaking way so that
 /// off-chain indexers can detect and adapt to the event format.
-pub const EVENT_SCHEMA_VERSION: u32 = 1;
+///
+/// Bumped to 2 for issue #512: the payload shrank from the full
+/// `PaymentRecord` (payer, asset, amount, settlement_ref included) down to
+/// just `invoice_id`. A public event carrying the full record completely
+/// bypassed every read-method access-control decision in this contract —
+/// anyone streaming `getEvents` could reconstruct the whole payment ledger
+/// regardless of what the read methods allowed. The event now only signals
+/// *that* an invoice_id was recorded; a consumer who wants the full record
+/// must already know `invoice_id` and call `get_payment(invoice_id)`.
+pub const EVENT_SCHEMA_VERSION: u32 = 2;
 
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct InvoicePaymentRecorded {
     pub schema_version: u32,
     pub invoice_id: String,
-    pub payer: Address,
-    pub asset_code: String,
-    pub asset_issuer: String,
-    pub amount: i128,
-    pub settlement_ref: String,
 }
 
-/// Emit an `"invoice_payment_recorded"` Soroban event carrying the flattened
-/// `InvoicePaymentRecorded` as event data.
+/// Emit an `"invoice_payment_recorded"` Soroban event carrying only
+/// `schema_version` and `invoice_id` as event data (issue #512).
 ///
 /// Off-chain consumers can filter by this topic via the Soroban RPC
 /// [`getEvents`](https://developers.stellar.org/docs/data/rpc/api-reference/methods/getEvents)
-/// endpoint or the `stellar events` CLI.
+/// endpoint or the `stellar events` CLI, but this event alone does **not**
+/// reveal payer, asset, amount, or settlement reference — a consumer that
+/// needs those must already know `invoice_id` and call
+/// `get_payment(invoice_id)`, an unauthenticated read gated only on already
+/// possessing the identifier.
 ///
 /// ## Consuming events off-chain
 /// ```sh
@@ -33,23 +41,10 @@ pub struct InvoicePaymentRecorded {
 ///   --type contract \
 ///   --start-ledger 1
 /// ```
-pub fn emit_payment_recorded(
-    env: &Env,
-    invoice_id: String,
-    payer: Address,
-    asset_code: String,
-    asset_issuer: String,
-    amount: i128,
-    settlement_ref: String,
-) {
+pub fn emit_payment_recorded(env: &Env, invoice_id: String) {
     let payload = InvoicePaymentRecorded {
         schema_version: EVENT_SCHEMA_VERSION,
         invoice_id,
-        payer,
-        asset_code,
-        asset_issuer,
-        amount,
-        settlement_ref,
     };
 
     payload.publish(env);

@@ -122,63 +122,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -230,7 +173,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-amount"
+                      "string": "757acf56503a64ba1b4b981398766079292d62d6660d1470d95ca03fa54db6c0"
                     }
                   },
                   {
@@ -337,7 +280,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-amount"
+                      "string": "757acf56503a64ba1b4b981398766079292d62d6660d1470d95ca03fa54db6c0"
                     }
                   },
                   {
@@ -369,7 +312,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-max-amount"
+                    "string": "757acf56503a64ba1b4b981398766079292d62d6660d1470d95ca03fa54db6c0"
                   }
                 ]
               },
@@ -416,7 +359,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-max-amount"
+                      "string": "757acf56503a64ba1b4b981398766079292d62d6660d1470d95ca03fa54db6c0"
                     }
                   }
                 ]

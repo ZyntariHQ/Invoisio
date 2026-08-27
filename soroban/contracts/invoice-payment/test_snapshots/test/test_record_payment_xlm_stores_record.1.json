@@ -122,63 +122,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -230,7 +173,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-abc123"
+                      "string": "a32562cc848b2c6d23fce5331f5bb7b2b2deeb3ea26cb90520aca847ad4683c4"
                     }
                   },
                   {
@@ -337,7 +280,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-abc123"
+                      "string": "a32562cc848b2c6d23fce5331f5bb7b2b2deeb3ea26cb90520aca847ad4683c4"
                     }
                   },
                   {
@@ -369,7 +312,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-xlm-abc123"
+                    "string": "a32562cc848b2c6d23fce5331f5bb7b2b2deeb3ea26cb90520aca847ad4683c4"
                   }
                 ]
               },
@@ -416,7 +359,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-abc123"
+                      "string": "a32562cc848b2c6d23fce5331f5bb7b2b2deeb3ea26cb90520aca847ad4683c4"
                     }
                   }
                 ]

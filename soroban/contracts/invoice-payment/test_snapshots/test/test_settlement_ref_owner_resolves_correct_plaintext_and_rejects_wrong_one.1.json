@@ -7,7 +7,6 @@
   "auth": [
     [],
     [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -15,13 +14,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "allow_asset",
+              "function_name": "set_allow_native",
               "args": [
                 {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer"
+                  "bool": true
                 }
               ]
             }
@@ -40,22 +36,22 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "inv-1"
+                  "string": "invoisio-commitment-resolve"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "USDC"
+                  "string": "XLM"
                 },
                 {
-                  "string": "GBIssuer"
+                  "string": ""
                 },
                 {
-                  "i128": "100"
+                  "i128": "10000000"
                 },
                 {
-                  "string": "settle-al-2"
+                  "string": "settle-commitment-resolve"
                 }
               ]
             }
@@ -65,28 +61,6 @@
       ]
     ],
     [],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "revoke_asset",
-              "args": [
-                {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
     []
   ],
   "ledger": {
@@ -108,27 +82,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
+                  "nonce": "801925984706572462"
                 }
               },
               "durability": "temporary",
@@ -184,7 +138,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -194,13 +148,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBIssuer"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -210,7 +158,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-commitment-resolve"
                     }
                   },
                   {
@@ -226,7 +174,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "166700fe157b505e4571a46796191b833efebd5df8568e5371f2d0c59a7e6fa1"
                     }
                   },
                   {
@@ -264,7 +212,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-1"
+                "string": "invoisio-commitment-resolve"
               }
             }
           },
@@ -285,7 +233,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "inv-1"
+                    "string": "invoisio-commitment-resolve"
                   }
                 ]
               },
@@ -297,7 +245,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -307,13 +255,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBIssuer"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -323,7 +265,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-commitment-resolve"
                     }
                   },
                   {
@@ -339,7 +281,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "166700fe157b505e4571a46796191b833efebd5df8568e5371f2d0c59a7e6fa1"
                     }
                   },
                   {
@@ -371,13 +313,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                    "string": "166700fe157b505e4571a46796191b833efebd5df8568e5371f2d0c59a7e6fa1"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-1"
+                "string": "invoisio-commitment-resolve"
               }
             }
           },
@@ -410,7 +352,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-commitment-resolve"
                     }
                   },
                   {
@@ -418,7 +360,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "166700fe157b505e4571a46796191b833efebd5df8568e5371f2d0c59a7e6fa1"
                     }
                   }
                 ]
@@ -460,24 +402,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "AllowListCount"
+                            "symbol": "AllowNative"
                           }
                         ]
                       },
                       "val": {
-                        "u32": 0
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "AllowListLogCount"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 1
+                        "bool": true
                       }
                     },
                     {

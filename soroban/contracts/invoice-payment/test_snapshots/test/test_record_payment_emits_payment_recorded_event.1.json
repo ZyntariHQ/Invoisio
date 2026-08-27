@@ -121,63 +121,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -229,7 +172,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-event-test"
+                      "string": "08f40a621d49c7032d1705e6708e0bbf3599960d267cba4ccf8d729f5def327c"
                     }
                   },
                   {
@@ -336,7 +279,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-event-test"
+                      "string": "08f40a621d49c7032d1705e6708e0bbf3599960d267cba4ccf8d729f5def327c"
                     }
                   },
                   {
@@ -368,7 +311,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-event-test"
+                    "string": "08f40a621d49c7032d1705e6708e0bbf3599960d267cba4ccf8d729f5def327c"
                   }
                 ]
               },
@@ -415,7 +358,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-event-test"
+                      "string": "08f40a621d49c7032d1705e6708e0bbf3599960d267cba4ccf8d729f5def327c"
                     }
                   }
                 ]
@@ -572,30 +515,6 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": "10000000"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_code"
-                  },
-                  "val": {
-                    "string": "XLM"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_issuer"
-                  },
-                  "val": {
-                    "string": ""
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "invoice_id"
                   },
                   "val": {
@@ -604,26 +523,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "payer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 1
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "settlement_ref"
-                  },
-                  "val": {
-                    "string": "settle-event-test"
+                    "u32": 2
                   }
                 }
               ]

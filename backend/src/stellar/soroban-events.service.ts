@@ -7,6 +7,7 @@ import { URL } from "node:url";
 import { RequestContextService } from "../observability/request-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 import { traceAsync } from "../observability/tracing.util";
+import { SorobanInvoiceClient } from "@invoisio/soroban-client";
 
 type Json = Record<string, any>;
 
@@ -27,6 +28,15 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
   private cursor: string | undefined = undefined;
   private backoffMs = 1000;
   private cursorUpdatedAt: Date | null = null;
+  /**
+   * Lazily-built read-only client used to fetch full payment details for an
+   * event. As of issue #512 `InvoicePaymentRecorded` carries only
+   * `invoice_id` — payer/asset/amount are no longer in the public event
+   * payload, so this watcher must call `get_payment(invoice_id)` (an
+   * unauthenticated read, gated only on already knowing the id) to recover
+   * them for reconciliation.
+   */
+  private sorobanReadClient: SorobanInvoiceClient | null = null;
 
   constructor(
     private readonly config: ConfigService,
@@ -320,32 +330,31 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
+        const invoiceId = String(payload.invoice_id);
+        const ledger =
+          Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined;
+
         this.logger.info("soroban.event.received", {
           domain: "soroban",
           event: "payment_recorded",
           eventId,
-          invoiceId: String(payload.invoice_id),
-          ledger:
-            Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
+          invoiceId,
+          ledger,
         });
+
+        // As of issue #512 the event carries only invoice_id — fetch the
+        // full record via get_payment(invoice_id) for reconciliation.
+        const record = await this.fetchPaymentRecord(invoiceId);
 
         await this.invoices.applySorobanPaymentEvent({
           eventId,
           contractId: this.getContractId(),
-          ledger:
-            Number(ev?.ledger ?? ev?.inLedger ?? ev?.ledgers ?? 0) || undefined,
-          invoice_id: String(payload.invoice_id),
-          payer: payload.payer ? String(payload.payer) : undefined,
-          asset_code: payload.asset_code
-            ? String(payload.asset_code)
-            : undefined,
-          asset_issuer: payload.asset_issuer
-            ? String(payload.asset_issuer)
-            : undefined,
-          amount:
-            payload.amount !== undefined
-              ? (payload.amount as any).toString()
-              : undefined,
+          ledger,
+          invoice_id: invoiceId,
+          payer: record?.payer,
+          asset_code: record?.asset_code,
+          asset_issuer: record?.asset_issuer,
+          amount: record?.amount,
         });
       },
     );
@@ -353,10 +362,6 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
 
   private coercePaymentRecorded(obj: any): {
     invoice_id?: string;
-    payer?: string;
-    asset_code?: string;
-    asset_issuer?: string;
-    amount?: string | number;
   } | null {
     if (!obj || typeof obj !== "object") return null;
     if ("invoice_id" in obj) return obj;
@@ -379,6 +384,64 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
       return out as any;
     }
     return null;
+  }
+
+  /**
+   * Fetch the full payment record for `invoiceId` via `get_payment` —
+   * unauthenticated, gated only on already knowing the invoice_id, exactly
+   * the "know the ID, verify it" property the minimized event (issue #512)
+   * relies on. Returns `undefined` fields (not a thrown error swallowed
+   * silently) only when Soroban reads aren't configured at all; a genuine
+   * RPC failure propagates so the retry/dead-letter path in
+   * `handleEventWithRetry` can do its job instead of silently reconciling
+   * with missing payer/asset/amount data.
+   */
+  private async fetchPaymentRecord(invoiceId: string): Promise<
+    | {
+        payer?: string;
+        asset_code?: string;
+        asset_issuer?: string;
+        amount?: string;
+      }
+    | undefined
+  > {
+    const client = this.getSorobanReadClient();
+    if (!client) {
+      return undefined;
+    }
+
+    const record = await client.getPayment(invoiceId);
+    const assetCode =
+      record.asset.type === "native" ? "XLM" : record.asset.code;
+    const assetIssuer =
+      record.asset.type === "native" ? "" : record.asset.issuer;
+    return {
+      payer: record.payer,
+      asset_code: assetCode,
+      asset_issuer: assetIssuer,
+      amount: record.amount.toString(),
+    };
+  }
+
+  private getSorobanReadClient(): SorobanInvoiceClient | null {
+    if (this.sorobanReadClient) {
+      return this.sorobanReadClient;
+    }
+    const conf = this.config.get("stellar");
+    const rpcUrl = this.getRpcUrl();
+    const contractId = this.getContractId();
+    const sourcePublicKey: string | undefined = conf?.merchantPublicKey;
+    const networkPassphrase: string | undefined = conf?.networkPassphrase;
+    if (!rpcUrl || !contractId || !sourcePublicKey || !networkPassphrase) {
+      return null;
+    }
+    this.sorobanReadClient = new SorobanInvoiceClient({
+      rpcUrl,
+      contractId,
+      networkPassphrase,
+      sourcePublicKey,
+    });
+    return this.sorobanReadClient;
   }
 
   private async fetchEvents(): Promise<Json> {

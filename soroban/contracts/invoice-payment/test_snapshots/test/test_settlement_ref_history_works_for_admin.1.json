@@ -7,7 +7,6 @@
   "auth": [
     [],
     [],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -15,13 +14,10 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "allow_asset",
+              "function_name": "set_allow_native",
               "args": [
                 {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer"
+                  "bool": true
                 }
               ]
             }
@@ -40,22 +36,22 @@
               "function_name": "record_payment",
               "args": [
                 {
-                  "string": "inv-1"
+                  "string": "invoisio-gated-refhist"
                 },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "USDC"
+                  "string": "XLM"
                 },
                 {
-                  "string": "GBIssuer"
+                  "string": ""
                 },
                 {
-                  "i128": "100"
+                  "i128": "10000000"
                 },
                 {
-                  "string": "settle-al-2"
+                  "string": "settle-xlm-default-invoisio-gated-refhist"
                 }
               ]
             }
@@ -64,7 +60,6 @@
         }
       ]
     ],
-    [],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -72,13 +67,16 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "revoke_asset",
+              "function_name": "settlement_ref_history",
               "args": [
                 {
-                  "string": "USDC"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
                 },
                 {
-                  "string": "GBIssuer"
+                  "u32": 0
+                },
+                {
+                  "u32": 10
                 }
               ]
             }
@@ -86,8 +84,7 @@
           "sub_invocations": []
         }
       ]
-    ],
-    []
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -108,7 +105,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "1033654523790656264"
+                  "nonce": "801925984706572462"
                 }
               },
               "durability": "temporary",
@@ -128,7 +125,7 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
+                  "nonce": "1033654523790656264"
                 }
               },
               "durability": "temporary",
@@ -184,7 +181,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -194,13 +191,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBIssuer"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -210,7 +201,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-gated-refhist"
                     }
                   },
                   {
@@ -226,7 +217,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "6db19a295a1cc4c9eb7885678b98628130376f40f6518ace2fef7396ba9b9d09"
                     }
                   },
                   {
@@ -264,7 +255,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-1"
+                "string": "invoisio-gated-refhist"
               }
             }
           },
@@ -285,7 +276,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "inv-1"
+                    "string": "invoisio-gated-refhist"
                   }
                 ]
               },
@@ -297,7 +288,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "100"
+                      "i128": "10000000"
                     }
                   },
                   {
@@ -307,13 +298,7 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Token"
-                        },
-                        {
-                          "string": "USDC"
-                        },
-                        {
-                          "string": "GBIssuer"
+                          "symbol": "Native"
                         }
                       ]
                     }
@@ -323,7 +308,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-gated-refhist"
                     }
                   },
                   {
@@ -339,7 +324,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "6db19a295a1cc4c9eb7885678b98628130376f40f6518ace2fef7396ba9b9d09"
                     }
                   },
                   {
@@ -371,13 +356,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                    "string": "6db19a295a1cc4c9eb7885678b98628130376f40f6518ace2fef7396ba9b9d09"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-1"
+                "string": "invoisio-gated-refhist"
               }
             }
           },
@@ -410,7 +395,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "inv-1"
+                      "string": "invoisio-gated-refhist"
                     }
                   },
                   {
@@ -418,7 +403,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
+                      "string": "6db19a295a1cc4c9eb7885678b98628130376f40f6518ace2fef7396ba9b9d09"
                     }
                   }
                 ]
@@ -460,24 +445,12 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "AllowListCount"
+                            "symbol": "AllowNative"
                           }
                         ]
                       },
                       "val": {
-                        "u32": 0
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "AllowListLogCount"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "u32": 1
+                        "bool": true
                       }
                     },
                     {

@@ -108,8 +108,15 @@ pub const STORAGE_SCHEMA_VERSION: u32 = 4;
 /// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
 pub const STORAGE_SCHEMA_V1: u32 = 1;
 
-/// Schema version that introduced the per-payer payment index
-/// (`PayerPaymentCount` / `PayerPaymentIdx`). See issue #445.
+/// Schema version that originally introduced the per-payer payment index
+/// (`PayerPaymentCount` / `PayerPaymentIdx`, issue #445). That index and the
+/// `payments_by_payer` read method it backed were removed entirely (issue
+/// #512) — a permissionless enumerable per-payer payment history was the
+/// sharpest privacy disclosure the contract made. The V2 schema number is
+/// kept as-is (never renumbered) purely so the V1→V2→V3→V4 upgrade chain
+/// stays intact for already-deployed contracts; `migrate_schema_v1_to_v2`
+/// no longer builds a payer index, just repairs the shared history index if
+/// needed.
 pub const STORAGE_SCHEMA_V2: u32 = 2;
 
 /// Schema version that changed what `DataKey::SettlementRef(ref)` stores:
@@ -224,24 +231,6 @@ pub fn is_canonical_identifier(value: &String) -> bool {
         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
 }
 
-/// Hard cap on the number of history-index slots a single `payments_by_payer`
-/// invocation may examine, regardless of how few records match the payer.
-///
-/// `payments_by_payer` filters by payer while scanning the shared history
-/// index, so its work per call is bounded by slots *examined*, not records
-/// returned. Without this cap a payer with no matching records forces a full
-/// scan of the entire index in one invocation — which reliably exhausts the
-/// ledger CPU/read budget as history grows and starts failing for everyone
-/// (issue #445).
-///
-/// The value is bounded by Soroban's per-invocation footprint limit of 100
-/// distinct ledger entries: every examined slot is one persistent entry read,
-/// so the cap must leave headroom for the instance, config, and count keys.
-/// 80 examined slots keeps the worst-case invocation comfortably inside that
-/// limit; callers page through larger sparse result sets using the returned
-/// `next_cursor` / `has_more`.
-pub const MAX_PAYER_SCAN_SLOTS: u32 = 80;
-
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContractMeta {
@@ -324,16 +313,6 @@ pub enum DataKey {
     /// records stay enumerable during index rebuilds even if the history
     /// index itself is corrupted or cleared.
     PaymentLog(u32),
-    /// Number of payments recorded for a payer (per-payer index size), in
-    /// **persistent** storage. Presence of this key marks the payer's
-    /// per-payer index as built; absence means `payments_by_payer` must fall
-    /// back to the bounded history scan. Introduced by schema V2 (#445).
-    PayerPaymentCount(Address),
-    /// Per-payer payment index: maps `(payer, ordinal)` to the slot in the
-    /// shared `PaymentHistory` index holding that payer's Nth recorded
-    /// payment, in **persistent** storage. Written by `record_payment()` and
-    /// backfilled by the schema V2 migration / `rebuild_payment_history_index`.
-    PayerPaymentIdx(Address, u32),
     /// Allowlist entry for a token in **persistent** storage.
     /// Key: AllowList(asset_code, issuer)
     AllowList(String, String),
@@ -434,18 +413,26 @@ pub struct PaymentRecord {
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
 
-    /// Normalised settlement reference for backend deduplication and auditing.
+    /// A SHA-256 **commitment** of the settlement reference the backend
+    /// supplied to `record_payment`, not the plaintext reference itself
+    /// (issue #512).
     ///
-    /// A deterministic hash or reference ID (e.g. a SHA-256 hex string or a
-    /// kebab-case reconciliation identifier) that the backend uses for
-    /// idempotent settlement reconciliation. Stored on-chain so any observer
-    /// can verify the settlement reference associated with a payment.
+    /// `record_payment` still validates the plaintext it receives (non-empty,
+    /// at most [`MAX_SETTLEMENT_REF_LEN`] characters, canonical form — see
+    /// [`is_canonical_identifier`]) before hashing it via
+    /// [`commit_settlement_ref`]; only the resulting 64-hex-char digest is
+    /// stored here. This keeps the on-chain record from linking straight to
+    /// the payer's full Horizon transaction history through a block
+    /// explorer, while the backend — which already holds the plaintext it
+    /// generated — can still deduplicate or verify by hashing its own copy
+    /// and comparing, or by calling [`crate::InvoicePaymentContract::settlement_ref_owner`]
+    /// with the plaintext directly. The raw reference is **not** recoverable
+    /// from what's stored on-chain.
     ///
-    /// `record_payment` enforces the "normalised" claim: canonical form is
-    /// ASCII lowercase letters, digits, and hyphens only, at most
-    /// [`MAX_SETTLEMENT_REF_LEN`] characters — see
-    /// [`is_canonical_identifier`]. Records written before this validation
-    /// existed may not conform; they remain readable as-is.
+    /// Records written before this change stored the plaintext value
+    /// directly; that data is already public and permanently so — see the
+    /// "Disclosure guarantee" / permanence notes in the module docs and
+    /// `soroban/contracts/invoice-payment/README.md`.
     pub settlement_ref: String,
 }
 
@@ -473,6 +460,9 @@ pub struct PaymentHistoryPage {
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettlementRefEntry {
+    /// The SHA-256 commitment of the plaintext settlement reference — see
+    /// [`commit_settlement_ref`] and `PaymentRecord::settlement_ref`. Never
+    /// the plaintext itself.
     pub settlement_ref: String,
     pub invoice_id: String,
 }
@@ -897,180 +887,6 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
             Some(record) => {
                 records.push_back(record);
                 collected += 1;
-            }
-            None => gaps_skipped += 1,
-        }
-        index += 1;
-    }
-
-    PaymentHistoryPage {
-        records,
-        next_cursor: index,
-        has_more: index < total,
-        gaps_skipped,
-    }
-}
-
-// ─── Per-Payer Index Helpers ────────────────────────────────────────────────
-
-/// Return the number of payments indexed for `payer`, or `None` when the
-/// per-payer index has not been built for this payer (legacy data that has
-/// not yet gone through the schema V2 migration / rebuild). Bumps TTL.
-pub fn get_payer_payment_count(env: &Env, payer: &Address) -> Option<u32> {
-    let key = DataKey::PayerPaymentCount(payer.clone());
-    let count: Option<u32> = env.storage().persistent().get(&key);
-    if count.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
-    }
-    count
-}
-
-/// Append a `(payer → history_index)` mapping to the per-payer index and
-/// bump the payer's entry count. Called by `record_payment()` on every new
-/// payment and by the rebuild/migration paths when backfilling legacy data.
-pub fn append_payer_entry(env: &Env, payer: &Address, history_index: u32) {
-    let count_key = DataKey::PayerPaymentCount(payer.clone());
-    let ordinal: u32 = env.storage().persistent().get(&count_key).unwrap_or(0u32);
-
-    let idx_key = DataKey::PayerPaymentIdx(payer.clone(), ordinal);
-    env.storage().persistent().set(&idx_key, &history_index);
-    env.storage()
-        .persistent()
-        .extend_ttl(&idx_key, MIN_TTL, BUMP_TTL);
-
-    env.storage()
-        .persistent()
-        .set(&count_key, &(ordinal + 1u32));
-    env.storage()
-        .persistent()
-        .extend_ttl(&count_key, MIN_TTL, BUMP_TTL);
-}
-
-/// Look up the history-index slot holding `payer`'s `ordinal`-th payment.
-/// Returns `None` when the slot is missing (corrupted/partially-rebuilt
-/// per-payer index); callers treat that as a gap exactly like
-/// `payment_history` treats holes in the shared index.
-fn get_payer_entry(env: &Env, payer: &Address, ordinal: u32) -> Option<u32> {
-    let key = DataKey::PayerPaymentIdx(payer.clone(), ordinal);
-    let entry: Option<u32> = env.storage().persistent().get(&key);
-    if entry.is_some() {
-        env.storage()
-            .persistent()
-            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
-    }
-    entry
-}
-
-/// Remove every per-payer index entry for all payers by clearing the entries
-/// recorded during a full rebuild. Only used internally by the rebuild path,
-/// which walks the freshly collected record set to know which payers own
-/// which ordinals — see `migration::write_history_index`.
-pub(crate) fn clear_payer_indexes(env: &Env, owners: &[Address]) {
-    for owner in owners {
-        let count = get_payer_payment_count(env, owner).unwrap_or(0u32);
-        for ordinal in 0..count {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentIdx(owner.clone(), ordinal));
-        }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PayerPaymentCount(owner.clone()));
-    }
-}
-
-/// Read a bounded page of payments made by `payer` via the **per-payer
-/// index** (direct reads, O(limit) storage access).
-///
-/// `cursor` is an ordinal into the payer's payment list (pass `0` first).
-/// A missing backing history slot is counted in `gaps_skipped` and skipped,
-/// mirroring the gap semantics of `payment_history`.
-///
-/// Extends instance TTL for counts and persistent TTL for records/index.
-pub fn get_payer_history_page(
-    env: &Env,
-    payer: &Address,
-    cursor: u32,
-    limit: u32,
-) -> PaymentHistoryPage {
-    let payer_total = get_payer_payment_count(env, payer).unwrap_or(0u32);
-    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
-    let start = core::cmp::min(cursor, payer_total);
-
-    let mut records: Vec<PaymentRecord> = Vec::new(env);
-    let mut ordinal = start;
-    let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
-
-    while ordinal < payer_total && collected < capped_limit {
-        match get_payer_entry(env, payer, ordinal)
-            .and_then(|history_slot| get_history_record(env, history_slot))
-        {
-            Some(record) => {
-                // Defensive: skip records whose stored payer no longer
-                // matches (should be impossible — the index is keyed by the
-                // payer written into the record itself).
-                if record.payer == *payer {
-                    records.push_back(record);
-                    collected += 1;
-                } else {
-                    gaps_skipped += 1;
-                }
-            }
-            None => gaps_skipped += 1,
-        }
-        ordinal += 1;
-    }
-
-    PaymentHistoryPage {
-        records,
-        next_cursor: ordinal,
-        has_more: ordinal < payer_total,
-        gaps_skipped,
-    }
-}
-
-/// Read a bounded page of payments made by `payer` by scanning the shared
-/// history index with the filter applied.
-///
-/// Unlike [`get_payment_history_page`], where every examined slot either
-/// yields a record or is a gap, filtering breaks that bound: slots belonging
-/// to *other* payers are consumed without contributing to `collected`. The
-/// scan is therefore capped at [`MAX_PAYER_SCAN_SLOTS`] slots **examined**
-/// per invocation, independent of how many records match — a payer with no
-/// matching records returns an empty page promptly instead of scanning the
-/// whole index (issue #445).
-///
-/// `cursor` is a shared-history-index slot; `next_cursor` reports where the
-/// scan actually stopped, so an empty page with `has_more == true` is
-/// expected on sparse result sets and callers must continue paging until
-/// `has_more == false`. Gaps are skipped exactly like `payment_history`.
-pub fn get_payments_by_payer_page(
-    env: &Env,
-    payer: &Address,
-    cursor: u32,
-    limit: u32,
-) -> PaymentHistoryPage {
-    let total = get_history_count(env);
-    let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
-    let start = core::cmp::min(cursor, total);
-
-    let mut records: Vec<PaymentRecord> = Vec::new(env);
-    let mut index = start;
-    let mut collected: u32 = 0;
-    let mut gaps_skipped: u32 = 0;
-    let mut scanned: u32 = 0;
-
-    while index < total && collected < capped_limit && scanned < MAX_PAYER_SCAN_SLOTS {
-        scanned += 1;
-        match get_history_record(env, index) {
-            Some(record) => {
-                if record.payer == *payer {
-                    records.push_back(record);
-                    collected += 1;
-                }
             }
             None => gaps_skipped += 1,
         }
@@ -1528,10 +1344,44 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
 // `migrate_schema_v2_to_v3` backfill below — so the correction itself is
 // auditable rather than silent.
 
+/// Compute the SHA-256 **commitment** of `ref_str`'s UTF-8 bytes, returned as
+/// a lowercase hex-encoded [`String`] (64 characters).
+///
+/// This is what's actually stored/compared for a settlement reference
+/// (issue #512) — never the plaintext — so an observer who does not already
+/// possess the plaintext reference (e.g. a Horizon transaction hash) cannot
+/// recover it from on-chain data and correlate a payment record to the
+/// payer's full Stellar transaction history via a block explorer. A caller
+/// that already holds the plaintext (the backend that generated it) can
+/// still deduplicate/verify by hashing its own copy the same way, or by
+/// calling `settlement_ref_owner` with the plaintext directly.
+///
+/// Uses a heap-allocated buffer sized to `ref_str`'s actual length (not a
+/// fixed stack buffer) since this is also reachable from
+/// `settlement_ref_owner`, which — unlike `record_payment` — does not bound
+/// its input to [`MAX_SETTLEMENT_REF_LEN`] before hashing.
+pub fn commit_settlement_ref(env: &Env, ref_str: &String) -> String {
+    let len = ref_str.len() as usize;
+    let mut buf: alloc::vec::Vec<u8> = alloc::vec![0u8; len];
+    ref_str.copy_into_slice(&mut buf[..]);
+    let bytes = soroban_sdk::Bytes::from_slice(env, &buf);
+    let digest = env.crypto().sha256(&bytes).to_array();
+
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut hex_buf = [0u8; 64];
+    for (i, byte) in digest.iter().enumerate() {
+        hex_buf[i * 2] = HEX[(byte >> 4) as usize];
+        hex_buf[i * 2 + 1] = HEX[(byte & 0x0f) as usize];
+    }
+    let hex_str = core::str::from_utf8(&hex_buf).expect("hex digits are valid utf8");
+    String::from_str(env, hex_str)
+}
+
 /// Key for the settlement-reference → invoice_id mapping in persistent
-/// storage.
-fn settlement_ref_key(ref_str: &String) -> DataKey {
-    DataKey::SettlementRef(ref_str.clone())
+/// storage. `ref_str` is the **plaintext** the caller already possesses;
+/// this hashes it to the commitment that is actually used as the key.
+fn settlement_ref_key(env: &Env, ref_str: &String) -> DataKey {
+    DataKey::SettlementRef(commit_settlement_ref(env, ref_str))
 }
 
 fn settlement_ref_log_key(index: u32) -> DataKey {
@@ -1539,9 +1389,11 @@ fn settlement_ref_log_key(index: u32) -> DataKey {
 }
 
 /// Returns `true` if a settlement reference has already been recorded.
-/// Extends persistent storage TTL if the entry exists.
+/// `ref_str` is the plaintext; it is hashed internally to the commitment
+/// used as the storage key. Extends persistent storage TTL if the entry
+/// exists.
 pub fn is_settlement_ref_used(env: &Env, ref_str: &String) -> bool {
-    let key = settlement_ref_key(ref_str);
+    let key = settlement_ref_key(env, ref_str);
     let used = env.storage().persistent().has(&key);
     if used {
         env.storage()
@@ -1552,14 +1404,16 @@ pub fn is_settlement_ref_used(env: &Env, ref_str: &String) -> bool {
 }
 
 /// Resolve a settlement reference to the invoice_id that consumed it.
-/// Extends persistent storage TTL if the entry exists.
+/// `ref_str` is the plaintext; it is hashed internally to the commitment
+/// used as the storage key. Extends persistent storage TTL if the entry
+/// exists.
 ///
 /// Returns `None` when the reference has never been recorded — a plain,
 /// unambiguous "not found" result rather than an error, since an unused
 /// reference is a normal, expected outcome for this read (see
 /// `InvoicePaymentContract::settlement_ref_owner` in `lib.rs`).
 pub fn get_settlement_ref_owner(env: &Env, ref_str: &String) -> Option<String> {
-    let key = settlement_ref_key(ref_str);
+    let key = settlement_ref_key(env, ref_str);
     let owner: Option<String> = env.storage().persistent().get(&key);
     if owner.is_some() {
         env.storage()
@@ -1570,7 +1424,10 @@ pub fn get_settlement_ref_owner(env: &Env, ref_str: &String) -> Option<String> {
 }
 
 /// Record `ref_str` as used by `invoice_id`: write the owner mapping, extend
-/// its TTL, and append it to the write-order enumeration log.
+/// its TTL, and append it to the write-order enumeration log. `ref_str` is
+/// the plaintext; it is hashed internally (see [`commit_settlement_ref`]) and
+/// the **commitment**, not the plaintext, is what's actually stored — both as
+/// the primary key and as the enumeration log entry's `settlement_ref` field.
 ///
 /// # Unconditional overwrite — check before calling
 /// This function does **not** check for an existing entry and does **not**
@@ -1584,22 +1441,25 @@ pub fn get_settlement_ref_owner(env: &Env, ref_str: &String) -> Option<String> {
 /// safe to intentionally overwrite (see `migrate_schema_v2_to_v3`'s
 /// value-shape backfill for an example).
 pub fn record_settlement_ref(env: &Env, ref_str: &String, invoice_id: &String) {
-    let key = settlement_ref_key(ref_str);
+    let commitment = commit_settlement_ref(env, ref_str);
+    let key = DataKey::SettlementRef(commitment.clone());
     env.storage().persistent().set(&key, invoice_id);
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 
-    append_settlement_ref_log(env, ref_str, invoice_id);
+    append_settlement_ref_log(env, &commitment, invoice_id);
     bump_settlement_ref_count(env);
 }
 
 /// Append a settlement-reference entry to the write-order enumeration log.
-fn append_settlement_ref_log(env: &Env, ref_str: &String, invoice_id: &String) {
+/// `commitment` is already the hashed value — callers pass the same
+/// commitment used as the primary key, never the plaintext.
+fn append_settlement_ref_log(env: &Env, commitment: &String, invoice_id: &String) {
     let index = get_settlement_ref_count(env);
     let key = settlement_ref_log_key(index);
     let entry = SettlementRefEntry {
-        settlement_ref: ref_str.clone(),
+        settlement_ref: commitment.clone(),
         invoice_id: invoice_id.clone(),
     };
     env.storage().persistent().set(&key, &entry);
