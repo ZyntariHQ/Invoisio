@@ -5,13 +5,15 @@ use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 /// off-chain indexers can detect and adapt to the event format.
 ///
 /// Bumped to 2 for issue #512: the payload shrank from the full
-/// `PaymentRecord` (payer, asset, amount, settlement_ref included) down to
-/// just `invoice_id`. A public event carrying the full record completely
-/// bypassed every read-method access-control decision in this contract —
-/// anyone streaming `getEvents` could reconstruct the whole payment ledger
-/// regardless of what the read methods allowed. The event now only signals
-/// *that* an invoice_id was recorded; a consumer who wants the full record
-/// must already know `invoice_id` and call `get_payment(invoice_id)`.
+/// `PaymentRecord` (payer, asset, amount, asset_decimals, settlement_ref
+/// included) down to just `invoice_id`. A public event carrying the full
+/// record completely bypassed every read-method access-control decision in
+/// this contract — anyone streaming `getEvents` could reconstruct the whole
+/// payment ledger regardless of what the read methods allowed. The event now
+/// only signals *that* an invoice_id was recorded; a consumer who wants the
+/// full record (including `asset_decimals`, added independently for asset
+/// precision — see `PaymentRecord::asset_decimals`) must already know
+/// `invoice_id` and call `get_payment(invoice_id)`.
 pub const EVENT_SCHEMA_VERSION: u32 = 2;
 
 #[contractevent]

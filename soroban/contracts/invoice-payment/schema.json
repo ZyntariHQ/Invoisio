@@ -3,7 +3,7 @@
   "title": "Invoisio Invoice Payment Contract Schema",
   "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
   "contract_version": "1.0.0",
-  "storage_schema_version": 4,
+  "storage_schema_version": 5,
   "types": {
     "Asset": {
       "description": "Asset type: native XLM or a Stellar-issued token.",
@@ -50,8 +50,14 @@
         },
         "amount": {
           "type": "integer",
-          "description": "Payment amount in the asset's smallest unit (stroops for XLM; 7-decimal units for USDC). Must be > 0.",
+          "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals. Must be > 0.",
           "minimum": 1
+        },
+        "asset_decimals": {
+          "type": "integer",
+          "description": "Decimal places for the asset; 0 means legacy precision unknown.",
+          "minimum": 0,
+          "maximum": 18
         },
         "timestamp": {
           "type": "integer",
@@ -63,7 +69,7 @@
           "description": "SHA-256 commitment (64-char lowercase hex) of the settlement reference passed to record_payment() — not the plaintext value itself (issue #512). A caller that already holds the plaintext can dedupe/verify by hashing its own copy the same way, or by calling settlement_ref_owner() with the plaintext directly."
         }
       },
-      "required": ["invoice_id", "payer", "asset", "amount", "timestamp", "settlement_ref"],
+      "required": ["invoice_id", "payer", "asset", "amount", "asset_decimals", "timestamp", "settlement_ref"],
       "additionalProperties": false
     },
     "ContractMeta": {
@@ -200,9 +206,15 @@
         "issuer": {
           "type": "string",
           "description": "Issuer Stellar account address (G...)."
+        },
+        "decimals": {
+          "type": "integer",
+          "description": "Decimal places recorded for the asset.",
+          "minimum": 0,
+          "maximum": 18
         }
       },
-      "required": ["code", "issuer"],
+      "required": ["code", "issuer", "decimals"],
       "additionalProperties": false
     },
     "AllowlistPage": {
@@ -407,6 +419,7 @@
     "accept_admin": { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
     "cancel_admin_transfer": { "auth": "admin", "description": "Cancel a pending admin transfer proposed via propose_admin()." },
     "allow_asset": { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
+    "allow_asset_with_decimals": { "auth": "admin", "description": "Add (code, issuer) to allowlist with recorded decimal precision." },
     "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
     "allowed_assets": { "auth": "none", "description": "Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs." },
     "allowlist_count": { "auth": "none", "description": "Return the number of currently-allowlisted (code, issuer) pairs." },

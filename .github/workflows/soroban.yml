@@ -37,6 +37,14 @@ jobs:
       - name: Run Tests
         run: cargo test
 
+      - name: Guard against stale migration helper enumeration
+        run: |
+          if [ -e contracts/invoice-payment/src/migration_helpers.rs ] || \
+             grep -R "migration_helpers" -n contracts/invoice-payment/src; then
+            echo "::error::Remove stale migration_helpers module; payment enumeration must use migration.rs PaymentLog/get_payment path."
+            exit 1
+          fi
+
       - name: Build WASM
         run: cargo build --target wasm32-unknown-unknown --release
 

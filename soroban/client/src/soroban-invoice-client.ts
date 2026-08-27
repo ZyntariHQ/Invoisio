@@ -283,7 +283,11 @@ export class SorobanInvoiceClient {
    * @throws {SorobanContractError} on contract-level rejection
    *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
    */
-  async allowAsset(code: string, issuer: string): Promise<TransactionResult> {
+  async allowAsset(
+    code: string,
+    issuer: string,
+    paramsDecimals?: number,
+  ): Promise<TransactionResult> {
     this.requireSigner();
     const account = await this.server.getAccount(this.keypair!.publicKey());
 
@@ -292,7 +296,12 @@ export class SorobanInvoiceClient {
       networkPassphrase: this.config.networkPassphrase,
     })
       .addOperation(
-        this.contract.call('allow_asset', encodeString(code), encodeString(issuer)),
+        this.contract.call(
+          paramsDecimals === undefined ? 'allow_asset' : 'allow_asset_with_decimals',
+          encodeString(code),
+          encodeString(issuer),
+          ...(paramsDecimals === undefined ? [] : [encodeU32(paramsDecimals)]),
+        ),
       )
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();

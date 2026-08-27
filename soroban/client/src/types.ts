@@ -64,11 +64,12 @@ export interface PaymentRecord {
   readonly payer: string;
   readonly asset: Asset;
   /**
-   * Amount in smallest denomination.
-   * - XLM: stroops — 1 XLM = 10_000_000 stroops
-   * - Token: 7-decimal units — 1 USDC = 10_000_000 units
+  * Amount in the asset's smallest denomination. Divide by 10^assetDecimals
+  * to format it; `0` means legacy precision is unknown.
    */
   readonly amount: bigint;
+  /** Decimal places for `amount`; legacy records expose 0 (unknown). */
+  readonly assetDecimals: number;
   /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
   /**
@@ -234,6 +235,8 @@ export interface RecordPaymentParams {
   readonly assetIssuer: string;
   /** Amount in smallest denomination (must be > 0) */
   readonly amount: bigint;
+  /** Decimal places recorded for the asset. Defaults to Stellar's 7. */
+  readonly assetDecimals?: number;
   /**
    * Normalised settlement reference or hash for backend deduplication and
    * idempotent reconciliation. Required — must be in **canonical form**

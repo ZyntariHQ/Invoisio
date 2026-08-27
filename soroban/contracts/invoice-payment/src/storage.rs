@@ -103,7 +103,7 @@ pub const CONTRACT_VERSION_PATCH: u32 = 0;
 /// is what stamps `STORAGE_SCHEMA_VERSION` once every step up to the final
 /// target has run. If you add a new final step (e.g. V4 → V5), change the
 /// previous final step to stamp its own fixed constant instead of this one.
-pub const STORAGE_SCHEMA_VERSION: u32 = 4;
+pub const STORAGE_SCHEMA_VERSION: u32 = 5;
 
 /// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
 pub const STORAGE_SCHEMA_V1: u32 = 1;
@@ -124,6 +124,10 @@ pub const STORAGE_SCHEMA_V2: u32 = 2;
 /// invoice_id that consumed it, so `settlement_ref_owner` can resolve a
 /// reference back to its owning invoice. See issue #495.
 pub const STORAGE_SCHEMA_V3: u32 = 3;
+
+/// Schema version that introduced precision on payment records and allowlist
+/// entries. Legacy records are not assigned a guessed scale by migration.
+pub const STORAGE_SCHEMA_V4: u32 = 4;
 
 /// Legacy deployments (before explicit version metadata existed).
 pub const LEGACY_CONTRACT_VERSION: u32 = 0;
@@ -390,8 +394,8 @@ pub enum Asset {
 ///
 /// ## Amount units
 /// - **XLM**: stroops — 1 XLM = 10 000 000 stroops.
-/// - **Other tokens**: the token's own smallest unit
-///   (USDC on Stellar uses 7 decimal places).
+/// - **Other tokens**: the token's own smallest unit; `asset_decimals` records
+///   the number of decimal places needed to interpret that unit.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub struct PaymentRecord {
@@ -409,6 +413,10 @@ pub struct PaymentRecord {
 
     /// Payment amount in the asset's smallest unit (must be > 0).
     pub amount: i128,
+
+    /// Decimal places in the asset's smallest unit. Legacy records use `0`
+    /// because their precision was not recorded and must not be inferred.
+    pub asset_decimals: u32,
 
     /// Unix timestamp (seconds) sourced from the ledger at recording time.
     pub timestamp: u64,
@@ -434,6 +442,36 @@ pub struct PaymentRecord {
     /// "Disclosure guarantee" / permanence notes in the module docs and
     /// `soroban/contracts/invoice-payment/README.md`.
     pub settlement_ref: String,
+}
+
+/// V4 wire shape retained so pre-precision records remain readable after the
+/// schema upgrade. The conversion deliberately marks their scale unknown.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+struct LegacyPaymentRecord {
+    invoice_id: String,
+    payer: Address,
+    asset: Asset,
+    amount: i128,
+    timestamp: u64,
+    settlement_ref: String,
+}
+
+fn read_payment_value(env: &Env, key: &DataKey) -> Option<PaymentRecord> {
+    let current: Option<PaymentRecord> = env.storage().persistent().get(key);
+    if let Some(record) = current {
+        return Some(record);
+    }
+    let legacy: Option<LegacyPaymentRecord> = env.storage().persistent().get(key);
+    legacy.map(|legacy| PaymentRecord {
+        invoice_id: legacy.invoice_id,
+        payer: legacy.payer,
+        asset: legacy.asset,
+        amount: legacy.amount,
+        asset_decimals: 0,
+        timestamp: legacy.timestamp,
+        settlement_ref: legacy.settlement_ref,
+    })
 }
 
 /// A bounded, cursor-friendly slice of payment history.
@@ -491,6 +529,8 @@ pub struct SettlementRefPage {
 pub struct AllowlistEntry {
     pub code: String,
     pub issuer: String,
+    /// Decimal places recorded when the asset was allowlisted.
+    pub decimals: u32,
 }
 
 /// A bounded, cursor-friendly slice of the currently-allowlisted assets.
@@ -726,7 +766,7 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
 /// `invoice_id`.
 pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, ContractError> {
     let v1_key = payment_key_v1(invoice_id);
-    let v1_record: Option<PaymentRecord> = env.storage().persistent().get(&v1_key);
+    let v1_record = read_payment_value(env, &v1_key);
     if let Some(record) = v1_record {
         env.storage()
             .persistent()
@@ -738,7 +778,7 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
     // key, not a migration. A record found here remains under the legacy key
     // until an admin explicitly migrates it.
     let legacy_key = payment_key_legacy(invoice_id);
-    let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
+    let legacy_record = read_payment_value(env, &legacy_key);
     match legacy_record {
         Some(record) => {
             env.storage()
@@ -787,7 +827,7 @@ pub fn migrate_legacy_payment_key(env: &Env, invoice_id: &String) -> LegacyMigra
     }
 
     let legacy_key = payment_key_legacy(invoice_id);
-    let legacy_record: Option<PaymentRecord> = env.storage().persistent().get(&legacy_key);
+    let legacy_record = read_payment_value(env, &legacy_key);
     match legacy_record {
         Some(record) => {
             env.storage().persistent().set(&v1_key, &record);
@@ -851,7 +891,7 @@ pub fn get_payment_log_entry(env: &Env, index: u32) -> Option<String> {
 /// Get a history record by index. Extends TTL if record exists.
 fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
     let key = payment_history_key(index);
-    let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
+    let record = read_payment_value(env, &key);
     if record.is_some() {
         env.storage()
             .persistent()
@@ -1028,6 +1068,18 @@ pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
     exists
 }
 
+/// Return the recorded precision for an allowlisted token.
+pub fn get_asset_decimals(env: &Env, code: &String, issuer: &String) -> Option<u32> {
+    let key = DataKey::AllowList(code.clone(), issuer.clone());
+    let decimals: Option<u32> = env.storage().persistent().get(&key);
+    if decimals.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    }
+    decimals
+}
+
 /// Add an asset to the allowlist and bump TTL.
 ///
 /// Also indexes the pair into the write-order enumeration log
@@ -1038,14 +1090,18 @@ pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
 /// untouched, so re-allowing never creates a duplicate log entry or
 /// double-counts `allowlist_count()`.
 pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
+    allow_asset_with_decimals(env, code, issuer, 7);
+}
+
+/// Add an asset to the allowlist with its declared decimal precision.
+pub fn allow_asset_with_decimals(env: &Env, code: &String, issuer: &String, decimals: u32) {
     let key = DataKey::AllowList(code.clone(), issuer.clone());
-    // We store a unit value since we only care about existence.
-    env.storage().persistent().set(&key, &());
+    env.storage().persistent().set(&key, &decimals);
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
 
-    backfill_allowlist_index(env, code, issuer);
+    backfill_allowlist_index_with_decimals(env, code, issuer, decimals);
 }
 
 /// Remove an asset from the allowlist.
@@ -1089,6 +1145,16 @@ pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
 /// migration (backfilling legacy pre-index entries from payment history),
 /// so both paths agree on exactly one rule for "is this pair indexed yet".
 pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &String) -> bool {
+    backfill_allowlist_index_with_decimals(env, code, issuer, 7)
+}
+
+/// Index an allowlisted asset and preserve its precision metadata.
+pub fn backfill_allowlist_index_with_decimals(
+    env: &Env,
+    code: &String,
+    issuer: &String,
+    decimals: u32,
+) -> bool {
     let index_key = DataKey::AllowListIndex(code.clone(), issuer.clone());
     if env.storage().persistent().has(&index_key) {
         env.storage()
@@ -1102,6 +1168,7 @@ pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &String) -> bo
     let entry = AllowlistEntry {
         code: code.clone(),
         issuer: issuer.clone(),
+        decimals,
     };
     env.storage().persistent().set(&log_key, &entry);
     env.storage()
@@ -1295,6 +1362,11 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             3 => {
                 // V3 → V4: backfill the allowlist enumeration index (#464)
                 crate::migration::migrate_schema_v3_to_v4(env)?;
+            }
+            4 => {
+                // V4 → V5: precision metadata is written by the new paths;
+                // pre-existing records retain unknown precision (0).
+                crate::migration::migrate_schema_v4_to_v5(env)?;
             }
             _ => return Err(ContractError::StorageSchemaTooOld),
         }

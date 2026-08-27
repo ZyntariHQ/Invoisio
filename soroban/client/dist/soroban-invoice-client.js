@@ -211,14 +211,14 @@ class SorobanInvoiceClient {
      * @throws {SorobanContractError} on contract-level rejection
      *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
      */
-    async allowAsset(code, issuer) {
+    async allowAsset(code, issuer, paramsDecimals) {
         this.requireSigner();
         const account = await this.server.getAccount(this.keypair.publicKey());
         const tx = new stellar_sdk_1.TransactionBuilder(account, {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call('allow_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .addOperation(this.contract.call(paramsDecimals === undefined ? 'allow_asset' : 'allow_asset_with_decimals', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer), ...(paramsDecimals === undefined ? [] : [(0, codec_1.encodeU32)(paramsDecimals)])))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);

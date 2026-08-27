@@ -136,7 +136,7 @@ export declare class SorobanInvoiceClient {
      * @throws {SorobanContractError} on contract-level rejection
      *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
      */
-    allowAsset(code: string, issuer: string): Promise<TransactionResult>;
+    allowAsset(code: string, issuer: string, paramsDecimals?: number): Promise<TransactionResult>;
     /**
      * Remove a `(code, issuer)` token pair from the allowlist.
      *

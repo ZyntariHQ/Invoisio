@@ -507,7 +507,8 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     record: any,
     txHash: string,
   ): Promise<void> {
-    const amount = this.convertToStroops(record.amount, record.asset_code);
+    const assetCode = record.asset_code ?? "XLM";
+    const amount = this.convertToStroops(record.amount, assetCode);
 
     const metadata = await traceAsync(
       this.logger,
@@ -521,7 +522,7 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
         this.sorobanService.recordPayment({
           invoiceId: invoice.memo,
           payer: record.from,
-          assetCode: record.asset_code ?? "XLM",
+          assetCode,
           assetIssuer: record.asset_issuer ?? "",
           amount,
           // The native Stellar payment hash anchors the Soroban record to the
@@ -555,17 +556,24 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Convert an amount string to integer stroops (1 unit = 10^7 stroops).
-   * Stellar network assets (native XLM and issued tokens) standardly use 7 decimal places
-   * of precision on-chain.
-   *
-   * Uses exact decimal arithmetic to avoid IEEE-754 binary floating-point errors.
-   * Explicit rounding mode: ROUND_HALF_UP is applied if sub-stroop precision is present.
-   */
-  convertToStroops(amount: string, _assetCode?: string): string {
+  /** Convert a Horizon amount using the configured precision for its asset. */
+  convertToStroops(amount: string, assetCode = "XLM"): string {
     const dec = new Prisma.Decimal(amount || "0");
-    return dec.times(10_000_000).toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
+    const configured = this.configService.get<string>("STELLAR_ASSET_DECIMALS");
+    const decimals = configured
+      ?.split(",")
+      .map((entry) => entry.trim().split("="))
+      .find(([code]) => code === assetCode)?.[1];
+    const precision = Number.isInteger(Number(decimals))
+      ? Number(decimals)
+      : 7;
+    if (precision < 0 || precision > 18) {
+      throw new Error(`Invalid decimal precision configured for ${assetCode}`);
+    }
+    return dec.times(new Prisma.Decimal(10).pow(precision)).toFixed(
+      0,
+      Prisma.Decimal.ROUND_HALF_UP,
+    );
   }
 
   private resolveMemoId(rawMemo: string, memoPrefix: string): string | null {

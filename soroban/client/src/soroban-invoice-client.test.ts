@@ -437,6 +437,10 @@ describe('getPayment', () => {
         val: nativeToScVal(BigInt(10_000_000), { type: 'i128' }),
       }),
       new xdr.ScMapEntry({
+        key: nativeToScVal('asset_decimals', { type: 'symbol' }),
+        val: nativeToScVal(7, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
         key: nativeToScVal('timestamp', { type: 'symbol' }),
         val: nativeToScVal(BigInt(1_786_000_000), { type: 'u64' }),
       }),
@@ -458,6 +462,7 @@ describe('getPayment', () => {
       payer: READER,
       asset: { type: 'native' },
       amount: 10_000_000n,
+      assetDecimals: 7,
       timestamp: 1_786_000_000n,
       settlementRef: 'settle-hash-abc123',
     });
