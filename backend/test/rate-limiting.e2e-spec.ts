@@ -1,9 +1,11 @@
+import { PrismaService } from "../src/prisma/prisma.service";
+import { AuthService } from "../src/auth/auth.service";
+import { InvoicesService } from "../src/invoices/invoices.service";
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import request from "supertest";
 import { AppModule } from "./../src/app.module";
-import { PrismaService } from "../src/prisma/prisma.service";
 
 /**
  * End-to-end tests for Rate Limiting functionality
@@ -24,8 +26,6 @@ describe("Rate Limiting (e2e)", () => {
   beforeEach(async () => {
     // Set test environment
     process.env.NODE_ENV = "test";
-    process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
-    process.env.JWT_SECRET = "e2e-test-secret";
 
     // Set Redis configuration for testing
     process.env.REDIS_HOST = process.env.REDIS_HOST ?? "localhost";
@@ -33,26 +33,40 @@ describe("Rate Limiting (e2e)", () => {
     process.env.REDIS_DB = "1"; // Use separate DB for tests
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
 
+    process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
+    process.env.JWT_SECRET =
+      "e2e-test-secret-must-be-long-enough-32-chars-long";
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
 
     app = moduleFixture.createNestApplication();
-    const prismaService = moduleFixture.get(PrismaService);
-    jest
-      .spyOn(prismaService.user, "findUnique")
-      .mockImplementation(async (args: any) => {
-        return {
-          id: args?.where?.id || "e2e-test-user",
-          merchantId: "merchant-1",
-        } as any;
-      });
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
 
+    const prisma = app.get(PrismaService);
+    jest.spyOn(prisma.user, "findUnique").mockImplementation(async (args) => ({
+      id: args?.where?.id || "e2e-test-user",
+      merchantId: "merchant-" + (args?.where?.id || "e2e-test-user"),
+      publicKey: "GBBM6BKZPEHWYO3E3YKREDPQXMS4VK35YLNU7NFBZT2WSIGODNZV265U",
+      tokenVersion: 1,
+    }));
+
+    const auth = app.get(AuthService);
+    jest
+      .spyOn(auth, "verify")
+      .mockImplementation(async () => ({ accessToken: "mock-token" }));
+    jest.spyOn(auth, "generateNonce").mockImplementation(async () => ({
+      nonce: "mock-nonce",
+      expiresAt: new Date().toISOString(),
+    }));
+
+    const inv = app.get(InvoicesService);
+    jest.spyOn(inv, "create").mockImplementation(async () => ({ id: "inv-1" }));
+
     // Generate a valid JWT for protected endpoints
     const jwtService = app.get(JwtService);
-    jwtToken = jwtService.sign({ sub: "e2e-test-user" });
+    jwtToken = jwtService.sign({ sub: "e2e-test-user", tokenVersion: 1 });
   });
 
   afterEach(async () => {
@@ -68,8 +82,11 @@ describe("Rate Limiting (e2e)", () => {
         await request(app.getHttpServer())
           .post("/auth/nonce")
           .send({ publicKey: testPublicKey })
-
-          .expect((res) => {});
+          .expect(200)
+          .expect((res) => {
+            expect(res.body).toHaveProperty("nonce");
+            expect(res.body).toHaveProperty("expiresAt");
+          });
       }
     });
 
@@ -78,7 +95,8 @@ describe("Rate Limiting (e2e)", () => {
       for (let i = 0; i < 5; i++) {
         await request(app.getHttpServer())
           .post("/auth/nonce")
-          .send({ publicKey: testPublicKey });
+          .send({ publicKey: testPublicKey })
+          .expect(200);
       }
 
       // 6th request should be rate limited
@@ -87,6 +105,8 @@ describe("Rate Limiting (e2e)", () => {
         .send({ publicKey: testPublicKey })
         .expect(429)
         .expect((res) => {
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -95,15 +115,20 @@ describe("Rate Limiting (e2e)", () => {
       // First get a nonce
       const nonceResponse = await request(app.getHttpServer())
         .post("/auth/nonce")
-        .send({ publicKey: testPublicKey });
+        .send({ publicKey: testPublicKey })
+        .expect(200);
+
       const { nonce } = nonceResponse.body;
 
       for (let i = 0; i < 5; i++) {
-        await request(app.getHttpServer()).post("/auth/verify").send({
-          publicKey: testPublicKey,
-          signature: "mock-signature",
-          nonce: nonce,
-        }); // Will fail signature verification but shouldn't be rate limited
+        await request(app.getHttpServer())
+          .post("/auth/verify")
+          .send({
+            publicKey: testPublicKey,
+            signedNonce: "mock-signature",
+            nonce: nonce,
+          })
+          .expect(200); // Will fail signature verification but shouldn't be rate limited
       }
     });
 
@@ -111,16 +136,21 @@ describe("Rate Limiting (e2e)", () => {
       // First get a nonce
       const nonceResponse = await request(app.getHttpServer())
         .post("/auth/nonce")
-        .send({ publicKey: testPublicKey });
+        .send({ publicKey: testPublicKey })
+        .expect(200);
+
       const { nonce } = nonceResponse.body;
 
       // Make 5 requests (they will fail signature verification but count toward rate limit)
       for (let i = 0; i < 5; i++) {
-        await request(app.getHttpServer()).post("/auth/verify").send({
-          publicKey: testPublicKey,
-          signature: "mock-signature",
-          nonce: nonce,
-        });
+        await request(app.getHttpServer())
+          .post("/auth/verify")
+          .send({
+            publicKey: testPublicKey,
+            signedNonce: "mock-signature",
+            nonce: nonce,
+          })
+          .expect(200);
       }
 
       // 6th request should be rate limited
@@ -128,11 +158,13 @@ describe("Rate Limiting (e2e)", () => {
         .post("/auth/verify")
         .send({
           publicKey: testPublicKey,
-          signature: "mock-signature",
+          signedNonce: "mock-signature",
           nonce: nonce,
         })
         .expect(429)
         .expect((res) => {
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -140,9 +172,11 @@ describe("Rate Limiting (e2e)", () => {
 
   describe("Invoice creation rate limiting", () => {
     const invoiceData = {
+      invoiceNumber: "INV-123",
       clientName: "Test Client",
-      amount: "100",
-      asset_code: "USDC",
+      clientEmail: "test@example.com",
+      amount: 100,
+      asset_code: "XLM",
       description: "Test invoice",
     };
 
@@ -151,7 +185,8 @@ describe("Rate Limiting (e2e)", () => {
         await request(app.getHttpServer())
           .post("/invoices")
           .set("Authorization", `Bearer ${jwtToken}`)
-          .send(invoiceData); // Will likely fail due to missing dependencies but shouldn't be rate limited
+          .send(invoiceData)
+          .expect(201); // Will likely fail due to missing dependencies but shouldn't be rate limited
       }
     });
 
@@ -161,7 +196,8 @@ describe("Rate Limiting (e2e)", () => {
         await request(app.getHttpServer())
           .post("/invoices")
           .set("Authorization", `Bearer ${jwtToken}`)
-          .send(invoiceData);
+          .send(invoiceData)
+          .expect(201);
       }
 
       // 21st request should be rate limited
@@ -171,6 +207,8 @@ describe("Rate Limiting (e2e)", () => {
         .send(invoiceData)
         .expect(429)
         .expect((res) => {
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -178,14 +216,18 @@ describe("Rate Limiting (e2e)", () => {
     it("should not rate limit different users", async () => {
       // Create JWT for a different user
       const jwtService = app.get(JwtService);
-      const differentJwtToken = jwtService.sign({ sub: "different-test-user" });
+      const differentJwtToken = jwtService.sign({
+        sub: "different-test-user",
+        tokenVersion: 1,
+      });
 
       // Make 20 requests with first user
       for (let i = 0; i < 20; i++) {
         await request(app.getHttpServer())
           .post("/invoices")
           .set("Authorization", `Bearer ${jwtToken}`)
-          .send(invoiceData);
+          .send(invoiceData)
+          .expect(201);
       }
 
       // 21st request with first user should be rate limited
@@ -199,7 +241,8 @@ describe("Rate Limiting (e2e)", () => {
       await request(app.getHttpServer())
         .post("/invoices")
         .set("Authorization", `Bearer ${differentJwtToken}`)
-        .send(invoiceData);
+        .send(invoiceData)
+        .expect(201);
     });
   });
 
@@ -212,7 +255,8 @@ describe("Rate Limiting (e2e)", () => {
       for (let i = 0; i < 5; i++) {
         await request(app.getHttpServer())
           .post("/auth/nonce")
-          .send({ publicKey: testPublicKey });
+          .send({ publicKey: testPublicKey })
+          .expect(200);
       }
 
       // 6th request should return 429 with proper headers
@@ -222,6 +266,9 @@ describe("Rate Limiting (e2e)", () => {
         .expect(429)
         .expect((res) => {
           expect(res.headers).toHaveProperty("retry-after");
+          expect(res.headers).toHaveProperty("x-ratelimit-limit");
+          expect(res.headers).toHaveProperty("x-ratelimit-remaining");
+          expect(res.headers).toHaveProperty("x-ratelimit-reset");
 
           // Verify retry-after is a reasonable value (should be around 900 seconds for auth)
           const retryAfter = parseInt(res.headers["retry-after"]);
