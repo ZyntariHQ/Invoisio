@@ -179,6 +179,8 @@ function InvoicesContent() {
 
   const [customQueries, setCustomQueries] = useState<SavedQuery[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [saveName, setSaveName] = useState("");
 
   const pageSize = 20;
@@ -476,6 +478,61 @@ function InvoicesContent() {
     const updated = customQueries.filter((q) => q.id !== id);
     setCustomQueries(updated);
     localStorage.setItem("invoisio_saved_queries", JSON.stringify(updated));
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportError(null);
+
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.set("status", statusFilter);
+      if (assetFilter !== "all") params.set("asset", assetFilter);
+      if (dueDateFilter !== "all") params.set("dueDate", dueDateFilter);
+      if (searchQuery.trim()) params.set("q", searchQuery.trim());
+
+      const response = await apiClient.get(
+        `/invoices/export${params.toString() ? `?${params.toString()}` : ""}`,
+        { responseType: "blob" },
+      );
+
+      const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `invoices-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      let message = extractApiErrorMessage(error);
+
+      if (
+        error &&
+        typeof error === "object" &&
+        "response" in error &&
+        (error as { response?: { data?: unknown } }).response?.data instanceof
+          Blob
+      ) {
+        try {
+          const blob = (error as { response: { data: Blob } }).response.data;
+          const text = await blob.text();
+          const parsed = JSON.parse(text) as { message?: string | string[] };
+          if (Array.isArray(parsed.message)) {
+            message = parsed.message.join(", ");
+          } else if (typeof parsed.message === "string") {
+            message = parsed.message;
+          }
+        } catch {
+          // Keep the generic API error when the response is not JSON.
+        }
+      }
+
+      setExportError(message);
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleDuplicateInvoice = async (
