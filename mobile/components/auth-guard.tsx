@@ -1,6 +1,7 @@
 import { useEffect, useMemo, type ReactNode } from "react";
 import { Link, useRouter, useSegments } from "expo-router";
 import { useAuthStore } from "../hooks/use-auth-store";
+import { isProtectedRoute, isPublicRoute } from "../lib/auth-routes";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 
 interface AuthGuardProps {
@@ -19,15 +20,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const rootSegment = segments[0];
 
   const routeState = useMemo(() => {
-    const isPublicRoute = rootSegment === "index" || rootSegment === "login";
-    const isInvoicesRoute = rootSegment === "invoices";
-    const isProtectedRoute =
-      rootSegment === "dashboard" ||
-      rootSegment === "create-invoice" ||
-      rootSegment === "settings" ||
-      isInvoicesRoute;
-
-    return { isPublicRoute, isProtectedRoute };
+    return {
+      isPublicRoute: isPublicRoute(rootSegment),
+      isProtectedRoute: isProtectedRoute(rootSegment),
+    };
   }, [rootSegment]);
 
   useEffect(() => {
@@ -112,7 +108,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
           <View className="mt-6 gap-3">
             <Link href="/login" asChild>
-              <Pressable className="rounded-2xl bg-[#2663FF] py-4">
+              <Pressable
+                accessibilityRole="button"
+                className="rounded-2xl bg-[#2663FF] py-4"
+              >
                 <Text
                   className="text-center text-base text-white"
                   style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
@@ -123,7 +122,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
             </Link>
 
             <Link href="/" asChild>
-              <Pressable className="rounded-2xl border border-white/15 py-4">
+              <Pressable
+                accessibilityRole="button"
+                className="rounded-2xl border border-white/15 py-4"
+              >
                 <Text
                   className="text-center text-base text-white"
                   style={{ fontFamily: "SpaceGrotesk_500Medium" }}

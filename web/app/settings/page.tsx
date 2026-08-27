@@ -280,25 +280,57 @@ function AssetSection({ profile, onSaved }: SectionProps) {
 
 function NotificationsSection({ profile, onSaved }: SectionProps) {
   const [webhookUrl, setWebhookUrl] = useState(profile.webhookUrl ?? '');
-  const [pushEnabled, setPushEnabled] = useState(true);
+  // `null` means "not loaded yet" — we never guess a default for a value
+  // that lives on the server, so the toggle stays disabled until this
+  // resolves to the actual backend preference.
+  const [pushEnabled, setPushEnabled] = useState<boolean | null>(null);
+  const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // TODO(backend): prefetch the stored pushNotificationsEnabled value once an
-  // endpoint exposes it (see UserService.getNotificationPreferences stub).
-  useEffect(() => {
-    UserService.getNotificationPreferences().then((prefs) => {
-      if (prefs) setPushEnabled(prefs.pushNotificationsEnabled);
-    });
-  }, []);
+  // Fetches the current preference; assumes the caller has already put the
+  // section into a loading state. Returns a cleanup function that cancels a
+  // stale response from resolving after the caller stops caring.
+  const fetchPreferences = () => {
+    let cancelled = false;
+    UserService.getNotificationPreferences()
+      .then((prefs) => {
+        if (!cancelled) setPushEnabled(prefs.pushNotificationsEnabled);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setLoadError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to load notification settings.',
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingPrefs(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  };
+
+  useEffect(() => fetchPreferences(), []);
+
+  const retryLoadPreferences = () => {
+    setIsLoadingPrefs(true);
+    setLoadError(null);
+    fetchPreferences();
+  };
 
   const trimmedWebhook = webhookUrl.trim();
   const isWebhookValid =
     trimmedWebhook.length === 0 || /^https?:\/\/\S+$/.test(trimmedWebhook);
+  const prefsReady = !isLoadingPrefs && pushEnabled !== null;
 
   const handleSave = async () => {
-    if (isSaving || !isWebhookValid) return;
+    if (isSaving || !isWebhookValid || !prefsReady || pushEnabled === null) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
@@ -356,29 +388,52 @@ function NotificationsSection({ profile, onSaved }: SectionProps) {
             paid or becomes overdue.
           </p>
         </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={pushEnabled}
-          onClick={() => setPushEnabled((v) => !v)}
-          className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
-            pushEnabled ? 'bg-blue-600' : 'bg-gray-300'
-          }`}
-        >
-          <span className="sr-only">Toggle push notifications</span>
-          <span
-            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-              pushEnabled ? 'translate-x-6' : 'translate-x-1'
-            }`}
+        {isLoadingPrefs ? (
+          <div
+            className="h-6 w-11 flex-shrink-0 animate-pulse rounded-full bg-gray-200"
+            aria-label="Loading push notification preference"
           />
-        </button>
+        ) : (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={pushEnabled ?? false}
+            disabled={pushEnabled === null}
+            onClick={() => setPushEnabled((v) => !v)}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+              pushEnabled ? 'bg-blue-600' : 'bg-gray-300'
+            }`}
+          >
+            <span className="sr-only">Toggle push notifications</span>
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                pushEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        )}
       </div>
+      {loadError && (
+        <p
+          className="mt-3 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-900"
+          role="alert"
+        >
+          <span>{loadError}</span>
+          <button
+            type="button"
+            onClick={retryLoadPreferences}
+            className="shrink-0 font-semibold underline hover:no-underline"
+          >
+            Retry
+          </button>
+        </p>
+      )}
 
       <SaveFeedback error={error} success={success} />
       <SaveButton
         onClick={handleSave}
         isSaving={isSaving}
-        disabled={!isWebhookValid}
+        disabled={!isWebhookValid || !prefsReady}
       />
     </SectionCard>
   );
@@ -433,7 +488,7 @@ function SettingsContent() {
   return (
     <div className="mx-auto max-w-3xl">
       <Link
-        href="/"
+        href="/dashboard"
         className="mb-6 inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700"
       >
         ← Back to dashboard

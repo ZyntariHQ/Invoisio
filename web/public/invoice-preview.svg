@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0f172a"/>
+  <rect x="72" y="72" width="1056" height="486" rx="24" fill="#f8fafc"/>
+  <text x="128" y="190" fill="#0f172a" font-family="Arial, sans-serif" font-size="54" font-weight="700">Invoisio</text>
+  <text x="128" y="270" fill="#475569" font-family="Arial, sans-serif" font-size="32">Secure Stellar invoice payments</text>
+  <circle cx="1030" cy="180" r="42" fill="#10b981"/>
+  <path d="m1008 180 16 16 30-36" fill="none" stroke="#fff" stroke-width="10"/>
+</svg>

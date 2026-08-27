@@ -17,6 +17,12 @@ export interface CreateCustomerPayload {
   notes?: string;
 }
 
+export interface UpdateCustomerPayload {
+  name?: string;
+  email?: string | null;
+  notes?: string | null;
+}
+
 /**
  * CustomerService – API methods for customer profile management.
  */
@@ -81,7 +87,7 @@ export const CustomerService = {
   async update(
     accessToken: string,
     id: string,
-    payload: Partial<CreateCustomerPayload>,
+    payload: UpdateCustomerPayload,
   ): Promise<Customer> {
     const response = await axios.patch<Customer>(
       `${API_URL}/customers/${id}`,

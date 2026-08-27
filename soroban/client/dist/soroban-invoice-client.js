@@ -26,6 +26,12 @@ const TX_TIMEOUT_SECONDS = 30;
  * | `getPayment`     | O(1)                       | O(1) |
  * | `hasPayment`     | O(1)                       | O(1) |
  * | `getPaymentCount`| O(1)                       | O(1) |
+ * | `allowAsset`     | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `revokeAsset`    | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setAllowNative` | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `setPaused`      | O(k), k ≤ MAX_POLL_ATTEMPTS | O(1) |
+ * | `getAdmin`       | O(1)                       | O(1) |
+ * | `isPaused`       | O(1)                       | O(1) |
  *
  * Read methods use `new Account(pk, '0')` instead of `server.getAccount()`.
  * Simulation does not validate the sequence number, so this saves one
@@ -58,8 +64,13 @@ class SorobanInvoiceClient {
      * Horizon **before** calling this method. The contract admin keypair must be
      * provided via `signerSecretKey` in the config.
      *
+     * `params.settlementRef` is the normalised settlement reference (e.g. a
+     * SHA-256 hash or reconciliation ID) used for backend deduplication and
+     * idempotent reconciliation. It must be non-empty and at most 128 chars —
+     * the contract rejects longer values with `InvalidSettlementRef`.
+     *
      * @throws {SorobanContractError} on contract-level rejection
-     *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`)
+     *   (e.g. `PaymentAlreadyRecorded`, `InvalidAmount`, `InvalidSettlementRef`)
      * @throws {Error} on network errors or confirmation timeout
      */
     async recordPayment(params) {
@@ -71,25 +82,166 @@ class SorobanInvoiceClient {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call('record_payment', (0, codec_1.encodeString)(params.invoiceId), (0, codec_1.encodeAddress)(params.payer), (0, codec_1.encodeString)(params.assetCode), (0, codec_1.encodeString)(params.assetIssuer), (0, codec_1.encodeI128)(params.amount)))
+            .addOperation(this.contract.call('record_payment', (0, codec_1.encodeString)(params.invoiceId), (0, codec_1.encodeAddress)(params.payer), (0, codec_1.encodeString)(params.assetCode), (0, codec_1.encodeString)(params.assetIssuer), (0, codec_1.encodeI128)(params.amount), (0, codec_1.encodeString)(params.settlementRef)))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
-        // prepareTransaction simulates and assembles the fee + storage footprint.
-        // It throws if the simulation fails (e.g. contract returns Err(...)).
-        let prepared;
-        try {
-            prepared = await this.server.prepareTransaction(tx);
-        }
-        catch (err) {
-            throw (0, codec_1.parseContractError)(err instanceof Error ? err.message : String(err));
-        }
-        prepared.sign(this.keypair);
-        const sendResult = await this.server.sendTransaction(prepared);
-        if (sendResult.status === 'ERROR') {
-            const detail = sendResult.errorResult?.toXDR('base64') ?? 'unknown';
-            throw new Error(`Transaction rejected by network: ${detail}`);
-        }
-        return this.awaitTransaction(sendResult.hash);
+        return this.submitWrite(tx);
+    }
+    /**
+     * Step 1 of the two-step admin handoff: propose `newAdmin` as the next
+     * contract admin.
+     *
+     * The **current admin** keypair must be provided via `signerSecretKey` in
+     * the config. The role does NOT change until the proposed address calls
+     * `acceptAdmin`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `PendingAdminExists`, `InvalidProposedAdmin`)
+     */
+    async proposeAdmin(newAdmin) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('propose_admin', (0, codec_1.encodeAddress)(newAdmin)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Step 2 of the two-step admin handoff: accept a pending proposal and become
+     * the contract admin.
+     *
+     * The **proposed admin** keypair must be provided via `signerSecretKey` in
+     * the config — the caller is derived from that keypair and must match the
+     * address proposed by `proposeAdmin`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+     */
+    async acceptAdmin() {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('accept_admin', (0, codec_1.encodeAddress)(caller)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Cancel a pending admin transfer proposal (recovery path for the two-step
+     * handoff).
+     *
+     * The **current admin** keypair must be provided via `signerSecretKey` in
+     * the config. After a successful cancellation `pendingAdmin()` reads `null`
+     * again, the previously proposed address can no longer claim the role, and
+     * `proposeAdmin()` can be used for a fresh proposal.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NoPendingAdmin`, `Unauthorized`)
+     */
+    async cancelAdminTransfer() {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('cancel_admin_transfer'))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Add a `(code, issuer)` token pair to the admin-controlled allowlist.
+     *
+     * Only assets that have been allowlisted are accepted by `recordPayment`.
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    async allowAsset(code, issuer) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('allow_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Remove a `(code, issuer)` token pair from the allowlist.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     * Revoking an asset that was never allowlisted is a no-op on-chain.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`)
+     */
+    async revokeAsset(code, issuer) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('revoke_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Toggle whether native XLM payments are accepted by `recordPayment`.
+     *
+     * The **contract admin** keypair must be provided via `signerSecretKey`.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    async setAllowNative(allowed) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('set_allow_native', (0, codec_1.encodeBool)(allowed)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
+    }
+    /**
+     * Pause or unpause the contract.
+     *
+     * While paused, write operations (e.g. `recordPayment`) are rejected with
+     * `ContractPaused`; read operations remain available. The caller is derived
+     * from `signerSecretKey` and must match the contract admin.
+     *
+     * @throws {SorobanContractError} on contract-level rejection
+     *   (e.g. `NotInitialized`, `Unauthorized`)
+     */
+    async setPaused(paused) {
+        this.requireSigner();
+        const account = await this.server.getAccount(this.keypair.publicKey());
+        const caller = this.keypair.publicKey();
+        const tx = new stellar_sdk_1.TransactionBuilder(account, {
+            fee: stellar_sdk_1.BASE_FEE,
+            networkPassphrase: this.config.networkPassphrase,
+        })
+            .addOperation(this.contract.call('set_paused', (0, codec_1.encodeAddress)(caller), (0, codec_1.encodeBool)(paused)))
+            .setTimeout(TX_TIMEOUT_SECONDS)
+            .build();
+        return this.submitWrite(tx);
     }
     // ─── Read operations (permissionless) ──────────────────────────────────────
     /**
@@ -102,6 +254,25 @@ class SorobanInvoiceClient {
     async getConfig() {
         const retval = await this.simulateView('config');
         return (0, codec_1.decodeContractConfig)(retval);
+    }
+    /**
+     * Return the current contract admin address. Permissionless read.
+     *
+     * @throws {SorobanContractError} with code `NotInitialized` if the contract
+     *   has not been initialised yet.
+     */
+    async getAdmin() {
+        const retval = await this.simulateView('admin');
+        return String((0, stellar_sdk_1.scValToNative)(retval));
+    }
+    /**
+     * Return the address currently proposed as the next admin, or `null` when no
+     * admin transfer is in flight. Permissionless read.
+     */
+    async getPendingAdmin() {
+        const retval = await this.simulateView('pending_admin');
+        const native = (0, stellar_sdk_1.scValToNative)(retval);
+        return native === null || native === undefined ? null : String(native);
     }
     /**
      * Fetch the full `PaymentRecord` for an invoice.
@@ -137,7 +308,39 @@ class SorobanInvoiceClient {
         const retval = await this.simulateView('payment_history', (0, codec_1.encodeU32)(cursor), (0, codec_1.encodeU32)(limit));
         return (0, codec_1.decodePaymentHistoryPage)(retval);
     }
+    /**
+     * Return `true` if the contract is currently paused (writes disabled).
+     * Permissionless read.
+     */
+    async isPaused() {
+        const retval = await this.simulateView('is_paused');
+        return Boolean((0, stellar_sdk_1.scValToNative)(retval));
+    }
     // ─── Private helpers ────────────────────────────────────────────────────────
+    /**
+     * Simulate, sign, submit, and await a write transaction with the configured
+     * signer keypair. Shared by all admin-gated write operations.
+     *
+     * Time: O(k), k ≤ MAX_POLL_ATTEMPTS.
+     */
+    async submitWrite(tx) {
+        // prepareTransaction simulates and assembles the fee + storage footprint.
+        // It throws if the simulation fails (e.g. contract returns Err(...)).
+        let prepared;
+        try {
+            prepared = await this.server.prepareTransaction(tx);
+        }
+        catch (err) {
+            throw (0, codec_1.parseContractError)(err instanceof Error ? err.message : String(err));
+        }
+        prepared.sign(this.keypair);
+        const sendResult = await this.server.sendTransaction(prepared);
+        if (sendResult.status === 'ERROR') {
+            const detail = sendResult.errorResult?.toXDR('base64') ?? 'unknown';
+            throw new Error(`Transaction rejected by network: ${detail}`);
+        }
+        return this.awaitTransaction(sendResult.hash);
+    }
     /**
      * Build and simulate a read-only contract call without submitting a transaction.
      *

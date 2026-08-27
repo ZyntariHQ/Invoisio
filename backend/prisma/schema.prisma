@@ -21,6 +21,7 @@ model Customer {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   invoices Invoice[]
+  recurringSchedules RecurringSchedule[]
 
   @@unique([merchantId, email])
   @@index([merchantId])
@@ -36,15 +37,22 @@ model Merchant {
   preferredAsset   String    @default("XLM") @map("preferred_asset")
   payoutWallet     String?   @map("payout_wallet")
   webhookUrl       String?   @map("webhook_url")
+  /// Set when the merchant explicitly saves a custom display name (not the auto-generated placeholder).
+  nameConfiguredAt   DateTime? @map("name_configured_at")
+  /// Set when the merchant explicitly saves a preferred asset choice.
+  assetConfiguredAt  DateTime? @map("asset_configured_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  users          User[]
-  invoices       Invoice[]
-  activities     ActivityEvent[]
-  customers      Customer[]
+  users               User[]
+  invoices            Invoice[]
+  activities          ActivityEvent[]
+  customers           Customer[]
   activationChecklist MerchantActivationChecklist?
-  paymentReviews PaymentReview[]
+  paymentReviews      PaymentReview[]
+  recurringSchedules  RecurringSchedule[]
+  pushNotifications   PushNotification[]
+  engagementEvents    InvoiceEngagementEvent[]
 
   @@map("merchants")
 }
@@ -72,18 +80,19 @@ model MerchantActivationChecklist {
 
 // User model matching backend/src/users/user.entity.ts
 model User {
-  id             String    @id @default(uuid())
-  merchantId     String    @map("merchant_id")
-  merchant       Merchant  @relation(fields: [merchantId], references: [id], onDelete: Restrict)
-  publicKey      String    @unique
+  id             String       @id @default(uuid())
+  merchantId     String       @map("merchant_id")
+  merchant       Merchant     @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  publicKey      String       @unique
   email          String?
   nonce          String?
-  nonceExpiresAt BigInt?   @map("nonce_expires_at")
-  nonceUsedAt    DateTime? @map("nonce_used_at")
-  tokenVersion   Int       @default(0) @map("token_version")
-  isAdmin        Boolean   @default(false) @map("is_admin")
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  nonceExpiresAt BigInt?      @map("nonce_expires_at")
+  nonceUsedAt    DateTime?    @map("nonce_used_at")
+  tokenVersion   Int          @default(0) @map("token_version")
+  isAdmin        Boolean      @default(false) @map("is_admin")
+  role           MerchantRole @default(owner)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   webhookUrl     String?   @map("webhook_url")
   webhookSecret  String?   @map("webhook_secret")
@@ -95,6 +104,8 @@ model User {
   webhooks       WebhookDelivery[]
   activities     ActivityEvent[]
   webhookDeadLetters  WebhookDeadLetter[]
+  recurringSchedules  RecurringSchedule[]
+  pushNotifications PushNotification[]
 
   @@index([merchantId])
   @@map("users")
@@ -159,6 +170,34 @@ enum DeadLetterStatus {
   recovered
 }
 
+enum MerchantRole {
+  owner
+  admin
+  operator
+  viewer
+}
+
+enum PushNotificationStatus {
+  queued
+  ticket_ok
+  ticket_error
+  receipt_ok
+  receipt_error_permanent
+  receipt_error_retryable
+  token_removed
+}
+
+enum PushNotificationFailureReason {
+  DeviceNotRegistered
+  InvalidCredentials
+  MessageTooBig
+  MessageRateExceeded
+  ProviderError
+  InvalidProviderError
+  DeviceNotRegisteredOnPlatform
+  Unknown
+}
+
 // Invoice model matching backend/src/invoices/entities/invoice.entity.ts
 model Invoice {
   id                 String        @id @default(uuid())
@@ -177,7 +216,7 @@ model Invoice {
   assetIssuer        String?       @map("asset_issuer")
   memo               String        @unique
   memoType           String        @default("ID") @map("memo_type")
-  status             InvoiceStatus @default(pending)
+  status             InvoiceStatus @default(draft)
   destinationAddress String        @map("destination_address")
   txHash             String?       @map("tx_hash")
   sorobanTxHash      String?       @map("soroban_tx_hash")
@@ -186,6 +225,12 @@ model Invoice {
   dueDate            DateTime?     @map("due_date")
   createdAt          DateTime      @default(now()) @map("created_at")
   updatedAt          DateTime      @updatedAt @map("updated_at")
+  
+  // Draft-specific fields
+  isDraft           Boolean       @default(true) @map("is_draft")
+  lastAutoSavedAt   DateTime?     @map("last_auto_saved_at")
+  draftVersion      Int           @default(1) @map("draft_version")
+  draftData         Json?         @map("draft_data")
 
   customerId         String?       @map("customer_id")
   customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
@@ -193,12 +238,17 @@ model Invoice {
   webhookDeadLetters WebhookDeadLetter[]
   statusHistory      InvoiceStatusHistory[]
   payments           Payment[]
-  activities         ActivityEvent[]
-  paymentReviews     PaymentReview[]
+  activities          ActivityEvent[]
+  paymentReviews      PaymentReview[]
+  recurringInvoiceRun RecurringInvoiceRun?
+  engagementEvents    InvoiceEngagementEvent[]
 
   @@index([merchantId])
+  @@index([isDraft, merchantId])
+  @@index([lastAutoSavedAt])
   @@map("invoices")
 }
+
 
 model InvoiceStatusHistory {
   id        String   @id @default(uuid())
@@ -213,6 +263,7 @@ model InvoiceStatusHistory {
 
 
 enum InvoiceStatus {
+  draft
   pending
   partially_paid
   paid
@@ -232,6 +283,32 @@ model Payment {
 
   @@index([invoiceId])
   @@map("payments")
+}
+
+// Funnel signals captured from the public (unauthenticated) invoice view —
+// impressions and payment-intent actions (wallet launch, copy, etc.) — kept
+// separate from Payment/InvoiceStatusHistory since they never confirm
+// on-chain settlement, only payer engagement prior to it.
+enum InvoiceEngagementEventType {
+  view
+  wallet_launch
+  copy
+  other
+}
+
+model InvoiceEngagementEvent {
+  id         String                     @id @default(uuid())
+  invoiceId  String                     @map("invoice_id")
+  invoice    Invoice                    @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  merchantId String                     @map("merchant_id")
+  merchant   Merchant                   @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  type       InvoiceEngagementEventType
+  target     String?
+  createdAt  DateTime                   @default(now()) @map("created_at")
+
+  @@index([invoiceId, createdAt])
+  @@index([merchantId, type, createdAt])
+  @@map("invoice_engagement_events")
 }
 
 // Backfill tracking tables
@@ -254,21 +331,66 @@ model ActivityEvent {
   @@map("activity_events")
 }
 
+enum BackfillRunStatus {
+  pending
+  running
+  paused
+  cancelled
+  completed
+  failed
+}
+
 model BackfillRun {
-  id              Int      @id @default(autoincrement())
-  startedAt       DateTime @default(now()) @map("started_at")
-  completedAt     DateTime? @map("completed_at")
-  startLedger     BigInt?  @map("start_ledger")
-  endLedger       BigInt?  @map("end_ledger")
-  eventsProcessed Int      @default(0) @map("events_processed")
-  eventsMatched   Int      @default(0) @map("events_matched")
-  eventsSkipped   Int      @default(0) @map("events_skipped")
-  eventsFailed    Int      @default(0) @map("events_failed")
-  status          String   @default("running")
-  errorMessage    String?  @map("error_message")
-  createdAt       DateTime @default(now()) @map("created_at")
-  
+  id              Int               @id @default(autoincrement())
+  contractId      String            @map("contract_id")
+  startedAt       DateTime          @default(now()) @map("started_at")
+  completedAt     DateTime?         @map("completed_at")
+  startLedger     BigInt            @map("start_ledger")
+  endLedger       BigInt            @map("end_ledger")
+  lastCheckpointLedger BigInt?      @map("last_checkpoint_ledger")
+  lastCheckpointCursor String?      @map("last_checkpoint_cursor")
+  lastCheckpointAt DateTime?        @map("last_checkpoint_at")
+  eventsProcessed Int               @default(0) @map("events_processed")
+  eventsMatched   Int               @default(0) @map("events_matched")
+  eventsSkipped   Int               @default(0) @map("events_skipped")
+  eventsFailed    Int               @default(0) @map("events_failed")
+  status          BackfillRunStatus @default(pending)
+  cancelledAt     DateTime?         @map("cancelled_at")
+  cancelledBy     String?           @map("cancelled_by")
+  cancellationNote String?          @map("cancellation_note")
+  errorMessage    String?           @map("error_message")
+  parentRunId     Int?              @map("parent_run_id")
+  parentRun       BackfillRun?      @relation("BackfillRunResume", fields: [parentRunId], references: [id])
+  resumedRuns     BackfillRun[]     @relation("BackfillRunResume")
+  checkpoints     BackfillCheckpoint[]
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@index([contractId, status])
+  @@index([contractId, startLedger, endLedger])
   @@map("backfill_runs")
+}
+
+model BackfillCheckpoint {
+  id                Int          @id @default(autoincrement())
+  runId             Int          @map("run_id")
+  run               BackfillRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  contractId        String       @map("contract_id")
+  checkpointLedger  BigInt       @map("checkpoint_ledger")
+  startLedgerRange  BigInt       @map("start_ledger_range")
+  endLedgerRange    BigInt       @map("end_ledger_range")
+  lastEventCursor   String?      @map("last_event_cursor")
+  lastEventId       String?      @map("last_event_id")
+  eventsInBatch     Int          @default(0) @map("events_in_batch")
+  eventsProcessedBefore Int      @default(0) @map("events_processed_before")
+  eventsMatchedBefore Int        @default(0) @map("events_matched_before")
+  eventsSkippedBefore Int        @default(0) @map("events_skipped_before")
+  eventsFailedBefore  Int        @default(0) @map("events_failed_before")
+  note              String?
+  createdAt         DateTime     @default(now()) @map("created_at")
+
+  @@index([runId])
+  @@index([contractId, checkpointLedger])
+  @@map("backfill_checkpoints")
 }
 
 model ProcessedEvent {
@@ -301,7 +423,7 @@ model PaymentReview {
   assetIssuer     String?  @map("asset_issuer")
   payer           String?
   originalMemo    String?  @map("original_memo")
-  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid'
+  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid', 'asset_mismatch'
   status          String   @default("pending") // 'pending', 'resolved', 'ignored'
   resolutionNote  String?  @map("resolution_note")
   resolvedAt      DateTime? @map("resolved_at")
@@ -311,4 +433,97 @@ model PaymentReview {
   @@index([merchantId])
   @@index([status])
   @@map("payment_reviews")
+}
+
+// Recurring billing: merchant-defined rules that generate invoices on a
+// schedule. Lives on the same Prisma persistence layer as the rest of the
+// app (previously a disconnected TypeORM entity that was never wired in).
+enum RecurringFrequency {
+  WEEKLY
+  MONTHLY
+}
+
+enum RecurringScheduleStatus {
+  active
+  paused
+  cancelled
+}
+
+model RecurringSchedule {
+  id              String                   @id @default(uuid())
+  merchantId      String                   @map("merchant_id")
+  merchant        Merchant                 @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customerId      String                   @map("customer_id")
+  customer        Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdByUserId String                   @map("created_by_user_id")
+  createdByUser   User                     @relation(fields: [createdByUserId], references: [id], onDelete: Restrict)
+  amount          Decimal                  @db.Decimal(18, 7)
+  assetCode       String                   @map("asset_code")
+  assetIssuer     String?                  @map("asset_issuer")
+  description     String?
+  frequency       RecurringFrequency
+  status          RecurringScheduleStatus  @default(active)
+  nextRunDate     DateTime                 @map("next_run_date")
+  lastGeneratedAt DateTime?                @map("last_generated_at")
+  createdAt       DateTime                 @default(now()) @map("created_at")
+  updatedAt       DateTime                 @updatedAt @map("updated_at")
+
+  runs RecurringInvoiceRun[]
+
+  @@index([merchantId])
+  @@index([status, nextRunDate])
+  @@map("recurring_schedules")
+}
+
+// One row per generated cycle. The unique (scheduleId, periodKey) constraint
+// prevents a schedule from generating two invoices for the same period,
+// even under concurrent cron ticks or a retried run.
+model RecurringInvoiceRun {
+  id         String            @id @default(uuid())
+  scheduleId String            @map("schedule_id")
+  schedule   RecurringSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  periodKey  String            @map("period_key")
+  invoiceId  String?           @unique @map("invoice_id")
+  invoice    Invoice?          @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt  DateTime          @default(now()) @map("created_at")
+
+  @@unique([scheduleId, periodKey])
+  @@map("recurring_invoice_runs")
+}
+
+model PushNotification {
+  id               String                       @id @default(uuid())
+  userId           String                       @map("user_id")
+  user             User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  merchantId       String                       @map("merchant_id")
+  merchant         Merchant                     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  pushToken        String                       @map("push_token")
+  eventType        String                       @map("event_type")
+  title            String
+  body             String
+  payload          Json?
+  status           PushNotificationStatus       @default(queued)
+  expoTicketId     String?                      @unique @map("expo_ticket_id")
+  ticketError      String?                      @map("ticket_error")
+  ticketErrorDetails Json?                      @map("ticket_error_details")
+  ticketCreatedAt  DateTime?                    @map("ticket_created_at")
+  receiptStatus    String?                      @map("receipt_status")
+  receiptMessage   String?                      @map("receipt_message")
+  receiptFailureReason PushNotificationFailureReason? @map("receipt_failure_reason")
+  receiptFetchedAt DateTime?                    @map("receipt_fetched_at")
+  receiptDetails   Json?                        @map("receipt_details")
+  retryCount       Int                          @default(0) @map("retry_count")
+  lastRetriedAt    DateTime?                    @map("last_retried_at")
+  removedTokenAt   DateTime?                    @map("removed_token_at")
+  removedTokenNote String?                      @map("removed_token_note")
+  createdAt        DateTime                     @default(now()) @map("created_at")
+  updatedAt        DateTime                     @updatedAt @map("updated_at")
+
+  @@index([merchantId])
+  @@index([userId])
+  @@index([status])
+  @@index([expoTicketId])
+  @@index([pushToken])
+  @@index([status, receiptFetchedAt])
+  @@map("push_notifications")
 }

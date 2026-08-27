@@ -1,4 +1,8 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+export interface QueuedRequestError {
+  message: string;
+  status?: number;
+  timestamp: number;
+}
 
 export interface QueuedRequest {
   id: string;
@@ -9,26 +13,63 @@ export interface QueuedRequest {
   timestamp: number;
   retryCount: number;
   maxRetries: number;
+  descriptorTag?: string;
+  lastError?: QueuedRequestError;
 }
+
+export interface ProcessQueueOptions {
+  onSuccess?: (request: QueuedRequest, response: any) => void;
+  onFailure?: (request: QueuedRequest, error: any) => void;
+  getAuthToken?: () => Promise<string | null> | string | null;
+}
+
+export interface StorageAdapter {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+  removeItem?(key: string): Promise<void>;
+}
+
+const memoryStore: Record<string, string> = {};
+const fallbackStorage: StorageAdapter = {
+  getItem: async (key: string) => memoryStore[key] ?? null,
+  setItem: async (key: string, value: string) => {
+    memoryStore[key] = value;
+  },
+  removeItem: async (key: string) => {
+    delete memoryStore[key];
+  },
+};
 
 const QUEUE_KEY = "@offline_queue";
 const MAX_RETRIES = 3;
 
-class OfflineQueueManager {
+export class OfflineQueueManager {
   private queue: QueuedRequest[] = [];
   private isProcessing = false;
   private listeners: (() => void)[] = [];
+  private storage: StorageAdapter;
 
-  constructor() {
+  constructor(customStorage?: StorageAdapter) {
+    if (customStorage) {
+      this.storage = customStorage;
+    } else {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const asyncStorage = require("@react-native-async-storage/async-storage");
+        this.storage = asyncStorage.default ?? asyncStorage;
+      } catch {
+        this.storage = fallbackStorage;
+      }
+    }
     void this.loadQueue();
   }
 
   /**
    * Load the queue from persistent storage
    */
-  private async loadQueue(): Promise<void> {
+  async loadQueue(): Promise<void> {
     try {
-      const stored = await AsyncStorage.getItem(QUEUE_KEY);
+      const stored = await this.storage.getItem(QUEUE_KEY);
       if (stored) {
         this.queue = JSON.parse(stored);
         this.queue = this.queue.filter(
@@ -46,21 +87,26 @@ class OfflineQueueManager {
    */
   private async saveQueue(): Promise<void> {
     try {
-      await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(this.queue));
+      await this.storage.setItem(QUEUE_KEY, JSON.stringify(this.queue));
     } catch (error) {
       console.error("Failed to save offline queue:", error);
     }
   }
 
   /**
-   * Add a request to the offline queue
+   * Add a request to the offline queue with React Native-safe descriptors
    */
   async enqueue(
     url: string,
-    method: QueuedRequest["method"],
+    method: QueuedRequest["method"] = "POST",
     data?: any,
-    headers?: Record<string, string>
+    headers?: Record<string, string>,
+    descriptorTag?: string
   ): Promise<string> {
+    if (!url || typeof url !== "string") {
+      throw new Error("Cannot enqueue request: URL must be a valid non-empty string");
+    }
+
     const id = Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
     const request: QueuedRequest = {
       id,
@@ -71,6 +117,7 @@ class OfflineQueueManager {
       timestamp: Date.now(),
       retryCount: 0,
       maxRetries: MAX_RETRIES,
+      ...(descriptorTag !== undefined ? { descriptorTag } : {}),
     };
 
     this.queue.push(request);
@@ -116,28 +163,63 @@ class OfflineQueueManager {
   }
 
   /**
-   * Process the queue - retry all queued requests
+   * Process the queue - replay all queued requests with updated auth context
    */
   async processQueue(
-    onSuccess?: (request: QueuedRequest, response: any) => void,
-    onFailure?: (request: QueuedRequest, error: any) => void
+    optionsOrOnSuccess?:
+      | ProcessQueueOptions
+      | ((request: QueuedRequest, response?: any) => void),
+    onFailure?: (request: QueuedRequest, error: any) => void,
   ): Promise<void> {
     if (this.isProcessing || this.queue.length === 0) return;
     this.isProcessing = true;
 
+    const options: ProcessQueueOptions =
+      typeof optionsOrOnSuccess === "function"
+        ? { onSuccess: optionsOrOnSuccess, onFailure: onFailure ?? (() => undefined) }
+        : optionsOrOnSuccess ?? {};
+
+    const { onSuccess, onFailure: failureHandler, getAuthToken } = options;
+
+    let dynamicToken: string | null = null;
+    if (getAuthToken) {
+      try {
+        dynamicToken = await getAuthToken();
+      } catch (err) {
+        console.warn("Failed to retrieve dynamic auth token for offline replay:", err);
+      }
+    }
+
     const toProcess = [...this.queue];
     for (const request of toProcess) {
       try {
-        // Skip if already processed or too many retries
         if (request.retryCount >= request.maxRetries) {
           continue;
         }
+
+        // Apply updated auth token if available and requested
+        if (dynamicToken) {
+          request.headers = {
+            ...request.headers,
+            Authorization: `Bearer ${dynamicToken}`,
+          };
+        }
+
         const response = await this.processRequest(request);
         onSuccess?.(request, response);
         await this.dequeue(request.id);
-      } catch (error) {
+      } catch (err) {
         request.retryCount += 1;
+        const error = err as Error;
+
+        request.lastError = {
+          message: error.message || "Unknown replay network error",
+          status: (error as any).status,
+          timestamp: Date.now(),
+        };
+
         if (request.retryCount >= request.maxRetries) {
+          failureHandler?.(request, error);
           onFailure?.(request, error);
           await this.dequeue(request.id);
         } else {
@@ -153,8 +235,7 @@ class OfflineQueueManager {
 
   private async processRequest(request: QueuedRequest): Promise<any> {
     const { url, method, data, headers } = request;
-    
-    // Build fetch options with proper handling of body
+
     const fetchOptions: RequestInit = {
       method,
       headers: {
@@ -163,7 +244,6 @@ class OfflineQueueManager {
       },
     };
 
-    // Only add body for methods that support it
     if (data && method !== "GET" && method !== "DELETE") {
       fetchOptions.body = JSON.stringify(data);
     }
@@ -171,15 +251,16 @@ class OfflineQueueManager {
     const response = await fetch(url, fetchOptions);
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      const err: any = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      err.status = response.status;
+      throw err;
     }
-    
-    // Handle empty responses
+
     const text = await response.text();
     if (!text) {
       return null;
     }
-    
+
     try {
       return JSON.parse(text);
     } catch {

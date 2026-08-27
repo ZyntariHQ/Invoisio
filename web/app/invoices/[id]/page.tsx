@@ -5,9 +5,10 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState, useCallback, useMemo } from 'react';
 import { Copy } from 'lucide-react';
 import { generatePaymentUri, openPaymentWallet, getWalletInfo } from '@/lib/sep0007';
-import { usePollInvoiceStatus } from '@/hooks/use-poll-invoice-status';
+import { useInvoiceLiveStatus } from '@/hooks/use-invoice-live-status';
 import { apiClient } from '@/lib/api-client';
 import { RequireAuth } from '@/components/require-auth';
+import WalletFallbackSheet from '@/components/wallet-fallback-sheet';
 
 interface Invoice {
   id: string;
@@ -48,7 +49,7 @@ function InvoiceDetailContent() {
 
   const [walletInfo] = useState<WalletInfo | null>(getWalletInfo());
   const [paymentInProgress, setPaymentInProgress] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [fallbackOpen, setFallbackOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const handleCopyToClipboard = useCallback(async (text: string, field: string) => {
@@ -74,17 +75,22 @@ function InvoiceDetailContent() {
     });
   }, []);
 
-  // Fetch invoice function for polling
+  // Fetch invoice function for live status updates
   const fetchInvoice = useCallback(async (id: string) => {
     const response = await apiClient.get<Invoice>(`/invoices/${id}`);
     return response.data;
   }, []);
 
-  // Use polling hook for status updates
-  const { invoice, isLoading, error: pollError, lastUpdated, refreshStatus } = usePollInvoiceStatus(
-    invoiceId,
-    fetchInvoice,
-  );
+  // Realtime-first status updates via the backend SSE stream, with
+  // interval polling as a fallback for degraded connectivity.
+  const {
+    invoice,
+    isLoading,
+    error: pollError,
+    lastUpdated,
+    refreshStatus,
+    isLive,
+  } = useInvoiceLiveStatus<Invoice>(invoiceId, fetchInvoice);
 
   const statusTimeline = useMemo<TimelineStep[]>(() => {
     if (!invoice) return [] as TimelineStep[];
@@ -134,34 +140,32 @@ function InvoiceDetailContent() {
     return timeline;
   }, [invoice, lastUpdated]);
 
+  // Single source of truth for the SEP-0007 payment URI: used for direct
+  // wallet handoff and the wallet fallback share sheet.
+  const paymentUri = useMemo(() => {
+    if (!invoice) return '';
+    return generatePaymentUri({
+      destination: invoice.destination_address,
+      amount: invoice.amount.toString(),
+      assetCode: invoice.asset,
+      assetIssuer: invoice.asset_issuer,
+      memo: invoice.memo,
+      memoType: 'id',
+    });
+  }, [invoice]);
+
   const handlePayClick = useCallback(async () => {
     if (!invoice || paymentInProgress) return;
 
     try {
       setPaymentInProgress(true);
-      setPaymentError(null);
-
-      // Generate SEP-0007 payment URI
-      const paymentUri = generatePaymentUri({
-        destination: invoice.destination_address,
-        amount: invoice.amount.toString(),
-        assetCode: invoice.asset,
-        assetIssuer: invoice.asset_issuer,
-        memo: invoice.memo,
-        memoType: 'id',
-      });
-
-      // Open wallet
       await openPaymentWallet(paymentUri);
-
-      // UI feedback that payment is in progress
-      setPaymentInProgress(true);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setPaymentError(message);
+    } catch {
+      // Direct handoff failed; offer share/copy so the journey can continue.
       setPaymentInProgress(false);
+      setFallbackOpen(true);
     }
-  }, [invoice, paymentInProgress]);
+  }, [invoice, paymentInProgress, paymentUri]);
 
   const handleDuplicateInvoice = async () => {
     try {
@@ -294,6 +298,13 @@ function InvoiceDetailContent() {
                 <p className="text-sm font-medium text-blue-900">
                   ⏳ Waiting for payment... Check your wallet for confirmation.
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 text-sm font-medium text-blue-700 underline hover:text-blue-900"
+                >
+                  Wallet didn&apos;t open? Share or copy the payment request
+                </button>
               </div>
             )}
 
@@ -311,18 +322,6 @@ function InvoiceDetailContent() {
                     Transaction: <code className="font-mono">{invoice.tx_hash}</code>
                   </p>
                 )}
-              </div>
-            )}
-
-            {paymentError && (
-              <div 
-                className="mb-6 rounded-md bg-red-50 p-4"
-                role="alert"
-                aria-live="assertive"
-              >
-                <p className="text-sm font-medium text-red-900">
-                  Error: {paymentError}
-                </p>
               </div>
             )}
 
@@ -347,6 +346,13 @@ function InvoiceDetailContent() {
                 <p className="text-sm font-medium text-amber-900">
                   ⚠️ {walletInfo?.message || 'No wallet detected'}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setFallbackOpen(true)}
+                  className="mt-3 w-full rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Pay another way
+                </button>
               </div>
             )}
 
@@ -455,8 +461,16 @@ function InvoiceDetailContent() {
             <div className="mb-8 rounded-lg border border-slate-200 bg-slate-50 p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
                 <p className="text-xs font-medium uppercase tracking-wide text-slate-700">Status Timeline</p>
-                <span className="text-xs text-slate-500">
-                  {lastUpdated ? `Last refreshed ${formatDateTime(lastUpdated)}` : 'No status timestamp available'}
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-500">
+                  <span
+                    aria-hidden="true"
+                    className={`h-2 w-2 rounded-full ${isLive ? 'animate-pulse bg-emerald-500' : 'bg-slate-400'}`}
+                  />
+                  {isLive
+                    ? 'Live updates active'
+                    : lastUpdated
+                      ? `Last refreshed ${formatDateTime(lastUpdated)}`
+                      : 'Connecting to live updates…'}
                 </span>
               </div>
               <div className="space-y-4">
@@ -482,7 +496,7 @@ function InvoiceDetailContent() {
 
             {/* Status Info */}
             {lastUpdated && (
-              <div className="mb-6 text-xs text-gray-500">
+              <div className="mb-6 text-xs text-gray-500 print:hidden">
                 Last updated: {new Date(lastUpdated).toLocaleTimeString()}
               </div>
             )}
@@ -522,21 +536,31 @@ function InvoiceDetailContent() {
               </button>
 
               {isPaid && (
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  aria-label="Print invoice"
-                  className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  🖨️ Print
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => router.push(`/receipt/${invoice.id}`)}
+                    aria-label="Open payment receipt"
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-center font-medium text-emerald-700 hover:bg-emerald-100"
+                  >
+                    🧾 View Receipt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    aria-label="Print invoice"
+                    className="rounded-md border border-gray-300 px-4 py-3 text-center font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    🖨️ Print
+                  </button>
+                </>
               )}
             </div>
           </div>
         </div>
 
         {/* Footer Help Text */}
-        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600">
+        <div className="mt-8 rounded-md bg-gray-100 p-4 text-center text-sm text-gray-600 print:hidden">
           <p>
             {isPending && walletInfo?.hasWallet
               ? 'Click "Pay Invoice" to open your Stellar wallet and send payment.'
@@ -546,6 +570,18 @@ function InvoiceDetailContent() {
           </p>
         </div>
       </div>
+
+      <WalletFallbackSheet
+        open={fallbackOpen}
+        onClose={() => setFallbackOpen(false)}
+        paymentUri={paymentUri}
+        invoiceNumber={invoice.invoiceNumber}
+        amountLabel={`${invoice.amount} ${invoice.asset}`}
+        onRetry={() => {
+          setFallbackOpen(false);
+          void handlePayClick();
+        }}
+      />
     </div>
   );
 }

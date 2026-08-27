@@ -1,5 +1,5 @@
 import { xdr } from '@stellar/stellar-sdk';
-import { PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
+import { ContractConfig, PaymentHistoryPage, PaymentRecord, SorobanContractError } from './types';
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**
@@ -9,10 +9,12 @@ export declare function encodeAddress(address: string): xdr.ScVal;
  */
 export declare function encodeI128(value: bigint): xdr.ScVal;
 export declare function encodeU32(value: number): xdr.ScVal;
+export declare function encodeBool(value: boolean): xdr.ScVal;
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
- * The Rust struct fields are snake_case: invoice_id, payer, asset, amount, timestamp.
+ * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,
+ * timestamp, settlement_ref.
  * Time:  O(1) — fixed number of fields.
  * Space: O(1) — fixed-size output struct.
  */
@@ -22,8 +24,22 @@ export declare function decodePaymentRecord(scVal: xdr.ScVal): PaymentRecord;
  */
 export declare function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage;
 /**
+ * Decode the stable `config()` response returned by the contract.
+ *
+ * Rust fields are snake_case:
+ * - admin
+ * - pending_admin
+ * - initialized
+ * - version.contract_version
+ * - version.storage_schema_version
+ * - allowlist_mode.native_allowed
+ * - allowlist_mode.requires_token_allowlist
+ */
+export declare function decodeContractConfig(scVal: xdr.ScVal): ContractConfig;
+/**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
- * Returns code `Unknown` (-1) when the numeric code is not in the known set.
+ * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code
+ * `Unknown` (-1) when the numeric code is not in the known set.
  */
 export declare function parseContractError(errorString: string): SorobanContractError;
 //# sourceMappingURL=codec.d.ts.map

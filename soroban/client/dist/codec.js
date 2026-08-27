@@ -4,8 +4,10 @@ exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
+exports.encodeBool = encodeBool;
 exports.decodePaymentRecord = decodePaymentRecord;
 exports.decodePaymentHistoryPage = decodePaymentHistoryPage;
+exports.decodeContractConfig = decodeContractConfig;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
@@ -26,6 +28,9 @@ function encodeI128(value) {
 }
 function encodeU32(value) {
     return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'u32' });
+}
+function encodeBool(value) {
+    return (0, stellar_sdk_1.nativeToScVal)(value, { type: 'bool' });
 }
 // ─── Decoders (XDR ScVal → TypeScript) ───────────────────────────────────────
 /**
@@ -71,12 +76,14 @@ function decodePaymentRecordFromNative(raw) {
         asset: decodeAsset(raw['asset']),
         amount: BigInt(raw['amount']),
         timestamp: BigInt(raw['timestamp']),
+        settlementRef: String(raw['settlement_ref']),
     };
 }
 /**
  * Decode a `PaymentRecord` ScVal returned by `get_payment()`.
  *
- * The Rust struct fields are snake_case: invoice_id, payer, asset, amount, timestamp.
+ * The Rust struct fields are snake_case: invoice_id, payer, asset, amount,
+ * timestamp, settlement_ref.
  * Time:  O(1) — fixed number of fields.
  * Space: O(1) — fixed-size output struct.
  */
@@ -100,6 +107,7 @@ function decodePaymentHistoryPage(scVal) {
  *
  * Rust fields are snake_case:
  * - admin
+ * - pending_admin
  * - initialized
  * - version.contract_version
  * - version.storage_schema_version
@@ -112,6 +120,9 @@ function decodeContractConfig(scVal) {
     const allowlistMode = raw['allowlist_mode'];
     return {
         admin: raw['admin'] === null || raw['admin'] === undefined ? null : String(raw['admin']),
+        pendingAdmin: raw['pending_admin'] === null || raw['pending_admin'] === undefined
+            ? null
+            : String(raw['pending_admin']),
         initialized: Boolean(raw['initialized']),
         version: {
             contractVersion: Number(version['contract_version']),
@@ -121,6 +132,7 @@ function decodeContractConfig(scVal) {
             nativeAllowed: Boolean(allowlistMode['native_allowed']),
             requiresTokenAllowlist: Boolean(allowlistMode['requires_token_allowlist']),
         },
+        paused: Boolean(raw['paused']),
     };
 }
 // ─── Error parsing ────────────────────────────────────────────────────────────
@@ -132,15 +144,14 @@ function decodeContractConfig(scVal) {
 const CONTRACT_ERROR_RE = /Error\(Contract,\s*#(\d+)\)|contractError\((\d+)\)/;
 /**
  * Parse a Soroban simulation or host error string into a typed `SorobanContractError`.
- * Returns code `Unknown` (-1) when the numeric code is not in the known set.
+ * The numeric code is resolved against `CONTRACT_ERROR_MANIFEST`; returns code
+ * `Unknown` (-1) when the numeric code is not in the known set.
  */
 function parseContractError(errorString) {
     const match = CONTRACT_ERROR_RE.exec(errorString);
     // Group 1 = new SDK v14 format `Error(Contract, #N)`, group 2 = legacy `contractError(N)`
     const numericCode = match ? parseInt(match[1] ?? match[2], 10) : -1;
-    const code = numericCode in types_1.CONTRACT_ERROR_CODES
-        ? types_1.CONTRACT_ERROR_CODES[numericCode]
-        : 'Unknown';
+    const code = (0, types_1.getContractErrorCode)(numericCode);
     return new types_1.SorobanContractError(code, numericCode, `Soroban contract error: ${code} (code=${numericCode})`);
 }
 //# sourceMappingURL=codec.js.map

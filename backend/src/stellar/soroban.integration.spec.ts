@@ -1,8 +1,10 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { SorobanContractError } from "@invoisio/soroban-client";
 import { HorizonWatcherService } from "./horizon-watcher.service";
-import { SorobanService } from "./soroban.service";
+import { SorobanService } from "../soroban/soroban.service";
 import { StellarService } from "./stellar.service";
 import { InvoicesService } from "../invoices/invoices.service";
+import { SorobanRpcException } from "./exceptions/stellar.exceptions";
 import { ConfigService } from "@nestjs/config";
 import { RequestContextService } from "../observability/request-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
@@ -63,8 +65,10 @@ describe("Soroban Integration", () => {
           provide: InvoicesService,
           useValue: {
             findByMemo: jest.fn(),
+            applyHorizonPayment: jest.fn(),
             markAsPaid: jest.fn(),
             updateSorobanMetadata: jest.fn(),
+            recordAnchoringFailure: jest.fn().mockResolvedValue(undefined),
           },
         },
         {
@@ -101,12 +105,9 @@ describe("Soroban Integration", () => {
 
   describe("Payment flow with Soroban anchoring", () => {
     it("should anchor payment to Soroban after Horizon confirmation", async () => {
-      jest
-        .spyOn(invoicesService, "findByMemo")
-        .mockResolvedValue(mockInvoice as any);
-      jest
-        .spyOn(invoicesService, "markAsPaid")
-        .mockResolvedValue(mockInvoice as any);
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
       jest.spyOn(sorobanService, "recordPayment").mockResolvedValue({
         txHash: "soroban-tx-hash-xyz",
         contractId: "CONTRACT_ID_123",
@@ -122,10 +123,15 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(invoicesService.markAsPaid).toHaveBeenCalledWith(
-        mockInvoice.id,
-        "horizon-tx-hash-abc",
-      );
+      expect(invoicesService.applyHorizonPayment).toHaveBeenCalledWith({
+        txHash: "horizon-tx-hash-abc",
+        memo: "1234567890",
+        payer: mockPaymentRecord.from,
+        amount: "10.0",
+        asset_code: "XLM",
+        asset_issuer: "",
+        pagingToken: undefined,
+      });
 
       expect(sorobanService.recordPayment).toHaveBeenCalledWith({
         invoiceId: mockInvoice.memo,
@@ -133,6 +139,7 @@ describe("Soroban Integration", () => {
         assetCode: "XLM",
         assetIssuer: "",
         amount: "100000000",
+        settlementRef: mockPaymentRecord.transaction_hash,
       });
 
       expect(invoicesService.updateSorobanMetadata).toHaveBeenCalledWith(
@@ -142,13 +149,12 @@ describe("Soroban Integration", () => {
       );
     });
 
-    it("should continue processing even if Soroban anchoring fails", async () => {
-      jest
-        .spyOn(invoicesService, "findByMemo")
-        .mockResolvedValue(mockInvoice as any);
-      jest
-        .spyOn(invoicesService, "markAsPaid")
-        .mockResolvedValue(mockInvoice as any);
+    it("should continue processing when Soroban anchoring is not configured", async () => {
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
+      // null from recordPayment means "not configured", not "failed" — see
+      // SorobanService.recordPayment's doc comment.
       jest.spyOn(sorobanService, "recordPayment").mockResolvedValue(null);
 
       await (horizonWatcher as any).processPayment(
@@ -158,11 +164,71 @@ describe("Soroban Integration", () => {
 
       await new Promise((resolve) => setTimeout(resolve, 100));
 
-      expect(invoicesService.markAsPaid).toHaveBeenCalled();
-
+      expect(invoicesService.applyHorizonPayment).toHaveBeenCalled();
       expect(sorobanService.recordPayment).toHaveBeenCalled();
+      expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
+      // Not configured is a no-op, not a failure — nothing should be
+      // recorded as a failed anchoring attempt.
+      expect(invoicesService.recordAnchoringFailure).not.toHaveBeenCalled();
+    });
+
+    it("should surface a permanent contract rejection instead of silently swallowing it", async () => {
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
+      jest
+        .spyOn(sorobanService, "recordPayment")
+        .mockRejectedValue(
+          new SorobanContractError(
+            "PaymentAlreadyRecorded",
+            3,
+            "Soroban contract error: PaymentAlreadyRecorded (code=3)",
+          ),
+        );
+
+      await (horizonWatcher as any).processPayment(
+        mockPaymentRecord,
+        "invoisio-",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
+      // The invoice is still marked paid on Horizon confirmation —
+      // anchoring is a downstream concern, not a payment-confirmation gate.
+      expect(invoicesService.applyHorizonPayment).toHaveBeenCalled();
+      expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
+
+      // But the failure itself must be visible and actionable, not silent.
+      expect(invoicesService.recordAnchoringFailure).toHaveBeenCalledWith(
+        mockInvoice.id,
+        "permanent",
+      );
+    });
+
+    it("should surface a transient RPC failure distinctly from a permanent rejection", async () => {
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...mockInvoice, status: "paid" },
+      } as any);
+      jest
+        .spyOn(sorobanService, "recordPayment")
+        .mockRejectedValue(
+          new SorobanRpcException(
+            "Soroban record_payment failed after 3 attempts: ECONNRESET",
+          ),
+        );
+
+      await (horizonWatcher as any).processPayment(
+        mockPaymentRecord,
+        "invoisio-",
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 100));
 
       expect(invoicesService.updateSorobanMetadata).not.toHaveBeenCalled();
+      expect(invoicesService.recordAnchoringFailure).toHaveBeenCalledWith(
+        mockInvoice.id,
+        "transient",
+      );
     });
 
     it("should handle USDC payment with issuer", async () => {
@@ -175,12 +241,9 @@ describe("Soroban Integration", () => {
 
       const usdcInvoice = { ...mockInvoice, asset_code: "USDC" };
 
-      jest
-        .spyOn(invoicesService, "findByMemo")
-        .mockResolvedValue(usdcInvoice as any);
-      jest
-        .spyOn(invoicesService, "markAsPaid")
-        .mockResolvedValue(usdcInvoice as any);
+      jest.spyOn(invoicesService, "applyHorizonPayment").mockResolvedValue({
+        invoice: { ...usdcInvoice, status: "paid" },
+      } as any);
       jest.spyOn(sorobanService, "recordPayment").mockResolvedValue({
         txHash: "soroban-usdc-tx",
         contractId: "CONTRACT_ID_123",

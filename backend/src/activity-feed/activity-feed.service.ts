@@ -1,9 +1,15 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   ActivityEventDto,
+  ActivityFeedQuery,
   PaginatedActivityEvents,
 } from "./dto/activity-event.dto";
+import {
+  ActivityCursor,
+  decodeActivityCursor,
+  encodeActivityCursor,
+} from "./activity-feed.cursor";
 
 @Injectable()
 export class ActivityFeedService {
@@ -45,48 +51,195 @@ export class ActivityFeedService {
 
   /**
    * Get paginated activity events for a merchant, newest first.
-   * Supports optional type filtering.
+   *
+   * Supports both offset pagination (`page` / `pageSize` / `limit`) and
+   * stable cursor-based pagination (`cursor` / `pageSize`), plus optional
+   * filtering by type, invoice identifier, and date range.
+   *
+   * When `cursor` is provided, results are keyed by (createdAt, id) so pages
+   * remain stable even as new events are inserted. Set `before: true` to page
+   * backwards from a cursor.
    */
   async findAll(
     merchantId: string,
-    page = 1,
-    pageSize = 20,
-    type?: string,
+    query: ActivityFeedQuery = {},
   ): Promise<PaginatedActivityEvents> {
-    const skip = (page - 1) * pageSize;
+    const pageSize = this.resolvePageSize(query);
 
-    const where: Record<string, unknown> = { merchantId };
-    if (type && type !== "all") {
-      where["type"] = type;
+    if (query.cursor) {
+      return this.findByCursor(merchantId, query, pageSize);
     }
+
+    return this.findByOffset(merchantId, query, pageSize);
+  }
+
+  private async findByOffset(
+    merchantId: string,
+    query: ActivityFeedQuery,
+    pageSize: number,
+  ): Promise<PaginatedActivityEvents> {
+    const page = Math.max(1, query.page ?? 1);
+    const skip = (page - 1) * pageSize;
+    const where = this.buildWhere(merchantId, query);
 
     const [items, total] = await Promise.all([
       this.prisma.activityEvent.findMany({
         where,
         skip,
         take: pageSize,
-        orderBy: { createdAt: "desc" },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       }),
       this.prisma.activityEvent.count({ where }),
     ]);
 
     return {
-      items: items.map(
-        (event) =>
-          new ActivityEventDto({
-            id: event.id,
-            invoiceId: event.invoiceId,
-            type: event.type,
-            description: event.description,
-            metadata: event.metadata as Record<string, unknown> | null,
-            createdAt: event.createdAt,
-          }),
-      ),
+      items: items.map((event) => this.toDto(event)),
       total,
       page,
       pageSize,
       hasMore: skip + items.length < total,
+      nextCursor:
+        items.length > 0
+          ? encodeActivityCursor(
+              items[items.length - 1].createdAt,
+              items[items.length - 1].id,
+            )
+          : null,
+      prevCursor:
+        items.length > 0
+          ? encodeActivityCursor(items[0].createdAt, items[0].id)
+          : null,
     };
+  }
+
+  private async findByCursor(
+    merchantId: string,
+    query: ActivityFeedQuery,
+    pageSize: number,
+  ): Promise<PaginatedActivityEvents> {
+    const cursor: ActivityCursor = decodeActivityCursor(query.cursor!);
+    const baseWhere = this.buildWhere(merchantId, query);
+    const before = query.before === true;
+
+    const cursorCondition = before
+      ? {
+          OR: [
+            { createdAt: { gt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { gt: cursor.id } },
+          ],
+        }
+      : {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            { createdAt: cursor.createdAt, id: { lt: cursor.id } },
+          ],
+        };
+
+    const where = { AND: [baseWhere, cursorCondition] };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.activityEvent.findMany({
+        where,
+        take: pageSize + 1,
+        orderBy: before
+          ? [{ createdAt: "asc" }, { id: "asc" }]
+          : [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+      this.prisma.activityEvent.count({ where: baseWhere }),
+    ]);
+
+    const hasMore = rows.length > pageSize;
+    const items = before
+      ? rows.slice(0, pageSize).reverse()
+      : rows.slice(0, pageSize);
+
+    return {
+      items: items.map((event) => this.toDto(event)),
+      total,
+      page: 1,
+      pageSize,
+      hasMore,
+      nextCursor:
+        items.length > 0
+          ? encodeActivityCursor(
+              items[items.length - 1].createdAt,
+              items[items.length - 1].id,
+            )
+          : null,
+      prevCursor:
+        items.length > 0
+          ? encodeActivityCursor(items[0].createdAt, items[0].id)
+          : null,
+    };
+  }
+
+  private buildWhere(
+    merchantId: string,
+    query: ActivityFeedQuery,
+  ): Record<string, unknown> {
+    const where: Record<string, unknown> = { merchantId };
+
+    if (query.type && query.type !== "all") {
+      where["type"] = query.type;
+    }
+
+    if (query.invoiceId) {
+      where["invoiceId"] = query.invoiceId;
+    }
+
+    if (query.startDate || query.endDate) {
+      where["createdAt"] = {};
+      if (query.startDate) {
+        const start = new Date(query.startDate);
+        if (Number.isNaN(start.getTime())) {
+          throw new BadRequestException("Invalid startDate");
+        }
+        (where["createdAt"] as Record<string, unknown>)["gte"] = start;
+      }
+      if (query.endDate) {
+        const end = new Date(query.endDate);
+        if (Number.isNaN(end.getTime())) {
+          throw new BadRequestException("Invalid endDate");
+        }
+        (where["createdAt"] as Record<string, unknown>)["lte"] = end;
+      }
+      if (
+        query.startDate &&
+        query.endDate &&
+        new Date(query.startDate) > new Date(query.endDate)
+      ) {
+        throw new BadRequestException("startDate must be before endDate");
+      }
+    }
+
+    return where;
+  }
+
+  private resolvePageSize(query: ActivityFeedQuery): number {
+    const raw = query.pageSize ?? query.limit ?? 20;
+    const size = Number(raw);
+    if (!Number.isInteger(size) || size < 1) {
+      throw new BadRequestException("pageSize must be a positive integer");
+    }
+    return Math.min(size, 100);
+  }
+
+  private toDto(event: {
+    id: string;
+    invoiceId: string | null;
+    type: string;
+    description: string;
+    metadata: unknown;
+    createdAt: Date;
+  }): ActivityEventDto {
+    return new ActivityEventDto({
+      id: event.id,
+      invoiceId: event.invoiceId,
+      type: event.type,
+      description: event.description,
+      metadata: event.metadata as Record<string, unknown> | null,
+      createdAt: event.createdAt,
+    });
   }
 
   /**

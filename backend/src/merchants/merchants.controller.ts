@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Put } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Put, UseGuards } from "@nestjs/common";
 import { Auth, CurrentUser } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import {
@@ -8,6 +8,9 @@ import {
 import { MerchantProfile } from "./entities/merchant-profile.entity";
 import { MerchantsService } from "./merchants.service";
 import { PrismaService } from "../prisma/prisma.service";
+import { Roles } from "../common/decorators/roles.decorator";
+import { MerchantRole } from "../common/enums/merchant-role.enum";
+import { MerchantRolesGuard } from "../common/guards/merchant-roles.guard";
 
 @Controller("merchant/profile")
 export class MerchantsController {
@@ -24,7 +27,13 @@ export class MerchantsController {
     );
   }
 
-  @Auth()
+  /**
+   * PUT /merchant/profile
+   * Creates or replaces the merchant profile.
+   * Restricted to merchant OWNERs and ADMINs.
+   */
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  @UseGuards(MerchantRolesGuard)
   @Put()
   upsertProfile(
     @CurrentUser() user: User,
@@ -35,7 +44,13 @@ export class MerchantsController {
     );
   }
 
-  @Auth()
+  /**
+   * PATCH /merchant/profile
+   * Updates the merchant profile.
+   * Restricted to merchant OWNERs and ADMINs.
+   */
+  @Roles(MerchantRole.OWNER, MerchantRole.ADMIN)
+  @UseGuards(MerchantRolesGuard)
   @Patch()
   updateProfile(
     @CurrentUser() user: User,

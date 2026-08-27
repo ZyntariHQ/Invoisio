@@ -42,12 +42,19 @@ export interface ContractVersionInfo {
 export interface ContractConfig {
   /** Admin Stellar account (G...) after initialization; `null` before. */
   readonly admin: string | null;
+  /**
+   * Address awaiting acceptance via `accept_admin` after `propose_admin`, or
+   * `null` when no admin transfer is in flight.
+   */
+  readonly pendingAdmin: string | null;
   /** Whether `initialize(admin)` has already completed. */
   readonly initialized: boolean;
   /** Version metadata describing the current stored state. */
   readonly version: ContractVersionInfo;
   /** High-level asset allowlist policy. */
   readonly allowlistMode: AllowlistMode;
+  /** Whether the contract is currently paused (writes disabled). */
+  readonly paused: boolean;
 }
 
 /** On-chain record stored for each invoice payment. */
@@ -64,6 +71,12 @@ export interface PaymentRecord {
   readonly amount: bigint;
   /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
+  /**
+   * Normalised settlement reference (hash or reconciliation ID) used for
+   * backend deduplication and idempotent settlement reconciliation.
+   * Stores the value passed to `record_payment`.
+   */
+  readonly settlementRef: string;
 }
 
 /** Bounded page of payment history returned by the contract. */
@@ -75,22 +88,27 @@ export interface PaymentHistoryPage {
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 
-/** Numeric codes matching the Rust `ContractError` enum. */
-export const CONTRACT_ERROR_CODES = {
-  1: 'AlreadyInitialized',
-  2: 'NotInitialized',
-  3: 'PaymentAlreadyRecorded',
-  4: 'PaymentNotFound',
-  5: 'InvalidAmount',
-  6: 'InvalidInvoiceId',
-  7: 'InvalidAsset',
-  8: 'AssetNotAllowed',
-  9: 'Unauthorized',
-} as const;
+// The typed contract error manifest (codes + meanings) lives in
+// `./error-manifest` and is re-exported here so existing imports keep working.
+import {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_ERROR_MANIFEST,
+  ContractErrorCode,
+  ContractErrorManifestEntry,
+  ContractErrorName,
+  getContractError,
+  getContractErrorCode,
+} from './error-manifest';
 
-export type ContractErrorCode =
-  | (typeof CONTRACT_ERROR_CODES)[keyof typeof CONTRACT_ERROR_CODES]
-  | 'Unknown';
+export {
+  CONTRACT_ERROR_CODES,
+  CONTRACT_ERROR_MANIFEST,
+  ContractErrorCode,
+  ContractErrorManifestEntry,
+  ContractErrorName,
+  getContractError,
+  getContractErrorCode,
+};
 
 export class SorobanContractError extends Error {
   override readonly name = 'SorobanContractError';
@@ -120,7 +138,8 @@ export interface SorobanInvoiceClientConfig {
    */
   readonly sourcePublicKey?: string;
   /**
-   * Admin secret key (S...). Required for write operations: record_payment.
+   * Admin secret key (S...). Required for write operations: record_payment,
+   * propose_admin (current admin), and accept_admin (proposed admin).
    * Must be read from environment — never hard-code.
    */
   readonly signerSecretKey?: string;
@@ -139,6 +158,13 @@ export interface RecordPaymentParams {
   readonly assetIssuer: string;
   /** Amount in smallest denomination (must be > 0) */
   readonly amount: bigint;
+  /**
+   * Normalised settlement reference or hash for backend deduplication and
+   * idempotent reconciliation. Required — must be non-empty and at most
+   * 128 characters (the contract rejects longer values with
+   * `InvalidSettlementRef`).
+   */
+  readonly settlementRef: string;
 }
 
 /** Confirmed on-chain transaction result. */

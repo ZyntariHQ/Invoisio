@@ -7,7 +7,20 @@ import { setCachedInvoices, getCachedInvoices } from "./cache";
 import { offlineQueue } from "./offline-queue";
 import { useConnectivity } from "../hooks/use-connectivity";
 
-export type InvoiceStatus = "pending" | "paid" | "overdue" | "cancelled";
+export type InvoiceStatus =
+  | "pending"
+  | "paid"
+  | "partially_paid"
+  | "overdue"
+  | "cancelled"
+  | "draft";
+
+export interface PaymentRecord {
+  id: string;
+  amount: number;
+  txHash?: string;
+  createdAt?: string;
+}
 
 export interface Invoice {
   id: string;
@@ -16,6 +29,8 @@ export interface Invoice {
   clientEmail?: string;
   description?: string;
   amount: number;
+  amountPaid?: number;
+  amountDue?: number;
   asset?: string;
   asset_code?: string;
   asset_issuer?: string;
@@ -24,6 +39,8 @@ export interface Invoice {
   status: InvoiceStatus;
   destination?: string;
   destination_address?: string;
+  tx_hash?: string;
+  payments?: PaymentRecord[];
   createdAt: string;
   updatedAt?: string;
   dueDate?: string;

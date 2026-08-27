@@ -23,7 +23,7 @@ export function OnboardingShell({
       <div className="min-h-screen bg-gray-50 px-4 py-10 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-xl">
           <Link
-            href="/"
+            href="/dashboard"
             className="mb-6 inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700"
           >
             ← Back to dashboard

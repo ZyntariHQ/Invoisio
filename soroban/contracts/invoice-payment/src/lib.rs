@@ -4,6 +4,8 @@ use soroban_sdk::{contract, contractimpl, Address, Env, String};
 
 pub mod errors;
 pub mod events;
+pub mod migration;
+pub mod migration_helpers;
 pub mod storage;
 
 // Re-export the main types so `use super::*` in test.rs picks them up.
@@ -15,14 +17,16 @@ pub use storage::{
 };
 
 use events::{
+    emit_admin_transfer_accepted, emit_admin_transfer_cancelled, emit_admin_transfer_proposed,
     emit_asset_allowlisted, emit_asset_revoked, emit_native_allow_changed, emit_payment_recorded,
 };
 use storage::{
-    allow_asset, append_payment_history, bump_count, bump_history_count, current_contract_meta,
-    ensure_current_contract_meta, get_admin, get_contract_config, get_count, get_payment,
-    get_payment_history_page, get_state_contract_version, get_storage_schema_version, has_admin,
-    has_payment, is_asset_allowed, is_native_allowed, revoke_asset, set_admin, set_contract_meta,
-    set_native_allowed, set_payment,
+    allow_asset, append_payment_history, append_payment_log, bump_count, bump_history_count,
+    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_contract_config, get_count, get_payment, get_payment_history_page, get_pending_admin,
+    get_pending_admin_opt, get_state_contract_version, get_storage_schema_version, has_admin,
+    has_payment, has_pending_admin, is_asset_allowed, is_native_allowed, revoke_asset, set_admin,
+    set_contract_meta, set_native_allowed, set_payment, set_pending_admin,
 };
 
 // Contract
@@ -63,11 +67,15 @@ use storage::{
 /// - **Write methods**:
 ///   - [`record_payment`] requires the current admin to authorise the call
 ///     using `require_auth()`.
-///   - [`set_admin`] requires **both** the current admin and the new admin to
-///     authorise, ensuring the new admin explicitly consents to taking over.
+///   - [`propose_admin`] (current admin) + [`accept_admin`] (proposed admin)
+///     implement an explicit two-step handoff flow: the current admin proposes
+///     a successor and the proposed address must later accept before the role
+///     actually transfers. This replaces the old single-step `set_admin`,
+///     ensuring no admin change can happen without both parties acting.
 /// - **Read methods** (`get_payment`, `has_payment`, `payment_count`,
-///   `payment_history`, `contract_version`, `version_info`, `admin`) are
-///   permissionless, so any account can inspect on-chain payment state.
+///   `payment_history`, `contract_version`, `version_info`, `admin`,
+///   `pending_admin`) are permissionless, so any account can inspect on-chain
+///   payment state.
 ///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
@@ -85,7 +93,8 @@ impl InvoicePaymentContract {
     /// Initialise the contract and register the `admin`.
     ///
     /// Must be called **once** right after deployment. The `admin` is the only
-    /// account permitted to call [`record_payment`] and [`set_admin`].
+    /// account permitted to call [`record_payment`], [`propose_admin`] and the
+    /// other admin-gated write methods.
     ///
     /// Returns [`ContractError::AlreadyInitialized`] if called a second time.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
@@ -220,26 +229,32 @@ impl InvoicePaymentContract {
             return Err(ContractError::AssetNotAllowed);
         }
 
-        // 3. Amount guard: must be strictly positive and within i64::MAX.
+        // 4. Amount guard: must be strictly positive and within i64::MAX.
         if amount <= 0 || amount > i64::MAX as i128 {
             return Err(ContractError::InvalidAmount);
         }
 
-        // 5. Idempotency guard.
+        // 5. Idempotency guard: check invoice_id uniqueness.
         if has_payment(&env, &invoice_id) {
             return Err(ContractError::PaymentAlreadyRecorded);
         }
 
-        // 6. Build the asset enum based on parameters.
+        // 6. Settlement reference uniqueness guard.
+        //    The same settlement_ref cannot be used for multiple invoices.
+        if storage::is_settlement_ref_used(&env, &settlement_ref) {
+            return Err(ContractError::SettlementRefAlreadyUsed);
+        }
+
+        // 7. Build the asset enum based on parameters.
         let asset = if is_xlm {
             Asset::Native
         } else {
             Asset::Token(asset_code.clone(), asset_issuer.clone())
         };
 
-        // 7. Build and persist the record (also bumps persistent TTL).
+        // 8. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
-            invoice_id,
+            invoice_id: invoice_id.clone(),
             payer,
             asset,
             amount,
@@ -248,14 +263,21 @@ impl InvoicePaymentContract {
         };
         set_payment(&env, &record);
 
-        // 7. Increment running counter (also bumps instance TTL).
+        // Track the invoice ID in write order so migrations can enumerate
+        // every payment even if the history index is later corrupted.
+        append_payment_log(&env, &record.invoice_id);
+
+        // 9. Record the settlement reference as used (global uniqueness).
+        storage::record_settlement_ref(&env, &settlement_ref);
+
+        // 10. Increment running counter (also bumps instance TTL).
         bump_count(&env);
 
-        // 8. Append to deterministic history index for paged reads.
+        // 11. Append to deterministic history index for paged reads.
         append_payment_history(&env, &record);
         bump_history_count(&env);
 
-        // 9. Emit Soroban event — off-chain indexers subscribe to these topics.
+        // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
         emit_payment_recorded(
             &env,
             record.invoice_id,
@@ -322,23 +344,104 @@ impl InvoicePaymentContract {
         get_admin(&env)
     }
 
-    /// Transfer admin rights to `new_admin`.
+    /// Return the address currently proposed as the next admin, if any.
     ///
-    /// The **current admin** must authorise this call.
+    /// Permissionless read. Returns `None` when no [`propose_admin`] transfer
+    /// is in flight (either none was ever made or it was accepted/cleared).
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        get_pending_admin_opt(&env)
+    }
+
+    /// Propose `new_admin` as the next contract admin (step 1 of the two-step
+    /// handoff).
     ///
-    /// Returns [`ContractError::NotInitialized`] if the contract has not been
-    /// initialised yet.
-    pub fn set_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
+    /// Only the **current admin** may authorise this call. The proposal is
+    /// staged in instance storage but does **not** take effect until the
+    /// proposed address calls [`accept_admin`].
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::PendingAdminExists`] — a transfer is already pending
+    /// - [`ContractError::InvalidProposedAdmin`] — `new_admin` equals the
+    ///   current admin
+    ///
+    /// ## Events
+    /// Emits `AdminTransferProposed` on success.
+    pub fn propose_admin(env: Env, new_admin: Address) -> Result<(), ContractError> {
         let current = get_admin(&env)?;
-        // Both the current admin (authorising the transfer out) AND the new
-        // admin (consenting to receive the role) must sign this transaction.
-        // This prevents accidentally transferring to an address that can never
-        // produce a valid signature.
         current.require_auth();
-        new_admin.require_auth();
+        if has_pending_admin(&env) {
+            return Err(ContractError::PendingAdminExists);
+        }
+        if new_admin == current {
+            return Err(ContractError::InvalidProposedAdmin);
+        }
         // Backfill/update version metadata for in-place code upgrades.
         ensure_current_contract_meta(&env);
-        set_admin(&env, &new_admin);
+        set_pending_admin(&env, &new_admin);
+        emit_admin_transfer_proposed(&env, current, new_admin);
+        Ok(())
+    }
+
+    /// Accept a pending admin transfer and become the contract admin (step 2
+    /// of the two-step handoff).
+    ///
+    /// `caller` must be the address that was proposed by [`propose_admin`] and
+    /// must authorise the call. On success the role is transferred and the
+    /// pending proposal is cleared.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
+    /// - [`ContractError::Unauthorized`] — `caller` is not the proposed admin
+    ///
+    /// ## Events
+    /// Emits `AdminTransferAccepted` on success.
+    pub fn accept_admin(env: Env, caller: Address) -> Result<(), ContractError> {
+        // Ensure the contract is initialised first (mirrors the other admin
+        // methods) so misuse before setup returns NotInitialized, not a
+        // misleading NoPendingAdmin.
+        let previous = get_admin(&env)?;
+        let pending = get_pending_admin(&env)?;
+        caller.require_auth();
+        if caller != pending {
+            return Err(ContractError::Unauthorized);
+        }
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
+        set_admin(&env, &pending);
+        clear_pending_admin(&env);
+        emit_admin_transfer_accepted(&env, previous, pending);
+        Ok(())
+    }
+
+    /// Cancel a pending admin transfer proposal (recovery path for the
+    /// two-step handoff).
+    ///
+    /// The **current admin** must authorise this call. On success the pending
+    /// proposal is cleared, `pending_admin()` reads `None` again, the proposed
+    /// address can no longer claim the role via [`accept_admin`], and a new
+    /// proposal to a different address no longer fails with
+    /// [`ContractError::PendingAdminExists`].
+    ///
+    /// Overwriting a pending proposal directly from [`propose_admin`] is
+    /// deliberately not supported: cancellation must always be explicit so a
+    /// mistyped address cannot silently become an immediate irreversible
+    /// transfer.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::NoPendingAdmin`] — no proposal is pending
+    pub fn cancel_admin_transfer(env: Env) -> Result<(), ContractError> {
+        let current = get_admin(&env)?;
+        current.require_auth();
+
+        let pending = get_pending_admin(&env)?;
+
+        // Backfill/update version metadata for in-place code upgrades.
+        ensure_current_contract_meta(&env);
+        clear_pending_admin(&env);
+        emit_admin_transfer_cancelled(&env, current, pending);
         Ok(())
     }
 
@@ -397,6 +500,13 @@ impl InvoicePaymentContract {
     /// - `cursor` — zero-based index to start from (pass `0` for the first page).
     /// - `limit` — maximum records to return (capped internally at 25).
     ///
+    /// A missing history-index slot (corrupted or partially-rebuilt index)
+    /// is skipped, never treated as the end of the index: `next_cursor`
+    /// always advances past a hole, so callers looping on `has_more` cannot
+    /// get stuck repeating the same cursor. `PaymentHistoryPage.gaps_skipped`
+    /// reports how many slots were skipped this way, so recovery tooling can
+    /// detect corruption directly from a normal read.
+    ///
     /// Permissionless read — no auth required.
     pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
         get_payment_history_page(&env, cursor, limit)
@@ -407,6 +517,9 @@ impl InvoicePaymentContract {
     /// Scans the deterministic history index and filters by payer address.
     /// - `cursor` — history index to start scanning from.
     /// - `limit` — maximum records to return (capped at 25).
+    ///
+    /// A missing history-index slot is skipped like in `payment_history`;
+    /// see `PaymentHistoryPage.gaps_skipped`.
     ///
     /// Permissionless read — no auth required.
     pub fn payments_by_payer(
@@ -423,15 +536,18 @@ impl InvoicePaymentContract {
         let mut records = soroban_sdk::Vec::new(&env);
         let mut index = start;
         let mut collected: u32 = 0;
+        let mut gaps_skipped: u32 = 0;
 
         while index < total && collected < capped_limit {
             let key = DataKey::PaymentHistory(index);
             let record: Option<PaymentRecord> = env.storage().persistent().get(&key);
-            if let Some(rec) = record {
-                if rec.payer == payer {
+            match record {
+                Some(rec) if rec.payer == payer => {
                     records.push_back(rec);
                     collected += 1;
                 }
+                Some(_) => {}
+                None => gaps_skipped += 1,
             }
             index += 1;
         }
@@ -440,6 +556,7 @@ impl InvoicePaymentContract {
             records,
             next_cursor: index,
             has_more: index < total,
+            gaps_skipped,
         }
     }
 
@@ -488,6 +605,50 @@ impl InvoicePaymentContract {
     /// Return `true` if the contract is currently paused.
     pub fn is_paused(env: Env) -> bool {
         storage::is_paused(&env)
+    }
+
+    /// Rebuild the payment history index from existing records.
+    ///
+    /// This is a maintenance function that can be called by the admin to
+    /// rebuild the history index if it becomes corrupted or incomplete.
+    ///
+    /// ## Authorization
+    /// Only the contract admin can call this method.
+    ///
+    /// ## When to use
+    /// - After a storage upgrade that didn't properly rebuild indexes
+    /// - If the history index becomes inconsistent with the payment records
+    /// - As a recovery mechanism if the index is corrupted
+    ///
+    /// ## Errors
+    /// - `NotInitialized` if contract not initialized
+    /// - `Unauthorized` if caller is not admin
+    /// - `HistoryIndexRebuildFailed` if rebuild fails
+    pub fn rebuild_history_index(env: Env, admin: Address) -> Result<(), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+
+        // Ensure schema is current
+        if !crate::storage::is_schema_compatible(&env) {
+            return Err(ContractError::MigrationRequired);
+        }
+
+        // Rebuild the index
+        crate::migration::rebuild_payment_history_index(&env)
+    }
+
+    /// Get the consistency status of the history index.
+    ///
+    /// Returns a tuple (history_count, payment_count, is_consistent).
+    /// This is a diagnostic function for ops tooling.
+    pub fn history_index_status(env: Env) -> (u32, u32, bool) {
+        let history_count = crate::storage::get_history_count(&env);
+        let payment_count = crate::storage::get_payment_count(&env);
+        let is_consistent = history_count == payment_count;
+        (history_count, payment_count, is_consistent)
     }
 }
 

@@ -15,9 +15,16 @@ soroban/
 ├── deploy.sh                       # Deploy to testnet + initialize
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
-├── invoke-config.sh                # Query high-level contract config
+├── invoke-config.sh                # Query high-level contract config (raw)
 ├── invoke-has-payment.sh           # Check payment existence
 ├── invoke-payment-history.sh       # Page through payment history
+├── invoke-propose-admin.sh         # Step 1 of admin handoff: propose next admin
+├── invoke-accept-admin.sh          # Step 2 of admin handoff: accept and become admin
+│
+│   ── Read-only operational inspection ──
+├── invoke-inspect-config.sh        # [READ-ONLY] Inspect full contract config (human-readable)
+├── invoke-inspect-allowlist.sh     # [READ-ONLY] Inspect allowlist policy and settings
+├── invoke-is-paused.sh             # [READ-ONLY] Check if contract is currently paused
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
         ├── src/lib.rs              # Contract logic + inline docs
@@ -139,7 +146,7 @@ Network:     testnet
 ./invoke-record-payment.sh \
   invoisio-demo-001 \
   GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL \
-  XLM "" 10000000
+  XLM "" 10000000 settle-demo-001
 ```
 
 **Expected output:**
@@ -153,6 +160,7 @@ Payer:          GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
 Asset Code:     XLM
 Asset Issuer:   <native XLM>
 Amount:         10000000
+Settlement Ref: settle-demo-001
 Network:        testnet
 
 🚀 Invoking record_payment...
@@ -210,6 +218,7 @@ version metadata, and current allowlist policy:
 ```json
 {
   "admin": "GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL",
+  "pending_admin": null,
   "initialized": true,
   "version": {
     "contract_version": 1000000,
@@ -334,6 +343,7 @@ Retrieves a payment record from the contract.
 Returns a stable JSON snapshot with:
 
 - `admin` — current admin address, or `null` before initialization
+- `pending_admin` — address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight
 - `initialized` — whether `initialize(admin)` has been called
 - `version.contract_version` — packed semver for the state-writing contract build
 - `version.storage_schema_version` — storage layout version
@@ -360,7 +370,147 @@ Retrieves a bounded page of payment history.
 ./invoke-payment-history.sh <cursor> [limit]
 ```
 
-**Returns:** a page of payment records with `next_cursor` and `has_more`
+**Returns:** a page of payment records with `next_cursor`, `has_more`, and
+`gaps_skipped` (count of missing history-index slots skipped while building
+this page — always `0` for a healthy index; see "Contract error codes" for
+the maintenance errors that indicate a corrupted index).
+
+---
+
+## Read-Only Operational Inspection Scripts
+
+These three scripts are **safe, permissionless read helpers** for maintainers who need to check contract status without writing raw RPC calls. They all call existing read-only contract views (`config()`, `is_paused()`) and never submit any on-chain write transaction.
+
+### `./invoke-inspect-config.sh`
+
+Displays a human-readable operational dashboard of the full contract configuration in a single call.
+
+**Usage:**
+```bash
+./invoke-inspect-config.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-inspect-config.sh
+
+# Override contract ID
+CONTRACT_ID=CXXXXXXXXX... ./invoke-inspect-config.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**What it shows:**
+- Initialization status (🟢 Initialized / 🔴 Uninitialized)
+- Current admin address
+- Pending admin address (if a two-step handoff is in flight)
+- Contract pause state (✅ ACTIVE / ⚠️ PAUSED)
+- Contract code version and storage schema version
+
+**Example output:**
+```
+=========================================
+Inspecting Contract Configuration
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+On-Chain Operational Status:
+-----------------------------------------
+Status:          🟢 Initialized
+Current Admin:   GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+Pending Admin:   None
+Contract State:  ✅ ACTIVE
+
+Contract Metadata:
+-----------------------------------------
+Contract Code Version: 1000000
+Storage Schema Version: 1
+```
+
+---
+
+### `./invoke-inspect-allowlist.sh`
+
+Displays the allowlist policy — whether native XLM is accepted and whether Stellar tokens must be explicitly allowlisted — with actionable next-step guidance.
+
+**Usage:**
+```bash
+./invoke-inspect-allowlist.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-inspect-allowlist.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**What it shows:**
+- Native XLM permission status with guidance to enable/disable
+- Token allowlist mode (`requires_token_allowlist`)
+- Pointers to `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
+
+**Example output:**
+```
+=========================================
+Inspecting Allowlist Settings
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+Allowlist Configuration Status:
+-----------------------------------------
+❌ Native XLM: Denied
+   (To enable, run ./invoke-set-allow-native.sh true)
+🔒 Token Allowlist: Enabled (requires_token_allowlist=true)
+   (Stellar tokens must be explicitly allowlisted before record_payment accepts them)
+
+Operations Guidance:
+  - To list all configured assets, run: ./invoke-list-assets.sh
+  - To allow a token, run:            ./invoke-allow-asset.sh <code> <issuer>
+  - To revoke a token, run:           ./invoke-revoke-asset.sh <code> <issuer>
+```
+
+---
+
+### `./invoke-is-paused.sh`
+
+Quickly checks whether the contract is paused. When paused, all `record_payment` calls are rejected by the contract; read views remain accessible.
+
+**Usage:**
+```bash
+./invoke-is-paused.sh
+
+# Override network
+STELLAR_NETWORK=mainnet ./invoke-is-paused.sh
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+**Returns:**
+- `✅ Contract is currently ACTIVE (not paused)` — writes are open
+- `⚠️ Contract is currently PAUSED` — writes are blocked; links to `./invoke-unpause.sh`
+
+**Example output (active):**
+```
+=========================================
+Checking Contract Pause State
+=========================================
+Contract ID: CA5KFRYL64YTI5Y4OWCLVJRM6UJB3D37WXGV7VVFPGYERBREF6BWOWD2
+Network:     testnet
+
+Raw Result: false
+
+✅ Contract is currently ACTIVE (not paused).
+Write operations are enabled.
+To pause, run: ./invoke-pause.sh
+```
 
 ---
 
@@ -382,9 +532,30 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | Decision | Rationale |
 |----------|-----------|
 | **Admin-gated writes** | Only the backend service account (`admin`) may call `record_payment` |
+| **Two-step admin handoff** | `propose_admin` (current admin) + `accept_admin` (proposed admin) — no single transaction can change the admin, so a lost/compromised key can never hand off alone |
 | **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
 | **Persistent storage** | Records survive ledger archival windows |
 | **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
+
+#### Admin transfer flow
+
+Admin rights are transferred in two explicit steps, replacing the old
+single-step `set_admin`:
+
+1. **Propose** — the current admin calls `propose_admin(new_admin)` (current
+   admin authorises). The proposal is staged in instance storage; the admin
+   does **not** change yet. Emits `admin_transfer_proposed`.
+2. **Accept** — the proposed address calls `accept_admin(caller)` (the
+   proposed address authorises). The role transfers and the proposal is
+   cleared. Emits `admin_transfer_accepted`.
+
+Each step can happen in a separate transaction, in any order from a signing
+perspective, and the pending state is observable via the permissionless
+`pending_admin()` view (also surfaced as `ContractConfig.pending_admin`).
+
+The CLI scripts `invoke-propose-admin.sh` and `invoke-accept-admin.sh` drive
+the flow; the TS client exposes `proposeAdmin()` / `acceptAdmin()` /
+`getPendingAdmin()`.
 
 ### Upgrade and versioning strategy
 
@@ -440,15 +611,17 @@ Contract v1 (C1) live
 | Method | Auth | Description |
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)` | admin | Persist record + emit event. |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `settlement_ref` is a non-empty hash/reference ID (≤ 128 chars) for backend deduplication. |
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
 | `payment_count() → u32` | — | Total payments recorded. |
-| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. |
+| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
-| `set_admin(new_admin)` | admin | Transfer admin rights. |
+| `pending_admin() → Address | null` | — | Address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight. |
+| `propose_admin(new_admin)` | admin | Step 1 of two-step admin handoff: propose the next admin (current admin signs). |
+| `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
 
 `payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
 
@@ -467,16 +640,108 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 7 | InvalidAsset | `asset_code` empty, or non-XLM asset without `asset_issuer`; or invalid allowlist args. |
 | 8 | AssetNotAllowed | The asset (code, issuer) is not in the admin-controlled allowlist. |
 | 9 | Unauthorized | The caller is not authorized to perform the operation. |
+| 10 | StorageSchemaTooNew | `upgrade_storage()` called on a deployment whose `storage_schema_version` is newer than this WASM knows about. |
+| 11 | StorageSchemaTooOld | `upgrade_storage()` called but the schema is already at or beyond the version this WASM implements. |
+| 12 | ContractPaused | The contract is paused and cannot perform the requested operation. |
+| 13 | InvalidSettlementRef | `settlement_ref` was empty or exceeded the maximum allowed length. |
+| 14 | NoPendingAdmin | `accept_admin()` was called but no admin transfer proposal is pending. |
+| 15 | PendingAdminExists | `propose_admin()` was called while an admin transfer proposal is already pending. |
+| 16 | InvalidProposedAdmin | `propose_admin()` was called with the current admin (or another invalid address). |
+| 17 | HistoryIndexRebuildFailed | `rebuild_history_index()` failed to rebuild the payment history index; check storage consistency. |
+| 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
+| 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
+| 20 | SettlementRefAlreadyUsed | The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments. |
+
+#### Typed error manifest (off-chain reference)
+
+The TypeScript client ships a typed, single-source-of-truth manifest at
+`soroban/client/src/error-manifest.ts` (`CONTRACT_ERROR_MANIFEST`), mirroring
+`errors.rs` exactly: each entry carries the stable `code`, the `name` matching
+the Rust variant, and a `meaning`. `ContractErrorCode`, `CONTRACT_ERROR_CODES`,
+and `getContractErrorCode()` are derived from it, and `parseContractError`
+resolves host error strings against it — see
+`soroban/client/src/error-manifest.test.ts` for the regression coverage.
+
+```typescript
+import { CONTRACT_ERROR_MANIFEST, parseContractError } from '@invoisio/soroban-client';
+
+// Full typed reference for off-chain error handling
+CONTRACT_ERROR_MANIFEST // [{ code: 1, name: 'AlreadyInitialized', meaning: ... }, ...]
+
+// Parse a host/simulation error string into a typed SorobanContractError
+try {
+  await client.recordPayment(params);
+} catch (err) {
+  if (err instanceof SorobanContractError) {
+    console.error(err.code); // 'PaymentAlreadyRecorded' | 'Unknown' | ...
+  }
+}
+```
+
+**Evolving the manifest.** Error codes are permanent once deployed. When a new
+Soroban error is introduced:
+
+1. Append the new variant at the **end** of `ContractError` in
+   `soroban/contracts/invoice-payment/src/errors.rs` — never reorder, remove, or
+   reuse codes.
+2. Append the matching entry (same numeric `code`, identical camelCase `name`)
+   to `CONTRACT_ERROR_MANIFEST` in `soroban/client/src/error-manifest.ts`.
+3. Extend the regression tests in `soroban/client/src/error-manifest.test.ts`
+   so the new code is covered by the `parseContractError` mapping tests.
+4. Update this table, then rebuild the client (`cd soroban/client && npm run build`)
+   so the committed `dist/` ships the new codes to downstream consumers.
+
+### ABI drift CI check
+
+`schema.json` (`soroban/contracts/invoice-payment/schema.json`) is a
+machine-readable snapshot of the contract's public interface — its errors,
+methods, and events — generated from the Rust source by `generate-schema.sh`.
+The `abi-drift` job in `.github/workflows/soroban.yml` fails a pull request
+whenever the contract, the schema, and the TypeScript client fall out of
+sync, in two steps:
+
+1. **Contract ⇄ schema.json.** It re-runs `generate-schema.sh` and diffs the
+   result against the committed `schema.json`. The script itself fails if a
+   new error variant (`src/errors.rs`), public method (`src/lib.rs`), or
+   `#[contractevent]` struct (`src/events.rs`) doesn't have a matching
+   hand-authored description in the script — so a contract change without a
+   schema update is caught either way, whether the schema file was never
+   regenerated or the script wasn't updated to describe the new member.
+2. **schema.json ⇄ TS client.** `soroban/scripts/check-client-drift.mjs`
+   compares `client/src/error-manifest.ts` against `schema.json`'s `errors`
+   (same codes and names on both sides) and checks that every contract
+   method name the client actually calls (`contract.call(...)` /
+   `simulateView(...)` in `client/src/soroban-invoice-client.ts`) still
+   exists in `schema.json`'s `methods`.
+
+Both checks are plain scripts with no network access or deployed contract
+required, so they reproduce identically in CI and locally:
+
+```sh
+# 1. Regenerate schema.json and check it's unchanged
+cd soroban/contracts/invoice-payment
+./generate-schema.sh          # or: make schema
+git diff --exit-code -- schema.json
+
+# 2. Check the TS client against schema.json
+cd ../..
+node scripts/check-client-drift.mjs
+```
+
+A failure names exactly what drifted and which file to fix — regenerate
+`schema.json` when the contract changed, or update `client/src/` (and its
+tests) when the client's understanding of the ABI is what's stale.
 
 ### `PaymentRecord` struct
 
 ```rust
 pub struct PaymentRecord {
-    pub invoice_id:   String,   // e.g. "invoisio-abc123"
-    pub payer:        Address,  // Stellar account that paid
-    pub asset:        Asset,    // Native XLM or Token(code, issuer)
-    pub amount:       i128,     // stroops for XLM; token-specific decimals
-    pub timestamp:    u64,      // ledger Unix timestamp at recording time
+    pub invoice_id:    String,   // e.g. "invoisio-abc123"
+    pub payer:         Address,  // Stellar account that paid
+    pub asset:         Asset,    // Native XLM or Token(code, issuer)
+    pub amount:        i128,     // stroops for XLM; token-specific decimals
+    pub timestamp:     u64,      // ledger Unix timestamp at recording time
+    pub settlement_ref: String,  // normalised settlement reference (≤ 128 chars)
 }
 
 pub enum Asset {
@@ -717,8 +982,37 @@ const result = await client.recordPayment({
   assetCode: 'USDC',
   assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   amount: 1_500_000_000n,
+  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference
 });
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
+
+// ── Admin handoff (two-step) ─────────────────────────────────────────────────
+// Step 1: current admin proposes a successor (signed by ADMIN_SECRET_KEY).
+await client.proposeAdmin('GCEZ...NEWADMIN');
+const pending = await client.getPendingAdmin(); // "GCEZ...NEWADMIN"
+console.log('Awaiting acceptance from', pending);
+
+// Step 2: the proposed admin accepts. Construct the client with the NEW
+// admin's secret key so acceptAdmin() signs with the proposed address.
+const newAdminClient = new SorobanInvoiceClient({ /* ... signerSecretKey: NEW_ADMIN_SECRET_KEY */ });
+await newAdminClient.acceptAdmin();
+console.log('New admin:', (await newAdminClient.getConfig()).admin);
+
+// ── Allowlist management (admin-gated) ───────────────────────────────────────
+// Only allowlisted (code, issuer) pairs are accepted by recordPayment().
+await client.allowAsset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+await client.revokeAsset('USDC', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+await client.setAllowNative(false); // reject plain XLM payments
+
+// A non-admin signer, or an empty code/issuer, is rejected with a typed error:
+try {
+  await client.allowAsset('', 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN');
+} catch (err) {
+  if (err instanceof SorobanContractError) {
+    // err.code: 'InvalidAsset' | 'Unauthorized' | 'NotInitialized' | 'Unknown'
+    console.error(`allow_asset rejected [${err.code}] (${err.numericCode})`);
+  }
+}
 
 // ── Read (permissionless) ────────────────────────────────────────────────────
 const config = await client.getConfig();
@@ -775,18 +1069,26 @@ Total payments on-chain: 1
 
 ### Error handling
 
-All contract-level rejections are thrown as `SorobanContractError`:
+All contract-level rejections are thrown as `SorobanContractError`, with `code`
+resolved against the typed manifest (`CONTRACT_ERROR_MANIFEST`) described in
+[Contract error codes](#contract-error-codes):
 
 ```typescript
+import { SorobanContractError } from '@invoisio/soroban-client';
+
 try {
   await client.recordPayment({ invoiceId: 'invoisio-abc123', ... });
 } catch (err) {
   if (err instanceof SorobanContractError) {
-    // err.code: 'PaymentAlreadyRecorded' | 'InvalidAmount' | 'NotInitialized' | ...
-    console.error(`Rejected by contract [${err.code}]`);
+    // err.code: 'AlreadyInitialized' | 'PaymentAlreadyRecorded' | 'Unknown' | ...
+    console.error(`Rejected by contract [${err.code}] (${err.numericCode})`);
   }
 }
 ```
+
+Unknown numeric codes are surfaced as `code: 'Unknown'` (numeric code preserved)
+so forward-compatible clients degrade gracefully when the contract grows new
+errors before the client manifest is updated.
 
 ---
 

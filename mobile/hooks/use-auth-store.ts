@@ -27,6 +27,13 @@ export const useAuthStore = create<AuthState>((set) => ({
   setAuth: async (accessToken: string, publicKey: string) => {
     try {
       const expiresAt = authService.decodeTokenExpiry(accessToken);
+      if (
+        expiresAt == null ||
+        !publicKey.startsWith("G") ||
+        publicKey.length !== 56
+      ) {
+        throw new Error("Cannot persist invalid authentication data");
+      }
       const authData = { accessToken, publicKey, expiresAt };
       await SecureStore.setItemAsync(
         AUTH_STORAGE_KEY,
@@ -76,31 +83,54 @@ export const useAuthStore = create<AuthState>((set) => ({
         expiresAt?: number | null;
       };
 
-      if (authData.accessToken && authData.publicKey) {
+      const storedAccessToken = authData.accessToken;
+      const storedPublicKey = authData.publicKey;
+      const hasValidIdentity =
+        typeof storedAccessToken === "string" &&
+        storedAccessToken.length > 0 &&
+        typeof storedPublicKey === "string" &&
+        storedPublicKey.startsWith("G") &&
+        storedPublicKey.length === 56;
+
+      if (hasValidIdentity) {
         const expiresAt =
-          typeof authData.expiresAt === "number" ? authData.expiresAt : null;
+          typeof authData.expiresAt === "number"
+            ? authData.expiresAt
+            : authService.decodeTokenExpiry(storedAccessToken);
 
         // Local expiry check first — works offline and avoids a wasted request.
-        if (expiresAt != null && Date.now() >= expiresAt) {
+        if (expiresAt == null || Date.now() >= expiresAt) {
           await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
-          set({ isLoading: false });
+          set({
+            accessToken: null,
+            publicKey: null,
+            expiresAt: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
           return false;
         }
 
         // Confirm with the backend. A network failure ("unknown") keeps the
         // restored session so transient connectivity issues do not log the
         // merchant out; only an explicit rejection clears credentials.
-        const status = await authService.verifyToken(authData.accessToken);
+        const status = await authService.verifyToken(storedAccessToken);
 
         if (status === "invalid") {
           await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
-          set({ isLoading: false });
+          set({
+            accessToken: null,
+            publicKey: null,
+            expiresAt: null,
+            isAuthenticated: false,
+            isLoading: false,
+          });
           return false;
         }
 
         set({
-          accessToken: authData.accessToken,
-          publicKey: authData.publicKey,
+          accessToken: storedAccessToken,
+          publicKey: storedPublicKey,
           expiresAt,
           isAuthenticated: true,
           isLoading: false,
@@ -108,11 +138,29 @@ export const useAuthStore = create<AuthState>((set) => ({
         return true;
       }
 
-      set({ isLoading: false });
+      await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+      set({
+        accessToken: null,
+        publicKey: null,
+        expiresAt: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
       return false;
     } catch (error) {
       console.error("Error loading auth data:", error);
-      set({ isLoading: false });
+      try {
+        await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
+      } catch {
+        // Preserve the original load failure while resetting memory safely.
+      }
+      set({
+        accessToken: null,
+        publicKey: null,
+        expiresAt: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
       return false;
     }
   },

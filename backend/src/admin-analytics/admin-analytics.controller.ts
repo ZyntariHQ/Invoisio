@@ -11,9 +11,7 @@ import { PrismaService } from "../prisma/prisma.service";
 @Controller("admin/analytics")
 @UseGuards(AdminGuard)
 export class AdminAnalyticsController {
-  constructor(
-    private readonly adminAnalyticsService: AdminAnalyticsService,
-  ) {}
+  constructor(private readonly adminAnalyticsService: AdminAnalyticsService) {}
 
   @Get("invoices")
   async getInvoiceAnalytics(@Query() query: InvoiceAnalyticsQueryDto) {
@@ -40,6 +38,14 @@ export class MerchantAnalyticsController {
     private readonly adminAnalyticsService: AdminAnalyticsService,
     private readonly prisma: PrismaService,
   ) {}
+
+  @Auth()
+  @Get("overview")
+  async getMerchantAnalyticsOverview(@CurrentUser() user: User) {
+    return this.prisma.runWithMerchantScope(user.merchantId, () =>
+      this.adminAnalyticsService.getMerchantAnalyticsOverview(user.merchantId),
+    );
+  }
 
   @Auth()
   @Get("payments")

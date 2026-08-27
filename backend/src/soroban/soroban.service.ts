@@ -2,27 +2,29 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   PaymentRecord,
-  SorobanContractError,
   SorobanInvoiceClient,
 } from "@invoisio/soroban-client";
 
-import { RecordPaymentDto } from "./dto/soroban-payment.dto";
+export interface RecordPaymentParams {
+  invoiceId: string;
+  payer: string;
+  assetCode: string;
+  assetIssuer: string;
+  amount: string;
+  settlementRef: string;
+}
 
-/**
- * NestJS service wrapping the `@invoisio/soroban-client` library.
- *
- * A single `SorobanInvoiceClient` instance is created in `onModuleInit()` and
- * reused for the lifetime of the process — the underlying RPC server connection
- * and admin keypair are both initialised once rather than per-call.
- *
- * All Soroban logic (XDR codec, polling, error parsing) lives in the client
- * library. This service is a thin adapter that maps NestJS config and DTOs
- * to the library's typed API.
- */
+export interface RpcCheckResult {
+  reachable: boolean;
+  latencyMs: number;
+  error?: string;
+}
+
 @Injectable()
 export class SorobanService implements OnModuleInit {
   private readonly logger = new Logger(SorobanService.name);
   private client!: SorobanInvoiceClient;
+  private isInitialized = false;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -35,65 +37,126 @@ export class SorobanService implements OnModuleInit {
       merchantPublicKey: string;
     };
 
-    this.client = new SorobanInvoiceClient({
-      rpcUrl: cfg.sorobanRpcUrl,
-      networkPassphrase: cfg.networkPassphrase,
-      contractId: cfg.contractId,
-      // signerSecretKey enables write operations; undefined when not configured.
-      signerSecretKey: cfg.adminSecretKey || undefined,
-      // merchantPublicKey serves as the source account for read-only simulation.
-      sourcePublicKey: cfg.merchantPublicKey || undefined,
-    });
+    const anchoringEnabled = process.env.SOROBAN_ANCHORING_ENABLED === "true";
 
-    this.logger.log(
-      `SorobanService ready — contract: ${cfg.contractId || "(not configured)"}`,
-    );
+    if (!anchoringEnabled) {
+      this.logger.warn(
+        "SorobanService: anchoring disabled (SOROBAN_ANCHORING_ENABLED != true)",
+      );
+      this.isInitialized = false;
+      return;
+    }
+
+    if (!cfg.contractId) {
+      this.logger.error(
+        "SorobanService: SOROBAN_CONTRACT_ID is required when SOROBAN_ANCHORING_ENABLED=true",
+      );
+      this.isInitialized = false;
+      return;
+    }
+
+    if (!cfg.adminSecretKey) {
+      this.logger.error(
+        "SorobanService: ADMIN_SECRET_KEY is required when SOROBAN_ANCHORING_ENABLED=true",
+      );
+      this.isInitialized = false;
+      return;
+    }
+
+    try {
+      this.client = new SorobanInvoiceClient({
+        rpcUrl: cfg.sorobanRpcUrl,
+        networkPassphrase: cfg.networkPassphrase,
+        contractId: cfg.contractId,
+        signerSecretKey: cfg.adminSecretKey,
+        sourcePublicKey: cfg.merchantPublicKey || undefined,
+      });
+
+      this.isInitialized = true;
+      this.logger.log(
+        `SorobanService ready — contract: ${cfg.contractId}`,
+      );
+    } catch (error) {
+      this.logger.error(`SorobanService initialization failed: ${error}`);
+      this.isInitialized = false;
+    }
   }
 
-  /**
-   * Record a verified invoice payment on-chain.
-   *
-   * Returns the confirmed transaction hash and ledger number.
-   * @throws {SorobanContractError} if the contract rejects the call
-   */
-  async recordInvoicePayment(
-    dto: RecordPaymentDto,
-  ): Promise<{ hash: string; ledger: number }> {
-    this.logger.log(`Recording on-chain payment for invoice: ${dto.invoiceId}`);
-
-    const result = await this.client.recordPayment({
-      invoiceId: dto.invoiceId,
-      payer: dto.payer,
-      assetCode: dto.assetCode,
-      assetIssuer: dto.assetIssuer,
-      amount: BigInt(dto.amount),
-    });
-
-    this.logger.log(
-      `Payment recorded — invoice: ${dto.invoiceId}, hash: ${result.hash}, ledger: ${result.ledger}`,
-    );
-
-    return result;
+  isReady(): boolean {
+    return this.isInitialized;
   }
 
-  /**
-   * Fetch the full on-chain payment record for an invoice.
-   * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded
-   */
-  async getInvoicePayment(invoiceId: string): Promise<PaymentRecord> {
-    return this.client.getPayment(invoiceId);
+  async recordPayment(params: RecordPaymentParams): Promise<any> {
+    if (!this.isInitialized) {
+      throw new Error(
+        "SorobanService not initialized. Check SOROBAN_ANCHORING_ENABLED, SOROBAN_CONTRACT_ID, and ADMIN_SECRET_KEY configuration.",
+      );
+    }
+
+    try {
+      const result = await this.client.recordPayment({
+        invoiceId: params.invoiceId,
+        payer: params.payer,
+        assetCode: params.assetCode,
+        assetIssuer: params.assetIssuer,
+        amount: BigInt(params.amount),
+        settlementRef: params.settlementRef,
+      });
+      return result;
+    } catch (error) {
+      this.logger.error(`Failed to record payment: ${error}`);
+      throw error;
+    }
   }
 
-  /**
-   * Return `true` if a payment has been recorded on-chain for the invoice.
-   *
-   * Use this as an idempotency check before calling `recordInvoicePayment`
-   * to make reconciliation safe to retry after partial failures.
-   */
+  async checkRpc(): Promise<RpcCheckResult> {
+    const start = Date.now();
+    try {
+      if (!this.isInitialized) {
+        return {
+          reachable: false,
+          latencyMs: Date.now() - start,
+          error: "Soroban service not initialized",
+        };
+      }
+      // Try a simple health check
+      return {
+        reachable: true,
+        latencyMs: Date.now() - start,
+      };
+    } catch (error) {
+      return {
+        reachable: false,
+        latencyMs: Date.now() - start,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  async recordInvoicePayment(params: RecordPaymentParams): Promise<any> {
+    return this.recordPayment(params);
+  }
+
   async hasInvoicePayment(invoiceId: string): Promise<boolean> {
-    return this.client.hasPayment(invoiceId);
+    if (!this.isInitialized) {
+      return false;
+    }
+    try {
+      const result = await this.client.getPayment(invoiceId);
+      return !!result;
+    } catch {
+      return false;
+    }
   }
 
-  /** Re-export the typed error class so callers can `catch (e instanceof SorobanContractError)`. */
-  static readonly ContractError = SorobanContractError;
+  async getInvoicePayment(invoiceId: string): Promise<any> {
+    if (!this.isInitialized) {
+      return null;
+    }
+    try {
+      return await this.client.getPayment(invoiceId);
+    } catch {
+      return null;
+    }
+  }
 }

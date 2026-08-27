@@ -24,3 +24,72 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+@media print {
+  @page {
+    margin: 1.5cm;
+    size: auto;
+  }
+
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  /* Hide interactive buttons, alerts, and status banners */
+  button,
+  [role="alert"],
+  [role="status"] {
+    display: none !important;
+  }
+
+  /* Remove shadows for clean print */
+  .shadow-sm,
+  .shadow {
+    box-shadow: none !important;
+  }
+
+  /* All text should be readable black */
+  * {
+    color: black !important;
+  }
+
+  /* Keep white backgrounds for cards */
+  .bg-white,
+  [class*="bg-white"] {
+    background: white !important;
+  }
+
+  .min-h-screen {
+    min-height: auto !important;
+  }
+
+  /* Prevent orphaned headings */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+  }
+
+  /* Monospace code blocks */
+  code, pre {
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 9pt;
+  }
+
+  /* Keep grid rows together across pages */
+  .grid {
+    page-break-inside: avoid;
+  }
+
+  /* Compact spacing for print */
+  .mb-6, .mb-8, .mt-8 {
+    margin-bottom: 0.75rem !important;
+    margin-top: 0.75rem !important;
+  }
+
+  /* Normalize existing colored borders to print-friendly gray */
+  [class*="border-"] {
+    border-color: #ccc !important;
+  }
+}

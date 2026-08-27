@@ -47,6 +47,8 @@ export function usePollInvoiceStatus(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fetchFn: (id: string) => Promise<any>,
   config: PollConfig = {},
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  initialInvoice: any | null = null,
 ): UsePollInvoiceStatusReturn {
   const {
     initialInterval = 2000,
@@ -57,7 +59,7 @@ export function usePollInvoiceStatus(
   } = config;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [invoice, setInvoice] = useState<any | null>(null);
+  const [invoice, setInvoice] = useState<any | null>(initialInvoice);
   const [isLoading, setIsLoading] = useState(false);
   const [isPolling, setIsPollingState] = useState(false);
   const [error, setError] = useState<string | null>(null);
