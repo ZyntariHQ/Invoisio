@@ -1,5 +1,5 @@
 # Rustfmt configuration for Invoisio contract
-# This ensures consistent formatting across the codebase
+# Only stable options are used here
 
 edition = "2021"
 max_width = 100
@@ -8,22 +8,13 @@ tab_spaces = 4
 newline_style = "Unix"
 use_small_heuristics = "Default"
 
-# Group imports
+# Import grouping (stable)
 reorder_imports = true
 reorder_modules = true
-reorder_impl_items = false
 
-# Comments
-wrap_comments = true
-normalize_comments = true
-normalize_doc_attributes = true
-
-# Match arms
+# Match arms (stable)
 match_block_trailing_comma = true
-match_arm_blocks = true
-force_multiline_blocks = true
 
-# Other
+# Other stable options
 use_field_init_shorthand = true
 use_try_shorthand = true
-use_enum_init_shorthand = true
