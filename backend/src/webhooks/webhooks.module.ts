@@ -4,10 +4,15 @@ import { AuthModule } from "../auth/auth.module";
 import { WebhooksController } from "./webhooks.controller";
 import { WebhooksService } from "./webhooks.service";
 import { AdminWebhooksController } from "./admin-webhooks.controller";
+import { MerchantWebhookDeliveriesController } from "./merchant-webhook-deliveries.controller";
 
 @Module({
   imports: [PrismaModule, AuthModule],
-  controllers: [WebhooksController, AdminWebhooksController],
+  controllers: [
+    WebhooksController,
+    AdminWebhooksController,
+    MerchantWebhookDeliveriesController,
+  ],
   providers: [WebhooksService],
   exports: [WebhooksService],
 })
