@@ -564,8 +564,9 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
@@ -1290,8 +1291,9 @@ fn test_record_payment_emits_payment_recorded_event() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
@@ -2852,8 +2854,9 @@ fn test_settlement_ref_emitted_in_event() {
                     (Symbol::new(&env, "asset_code"), code_val),
                     (Symbol::new(&env, "asset_issuer"), iss_val),
                     (Symbol::new(&env, "amount"), amt_val),
+                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
                     (Symbol::new(&env, "settlement_ref"), ref_val),
-                    (Symbol::new(&env, "schema_version"), 1u32.into_val(&env))
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
             ),
