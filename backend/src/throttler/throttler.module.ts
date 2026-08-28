@@ -16,6 +16,7 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
           return {
             throttlers: [
               {
+                name: "default",
                 ttl: throttlerConfig.ttl * 1000,
                 limit: throttlerConfig.limit,
               },
@@ -41,6 +42,7 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
         return {
           throttlers: [
             {
+              name: "default",
               ttl: throttlerConfig.ttl * 1000,
               limit: throttlerConfig.limit,
             },
@@ -50,5 +52,6 @@ import { ThrottlerStorageRedisService } from "./throttler-storage-redis.service"
       },
     }),
   ],
+  exports: [ThrottlerModule],
 })
 export class CustomThrottlerModule {}

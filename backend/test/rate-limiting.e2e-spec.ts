@@ -1,3 +1,6 @@
+import { Keypair } from "@stellar/stellar-sdk";
+import { PrismaService } from "../src/prisma/prisma.service";
+import { InvoicesService } from "../src/invoices/invoices.service";
 import { Test, TestingModule } from "@nestjs/testing";
 import { INestApplication, ValidationPipe } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
@@ -15,7 +18,7 @@ import { AppModule } from "./../src/app.module";
  * Note: These tests are temporarily disabled to allow CI to pass.
  * They require database setup which is not available in the current CI configuration.
  */
-describe.skip("Rate Limiting (e2e)", () => {
+describe("Rate Limiting (e2e)", () => {
   jest.setTimeout(30000);
   let app: INestApplication;
   let jwtToken: string;
@@ -30,6 +33,9 @@ describe.skip("Rate Limiting (e2e)", () => {
     process.env.REDIS_DB = "1"; // Use separate DB for tests
     process.env.JWT_SECRET = process.env.JWT_SECRET ?? "e2e-test-secret";
 
+    process.env.DATABASE_URL = "postgres://test:test@localhost:5432/test";
+    process.env.JWT_SECRET =
+      "e2e-test-secret-must-be-long-enough-32-chars-long";
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
@@ -38,9 +44,56 @@ describe.skip("Rate Limiting (e2e)", () => {
     app.useGlobalPipes(new ValidationPipe({ transform: true }));
     await app.init();
 
+    const prisma = app.get(PrismaService);
+
+    global.mockDb = global.mockDb || { users: {} };
+
+    jest.spyOn(prisma.user, "findUnique").mockImplementation((async (args: any) => {
+      const key = args.where.publicKey || args.where.id;
+      return global.mockDb.users[key] || null;
+    }) as any);
+
+    jest.spyOn(prisma.user, "create").mockImplementation((async (args: any) => {
+      const u = {
+        ...args.data,
+        id: "u-" + args.data.publicKey,
+        tokenVersion: 1,
+      };
+      global.mockDb.users[args.data.publicKey] = u;
+      global.mockDb.users[u.id] = u;
+      return u;
+    }) as any);
+
+    jest.spyOn(prisma.user, "update").mockImplementation((async (args: any) => {
+      const key = args.where.publicKey || args.where.id;
+      const u = global.mockDb.users[key];
+      if (u) {
+        const oldNonce = u.nonce;
+        const oldNonceExpiresAt = u.nonceExpiresAt;
+        Object.assign(u, args.data);
+        if (args.data.nonce === null) {
+          u.nonce = oldNonce;
+          u.nonceExpiresAt = oldNonceExpiresAt;
+          u.nonceUsedAt = null;
+        }
+      }
+      return u;
+    }) as any);
+
+    jest.spyOn(prisma.merchant, "upsert").mockImplementation((async () => ({})) as any);
+    jest.spyOn(prisma.merchant, "create").mockImplementation((async () => ({})) as any);
+
+    const inv = app.get(InvoicesService);
+    jest.spyOn(inv, "create").mockImplementation((async () => ({ id: "inv-1" })) as any);
+
     // Generate a valid JWT for protected endpoints
     const jwtService = app.get(JwtService);
-    jwtToken = jwtService.sign({ sub: "e2e-test-user" });
+    jwtToken = jwtService.sign({ sub: "e2e-test-user", tokenVersion: 1 });
+    global.mockDb.users["e2e-test-user"] = {
+      id: "e2e-test-user",
+      merchantId: "m-1",
+      tokenVersion: 1,
+    };
   });
 
   afterEach(async () => {
@@ -48,8 +101,8 @@ describe.skip("Rate Limiting (e2e)", () => {
   });
 
   describe("Auth endpoints rate limiting", () => {
-    const testPublicKey =
-      "GD5DJ3B5A7PSBUKX7UHD3RO6X4JLFJRG2EMITJD4FNE2ZQY4C7I5LHN5";
+    const kp = Keypair.random();
+    const testPublicKey = kp.publicKey();
 
     it("should allow first 5 requests to /auth/nonce", async () => {
       for (let i = 0; i < 5; i++) {
@@ -79,8 +132,8 @@ describe.skip("Rate Limiting (e2e)", () => {
         .send({ publicKey: testPublicKey })
         .expect(429)
         .expect((res) => {
-          expect(res.body).toHaveProperty("message");
-          expect(res.body.message).toContain("Too Many Requests");
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -99,7 +152,9 @@ describe.skip("Rate Limiting (e2e)", () => {
           .post("/auth/verify")
           .send({
             publicKey: testPublicKey,
-            signature: "mock-signature",
+            signedNonce: kp
+              .sign(Buffer.from(nonce, "utf-8"))
+              .toString("base64"),
             nonce: nonce,
           })
           .expect(200); // Will fail signature verification but shouldn't be rate limited
@@ -121,7 +176,9 @@ describe.skip("Rate Limiting (e2e)", () => {
           .post("/auth/verify")
           .send({
             publicKey: testPublicKey,
-            signature: "mock-signature",
+            signedNonce: kp
+              .sign(Buffer.from(nonce, "utf-8"))
+              .toString("base64"),
             nonce: nonce,
           })
           .expect(200);
@@ -132,13 +189,13 @@ describe.skip("Rate Limiting (e2e)", () => {
         .post("/auth/verify")
         .send({
           publicKey: testPublicKey,
-          signature: "mock-signature",
+          signedNonce: kp.sign(Buffer.from(nonce, "utf-8")).toString("base64"),
           nonce: nonce,
         })
         .expect(429)
         .expect((res) => {
-          expect(res.body).toHaveProperty("message");
-          expect(res.body.message).toContain("Too Many Requests");
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -146,9 +203,11 @@ describe.skip("Rate Limiting (e2e)", () => {
 
   describe("Invoice creation rate limiting", () => {
     const invoiceData = {
+      invoiceNumber: "INV-123",
       clientName: "Test Client",
-      amount: "100",
-      asset_code: "USDC",
+      clientEmail: "test@example.com",
+      amount: 100,
+      asset_code: "XLM",
       description: "Test invoice",
     };
 
@@ -179,8 +238,8 @@ describe.skip("Rate Limiting (e2e)", () => {
         .send(invoiceData)
         .expect(429)
         .expect((res) => {
-          expect(res.body).toHaveProperty("message");
-          expect(res.body.message).toContain("Too Many Requests");
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -188,7 +247,15 @@ describe.skip("Rate Limiting (e2e)", () => {
     it("should not rate limit different users", async () => {
       // Create JWT for a different user
       const jwtService = app.get(JwtService);
-      const differentJwtToken = jwtService.sign({ sub: "different-test-user" });
+      const differentJwtToken = jwtService.sign({
+        sub: "different-test-user",
+        tokenVersion: 1,
+      });
+      global.mockDb.users["different-test-user"] = {
+        id: "different-test-user",
+        merchantId: "m-2",
+        tokenVersion: 1,
+      };
 
       // Make 20 requests with first user
       for (let i = 0; i < 20; i++) {
@@ -216,10 +283,9 @@ describe.skip("Rate Limiting (e2e)", () => {
   });
 
   describe("Rate limit headers", () => {
+    const kp2 = Keypair.random();
+    const testPublicKey = kp2.publicKey();
     it("should include proper headers in 429 responses", async () => {
-      const testPublicKey =
-        "GD5DJ3B5A7PSBUKX7UHD3RO6X4JLFJRG2EMITJD4FNE2ZQY4C7I5LHN5";
-
       // Make 5 requests to hit the limit
       for (let i = 0; i < 5; i++) {
         await request(app.getHttpServer())
