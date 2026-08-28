@@ -3,7 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { HealthService } from "./health.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { StellarService } from "../stellar/stellar.service";
-import { SorobanService } from "../stellar/soroban.service";
+import { SorobanService } from "../soroban/soroban.service";
 
 describe("HealthService watcher observability", () => {
   let service: HealthService;
