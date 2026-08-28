@@ -88,14 +88,14 @@ describe("prismaExtensionCallback", () => {
     const query = jest.fn().mockResolvedValue([]);
 
     await prismaExtensionCallback(deps, {
-      model: "WebhookDelivery",
+      model: "WatcherCursor",
       operation: "findMany",
-      args: { where: { id: "wd-1" } },
+      args: { where: { watcher: "horizon" } },
       query,
     });
 
     expect(deps.logger.error).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledWith({ where: { id: "wd-1" } });
+    expect(query).toHaveBeenCalledWith({ where: { watcher: "horizon" } });
   });
 
   it("logs an error when no merchant is in scope for a scoped model", async () => {
