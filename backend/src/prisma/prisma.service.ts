@@ -102,10 +102,10 @@ export class PrismaService
     // ORDER MATTERS: `super()` → `$extends()` → `Object.assign()` must run
     // back-to-back. Any code inserted between them that calls a model method
     // would hit the un-extended client.
-    const extended = (this as any).$extends({
+    const extended = this.$extends({
       query: {
         $allModels: {
-          $allOperations: (ctx: any) =>
+          $allOperations: (ctx) =>
             prismaExtensionCallback(
               {
                 merchantContext: this.merchantContext,
