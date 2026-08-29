@@ -49,7 +49,7 @@ declare -A ERROR_DESC=(
   [PaymentNotFound]="get_payment() called for an invoice_id with no record."
   [InvalidAmount]="amount was zero or negative."
   [InvalidInvoiceId]="invoice_id was an empty string."
-  [InvalidAsset]="asset_code empty, or non-XLM asset supplied without asset_issuer."
+  [InvalidAsset]="token code empty, longer than 12 characters, or the reserved code XLM on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values."
   [AssetNotAllowed]="Asset not in the admin-controlled allowlist."
   [Unauthorized]="Caller is not authorized."
   [StorageSchemaTooNew]="Contract code is too old for the current storage schema."
@@ -65,6 +65,7 @@ declare -A ERROR_DESC=(
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
   [LegacyPaymentMigrationBatchTooLarge]="migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls."
+  [IssuerMigrationIncomplete]="upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -101,12 +102,11 @@ declare -A METHOD_AUTH=(
   [record_payment]="admin"
   [get_payment]="none"
   [has_payment]="none"
-  [payment_count]="none"
-  [payment_history]="none"
-  [payments_by_payer]="none"
+  [payment_count]="admin"
+  [payment_history]="admin"
   [settlement_ref_owner]="none"
-  [settlement_ref_history]="none"
-  [settlement_ref_index_status]="none"
+  [settlement_ref_history]="admin"
+  [settlement_ref_index_status]="admin"
   [config]="none"
   [contract_version]="none"
   [version_info]="none"
@@ -126,20 +126,19 @@ declare -A METHOD_AUTH=(
   [set_paused]="admin"
   [is_paused]="none"
   [rebuild_history_index]="admin"
-  [history_index_status]="none"
+  [history_index_status]="admin"
   [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
   [initialize]="One-time setup; sets the admin."
-  [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded."
+  [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded. asset is Asset::Native or Asset::Token(code, Address)."
   [get_payment]="Return PaymentRecord for invoice_id."
   [has_payment]="Return true if a payment exists for invoice_id."
-  [payment_count]="Return total recorded payment count."
-  [payment_history]="Return a bounded, cursor-paginated PaymentHistoryPage across all payments."
-  [payments_by_payer]="Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer."
-  [settlement_ref_owner]="Resolve a settlement reference to the invoice_id that consumed it; None if unused."
-  [settlement_ref_history]="Return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order."
-  [settlement_ref_index_status]="Return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
+  [payment_count]="Admin-gated (issue #512): return total recorded payment count."
+  [payment_history]="Admin-gated (issue #512): return a bounded, cursor-paginated PaymentHistoryPage across all payments."
+  [settlement_ref_owner]="Resolve a settlement reference (plaintext) to the invoice_id that consumed it; None if unused. Hashes internally to the stored commitment (issue #512)."
+  [settlement_ref_history]="Admin-gated (issue #512): return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order. Each entry's settlement_ref is a SHA-256 commitment, not plaintext."
+  [settlement_ref_index_status]="Admin-gated (issue #512): return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
   [config]="Return ContractConfig snapshot."
   [contract_version]="Return packed semver as u32."
   [version_info]="Return on-chain ContractMeta."
@@ -148,9 +147,9 @@ declare -A METHOD_DESC=(
   [propose_admin]="Step 1 of two-step handoff: propose the next admin."
   [accept_admin]="Step 2 of two-step handoff: accept the role and become admin."
   [cancel_admin_transfer]="Cancel a pending admin transfer proposed via propose_admin()."
-  [allow_asset]="Add (code, issuer) to allowlist."
-  [allow_asset_with_decimals]="Add (code, issuer) to allowlist with recorded decimal precision."
-  [revoke_asset]="Remove (code, issuer) from allowlist."
+  [allow_asset]="Add (code, issuer Address) to allowlist."
+  [allow_asset_with_decimals]="Add (code, issuer Address) to allowlist with recorded decimal precision."
+  [revoke_asset]="Remove (code, issuer Address) from allowlist."
   [allowed_assets]="Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs."
   [allowlist_count]="Return the number of currently-allowlisted (code, issuer) pairs."
   [set_allow_native]="Toggle native XLM acceptance."
@@ -159,7 +158,7 @@ declare -A METHOD_DESC=(
   [set_paused]="Pause or unpause the contract. Writes rejected when paused."
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
-  [history_index_status]="Return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [history_index_status]="Admin-gated (issue #512): return (history_count, payment_count, is_consistent) diagnostic status for the history index."
   [migrate_legacy_payments]="Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)."
 )
 
@@ -192,7 +191,7 @@ EVENT_NAMES=(
   InvoicePaymentRecorded AssetAllowlisted AssetRevoked NativeAllowChanged
   StorageSchemaUpgraded ContractPaused AdminTransferProposed AdminTransferAccepted
   AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated ContractUpgraded
-  AllowlistIndexBackfilled LegacyPaymentsMigrated
+  AllowlistIndexBackfilled IssuersMigrated LegacyPaymentsMigrated
 )
 mapfile -t EVENTS_RS_NAMES < <(grep -B1 '^pub struct \w\+ {' "$EVENTS_RS" | grep -oP '^pub struct \K\w+(?= \{)')
 [ "${#EVENTS_RS_NAMES[@]}" -gt 0 ] || fail "no #[contractevent] structs found in $EVENTS_RS — regex out of date?"
@@ -232,7 +231,7 @@ cat > "$OUT" <<JSON
           "properties": {
             "tag":    { "const": "Token" },
             "code":   { "type": "string", "description": "Asset code (e.g. USDC)." },
-            "issuer": { "type": "string", "description": "Issuer Stellar account address (G...)." }
+            "issuer": { "type": "string", "description": "Validated Stellar issuer Address (G...), not an untyped string." }
           },
           "required": ["tag", "code", "issuer"],
           "additionalProperties": false
@@ -273,9 +272,7 @@ cat > "$OUT" <<JSON
         },
         "settlement_ref": {
           "type": "string",
-          "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation (e.g. SHA-256 hex). Max 128 chars.",
-          "minLength": 1,
-          "maxLength": 128
+          "description": "SHA-256 commitment (64-char lowercase hex) of the settlement reference passed to record_payment() — not the plaintext value itself (issue #512). A caller that already holds the plaintext can dedupe/verify by hashing its own copy the same way, or by calling settlement_ref_owner() with the plaintext directly."
         }
       },
       "required": ["invoice_id", "payer", "asset", "amount", "asset_decimals", "timestamp", "settlement_ref"],
@@ -340,7 +337,7 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
-      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() and payments_by_payer().",
+      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() (admin-gated, issue #512).",
       "type": "object",
       "properties": {
         "records": {
@@ -367,7 +364,7 @@ cat > "$OUT" <<JSON
       "properties": {
         "settlement_ref": {
           "type": "string",
-          "description": "Normalised settlement reference (e.g. SHA-256 hex)."
+          "description": "SHA-256 commitment of the settlement reference — never the plaintext (issue #512)."
         },
         "invoice_id": {
           "type": "string",
@@ -378,7 +375,7 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "SettlementRefPage": {
-      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history(). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
+      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history() (admin-gated, issue #512). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
       "type": "object",
       "properties": {
         "records": {
@@ -414,7 +411,7 @@ cat > "$OUT" <<JSON
         },
         "issuer": {
           "type": "string",
-          "description": "Issuer Stellar account address (G...)."
+          "description": "Issuer Stellar Address (G...), not an untyped string."
         },
         "decimals": {
           "type": "integer",
@@ -456,34 +453,29 @@ cat > "$OUT" <<JSON
   },
   "events": {
     "InvoicePaymentRecorded": {
-      "description": "Emitted by record_payment(). Primary indexer event — carries the full payment details.",
+      "description": "Emitted by record_payment(). As of issue #512 this is minimized to signal only that an invoice_id was recorded — no payer, asset, amount, or settlement_ref. A consumer that needs the full record must already know invoice_id and call get_payment(invoice_id).",
       "topic": "invoice_payment_recorded",
       "fields": {
-        "invoice_id":   { "type": "string",  "description": "Unique invoice identifier." },
-        "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
-        "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
-        "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
-        "amount":       { "type": "integer", "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals.", "minimum": 1 },
-        "asset_decimals": { "type": "integer", "description": "Decimal places for the asset; 0 means legacy precision unknown.", "minimum": 0, "maximum": 18 },
-        "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
+        "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." },
+        "schema_version": { "type": "integer", "description": "Event payload schema version. Bumped to 2 for issue #512's payload shrink.", "minimum": 1 }
       },
-      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "asset_decimals", "settlement_ref"]
+      "required": ["invoice_id", "schema_version"]
     },
     "AssetAllowlisted": {
-      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
+      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist. issuer is a Stellar Address.",
       "topic": "asset_allowlisted",
       "fields": {
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["code", "issuer"]
     },
     "AssetRevoked": {
-      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist.",
+      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist. issuer is a Stellar Address.",
       "topic": "asset_revoked",
       "fields": {
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["code", "issuer"]
     },
@@ -572,6 +564,17 @@ cat > "$OUT" <<JSON
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
       "required": ["discovered", "migrated_at"]
+    },
+    "IssuersMigrated": {
+      "description": "Emitted by the V5 -> V6 storage migration after rewriting Token issuers from unvalidated strings into Address values on payment records, history slots, and allowlist keys. skipped_malformed counts string issuers that were not a well-formed Stellar address and were left on the legacy key rather than dropped.",
+      "topic": "issuers_migrated",
+      "fields": {
+        "payments": { "type": "integer", "description": "Number of payment records rewritten in this batch.", "minimum": 0 },
+        "allowlist": { "type": "integer", "description": "Number of allowlist entries moved from the string key to AllowListV6.", "minimum": 0 },
+        "skipped_malformed": { "type": "integer", "description": "Number of stored issuer strings that were not a well-formed G... address and were left in place.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when this batch completed." }
+      },
+      "required": ["payments", "allowlist", "skipped_malformed", "migrated_at"]
     },
     "LegacyPaymentsMigrated": {
       "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",

@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 2,
     "mux_id": 0
   },
@@ -21,7 +21,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -96,41 +96,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowList"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "USDC"
                   },
                   {
-                    "string": "GBIssuer"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowListIndex"
-                  },
-                  {
-                    "string": "USDC"
-                  },
-                  {
-                    "string": "GBIssuer"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   }
                 ]
               },
@@ -174,13 +146,51 @@
                   },
                   {
                     "key": {
+                      "symbol": "decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuer"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
               }
             }
           },
@@ -262,7 +272,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]

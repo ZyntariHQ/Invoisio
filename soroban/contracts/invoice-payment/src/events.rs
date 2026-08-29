@@ -3,6 +3,17 @@ use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 /// Schema version for the `invoice_payment_recorded` event payload.
 /// Bumped only when the payload shape changes in a breaking way so that
 /// off-chain indexers can detect and adapt to the event format.
+///
+/// Bumped to 2 for issue #512: the payload shrank from the full
+/// `PaymentRecord` (payer, asset, amount, asset_decimals, settlement_ref
+/// included) down to just `invoice_id`. A public event carrying the full
+/// record completely bypassed every read-method access-control decision in
+/// this contract — anyone streaming `getEvents` could reconstruct the whole
+/// payment ledger regardless of what the read methods allowed. The event now
+/// only signals *that* an invoice_id was recorded; a consumer who wants the
+/// full record (including `asset_decimals`, added independently for asset
+/// precision — see `PaymentRecord::asset_decimals`) must already know
+/// `invoice_id` and call `get_payment(invoice_id)`.
 pub const EVENT_SCHEMA_VERSION: u32 = 2;
 
 #[contractevent]
@@ -10,21 +21,18 @@ pub const EVENT_SCHEMA_VERSION: u32 = 2;
 pub struct InvoicePaymentRecorded {
     pub schema_version: u32,
     pub invoice_id: String,
-    pub payer: Address,
-    pub asset_code: String,
-    pub asset_issuer: String,
-    pub amount: i128,
-    /// Decimal places for the asset's smallest denomination.
-    pub asset_decimals: u32,
-    pub settlement_ref: String,
 }
 
-/// Emit an `"invoice_payment_recorded"` Soroban event carrying the flattened
-/// `InvoicePaymentRecorded` as event data.
+/// Emit an `"invoice_payment_recorded"` Soroban event carrying only
+/// `schema_version` and `invoice_id` as event data (issue #512).
 ///
 /// Off-chain consumers can filter by this topic via the Soroban RPC
 /// [`getEvents`](https://developers.stellar.org/docs/data/rpc/api-reference/methods/getEvents)
-/// endpoint or the `stellar events` CLI.
+/// endpoint or the `stellar events` CLI, but this event alone does **not**
+/// reveal payer, asset, amount, or settlement reference — a consumer that
+/// needs those must already know `invoice_id` and call
+/// `get_payment(invoice_id)`, an unauthenticated read gated only on already
+/// possessing the identifier.
 ///
 /// ## Consuming events off-chain
 /// ```sh
@@ -35,25 +43,10 @@ pub struct InvoicePaymentRecorded {
 ///   --type contract \
 ///   --start-ledger 1
 /// ```
-pub fn emit_payment_recorded(
-    env: &Env,
-    invoice_id: String,
-    payer: Address,
-    asset_code: String,
-    asset_issuer: String,
-    amount: i128,
-    asset_decimals: u32,
-    settlement_ref: String,
-) {
+pub fn emit_payment_recorded(env: &Env, invoice_id: String) {
     let payload = InvoicePaymentRecorded {
         schema_version: EVENT_SCHEMA_VERSION,
         invoice_id,
-        payer,
-        asset_code,
-        asset_issuer,
-        amount,
-        asset_decimals,
-        settlement_ref,
     };
 
     payload.publish(env);
@@ -63,14 +56,14 @@ pub fn emit_payment_recorded(
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetAllowlisted {
     pub code: String,
-    pub issuer: String,
+    pub issuer: Address,
 }
 
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetRevoked {
     pub code: String,
-    pub issuer: String,
+    pub issuer: Address,
 }
 
 #[contractevent]
@@ -79,12 +72,12 @@ pub struct NativeAllowChanged {
     pub allowed: bool,
 }
 
-pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: String) {
+pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: Address) {
     let payload = AssetAllowlisted { code, issuer };
     payload.publish(env);
 }
 
-pub fn emit_asset_revoked(env: &Env, code: String, issuer: String) {
+pub fn emit_asset_revoked(env: &Env, code: String, issuer: Address) {
     let payload = AssetRevoked { code, issuer };
     payload.publish(env);
 }
@@ -250,7 +243,29 @@ pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
     payload.publish(env);
 }
 
-/// Emitted by `migrate_legacy_payments()` when at least one legacy
+/// Emitted by `migrate_schema_v5_to_v6` after rewriting Token issuers from
+/// unvalidated strings into [`Address`] values on payment records, history
+/// slots, and allowlist keys. `skipped_malformed` counts string issuers that
+/// were not a well-formed Stellar address and were therefore left on the
+/// legacy key rather than dropped.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct IssuersMigrated {
+    pub payments: u32,
+    pub allowlist: u32,
+    pub skipped_malformed: u32,
+    pub migrated_at: u64,
+}
+
+pub fn emit_issuers_migrated(env: &Env, payments: u32, allowlist: u32, skipped_malformed: u32) {
+    let payload = IssuersMigrated {
+        payments,
+        allowlist,
+        skipped_malformed,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
 /// `Payment(invoice_id)` entry was migrated to `PaymentV1` and its legacy
 /// copy removed. `migrated` counts entries actually migrated in this call —
 /// it excludes ids that were already current or not found (issue #508).

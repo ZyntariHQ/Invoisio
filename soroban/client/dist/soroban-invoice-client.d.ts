@@ -136,7 +136,7 @@ export declare class SorobanInvoiceClient {
      * @throws {SorobanContractError} on contract-level rejection
      *   (e.g. `NotInitialized`, `InvalidAsset`, `Unauthorized`, `ContractPaused`)
      */
-    allowAsset(code: string, issuer: string): Promise<TransactionResult>;
+    allowAsset(code: string, issuer: string, paramsDecimals?: number): Promise<TransactionResult>;
     /**
      * Remove a `(code, issuer)` token pair from the allowlist.
      *
@@ -198,13 +198,20 @@ export declare class SorobanInvoiceClient {
      * | `upgrade`               | yes        | The WASM-upgrade runbook REQUIRES pausing first; see upgrade() docs       |
      * | `upgradeStorage`        | yes        | Storage migration runs between `upgrade()` and the final unpause          |
      * | `rebuildHistoryIndex`   | yes        | Administrative recovery; may run in the upgrade window or standalone     |
+     * | `getPaymentCount`       | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
+     * | `getPaymentHistory`     | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
+     * | `getSettlementRefHistory` | yes      | Admin-gated bulk read (issue #512); auditing must work during containment |
+     * | `getSettlementRefIndexStatus` | yes  | Admin-gated bulk read (issue #512); auditing must work during containment |
+     * | `getHistoryIndexStatus` | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
      *
-     * **All read methods** (`getConfig`, `getAdmin`, `getPendingAdmin`,
-     * `isPaused`, `getPayment`, `hasPayment`, `getPaymentCount`,
-     * `getPaymentHistory`, `getPaymentsByPayer`, `getContractVersion`,
-     * `getVersionInfo`, `getHistoryIndexStatus`) remain permissionless and
-     * fully available while paused — auditing and investigation must never
-     * be blocked by the emergency stop.
+     * **Permissionless read methods** (`getConfig`, `getAdmin`,
+     * `getPendingAdmin`, `isPaused`, `getPayment`, `hasPayment`,
+     * `getSettlementRefOwner`, `getContractVersion`, `getVersionInfo`) remain
+     * available while paused with no auth at all. The admin-gated bulk reads
+     * above are likewise never blocked by pause — only by admin auth — since
+     * auditing and investigation must never be blocked by the emergency stop.
+     * The old `getPaymentsByPayer` (a permissionless per-payer history read)
+     * was removed entirely (issue #512).
      *
      * The caller is derived from `signerSecretKey` and must match the
      * contract admin. Calling `setPaused(true)` when the contract is
@@ -306,38 +313,30 @@ export declare class SorobanInvoiceClient {
     hasPayment(invoiceId: string): Promise<boolean>;
     /**
      * Return the total number of payments recorded in this contract instance.
+     *
+     * **Admin-gated** (issue #512): a raw payment-volume counter is bulk
+     * platform-activity data, not tied to a specific identifier the caller
+     * already knows, so only the admin may read it. `adminPublicKey` must be
+     * the current contract admin's public key; the call is signed as that
+     * admin implicitly (via the transaction's source account), mirroring how
+     * this client already handles other admin-gated maintenance calls — no
+     * secret key is required for this read, only the admin's public key.
      */
-    getPaymentCount(): Promise<number>;
+    getPaymentCount(adminPublicKey: string): Promise<number>;
     /**
      * Fetch a bounded page of payment history using a cursor-based read.
      *
      * `cursor` is the next history index to read, and `limit` is capped by the
      * contract so responses remain bounded and predictable.
+     *
+     * **Admin-gated** (issue #512): bulk enumeration of every payment on the
+     * platform is exactly the disclosure this contract's privacy guarantee
+     * exists to prevent for anyone but the admin. See {@link getPaymentCount}
+     * for what `adminPublicKey` means here. The old `getPaymentsByPayer` (a
+     * permissionless per-payer history read) was removed entirely — it served
+     * no documented product need and was the sharpest disclosure (issue #512).
      */
-    getPaymentHistory(cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
-    /**
-     * Fetch a bounded page of payments made by a single payer.
-     *
-     * Two contract read paths are selected automatically per payer:
-     *
-     * - **Per-payer index (default).** Payments recorded after the index was
-     *   introduced (or backfilled by the schema V2 migration /
-     *   `rebuild_history_index`) are served with O(limit) direct reads. Here
-     *   `cursor` is an ordinal into that payer's payment list — start at `0`
-     *   and echo `next_cursor` afterwards.
-     *
-     * - **Bounded scan (fallback).** For payers without an index (pre-V2 data
-     *   not yet migrated), the contract scans the shared history index with
-     *   the filter applied, capped at `MAX_PAYER_SCAN_SLOTS` slots examined
-     *   per call regardless of how few records match. On this path `cursor`
-     *   is a shared-history-index slot, and **an empty page with
-     *   `has_more: true` is expected** on sparse result sets — keep paging
-     *   from `next_cursor` until it flips to `false`.
-     *
-     * In both paths `limit` is capped by the contract (25), gaps are reported
-     * in `gaps_skipped`, and `has_more: false` terminates pagination.
-     */
-    getPaymentsByPayer(payer: string, cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
+    getPaymentHistory(adminPublicKey: string, cursor?: number, limit?: number): Promise<PaymentHistoryPage>;
     /**
      * Return `true` if the contract is currently paused (writes disabled).
      * Permissionless read.
@@ -345,6 +344,14 @@ export declare class SorobanInvoiceClient {
     isPaused(): Promise<boolean>;
     /**
      * Resolve a settlement reference to the invoice ID that consumed it.
+     *
+     * `settlementRef` here is the **plaintext** reference — the caller must
+     * already possess it (e.g. the Horizon transaction hash it generated).
+     * The contract hashes it internally to the commitment it actually stores
+     * (issue #512); the plaintext is never stored or returned on-chain. This
+     * is the "already know it, verify it" property the contract's privacy
+     * guarantee is built around — this method cannot be used to discover a
+     * reference the caller doesn't already have.
      *
      * Returns `null` when the reference is unused — a plain "not found"
      * result rather than an error, since an unused reference is a normal,
@@ -363,14 +370,19 @@ export declare class SorobanInvoiceClient {
     /**
      * Fetch a bounded page of the settlement-reference index in write order,
      * so operators can enumerate and audit every settlement reference ever
-     * recorded (issue #495).
+     * recorded (issue #495). Each entry's `settlementRef` is a SHA-256
+     * commitment, not the plaintext (issue #512).
      *
      * `cursor` is the next write-order index to read; `limit` is capped by
      * the contract, mirroring `getPaymentHistory`. A missing index slot is
      * skipped and counted in `gapsSkipped` rather than stalling pagination —
      * keep paging from `nextCursor` until `hasMore` is `false`.
+     *
+     * **Admin-gated** (issue #512): this enumerates every settlement
+     * reference ever recorded — bulk platform-activity data. See
+     * {@link getPaymentCount} for what `adminPublicKey` means here.
      */
-    getSettlementRefHistory(cursor?: number, limit?: number): Promise<SettlementRefPage>;
+    getSettlementRefHistory(adminPublicKey: string, cursor?: number, limit?: number): Promise<SettlementRefPage>;
     /**
      * Return a quick consistency summary for the settlement-reference index.
      *
@@ -381,9 +393,25 @@ export declare class SorobanInvoiceClient {
      * together with `getPaymentHistory` to find the affected payments.
      *
      * O(1) — only compares counters, does not walk every payment.
-     * Permissionless read.
+     *
+     * **Admin-gated** (issue #512): a raw volume summary, like
+     * {@link getPaymentCount}. See that method for what `adminPublicKey`
+     * means here.
      */
-    getSettlementRefIndexStatus(): Promise<SettlementRefIndexStatus>;
+    getSettlementRefIndexStatus(adminPublicKey: string): Promise<SettlementRefIndexStatus>;
+    /**
+     * Get the consistency status of the payment history index:
+     * `(historyCount, paymentCount, isConsistent)`.
+     *
+     * **Admin-gated** (issue #512): a raw volume summary, like
+     * {@link getPaymentCount}. See that method for what `adminPublicKey`
+     * means here.
+     */
+    getHistoryIndexStatus(adminPublicKey: string): Promise<{
+        historyCount: number;
+        paymentCount: number;
+        isConsistent: boolean;
+    }>;
     /**
      * Fetch a bounded page of the currently-allowlisted `(code, issuer)`
      * pairs, so operators can enumerate and audit the allowlist without
@@ -428,6 +456,25 @@ export declare class SorobanInvoiceClient {
      * Time: O(1) — single RPC round-trip.
      */
     private simulateView;
+    /**
+     * Build and simulate an **admin-gated** read-only contract call, without
+     * submitting a transaction (issue #512).
+     *
+     * The contract methods this backs (`payment_count`, `payment_history`,
+     * `settlement_ref_history`, `settlement_ref_index_status`,
+     * `history_index_status`) call `admin.require_auth()` on-chain. Soroban
+     * treats a transaction's own **source account** as implicitly authorising
+     * any `require_auth()` call for that same address during simulation — no
+     * signature is required for a pure read, only that the transaction's
+     * source account equal the admin address supplied to the call. This is
+     * why `adminPublicKey` is passed as both the transaction source (below)
+     * and the contract's `admin` parameter (by each caller). Submitting this
+     * as a real transaction would additionally require a signature, but a
+     * read-only simulation does not.
+     *
+     * Time: O(1) — single RPC round-trip.
+     */
+    private simulateAdminView;
     /**
      * Poll for transaction confirmation until SUCCESS, FAILED, or the attempt
      * limit is reached.

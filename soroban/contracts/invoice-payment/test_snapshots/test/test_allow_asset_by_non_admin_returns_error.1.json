@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 1,
     "mux_id": 0
   },
@@ -70,7 +70,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]

@@ -640,20 +640,45 @@ export class BackfillService {
       }
 
       if (!dryRun) {
+        // As of issue #512 InvoicePaymentRecorded carries only invoice_id —
+        // a pre-fix historical event may still carry the full legacy
+        // payload above, but a post-fix one won't. When the event itself
+        // didn't supply payer/asset details, fetch them via
+        // get_payment(invoice_id) (unauthenticated, gated only on already
+        // knowing the id) instead of silently reconciling with gaps.
+        let payer = payload?.payer ? String(payload.payer) : undefined;
+        let assetCode = payload?.asset_code
+          ? String(payload.asset_code)
+          : undefined;
+        let assetIssuer = payload?.asset_issuer
+          ? String(payload.asset_issuer)
+          : undefined;
+        let amount =
+          payload?.amount !== undefined ? String(payload.amount) : undefined;
+
+        if (!payer && !assetCode && amount === undefined) {
+          const record = await this.sorobanService.getInvoicePayment(
+            String(invoiceId),
+          );
+          if (record) {
+            payer = record.payer;
+            assetCode =
+              record.asset?.type === "native" ? "XLM" : record.asset?.code;
+            assetIssuer =
+              record.asset?.type === "native" ? "" : record.asset?.issuer;
+            amount = record.amount?.toString();
+          }
+        }
+
         const result = await this.invoicesService.applySorobanPaymentEvent({
           eventId: String(eventId),
           contractId,
           ledger: Number(ledger),
           invoice_id: String(invoiceId),
-          payer: payload?.payer ? String(payload.payer) : undefined,
-          asset_code: payload?.asset_code
-            ? String(payload.asset_code)
-            : undefined,
-          asset_issuer: payload?.asset_issuer
-            ? String(payload.asset_issuer)
-            : undefined,
-          amount:
-            payload?.amount !== undefined ? String(payload.amount) : undefined,
+          payer,
+          asset_code: assetCode,
+          asset_issuer: assetIssuer,
+          amount,
         });
 
         if (result) {

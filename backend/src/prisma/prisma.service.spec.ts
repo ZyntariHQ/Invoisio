@@ -1,6 +1,9 @@
 import { Logger } from "@nestjs/common";
 import { prismaExtensionCallback } from "./prisma.service";
-import { MerchantContextService } from "./merchant-context.service";
+import {
+  MerchantContextService,
+  UNSCOPED_MERCHANT_CONTEXT,
+} from "./merchant-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 
 type Deps = Parameters<typeof prismaExtensionCallback>[0];
@@ -88,20 +91,41 @@ describe("prismaExtensionCallback", () => {
     const query = jest.fn().mockResolvedValue([]);
 
     await prismaExtensionCallback(deps, {
-      model: "WebhookDelivery",
+      model: "WatcherCursor",
       operation: "findMany",
-      args: { where: { id: "wd-1" } },
+      args: { where: { watcher: "horizon" } },
       query,
     });
 
     expect(deps.logger.error).not.toHaveBeenCalled();
-    expect(query).toHaveBeenCalledWith({ where: { id: "wd-1" } });
+    expect(query).toHaveBeenCalledWith({ where: { watcher: "horizon" } });
   });
 
-  it("passes args through unchanged when no merchant is in scope", async () => {
+  it("logs an error when no merchant is in scope for a scoped model", async () => {
     const deps = buildDeps({
       merchantContext: {
         getMerchantId: jest.fn().mockReturnValue(undefined),
+      } as unknown as MerchantContextService,
+    });
+    const query = jest.fn().mockResolvedValue([]);
+
+    await prismaExtensionCallback(deps, {
+      model: "Invoice",
+      operation: "findMany",
+      args: { where: { status: "pending" } },
+      query,
+    });
+
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "[TenantScope] Invoice.findMany executed without a merchant context",
+    );
+    expect(query).toHaveBeenCalledWith({ where: { status: "pending" } });
+  });
+
+  it("passes args through unchanged when UNSCOPED_MERCHANT_CONTEXT is in scope", async () => {
+    const deps = buildDeps({
+      merchantContext: {
+        getMerchantId: jest.fn().mockReturnValue(UNSCOPED_MERCHANT_CONTEXT),
       } as unknown as MerchantContextService,
     });
     const query = jest.fn().mockResolvedValue([]);

@@ -42,10 +42,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -76,10 +77,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "20000000"
@@ -110,10 +112,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "30000000"
@@ -147,7 +150,31 @@
         }
       ]
     ],
-    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "payment_history",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "u32": 10
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     [
       [
         "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
@@ -167,9 +194,75 @@
         }
       ]
     ],
-    [],
-    [],
-    []
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "payment_history",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "u32": 10
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "payment_count",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "payment_history",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "u32": 10
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -211,6 +304,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "1194852393571756375"
                 }
               },
               "durability": "temporary",
@@ -307,26 +420,19 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
+                "ledger_key_nonce": {
+                  "nonce": "5806905060045992000"
+                }
               },
-              "durability": "persistent",
-              "val": {
-                "u32": 3
-              }
+              "durability": "temporary",
+              "val": "void"
             }
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -334,29 +440,19 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
+                "ledger_key_nonce": {
+                  "nonce": "6277191135259896685"
+                }
               },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
+              "durability": "temporary",
+              "val": "void"
             }
           },
           "ext": "v0"
         },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -364,59 +460,19 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
               "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
+                "ledger_key_nonce": {
+                  "nonce": "8370022561469687789"
+                }
               },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
+              "durability": "temporary",
+              "val": "void"
             }
           },
           "ext": "v0"
         },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 2
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 2
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
+        "live_until": 6311999
       },
       {
         "entry": {
@@ -460,6 +516,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -479,7 +543,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-00"
+                      "string": "0c8d28d26cab6d7ff646ed9ef6c697c2b0cb834035e49da6823b9dcbe34cecf1"
                     }
                   },
                   {
@@ -540,6 +604,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -559,7 +631,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-01"
+                      "string": "9693d533eb87969c2d4cace2f10f6ff00b5d85a6bb9cd4f3a6de477273a18e00"
                     }
                   },
                   {
@@ -620,6 +692,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -639,7 +719,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-02"
+                      "string": "32d5582867bd4fed31c89e848612955bcd83ae88f3f246608c6de51450ff3369"
                     }
                   },
                   {
@@ -781,6 +861,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -800,7 +888,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-00"
+                      "string": "0c8d28d26cab6d7ff646ed9ef6c697c2b0cb834035e49da6823b9dcbe34cecf1"
                     }
                   },
                   {
@@ -861,6 +949,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -880,7 +976,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-01"
+                      "string": "9693d533eb87969c2d4cace2f10f6ff00b5d85a6bb9cd4f3a6de477273a18e00"
                     }
                   },
                   {
@@ -941,6 +1037,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -960,7 +1064,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-02"
+                      "string": "32d5582867bd4fed31c89e848612955bcd83ae88f3f246608c6de51450ff3369"
                     }
                   },
                   {
@@ -992,7 +1096,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-00"
+                    "string": "0c8d28d26cab6d7ff646ed9ef6c697c2b0cb834035e49da6823b9dcbe34cecf1"
                   }
                 ]
               },
@@ -1019,13 +1123,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-01"
+                    "string": "32d5582867bd4fed31c89e848612955bcd83ae88f3f246608c6de51450ff3369"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-01"
+                "string": "inv-02"
               }
             }
           },
@@ -1046,13 +1150,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-02"
+                    "string": "9693d533eb87969c2d4cace2f10f6ff00b5d85a6bb9cd4f3a6de477273a18e00"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "inv-02"
+                "string": "inv-01"
               }
             }
           },
@@ -1093,7 +1197,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-00"
+                      "string": "0c8d28d26cab6d7ff646ed9ef6c697c2b0cb834035e49da6823b9dcbe34cecf1"
                     }
                   }
                 ]
@@ -1137,7 +1241,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-01"
+                      "string": "9693d533eb87969c2d4cace2f10f6ff00b5d85a6bb9cd4f3a6de477273a18e00"
                     }
                   }
                 ]
@@ -1181,7 +1285,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-02"
+                      "string": "32d5582867bd4fed31c89e848612955bcd83ae88f3f246608c6de51450ff3369"
                     }
                   }
                 ]
@@ -1254,7 +1358,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]

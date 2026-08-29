@@ -21,10 +21,10 @@ use events::{
     emit_payment_recorded,
 };
 use storage::{
-    append_payer_entry, append_payment_history, append_payment_log, bump_count, bump_history_count,
+    append_payment_history, append_payment_log, bump_count, bump_history_count,
     clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_asset_decimals, get_contract_config, get_count, get_history_count, get_payment,
-    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    get_asset_decimals, get_contract_config, get_count, get_payment, get_payment_history_page,
+    get_pending_admin, get_pending_admin_opt, get_state_contract_version,
     get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
     is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
     set_pending_admin,
@@ -56,8 +56,11 @@ use storage::{
 /// - **Typed errors:** `#[contracterror]` returns structured `ScError::Contract`
 ///   values that appear in Horizon responses and are matchable in tests.
 /// - **Soroban events:** every `record_payment` emits a `"payment_recorded"`
-///   event carrying the full `PaymentRecord` so off-chain indexers don't need
-///   to poll state.
+///   event. As of issue #512 this carries only `schema_version` and
+///   `invoice_id` — it signals *that* a payment was recorded, not its
+///   contents. An observer who wants the full record must already know the
+///   `invoice_id` and call [`get_payment`] for it; the event alone no
+///   longer gives away payer, asset, amount, or settlement reference.
 ///
 /// ## Access control model
 ///
@@ -73,32 +76,45 @@ use storage::{
 ///     a successor and the proposed address must later accept before the role
 ///     actually transfers. This replaces the old single-step `set_admin`,
 ///     ensuring no admin change can happen without both parties acting.
-/// - **Read methods** are permissionless, so any account can inspect
-///   on-chain payment state. Every one of them is a pure read: none writes,
-///   duplicates, or deletes record data — only the current admin can do
-///   that, via `record_payment` or the maintenance methods below (issue
-///   #508 removed the one exception, `get_payment`'s old legacy-key
-///   copy-on-read; see its doc comment and `storage::get_payment`).
+/// - **Read methods** split into two groups (issue #512 — see "Disclosure
+///   guarantee / threat model" below for the reasoning):
+///   - **Permissionless reads** — usable by anyone who already knows the
+///     specific identifier they're asking about (an `invoice_id` or a
+///     `settlement_ref`), or who is inspecting non-payment contract/config
+///     state. None of them can be used to *discover* an identifier the
+///     caller doesn't already have.
+///   - **Admin-gated bulk/volume reads** — enumerate or summarize payment
+///     activity across the whole contract, so only the admin (Invoisio's own
+///     ops/reconciliation tooling) may call them. Gated exactly like
+///     [`rebuild_history_index`]: `admin.require_auth()` plus
+///     `admin == get_admin(&env)?`, returning [`ContractError::NotInitialized`]
+///     if uninitialised and [`ContractError::Unauthorized`] if `admin` isn't
+///     the current admin.
 ///
-///   | Method                        | Extends TTL on a hit? | Notes                                                              |
-///   |--------------------------------|:---:|---------------------------------------------------------------------------------|
-///   | `get_payment`                  | yes | Falls back to the legacy key for a not-yet-migrated record; never writes it     |
-///   | `has_payment`                  | yes | Existence check only (`.has()`), same v1-then-legacy fallback                   |
-///   | `payment_count`                | yes | Instance counter read                                                           |
-///   | `payment_history`               | yes | Per history-index slot returned                                                |
-///   | `payments_by_payer`            | yes | Per-payer index or bounded scan; per slot examined                             |
-///   | `settlement_ref_owner`         | yes | Only on a used reference                                                       |
-///   | `settlement_ref_history`       | yes | Per settlement-reference log slot returned                                     |
-///   | `settlement_ref_index_status`  | yes | Two instance counters, O(1)                                                     |
-///   | `allowed_assets`               | yes | Per allowlist-log slot returned                                                |
-///   | `allowlist_count`              | yes | Instance counter read                                                          |
-///   | `contract_version`             | no  | Compiled-in constant; no storage access at all                                 |
-///   | `version_info`                 | yes | Instance `ContractMeta` read                                                   |
-///   | `admin`                        | yes | Instance read                                                                  |
-///   | `pending_admin`                | yes | Instance read                                                                  |
-///   | `config`                       | yes | Aggregates several of the instance reads above                                 |
-///   | `is_paused`                    | yes | Instance read                                                                  |
-///   | `history_index_status`        | yes | Two instance counters, O(1)                                                     |
+///   Every read below is also a pure read: none writes, duplicates, or
+///   deletes record data — only the current admin can do that, via
+///   `record_payment` or the maintenance methods (issue #508 removed the one
+///   exception, `get_payment`'s old legacy-key copy-on-read; see its doc
+///   comment and `storage::get_payment`).
+///
+///   | Method                        | Access         | Extends TTL on a hit? | Notes                                                              |
+///   |--------------------------------|----------------|:---:|---------------------------------------------------------------------------------|
+///   | `get_payment`                  | permissionless | yes | Falls back to the legacy key for a not-yet-migrated record; never writes it     |
+///   | `has_payment`                  | permissionless | yes | Existence check only (`.has()`), same v1-then-legacy fallback                   |
+///   | `payment_count`                | **admin-gated**| yes | Instance counter read — total payment volume                                   |
+///   | `payment_history`              | **admin-gated**| yes | Per history-index slot returned — bulk enumeration                             |
+///   | `settlement_ref_owner`         | permissionless | yes | Only on a used reference; requires already possessing the plaintext ref        |
+///   | `settlement_ref_history`       | **admin-gated**| yes | Per settlement-reference log slot returned — bulk enumeration                  |
+///   | `settlement_ref_index_status`  | **admin-gated**| yes | Two instance counters, O(1) — volume summary                                   |
+///   | `allowed_assets`               | permissionless | yes | Per allowlist-log slot returned — config, not payment data                     |
+///   | `allowlist_count`              | permissionless | yes | Instance counter read — config, not payment data                               |
+///   | `contract_version`             | permissionless | no  | Compiled-in constant; no storage access at all                                 |
+///   | `version_info`                 | permissionless | yes | Instance `ContractMeta` read                                                   |
+///   | `admin`                        | permissionless | yes | Instance read                                                                  |
+///   | `pending_admin`                | permissionless | yes | Instance read                                                                  |
+///   | `config`                       | permissionless | yes | Aggregates several of the instance reads above                                 |
+///   | `is_paused`                    | permissionless | yes | Instance read                                                                  |
+///   | `history_index_status`        | **admin-gated**| yes | Two instance counters, O(1) — volume summary                                   |
 ///
 ///   "Extends TTL on a hit" means the call touches a read-write **footprint**
 ///   (Soroban tracks TTL on the entry's own key) but never changes the
@@ -108,13 +124,63 @@ use storage::{
 ///   bumps vs. data writes" note on `storage.rs`'s TTL Policy header for the
 ///   full reasoning.
 ///
+/// ## Disclosure guarantee / threat model (issue #512)
+///
+/// **An unauthenticated third party CAN learn:** whether a *specific*
+/// `invoice_id` they already know about has been paid, and its full record
+/// (`get_payment`); whether a *specific* `settlement_ref` they already
+/// possess maps to an invoice (`settlement_ref_owner`); the current
+/// allowlist/config/pause state (`config`, `allowed_assets`, `is_paused`,
+/// etc. — unrelated to payment privacy).
+///
+/// **An unauthenticated third party CANNOT learn:** the full set of
+/// invoices/payments on the platform; a specific payer's payment history
+/// (`payments_by_payer` was removed entirely — it served no documented
+/// product need and was the sharpest disclosure); aggregate payment
+/// volume/counts; the timing or ordering of payments they don't already know
+/// about; or the plaintext settlement reference / Horizon transaction hash
+/// from on-chain data alone (`settlement_ref` is now a SHA-256 commitment —
+/// see [`storage::commit_settlement_ref`]).
+///
+/// **The contract admin (the Invoisio backend) can still:** fully enumerate
+/// and audit payment activity via the admin-gated methods above, for
+/// legitimate ops/reconciliation — pause does not block them (see
+/// [`set_paused`]'s doc comment).
+///
+/// This does not, by itself, fix `invoice_id` enumerability — that is
+/// tracked separately as issue #498 — but the reduced read surface removes
+/// the *additional* correlation power an enumerable `invoice_id` would
+/// otherwise grant an observer (they can no longer pair it with a bulk
+/// payer/volume view or a full-detail public event stream).
+///
+/// ## Permanence for existing deployments
+///
+/// This code change only affects **future** calls on an upgraded
+/// deployment. It cannot un-publish data already written or already
+/// emitted: plaintext `settlement_ref` values stored before this upgrade,
+/// the full public event history (payer/asset/amount included) already
+/// emitted before this upgrade, and anything already readable via the
+/// now-removed/gated methods before an operator locked them down are
+/// **permanently public** — Horizon/RPC history and any observer's already-
+/// collected data cannot be retracted. Migrating those legacy records (see
+/// `migration::migrate_schema_v2_to_v3` / `migration::migrate_settlement_refs`)
+/// hashes them into the new commitment-keyed index for consistent lookups
+/// going forward; it does **not** rewrite or scrub the original plaintext
+/// still sitting under `PaymentRecord.settlement_ref` on old records. Treat
+/// any deployment that processed real payments before this fix as having
+/// its full payment history, payer identities, and settlement references
+/// already exposed — this fix protects only payments recorded going forward
+/// on a deployment upgraded per `soroban/docs/upgrade-runbook.md`.
+///
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
-/// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
-/// 4. Contract stores record + emits event.
-/// 5. Any observer calls `get_payment(invoice_id)`, `payment_history(cursor, limit)`,
-///    or streams `getEvents` to verify.
+/// 3. Backend calls `record_payment(invoice_id, payer, asset, amount, settlement_ref)`.
+/// 4. Contract stores record + emits an event carrying only `invoice_id`.
+/// 5. A party who already knows `invoice_id` calls `get_payment(invoice_id)`
+///    to verify it. The Invoisio backend (admin) can additionally call
+///    `payment_history(admin, cursor, limit)` or stream `getEvents` +
+///    `get_payment` per ID for full reconciliation.
 #[contract]
 pub struct InvoicePaymentContract;
 
@@ -184,7 +250,14 @@ impl InvoicePaymentContract {
     /// | Field  | Value                                   |
     /// |--------|-----------------------------------------|
     /// | Topics | `(Symbol "invoice", Symbol "payment")`  |
-    /// | Data   | [`InvoicePaymentRecordedEvent`] struct  |
+    /// | Data   | `{ schema_version, invoice_id }` only   |
+    ///
+    /// As of issue #512 the event carries only `schema_version` and
+    /// `invoice_id` — no payer, asset, amount, or settlement reference. This
+    /// signals *that* a payment was recorded, not its contents, so a
+    /// permissionless public event stream can no longer be used to bulk-
+    /// browse the payment ledger. A consumer that needs the full record must
+    /// already know `invoice_id` and call [`Self::get_payment`].
     ///
     /// Subscribe via:
     /// ```sh
@@ -196,15 +269,25 @@ impl InvoicePaymentContract {
     ///                       must be non-empty, max [`storage::MAX_INVOICE_ID_LEN`]
     ///                       chars, and in canonical form (see above)
     /// - `payer`           — Stellar account address that sent the payment
-    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
+    /// - `asset`           — [`Asset::Native`] for XLM, or [`Asset::Token`]
+    ///                       `(code, issuer)` for a Stellar-issued token. The
+    ///                       issuer is an [`Address`], so a malformed value
+    ///                       cannot cross the type boundary. Native XLM is
+    ///                       the `Native` variant — there is no empty-issuer
+    ///                       field.
     /// - `amount`          — payment amount in the asset's smallest denomination
     ///                       (must be > 0 and fit in `i128`). The stored
     ///                       record carries `asset_decimals` for formatting.
     /// - `settlement_ref`  — normalised settlement hash or reference ID for
     ///                       backend deduplication and idempotent reconciliation
     ///                       (must be non-empty, max [`storage::MAX_SETTLEMENT_REF_LEN`]
-    ///                       chars, and in canonical form — see above)
+    ///                       chars, and in canonical form — see above). This
+    ///                       plaintext value is validated exactly as documented,
+    ///                       but what actually gets stored/returned/emitted from
+    ///                       here on is its SHA-256 **commitment**, not the
+    ///                       plaintext itself — see
+    ///                       [`storage::commit_settlement_ref`] and
+    ///                       `PaymentRecord::settlement_ref`.
     ///
     /// ## Errors
     /// - [`ContractError::NotInitialized`] — contract was never initialised
@@ -214,15 +297,15 @@ impl InvoicePaymentContract {
     /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty,
     ///   exceeds [`storage::MAX_SETTLEMENT_REF_LEN`] chars, or is not in
     ///   canonical form
-    /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
+    /// - [`ContractError::InvalidAsset`] — token `code` is empty, exceeds 12
+    ///   characters, or is `"XLM"` (native XLM must use [`Asset::Native`])
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
     pub fn record_payment(
         env: Env,
         invoice_id: String,
         payer: Address,
-        asset_code: String,
-        asset_issuer: String,
+        asset: Asset,
         amount: i128,
         settlement_ref: String,
     ) -> Result<(), ContractError> {
@@ -282,53 +365,45 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidSettlementRef);
         }
 
-        // asset_code must be non-empty.
-        if asset_code.is_empty() {
-            return Err(ContractError::InvalidAsset);
-        }
+        // asset: Native vs Token is structural — there is no empty-issuer
+        // field that could be confused with native XLM. Token codes are held
+        // to Stellar's 12-character limit; the code "XLM" is reserved for
+        // Asset::Native so the two cases cannot be mixed.
+        let (is_native, asset_code, asset_issuer) = match &asset {
+            Asset::Native => (true, None, None),
+            Asset::Token(code, issuer) => (false, Some(code.clone()), Some(issuer.clone())),
+        };
 
-        // Stellar asset code max length is 12 characters.
-        if asset_code.len() > 12 {
-            return Err(ContractError::InvalidAsset);
-        }
-
-        // Asset validation:
-        // - XLM (native) must have an empty issuer
-        // - Non-XLM assets (tokens) must have a non-empty issuer
-        let is_xlm = asset_code == String::from_str(&env, "XLM");
-        let issuer_empty = asset_issuer.is_empty();
-
-        if is_xlm && !issuer_empty {
-            // XLM with issuer is invalid
-            return Err(ContractError::InvalidAsset);
-        }
-        if !is_xlm && issuer_empty {
-            // Token without issuer is invalid
-            return Err(ContractError::InvalidAsset);
+        if let Some(ref code) = asset_code {
+            if code.is_empty() || code.len() > 12 {
+                return Err(ContractError::InvalidAsset);
+            }
+            if *code == String::from_str(&env, "XLM") {
+                return Err(ContractError::InvalidAsset);
+            }
         }
 
         // Enforce allowlist:
-        // - If asset is native: require allow_native == true.
-        // - If asset is token: (code, issuer) must exist in allowlist.
-        if is_xlm {
+        // - Native: require allow_native == true.
+        // - Token: (code, issuer Address) must exist in allowlist.
+        let asset_decimals = if is_native {
             if !is_native_allowed(&env) {
                 return Err(ContractError::AssetNotAllowed);
             }
-        } else if !is_asset_allowed(&env, &asset_code, &asset_issuer) {
-            return Err(ContractError::AssetNotAllowed);
-        }
+            7
+        } else {
+            let code = asset_code.as_ref().unwrap();
+            let issuer = asset_issuer.as_ref().unwrap();
+            if !is_asset_allowed(&env, code, issuer) {
+                return Err(ContractError::AssetNotAllowed);
+            }
+            get_asset_decimals(&env, code, issuer).ok_or(ContractError::AssetNotAllowed)?
+        };
 
         // 4. Amount guard: use the full positive range of the i128 storage type.
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
-
-        let asset_decimals = if is_xlm {
-            7
-        } else {
-            get_asset_decimals(&env, &asset_code, &asset_issuer)
-                .ok_or(ContractError::AssetNotAllowed)?
-        };
 
         // 5. Idempotency guard: check invoice_id uniqueness.
         if has_payment(&env, &invoice_id) {
@@ -345,14 +420,11 @@ impl InvoicePaymentContract {
             return Err(ContractError::SettlementRefAlreadyUsed);
         }
 
-        // 7. Build the asset enum based on parameters.
-        let asset = if is_xlm {
-            Asset::Native
-        } else {
-            Asset::Token(asset_code.clone(), asset_issuer.clone())
-        };
+        // 7. Persist the caller-supplied asset enum as-is — Native vs Token
+        //    is already unambiguous, and Token's issuer is already Address.
+        let settlement_ref_commitment = storage::commit_settlement_ref(&env, &settlement_ref);
 
-        // 8. Build and persist the record (also bumps persistent TTL).
+        // 9. Build and persist the record (also bumps persistent TTL).
         let record = PaymentRecord {
             invoice_id: invoice_id.clone(),
             payer,
@@ -360,7 +432,7 @@ impl InvoicePaymentContract {
             amount,
             asset_decimals,
             timestamp: env.ledger().timestamp(),
-            settlement_ref: settlement_ref.clone(),
+            settlement_ref: settlement_ref_commitment,
         };
         set_payment(&env, &record);
 
@@ -368,33 +440,25 @@ impl InvoicePaymentContract {
         // every payment even if the history index is later corrupted.
         append_payment_log(&env, &record.invoice_id);
 
-        // 9. Record the settlement reference as used (global uniqueness) and
-        //    resolvable back to this invoice via `settlement_ref_owner`.
+        // 10. Record the settlement reference as used (global uniqueness) and
+        //     resolvable back to this invoice via `settlement_ref_owner`.
+        //     Hashes the plaintext internally to the same commitment used
+        //     above, so the two stay consistent.
         storage::record_settlement_ref(&env, &settlement_ref, &record.invoice_id);
 
-        // 10. Increment running counter (also bumps instance TTL).
+        // 11. Increment running counter (also bumps instance TTL).
         bump_count(&env);
 
-        // 11. Append to deterministic history index for paged reads.
+        // 12. Append to deterministic history index for paged reads.
         append_payment_history(&env, &record);
         bump_history_count(&env);
 
-        // 11b. Index the payment by payer so `payments_by_payer` becomes
-        // direct reads instead of a filtered scan of the whole history
-        // (issue #445). The history slot just written is `history_count - 1`.
-        append_payer_entry(&env, &record.payer, get_history_count(&env) - 1);
-
-        // 12. Emit Soroban event — off-chain indexers subscribe to these topics.
-        emit_payment_recorded(
-            &env,
-            record.invoice_id,
-            record.payer,
-            asset_code,
-            asset_issuer,
-            record.amount,
-            record.asset_decimals,
-            settlement_ref,
-        );
+        // 13. Emit Soroban event. Minimal by design (issue #512): only
+        //     schema_version + invoice_id, so the public event stream can't
+        //     be used to bulk-browse payer/asset/amount/asset_decimals/
+        //     settlement data — an observer must already know invoice_id and
+        //     call `get_payment` for the rest.
+        emit_payment_recorded(&env, record.invoice_id);
 
         Ok(())
     }
@@ -434,8 +498,24 @@ impl InvoicePaymentContract {
     }
 
     /// Return the total number of payments recorded in this contract instance.
-    pub fn payment_count(env: Env) -> u32 {
-        get_count(&env)
+    ///
+    /// ## Authorization
+    /// **Admin-gated** (issue #512): a raw payment-volume counter is bulk
+    /// platform-activity data, not something tied to a specific identifier a
+    /// caller already knows, so only the admin may read it — mirrors
+    /// [`rebuild_history_index`]'s auth pattern exactly. Available while
+    /// paused; auditing must never be blocked by the emergency stop.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — `admin` is not the current admin
+    pub fn payment_count(env: Env, admin: Address) -> Result<u32, ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        Ok(get_count(&env))
     }
 
     /// Return the current **code** version as packed semver
@@ -616,16 +696,21 @@ impl InvoicePaymentContract {
     /// and must remain stable during incident containment — a paused contract
     /// cannot silently change which assets are acceptable, and a suspect
     /// admin key cannot pre-stage new allowlist entries for later use.
-    pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+    pub fn allow_asset(env: Env, code: String, issuer: Address) -> Result<(), ContractError> {
         Self::allow_asset_with_decimals(env, code, issuer, 7)
     }
 
     /// Add a token and record its decimal precision. The admin must verify
     /// this value against the token contract's `decimals()` before calling.
+    ///
+    /// `issuer` is an [`Address`], so a malformed value cannot be
+    /// allowlisted. Remaining validation matches [`record_payment`]: `code`
+    /// must be non-empty, at most 12 characters, and must not be `"XLM"`
+    /// (native XLM is toggled via [`set_allow_native`], not the token list).
     pub fn allow_asset_with_decimals(
         env: Env,
         code: String,
-        issuer: String,
+        issuer: Address,
         decimals: u32,
     ) -> Result<(), ContractError> {
         if storage::is_paused(&env) {
@@ -633,12 +718,10 @@ impl InvoicePaymentContract {
         }
         let admin = get_admin(&env)?;
         admin.require_auth();
-        if code.is_empty() || issuer.is_empty() {
+        if code.is_empty() || code.len() > 12 {
             return Err(ContractError::InvalidAsset);
         }
-        // Stellar asset code max length is 12 characters — mirrors
-        // record_payment's asset_code validation exactly.
-        if code.len() > 12 {
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         if decimals > 18 {
@@ -662,13 +745,16 @@ impl InvoicePaymentContract {
     /// paused. Revoking an asset is a control-plane change that must not
     /// happen during the incident-containment window; the operator needs a
     /// stable allowlist to reconcile against while paused.
-    pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+    pub fn revoke_asset(env: Env, code: String, issuer: Address) -> Result<(), ContractError> {
         if storage::is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
         let admin = get_admin(&env)?;
         admin.require_auth();
-        if code.is_empty() || issuer.is_empty() {
+        if code.is_empty() || code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         let removed = revoke_asset(&env, &code, &issuer);
@@ -751,60 +837,41 @@ impl InvoicePaymentContract {
     /// reports how many slots were skipped this way, so recovery tooling can
     /// detect corruption directly from a normal read.
     ///
-    /// Permissionless read — no auth required.
-    pub fn payment_history(env: Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
-        get_payment_history_page(&env, cursor, limit)
-    }
-
-    /// Return all payments made by `payer`, paginated.
+    /// ## Authorization
+    /// **Admin-gated** (issue #512): bulk enumeration of every payment on the
+    /// platform is exactly the disclosure this contract's privacy guarantee
+    /// exists to prevent for anyone but the admin — mirrors
+    /// [`rebuild_history_index`]'s auth pattern exactly. Available while
+    /// paused; auditing must never be blocked by the emergency stop.
     ///
-    /// Two read paths, selected automatically per payer:
-    ///
-    /// **Per-payer index (default).** Every payment written by
-    /// `record_payment` (and every record backfilled by the schema V2
-    /// migration or `rebuild_history_index`) is indexed by payer. When an
-    /// index exists for this payer, each page costs O(limit) direct reads.
-    /// Here `cursor` is an *ordinal* into that payer's payment list — pass
-    /// `0` for the first page and echo `next_cursor` afterwards.
-    ///
-    /// **Bounded scan (fallback).** For payers whose index has not been
-    /// built (pre-V2 data not yet migrated), the call scans the shared
-    /// history index with the filter applied. Because slots belonging to
-    /// other payers are consumed without contributing to the page, the scan
-    /// is capped at [`storage::MAX_PAYER_SCAN_SLOTS`] history slots examined
-    /// per invocation — independent of how many records match and of how
-    /// large the history grows. On this path a payer with no matching
-    /// records returns an *empty page promptly* instead of scanning the
-    /// whole index; **an empty page with `has_more: true` is expected** and
-    /// callers must keep paging from `next_cursor` until it flips to
-    /// `false`. Here `cursor` is a shared-history-index slot.
-    ///
-    /// In both paths:
-    /// - at most [`storage::MAX_PAYMENT_HISTORY_PAGE_SIZE`] records are
-    ///   returned per call (`limit` is capped internally),
-    /// - a missing backing slot is counted in `gaps_skipped` and skipped
-    ///   exactly like in `payment_history`,
-    /// - `has_more == false` terminates paging.
-    ///
-    /// Permissionless read — no auth required.
-    pub fn payments_by_payer(
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — `admin` is not the current admin
+    pub fn payment_history(
         env: Env,
-        payer: Address,
+        admin: Address,
         cursor: u32,
         limit: u32,
-    ) -> PaymentHistoryPage {
-        use storage::{
-            get_payer_history_page, get_payer_payment_count, get_payments_by_payer_page,
-        };
-
-        if get_payer_payment_count(&env, &payer).is_some() {
-            get_payer_history_page(&env, &payer, cursor, limit)
-        } else {
-            get_payments_by_payer_page(&env, &payer, cursor, limit)
+    ) -> Result<PaymentHistoryPage, ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
         }
+        admin.require_auth();
+        Ok(get_payment_history_page(&env, cursor, limit))
     }
 
     /// Resolve a settlement reference to the invoice ID that consumed it.
+    ///
+    /// `settlement_ref` here is the **plaintext** reference — the caller
+    /// must already possess it (e.g. the Horizon transaction hash it
+    /// generated). It is hashed internally to the commitment actually used
+    /// as the storage key (see [`storage::commit_settlement_ref`]); the
+    /// plaintext is never stored or returned by this contract. This is
+    /// exactly the "already know it, verify it" property the contract's
+    /// privacy guarantee is built around (issue #512) — this method cannot
+    /// be used to discover a settlement reference the caller doesn't already
+    /// have.
     ///
     /// Returns `None` when the reference is unused — a plain, unambiguous
     /// "not found" result rather than an error indistinguishable from a
@@ -844,9 +911,30 @@ impl InvoicePaymentContract {
     /// skipped this page, so the enumeration always terminates (`has_more`
     /// eventually reads `false`) even over a partially-rebuilt index.
     ///
-    /// Permissionless read — no auth required, available while paused.
-    pub fn settlement_ref_history(env: Env, cursor: u32, limit: u32) -> storage::SettlementRefPage {
-        storage::get_settlement_ref_page(&env, cursor, limit)
+    /// Each returned entry's `settlement_ref` is a SHA-256 commitment, not
+    /// the plaintext reference — see [`storage::commit_settlement_ref`].
+    ///
+    /// ## Authorization
+    /// **Admin-gated** (issue #512): this enumerates every settlement
+    /// reference ever recorded, which is bulk platform-activity data —
+    /// mirrors [`rebuild_history_index`]'s auth pattern exactly. Available
+    /// while paused; auditing must never be blocked by the emergency stop.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — `admin` is not the current admin
+    pub fn settlement_ref_history(
+        env: Env,
+        admin: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> Result<storage::SettlementRefPage, ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        Ok(storage::get_settlement_ref_page(&env, cursor, limit))
     }
 
     /// Return a quick consistency summary for the settlement-reference
@@ -866,15 +954,31 @@ impl InvoicePaymentContract {
     /// per-payment cross-check should page through `payment_history` and
     /// call `settlement_ref_owner` for each record.
     ///
-    /// Permissionless read — no auth required, available while paused.
-    pub fn settlement_ref_index_status(env: Env) -> (u32, u32, bool) {
+    /// ## Authorization
+    /// **Admin-gated** (issue #512): a raw settlement-reference volume
+    /// summary is bulk platform-activity data — mirrors
+    /// [`rebuild_history_index`]'s auth pattern exactly. Available while
+    /// paused; auditing must never be blocked by the emergency stop.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — `admin` is not the current admin
+    pub fn settlement_ref_index_status(
+        env: Env,
+        admin: Address,
+    ) -> Result<(u32, u32, bool), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
         let settlement_ref_count = storage::get_settlement_ref_count(&env);
         let payment_count = storage::get_payment_count(&env);
-        (
+        Ok((
             settlement_ref_count,
             payment_count,
             settlement_ref_count == payment_count,
-        )
+        ))
     }
 
     /// Upgrade the deployed contract WASM in place.
@@ -1021,16 +1125,22 @@ impl InvoicePaymentContract {
     /// | `upgrade_storage`        | yes        | Storage migration runs between `upgrade()` and the final unpause         |
     /// | `rebuild_history_index`  | yes        | Administrative recovery; may run in the upgrade window or standalone    |
     /// | `migrate_legacy_payments`| yes        | Administrative cleanup of legacy keys; may run standalone (issue #508)  |
+    /// | `payment_count`          | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
+    /// | `payment_history`        | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
+    /// | `settlement_ref_history` | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
+    /// | `settlement_ref_index_status` | yes   | Admin-gated bulk read (issue #512); auditing must work during containment |
+    /// | `history_index_status`   | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
     ///
-    /// All read entrypoints (`config`, `admin`, `pending_admin`, `is_paused`,
-    /// `get_payment`, `has_payment`, `payment_count`, `payment_history`,
-    /// `payments_by_payer`, `settlement_ref_owner`, `settlement_ref_history`,
-    /// `settlement_ref_index_status`, `allowed_assets`, `allowlist_count`,
-    /// `contract_version`, `version_info`, `history_index_status`) remain
-    /// permissionless and available while paused — auditing and investigation
-    /// must never be blocked by the emergency stop. See the module-level
-    /// "Access control model" doc for each read method's write-footprint
-    /// guarantee.
+    /// The permissionless read entrypoints (`config`, `admin`, `pending_admin`,
+    /// `is_paused`, `get_payment`, `has_payment`, `settlement_ref_owner`,
+    /// `allowed_assets`, `allowlist_count`, `contract_version`,
+    /// `version_info`) remain available while paused with no auth at all.
+    /// The admin-gated bulk reads above are likewise never blocked by pause
+    /// — only by admin auth — since auditing and investigation must never be
+    /// blocked by the emergency stop. See the module-level "Access control
+    /// model" doc for each read method's write-footprint guarantee, and
+    /// "Disclosure guarantee / threat model" for why the bulk reads are
+    /// admin-gated in the first place.
     ///
     /// ## Authorization
     /// Only the contract admin can call this method.
@@ -1172,11 +1282,29 @@ impl InvoicePaymentContract {
     ///
     /// Returns a tuple (history_count, payment_count, is_consistent).
     /// This is a diagnostic function for ops tooling.
-    pub fn history_index_status(env: Env) -> (u32, u32, bool) {
+    ///
+    /// ## Authorization
+    /// **Admin-gated** (issue #512): a raw payment-volume counter comparison
+    /// is bulk platform-activity data — mirrors [`rebuild_history_index`]'s
+    /// auth pattern exactly. Available while paused; auditing must never be
+    /// blocked by the emergency stop.
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — `admin` is not the current admin
+    pub fn history_index_status(
+        env: Env,
+        admin: Address,
+    ) -> Result<(u32, u32, bool), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
         let history_count = crate::storage::get_history_count(&env);
         let payment_count = crate::storage::get_payment_count(&env);
         let is_consistent = history_count == payment_count;
-        (history_count, payment_count, is_consistent)
+        Ok((history_count, payment_count, is_consistent))
     }
 }
 

@@ -1,9 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import {
-  PaymentRecord,
-  SorobanInvoiceClient,
-} from "@invoisio/soroban-client";
+import { PaymentRecord, SorobanInvoiceClient } from "@invoisio/soroban-client";
 
 export interface RecordPaymentParams {
   invoiceId: string;
@@ -73,9 +70,7 @@ export class SorobanService implements OnModuleInit {
       });
 
       this.isInitialized = true;
-      this.logger.log(
-        `SorobanService ready — contract: ${cfg.contractId}`,
-      );
+      this.logger.log(`SorobanService ready — contract: ${cfg.contractId}`);
     } catch (error) {
       this.logger.error(`SorobanService initialization failed: ${error}`);
       this.isInitialized = false;
@@ -177,10 +172,39 @@ export class SorobanService implements OnModuleInit {
     try {
       return await this.client.getSettlementRefOwner(settlementRef);
     } catch (error) {
-      this.logger.error(
-        `Failed to resolve settlement_ref owner: ${error}`,
-      );
+      this.logger.error(`Failed to resolve settlement_ref owner: ${error}`);
       return null;
+    }
+  }
+
+  async pingRpc(): Promise<RpcCheckResult> {
+    const cfg = this.configService.get("stellar");
+    if (!cfg || !cfg.sorobanRpcUrl) {
+      return {
+        reachable: false,
+        latencyMs: 0,
+        error: "Soroban RPC URL not configured",
+      };
+    }
+
+    const start = Date.now();
+    try {
+      // Import dynamically or rely on global fetch since we don't want to mess up stellar-sdk import
+      const response = await fetch(cfg.sorobanRpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      return { reachable: true, latencyMs: Date.now() - start };
+    } catch (error) {
+      return {
+        reachable: false,
+        latencyMs: Date.now() - start,
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 }

@@ -20,7 +20,7 @@ import { SearchInvoicesDto } from "./dto/search-invoices.dto";
 import { ImportSummaryDto } from "./dto/import-result.dto";
 import { Invoice } from "./entities/invoice.entity";
 import { InvoiceStatus } from "@prisma/client";
-import { Auth, CurrentUser } from "../auth/guard/auth.guard";
+import { Auth, CurrentUser, Public } from "../auth/guard/auth.guard";
 import { User } from "../users/user.entity";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -114,8 +114,9 @@ export class InvoicesController {
    * @param id - Invoice UUID
    * @returns Public invoice data
    */
+  @Public()
   @Get("public/:id")
-  @Throttle({ default: { limit: 60, ttl: 60000 } }) // 60 requests per minute
+  @Throttle({ default: { limit: 60, ttl: 60_000 } }) // 60 requests per minute
   async findPublicInvoice(@Param("id") id: string) {
     const invoice = await this.invoicesService.findPublicInvoice(id);
     if (!invoice) {
@@ -132,7 +133,7 @@ export class InvoicesController {
    */
   @Post()
   @Auth()
-  @Throttle({ default: { limit: 20, ttl: 3600 } }) // 20 invoices per hour per user
+  @Throttle({ default: { limit: 20, ttl: 3_600_000 } }) // 20 invoices per hour per user
   async create(
     @CurrentUser() user: User,
     @Body() dto: CreateInvoiceDto,
@@ -151,7 +152,7 @@ export class InvoicesController {
    */
   @Post("import")
   @Auth()
-  @Throttle({ default: { limit: 3, ttl: 3600 } }) // 3 imports per hour per user
+  @Throttle({ default: { limit: 3, ttl: 3_600_000 } }) // 3 imports per hour per user
   @UseInterceptors(
     FileInterceptor("file", {
       storage: memoryStorage(),

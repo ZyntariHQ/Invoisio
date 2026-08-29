@@ -152,6 +152,17 @@ Runs under the new code. Safe to run even if the new build didn't change
 (after checking the history index is still consistent) if there's nothing to
 migrate.
 
+V6 (issuer `String` → `Address`) walks the payment log in batches of
+`MAX_ISSUER_MIGRATION_BATCH` (20), same chunking approach as issue #480.
+A large deployment returns `IssuerMigrationIncomplete` (23) when a batch
+finishes with slots remaining — **call `upgrade_storage()` again** until
+`version_info().storage_schema_version` reads `6`. Stay paused for the
+whole loop; do not treat Incomplete as a fatal upgrade failure.
+
+Malformed stored issuer strings are counted in the `IssuersMigrated`
+event's `skipped_malformed` field and left on the legacy key rather than
+deleted.
+
 ### 5. Verify
 
 ```sh

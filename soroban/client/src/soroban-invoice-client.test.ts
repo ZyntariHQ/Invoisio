@@ -247,7 +247,7 @@ describe('allowlist operations', () => {
 });
 
 describe('recordPayment', () => {
-  it('recordPayment() submits record_payment with settlementRef as the 6th argument', async () => {
+  it('recordPayment() submits record_payment with an Asset enum (Native for empty issuer)', async () => {
     let prepared: Transaction | undefined;
     vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
       new Account(SIGNER_PUBLIC, '1'),
@@ -283,8 +283,62 @@ describe('recordPayment', () => {
     expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
     expect(decodeInvocation(prepared as Transaction)).toEqual({
       method: 'record_payment',
-      args: ['invoisio-abc123', READER, 'XLM', '', amount, 'settle-hash-abc123'],
+      args: ['invoisio-abc123', READER, ['Native'], amount, 'settle-hash-abc123'],
     });
+  });
+
+  it('recordPayment() encodes a token as Asset::Token(code, Address)', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    await makeClient(signer.secret()).recordPayment({
+      invoiceId: 'invoisio-usdc-1',
+      payer: READER,
+      assetCode: 'USDC',
+      assetIssuer: ISSUER,
+      amount: 50_000_000n,
+      settlementRef: 'settle-usdc-1',
+    });
+
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'record_payment',
+      args: ['invoisio-usdc-1', READER, ['Token', 'USDC', ISSUER], 50_000_000n, 'settle-usdc-1'],
+    });
+  });
+
+  it('recordPayment() rejects a malformed issuer before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-bad-issuer',
+        payer: READER,
+        assetCode: 'USDC',
+        assetIssuer: 'not-an-address',
+        amount: 1n,
+        settlementRef: 'settle-bad-issuer',
+      }),
+    ).rejects.toThrow();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('recordPayment() rejects a non-canonical invoiceId before submitting', async () => {
@@ -437,6 +491,10 @@ describe('getPayment', () => {
         val: nativeToScVal(BigInt(10_000_000), { type: 'i128' }),
       }),
       new xdr.ScMapEntry({
+        key: nativeToScVal('asset_decimals', { type: 'symbol' }),
+        val: nativeToScVal(7, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
         key: nativeToScVal('timestamp', { type: 'symbol' }),
         val: nativeToScVal(BigInt(1_786_000_000), { type: 'u64' }),
       }),
@@ -458,6 +516,7 @@ describe('getPayment', () => {
       payer: READER,
       asset: { type: 'native' },
       amount: 10_000_000n,
+      assetDecimals: 7,
       timestamp: 1_786_000_000n,
       settlementRef: 'settle-hash-abc123',
     });
@@ -465,6 +524,87 @@ describe('getPayment', () => {
     expect(decodeInvocation(simulated as Transaction)).toEqual({
       method: 'get_payment',
       args: ['invoisio-abc123'],
+    });
+  });
+});
+
+describe('admin-gated bulk reads (issue #512)', () => {
+  it('getPaymentCount() sources the simulation from the admin address and passes it as an argument', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(nativeToScVal(7, { type: 'u32' }));
+      },
+    );
+
+    await expect(makeClient().getPaymentCount(SIGNER_PUBLIC)).resolves.toBe(7);
+    expect((simulated as Transaction).source).toBe(SIGNER_PUBLIC);
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'payment_count',
+      args: [SIGNER_PUBLIC],
+    });
+  });
+
+  it('getPaymentHistory() passes the admin address as the first contract argument', async () => {
+    const emptyPage = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({
+        key: nativeToScVal('records', { type: 'symbol' }),
+        val: xdr.ScVal.scvVec([]),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('next_cursor', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('has_more', { type: 'symbol' }),
+        val: nativeToScVal(false, { type: 'bool' }),
+      }),
+      new xdr.ScMapEntry({
+        key: nativeToScVal('gaps_skipped', { type: 'symbol' }),
+        val: nativeToScVal(0, { type: 'u32' }),
+      }),
+    ]);
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(emptyPage);
+      },
+    );
+
+    await makeClient().getPaymentHistory(SIGNER_PUBLIC, 0, 25);
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'payment_history',
+      args: [SIGNER_PUBLIC, 0, 25],
+    });
+  });
+
+  it('getHistoryIndexStatus() decodes the (history_count, payment_count, is_consistent) tuple', async () => {
+    let simulated: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'simulateTransaction').mockImplementation(
+      async (tx) => {
+        simulated = tx as Transaction;
+        return simulateSuccess(
+          xdr.ScVal.scvVec([
+            nativeToScVal(3, { type: 'u32' }),
+            nativeToScVal(3, { type: 'u32' }),
+            nativeToScVal(true, { type: 'bool' }),
+          ]),
+        );
+      },
+    );
+
+    await expect(
+      makeClient().getHistoryIndexStatus(SIGNER_PUBLIC),
+    ).resolves.toEqual({
+      historyCount: 3,
+      paymentCount: 3,
+      isConsistent: true,
+    });
+    expect(decodeInvocation(simulated as Transaction)).toEqual({
+      method: 'history_index_status',
+      args: [SIGNER_PUBLIC],
     });
   });
 });
@@ -547,7 +687,9 @@ describe('getSettlementRefHistory', () => {
       },
     );
 
-    await expect(makeClient().getSettlementRefHistory(0, 25)).resolves.toEqual({
+    await expect(
+      makeClient().getSettlementRefHistory(SIGNER_PUBLIC, 0, 25),
+    ).resolves.toEqual({
       records: [
         { settlementRef: 'settle-001', invoiceId: 'invoisio-001' },
         { settlementRef: 'settle-002', invoiceId: 'invoisio-002' },
@@ -558,7 +700,7 @@ describe('getSettlementRefHistory', () => {
     });
     expect(decodeInvocation(simulated as Transaction)).toEqual({
       method: 'settlement_ref_history',
-      args: [0, 25],
+      args: [SIGNER_PUBLIC, 0, 25],
     });
   });
 
@@ -590,10 +732,10 @@ describe('getSettlementRefHistory', () => {
       },
     );
 
-    await makeClient().getSettlementRefHistory();
+    await makeClient().getSettlementRefHistory(SIGNER_PUBLIC);
     expect(decodeInvocation(simulated as Transaction)).toEqual({
       method: 'settlement_ref_history',
-      args: [0, 25],
+      args: [SIGNER_PUBLIC, 0, 25],
     });
   });
 });
@@ -614,14 +756,16 @@ describe('getSettlementRefIndexStatus', () => {
       },
     );
 
-    await expect(makeClient().getSettlementRefIndexStatus()).resolves.toEqual({
+    await expect(
+      makeClient().getSettlementRefIndexStatus(SIGNER_PUBLIC),
+    ).resolves.toEqual({
       settlementRefCount: 4,
       paymentCount: 5,
       isConsistent: false,
     });
     expect(decodeInvocation(simulated as Transaction)).toEqual({
       method: 'settlement_ref_index_status',
-      args: [],
+      args: [SIGNER_PUBLIC],
     });
   });
 });

@@ -42,10 +42,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -121,63 +122,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -210,6 +154,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -229,7 +181,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-hash-abc123"
+                      "string": "6029040abb6dcef5f54afd881420f9c9d2a84d3cba020c5d8eb8a269ae5325f1"
                     }
                   },
                   {
@@ -317,6 +269,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -336,7 +296,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-hash-abc123"
+                      "string": "6029040abb6dcef5f54afd881420f9c9d2a84d3cba020c5d8eb8a269ae5325f1"
                     }
                   },
                   {
@@ -368,7 +328,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-hash-abc123"
+                    "string": "6029040abb6dcef5f54afd881420f9c9d2a84d3cba020c5d8eb8a269ae5325f1"
                   }
                 ]
               },
@@ -415,7 +375,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-hash-abc123"
+                      "string": "6029040abb6dcef5f54afd881420f9c9d2a84d3cba020c5d8eb8a269ae5325f1"
                     }
                   }
                 ]
@@ -488,7 +448,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]
@@ -572,30 +532,6 @@
               "map": [
                 {
                   "key": {
-                    "symbol": "amount"
-                  },
-                  "val": {
-                    "i128": "10000000"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_code"
-                  },
-                  "val": {
-                    "string": "XLM"
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "asset_issuer"
-                  },
-                  "val": {
-                    "string": ""
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "invoice_id"
                   },
                   "val": {
@@ -604,26 +540,10 @@
                 },
                 {
                   "key": {
-                    "symbol": "payer"
-                  },
-                  "val": {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                },
-                {
-                  "key": {
                     "symbol": "schema_version"
                   },
                   "val": {
-                    "u32": 1
-                  }
-                },
-                {
-                  "key": {
-                    "symbol": "settlement_ref"
-                  },
-                  "val": {
-                    "string": "settle-hash-abc123"
+                    "u32": 2
                   }
                 }
               ]

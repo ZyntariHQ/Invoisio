@@ -20,6 +20,14 @@ fn setup(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
     (client, admin)
 }
 
+/// Compute the SHA-256 commitment `record_payment` stores for a plaintext
+/// settlement reference — mirrors `storage::commit_settlement_ref` exactly,
+/// so tests assert against the same value the contract actually persists
+/// (issue #512), never the plaintext.
+fn settlement_commitment(env: &Env, plaintext: &str) -> String {
+    crate::storage::commit_settlement_ref(env, &String::from_str(env, plaintext))
+}
+
 /// XLM payment helper: 1 XLM = 10_000_000 stroops.
 fn record_xlm(
     env: &Env,
@@ -32,8 +40,7 @@ fn record_xlm(
     client.record_payment(
         &String::from_str(env, invoice_id),
         payer,
-        &String::from_str(env, "XLM"),
-        &String::from_str(env, ""), // no issuer for native asset
+        &Asset::Native,
         &stroops,
         // Derived from invoice_id so repeated calls within a test (each
         // using a distinct invoice_id) don't collide under global
@@ -48,9 +55,10 @@ fn record_xlm(
 fn test_initialize_sets_admin_and_zero_count() {
     let env = Env::default();
     let (client, admin) = setup(&env);
+    env.mock_all_auths();
 
     assert_eq!(client.admin(), admin);
-    assert_eq!(client.payment_count(), 0);
+    assert_eq!(client.payment_count(&admin), 0);
 }
 
 #[test]
@@ -149,8 +157,7 @@ fn test_record_payment_xlm_stores_record() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128, // 1 XLM
         &String::from_str(&env, "settle-xlm-abc123"),
     );
@@ -162,7 +169,7 @@ fn test_record_payment_xlm_stores_record() {
     assert_eq!(record.amount, 10_000_000i128);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-xlm-abc123")
+        settlement_commitment(&env, "settle-xlm-abc123")
     );
 }
 
@@ -175,17 +182,16 @@ fn test_record_payment_usdc_stores_issuer() {
     let invoice_id = String::from_str(&env, "invoisio-usdc01");
     let payer = Address::generate(&env);
     // Circle USDC issuer on Stellar testnet
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
 
     client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "USDC"),
-        &issuer,
+        &Asset::Token(String::from_str(&env, "USDC"), issuer.clone()),
         &50_000_000i128, // 5 USDC (7-decimal)
         &String::from_str(&env, "settle-usdc-01"),
     );
@@ -198,7 +204,7 @@ fn test_record_payment_usdc_stores_issuer() {
     assert_eq!(record.amount, 50_000_000i128);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-usdc-01")
+        settlement_commitment(&env, "settle-usdc-01")
     );
 }
 
@@ -213,7 +219,7 @@ fn test_record_payment_increments_count() {
     record_xlm(&env, &client, "invoisio-002", &payer, 20_000_000);
     record_xlm(&env, &client, "invoisio-003", &payer, 30_000_000);
 
-    assert_eq!(client.payment_count(), 3);
+    assert_eq!(client.payment_count(&_admin), 3);
 }
 
 #[test]
@@ -230,14 +236,13 @@ fn test_payment_history_pages_deterministically() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((idx as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-hist-{idx:02}")),
         );
     }
 
-    let first_page = client.payment_history(&0u32, &2u32);
+    let first_page = client.payment_history(&_admin, &0u32, &2u32);
     assert_eq!(first_page.records.len(), 2);
     assert_eq!(first_page.next_cursor, 2);
     assert!(first_page.has_more);
@@ -250,7 +255,7 @@ fn test_payment_history_pages_deterministically() {
         String::from_str(&env, "invoisio-history-01")
     );
 
-    let second_page = client.payment_history(&first_page.next_cursor, &2u32);
+    let second_page = client.payment_history(&_admin, &first_page.next_cursor, &2u32);
     assert_eq!(second_page.records.len(), 1);
     assert_eq!(second_page.next_cursor, 3);
     assert!(!second_page.has_more);
@@ -259,7 +264,7 @@ fn test_payment_history_pages_deterministically() {
         String::from_str(&env, "invoisio-history-02")
     );
 
-    let empty_page = client.payment_history(&99u32, &2u32);
+    let empty_page = client.payment_history(&_admin, &99u32, &2u32);
     assert_eq!(empty_page.records.len(), 0);
     assert_eq!(empty_page.next_cursor, 3);
     assert!(!empty_page.has_more);
@@ -279,19 +284,18 @@ fn test_payment_history_page_size_is_capped() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &(10_000_000i128 + idx as i128),
             &String::from_str(&env, &format!("settle-cap-{idx:02}")),
         );
     }
 
-    let first_page = client.payment_history(&0u32, &100u32);
+    let first_page = client.payment_history(&_admin, &0u32, &100u32);
     assert_eq!(first_page.records.len(), 25);
     assert_eq!(first_page.next_cursor, 25);
     assert!(first_page.has_more);
 
-    let second_page = client.payment_history(&first_page.next_cursor, &100u32);
+    let second_page = client.payment_history(&_admin, &first_page.next_cursor, &100u32);
     assert_eq!(second_page.records.len(), 1);
     assert_eq!(second_page.next_cursor, 26);
     assert!(!second_page.has_more);
@@ -314,8 +318,7 @@ fn test_payment_history_skips_missing_slot_mid_page() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((idx as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-gap-{idx:02}")),
         );
@@ -329,7 +332,7 @@ fn test_payment_history_skips_missing_slot_mid_page() {
             .remove(&DataKey::PaymentHistory(2));
     });
 
-    let page = client.payment_history(&0u32, &10u32);
+    let page = client.payment_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 4);
     assert_eq!(page.gaps_skipped, 1);
     assert_eq!(page.next_cursor, 5);
@@ -365,8 +368,7 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((idx as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-loop-{idx:02}")),
         );
@@ -387,7 +389,7 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
         iterations += 1;
         assert!(iterations <= 10, "pagination loop did not terminate");
 
-        let page = client.payment_history(&cursor, &2u32);
+        let page = client.payment_history(&_admin, &cursor, &2u32);
         // The cursor must always make forward progress — a repeated cursor
         // is exactly the deadlock this test guards against.
         assert!(page.next_cursor > cursor || !page.has_more);
@@ -406,51 +408,6 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
     assert_eq!(cursor, 6);
 }
 
-/// Regression test for #418 (scan path): `payments_by_payer` on the bounded
-/// scan fallback must skip a missing slot the same way `payment_history`
-/// does, distinguishing a real gap from a slot that belongs to a different
-/// payer.
-///
-/// With the per-payer index intact (#445), corruption in *another payer's*
-/// slot is no longer visible in this payer's page — the second half of the
-/// test pins that improvement.
-#[test]
-fn test_payments_by_payer_skips_missing_slot() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other_payer = Address::generate(&env);
-
-    record_xlm(&env, &client, "invoisio-mine-00", &payer, 10_000_000);
-    record_xlm(&env, &client, "invoisio-theirs", &other_payer, 20_000_000);
-    record_xlm(&env, &client, "invoisio-mine-01", &payer, 30_000_000);
-
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PaymentHistory(1));
-    });
-
-    // Indexed path: the removed slot belongs to another payer, so this
-    // payer's view is unaffected by it.
-    let indexed = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(indexed.records.len(), 2);
-    assert_eq!(indexed.gaps_skipped, 0);
-    assert_eq!(indexed.next_cursor, 2);
-    assert!(!indexed.has_more);
-
-    // Scan fallback: the shared-index walk sees the hole and reports it.
-    strip_payer_index(&env, &client, &payer);
-    let page = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(page.records.len(), 2);
-    assert_eq!(page.gaps_skipped, 1);
-    assert_eq!(page.next_cursor, 3);
-    assert!(!page.has_more);
-}
-
 /// Regression test for #418: once a corrupted index has been repaired via
 /// `rebuild_history_index`, pagination must report zero gaps again.
 #[test]
@@ -466,8 +423,7 @@ fn test_payment_history_has_no_gaps_after_rebuild() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((idx as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-rebuild-{idx:02}")),
         );
@@ -479,13 +435,13 @@ fn test_payment_history_has_no_gaps_after_rebuild() {
             .remove(&DataKey::PaymentHistory(1));
     });
 
-    let corrupted = client.payment_history(&0u32, &10u32);
+    let corrupted = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(corrupted.gaps_skipped, 1);
     assert_eq!(corrupted.records.len(), 3);
 
     client.rebuild_history_index(&admin);
 
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.gaps_skipped, 0);
     assert_eq!(rebuilt.records.len(), 4);
     assert!(!rebuilt.has_more);
@@ -505,8 +461,7 @@ fn test_duplicate_invoice_id_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-dup"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-dup"),
     );
@@ -533,20 +488,17 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-dedup-happy"),
     );
 
     // Check event BEFORE any further contract call; env.events().all() returns
     // events from the last invocation only and is overwritten on the next call.
+    // As of issue #512 the event carries only schema_version + invoice_id —
+    // no payer/asset/amount/settlement_ref — so a public event stream can no
+    // longer be used to bulk-browse the payment ledger.
     let inv_val: soroban_sdk::Val = invoice_id.clone().into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.clone().into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-dedup-happy").into_val(&env);
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -560,12 +512,6 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -574,7 +520,7 @@ fn test_first_payment_succeeds_emits_event_and_increments_count() {
     );
 
     // Counter must be 1 and record must be present.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id));
 }
 
@@ -596,19 +542,17 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-dedup-dup2"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 
     // Second payment with the identical invoice_id — must fail.
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-dedup-dup2-2"),
     );
@@ -622,7 +566,7 @@ fn test_duplicate_payment_fails_no_event_count_unchanged() {
     );
 
     // State must be completely unchanged: counter still 1.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 /// AC-3 Cross-asset duplicate: attempting to record a payment for an already
@@ -636,10 +580,10 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
 
     let invoice_id = String::from_str(&env, "invoisio-dedup-cross");
     let payer = Address::generate(&env);
-    let usdc_issuer = String::from_str(
+    let usdc_issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
 
     // First payment: XLM — succeeds.
     client.set_allow_native(&true);
@@ -647,19 +591,17 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-cross-xlm"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 
     // Second attempt: same invoice_id but USDC — must fail.
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "USDC"),
-        &usdc_issuer,
+        &Asset::Token(String::from_str(&env, "USDC"), usdc_issuer.clone()),
         &50_000_000i128,
         &String::from_str(&env, "settle-cross-usdc"),
     );
@@ -670,7 +612,7 @@ fn test_cross_asset_duplicate_same_invoice_id_fails() {
     );
 
     // Counter must remain 1 — no additional write took place.
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -690,8 +632,7 @@ fn test_record_payment_rejects_when_admin_not_authorised() {
             args: (
                 invoice_id.clone(),
                 payer.clone(),
-                String::from_str(&env, "XLM"),
-                String::from_str(&env, ""),
+                Asset::Native,
                 10_000_000i128,
                 String::from_str(&env, "settle-unauth"),
             )
@@ -704,8 +645,7 @@ fn test_record_payment_rejects_when_admin_not_authorised() {
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-unauth"),
     );
@@ -729,8 +669,7 @@ fn test_record_payment_succeeds_with_admin_auth() {
                 args: (
                     invoice_id.clone(),
                     payer.clone(),
-                    String::from_str(&env, "XLM"),
-                    String::from_str(&env, ""),
+                    Asset::Native,
                     10_000_000i128,
                     String::from_str(&env, "settle-auth"),
                 )
@@ -753,8 +692,7 @@ fn test_record_payment_succeeds_with_admin_auth() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-auth"),
     );
@@ -773,8 +711,7 @@ fn test_zero_amount_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-zero"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &0i128,
         &String::from_str(&env, "settle-zero"),
     );
@@ -792,8 +729,7 @@ fn test_negative_amount_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-neg"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &(-1i128),
         &String::from_str(&env, "settle-neg"),
     );
@@ -955,7 +891,7 @@ fn test_new_admin_can_record_payment_after_accept() {
     let payer = Address::generate(&env);
     record_xlm(&env, &client, "invoisio-new-admin", &payer, 7_000_000);
 
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&new_admin), 1);
 }
 
 #[test]
@@ -1194,8 +1130,7 @@ fn test_empty_invoice_id_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, ""), // empty invoice_id
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-empty-inv"),
     );
@@ -1212,8 +1147,7 @@ fn test_empty_asset_code_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-bad-asset"),
         &payer,
-        &String::from_str(&env, ""), // empty asset_code
-        &String::from_str(&env, ""),
+        &Asset::Token(String::from_str(&env, ""), Address::generate(&env)),
         &10_000_000i128,
         &String::from_str(&env, "settle-bad-asset"),
     );
@@ -1227,12 +1161,11 @@ fn test_token_without_issuer_returns_error() {
     let (client, _admin) = setup(&env);
 
     let payer = Address::generate(&env);
-    // USDC without an issuer must be rejected.
+    // Token with code "XLM" is rejected — native XLM is Asset::Native, not a token.
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-no-issuer"),
         &payer,
-        &String::from_str(&env, "USDC"),
-        &String::from_str(&env, ""), // missing issuer for non-native asset
+        &Asset::Token(String::from_str(&env, "XLM"), Address::generate(&env)),
         &50_000_000i128,
         &String::from_str(&env, "settle-no-issuer"),
     );
@@ -1257,8 +1190,7 @@ fn test_record_payment_emits_payment_recorded_event() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-event-test"),
     );
@@ -1268,12 +1200,8 @@ fn test_record_payment_emits_payment_recorded_event() {
     // otherwise the buffer is overwritten with that call's (empty) events.
 
     let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = String::from_str(&env, "settle-event-test").into_val(&env);
 
+    // As of issue #512 the event carries only schema_version + invoice_id.
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -1287,12 +1215,6 @@ fn test_record_payment_emits_payment_recorded_event() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -1398,10 +1320,10 @@ fn test_asset_enum_native_xlm() {
 fn test_asset_enum_token_with_code_and_issuer() {
     let env = Env::default();
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     let token = Asset::Token(code.clone(), issuer.clone());
 
     match token {
@@ -1424,24 +1346,23 @@ fn test_record_payment_multiple_asset_types() {
     // Allow tokens and native
     client.set_allow_native(&true);
     let usdc_code = String::from_str(&env, "USDC");
-    let usdc_issuer = String::from_str(
+    let usdc_issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     client.allow_asset(&usdc_code, &usdc_issuer);
     let eurt_code = String::from_str(&env, "EURT");
-    let eurt_issuer = String::from_str(
+    let eurt_issuer = Address::from_string(&String::from_str(
         &env,
         "GAP5LETOV6YIE62YAM56STDANPRDO7ZFDBGSNHJQIYGGKSMOZAHOOS2S",
-    );
+    ));
     client.allow_asset(&eurt_code, &eurt_issuer);
 
     // Record XLM payment
     client.record_payment(
         &String::from_str(&env, "invoisio-xlm-001"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128, // 1 XLM
         &String::from_str(&env, "settle-multi-xlm"),
     );
@@ -1450,8 +1371,7 @@ fn test_record_payment_multiple_asset_types() {
     client.record_payment(
         &String::from_str(&env, "invoisio-usdc-001"),
         &payer,
-        &usdc_code,
-        &usdc_issuer,
+        &Asset::Token(usdc_code.clone(), usdc_issuer.clone()),
         &50_000_000i128, // 5 USDC
         &String::from_str(&env, "settle-multi-usdc"),
     );
@@ -1460,8 +1380,7 @@ fn test_record_payment_multiple_asset_types() {
     client.record_payment(
         &String::from_str(&env, "invoisio-eurt-001"),
         &payer,
-        &eurt_code,
-        &eurt_issuer,
+        &Asset::Token(eurt_code.clone(), eurt_issuer.clone()),
         &100_000_000i128, // 10 EURT
         &String::from_str(&env, "settle-multi-eurt"),
     );
@@ -1477,7 +1396,7 @@ fn test_record_payment_multiple_asset_types() {
     assert_eq!(x_eurt_record.asset, Asset::Token(eurt_code, eurt_issuer));
 
     // Verify payment count
-    assert_eq!(client.payment_count(), 3);
+    assert_eq!(client.payment_count(&_admin), 3);
 }
 
 #[test]
@@ -1488,34 +1407,31 @@ fn test_asset_validation_backward_compatibility() {
 
     let payer = Address::generate(&env);
 
-    // Test that empty asset_code is still rejected
+    // Empty token code is rejected
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-empty-asset"),
         &payer,
-        &String::from_str(&env, ""),
-        &String::from_str(&env, ""),
+        &Asset::Token(String::from_str(&env, ""), Address::generate(&env)),
         &10_000_000i128,
         &String::from_str(&env, "settle-empty-asset"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 
-    // Test that non-XLM asset without issuer is still rejected
+    // Token with reserved code "XLM" is rejected — native is Asset::Native
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-no-issuer-2"),
         &payer,
-        &String::from_str(&env, "BTC"),
-        &String::from_str(&env, ""),
+        &Asset::Token(String::from_str(&env, "XLM"), Address::generate(&env)),
         &100_000_000i128,
         &String::from_str(&env, "settle-no-issuer-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 
-    // Test that XLM with issuer is rejected (issuer must be empty for XLM)
+    // Same: XLM as a Token code is InvalidAsset
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-xlm-with-issuer"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, "GABC123"),
+        &Asset::Token(String::from_str(&env, "XLM"), Address::generate(&env)),
         &10_000_000i128,
         &String::from_str(&env, "settle-xlm-issuer"),
     );
@@ -1536,8 +1452,7 @@ fn test_asset_enum_serialization_deserialization() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-serde-xlm"),
     );
@@ -1548,10 +1463,10 @@ fn test_asset_enum_serialization_deserialization() {
 
     // Record a token payment
     let token_invoice_id = String::from_str(&env, "invoisio-token-serde-test");
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
 
     client.set_allow_native(&true);
     client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
@@ -1559,8 +1474,7 @@ fn test_asset_enum_serialization_deserialization() {
     client.record_payment(
         &token_invoice_id,
         &payer,
-        &String::from_str(&env, "USDC"),
-        &issuer,
+        &Asset::Token(String::from_str(&env, "USDC"), issuer.clone()),
         &50_000_000i128,
         &String::from_str(&env, "settle-serde-usdc"),
     );
@@ -1586,14 +1500,13 @@ fn test_allowlist_enforcement() {
     let payer = Address::generate(&env);
     let invoice_id = String::from_str(&env, "inv-1");
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     // 1. Initially rejected
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-al-1"),
     );
@@ -1604,8 +1517,7 @@ fn test_allowlist_enforcement() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-al-2"),
     );
@@ -1617,8 +1529,7 @@ fn test_allowlist_enforcement() {
     let result = client.try_record_payment(
         &invoice_id_2,
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-al-3"),
     );
@@ -1632,10 +1543,10 @@ fn test_revoke_asset_empty_code_returns_error() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "");
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     let result = client.try_revoke_asset(&code, &issuer);
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -1646,8 +1557,8 @@ fn test_revoke_asset_empty_issuer_returns_error() {
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
 
-    let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "");
+    let code = String::from_str(&env, "XLM");
+    let issuer = Address::generate(&env);
     let result = client.try_revoke_asset(&code, &issuer);
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 }
@@ -1660,15 +1571,12 @@ fn test_native_allow_toggle() {
 
     let payer = Address::generate(&env);
     let invoice_id = String::from_str(&env, "inv-native");
-    let xlm = String::from_str(&env, "XLM");
-    let empty = String::from_str(&env, "");
 
     // 1. Initially rejected (default is false)
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &xlm,
-        &empty,
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-1"),
     );
@@ -1679,8 +1587,7 @@ fn test_native_allow_toggle() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &xlm,
-        &empty,
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-2"),
     );
@@ -1692,8 +1599,7 @@ fn test_native_allow_toggle() {
     let result = client.try_record_payment(
         &invoice_id_2,
         &payer,
-        &xlm,
-        &empty,
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-3"),
     );
@@ -1733,7 +1639,7 @@ fn test_unauthorized_allowlist_calls_fail() {
     let attacker = Address::generate(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     // Attacker tries to allow asset
     env.mock_auths(&[MockAuth {
@@ -1774,7 +1680,7 @@ fn test_allowlist_events_emitted() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     // 1. allow_asset event
     let code_val: soroban_sdk::Val = code.clone().into_val(&env);
@@ -1852,10 +1758,12 @@ fn test_asset_code_too_long_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-long-code"),
         &payer,
-        &String::from_str(&env, "ABCDEFGHIJKLM"), // 13 chars
-        &String::from_str(
-            &env,
-            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        &Asset::Token(
+            String::from_str(&env, "ABCDEFGHIJKLM"),
+            Address::from_string(&String::from_str(
+                &env,
+                "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+            )),
         ),
         &10_000_000i128,
         &String::from_str(&env, "settle-long-code"),
@@ -1870,18 +1778,17 @@ fn test_asset_code_exactly_12_chars_succeeds() {
     let (client, _admin) = setup(&env);
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "ABCDEFGHIJKL"); // exactly 12 chars
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     // A 12-char code is valid; allowlist it so it passes the allowlist guard.
     client.allow_asset(&code, &issuer);
     let invoice_id = String::from_str(&env, "invoisio-12-char-code");
     client.record_payment(
         &invoice_id,
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &50_000_000i128,
         &String::from_str(&env, "settle-12-char"),
     );
@@ -1899,8 +1806,7 @@ fn test_amount_at_i128_max_succeeds() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &i128::MAX,
         &String::from_str(&env, "settle-big-amount"),
     );
@@ -1919,8 +1825,7 @@ fn test_amount_at_max_succeeds() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &i128::MAX,
         &String::from_str(&env, "settle-max-amount"),
     );
@@ -1934,18 +1839,17 @@ fn test_non_seven_decimal_asset_precision_round_trip() {
     let (client, _admin) = setup(&env);
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "EURT");
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     client.allow_asset_with_decimals(&code, &issuer, &6);
 
     let invoice_id = String::from_str(&env, "invoisio-six-decimals");
     client.record_payment(
         &invoice_id,
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &1_234_567i128,
         &String::from_str(&env, "settle-six-decimals"),
     );
@@ -2093,8 +1997,7 @@ fn test_mixed_legacy_and_new_payments() {
     client.record_payment(
         &new_invoice_id,
         &new_payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000,
         &String::from_str(&env, "settle-new-mix"),
     );
@@ -2146,8 +2049,7 @@ fn test_legacy_deployment_without_metadata_then_write() {
     client.record_payment(
         &String::from_str(&env, "invoisio-legacy-deploy"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000,
         &String::from_str(&env, "settle-legacy-deploy"),
     );
@@ -2423,26 +2325,25 @@ mod upgrade_wasm_integration {
         client.set_allow_native(&true);
         client.allow_asset(
             &String::from_str(&env, "USDC"),
-            &String::from_str(
+            &Address::from_string(&String::from_str(
                 &env,
                 "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
-            ),
+            )),
         );
         for i in 0..3u32 {
             let invoice_id = String::from_str(&env, &format!("wasm-upgrade-{i:02}"));
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("settle-wasm-upgrade-{i:02}")),
             );
         }
 
         let admin_before = client.admin();
-        let history_before = client.payment_history(&0u32, &10u32);
-        let count_before = client.payment_count();
+        let history_before = client.payment_history(&admin, &0u32, &10u32);
+        let count_before = client.payment_count(&admin);
         let native_allowed_before = client.config().allowlist_mode.native_allowed;
 
         // Step 1: pause (required by upgrade()).
@@ -2457,8 +2358,8 @@ mod upgrade_wasm_integration {
 
         // Step 4: verify state survived, and that the new code is live.
         assert_eq!(client.admin(), admin_before);
-        assert_eq!(client.payment_count(), count_before);
-        let history_after = client.payment_history(&0u32, &10u32);
+        assert_eq!(client.payment_count(&admin), count_before);
+        let history_after = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history_after.records.len(), history_before.records.len());
         for (before, after) in history_before
             .records
@@ -2486,12 +2387,11 @@ mod upgrade_wasm_integration {
         client.record_payment(
             &String::from_str(&env, "wasm-upgrade-post"),
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &50_000_000i128,
             &String::from_str(&env, "settle-wasm-upgrade-post"),
         );
-        assert_eq!(client.payment_count(), count_before + 1);
+        assert_eq!(client.payment_count(&admin), count_before + 1);
     }
 }
 
@@ -2512,8 +2412,7 @@ fn test_pause_prevents_record_payment() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-paused"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-paused"),
     );
@@ -2528,12 +2427,11 @@ fn test_pause_prevents_record_payment() {
     client.record_payment(
         &String::from_str(&env, "invoisio-unpaused"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-unpaused"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
 }
 
 #[test]
@@ -2548,8 +2446,7 @@ fn test_pause_allows_reads() {
     client.record_payment(
         &String::from_str(&env, "invoisio-read-test"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-read-test"),
     );
@@ -2560,7 +2457,7 @@ fn test_pause_allows_reads() {
 
     // All read operations should still work
     assert!(client.has_payment(&String::from_str(&env, "invoisio-read-test")));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
     assert!(
         client
             .get_payment(&String::from_str(&env, "invoisio-read-test"))
@@ -2568,7 +2465,10 @@ fn test_pause_allows_reads() {
             .len()
             > 0
     );
-    assert_eq!(client.payment_history(&0u32, &10u32).records.len(), 1);
+    assert_eq!(
+        client.payment_history(&admin, &0u32, &10u32).records.len(),
+        1
+    );
 }
 
 #[test]
@@ -2735,14 +2635,20 @@ fn test_record_payment_with_settlement_ref_stores_and_returns() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
 
     let record = client.get_payment(&invoice_id);
-    assert_eq!(record.settlement_ref, settlement_ref);
+    // The stored value is the SHA-256 commitment of what was supplied, not
+    // the plaintext (issue #512) — the plaintext is never recoverable from
+    // on-chain data.
+    assert_eq!(
+        record.settlement_ref,
+        settlement_commitment(&env, "sha256-abcdef1234567890")
+    );
+    assert_ne!(record.settlement_ref, settlement_ref);
 }
 
 #[test]
@@ -2756,8 +2662,7 @@ fn test_empty_settlement_ref_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-empty-ref"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, ""), // empty settlement_ref
     );
@@ -2780,8 +2685,7 @@ fn test_settlement_ref_too_long_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-long-ref"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &long_ref,
     );
@@ -2805,13 +2709,15 @@ fn test_settlement_ref_exactly_128_chars_succeeds() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &ref_128,
     );
     let record = client.get_payment(&invoice_id);
-    assert_eq!(record.settlement_ref, ref_128);
+    assert_eq!(
+        record.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_128)
+    );
 }
 
 #[test]
@@ -2831,19 +2737,17 @@ fn test_settlement_ref_emitted_in_event() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
 
     let inv_val: soroban_sdk::Val = invoice_id.into_val(&env);
-    let pyr_val: soroban_sdk::Val = payer.into_val(&env);
-    let code_val: soroban_sdk::Val = String::from_str(&env, "XLM").into_val(&env);
-    let iss_val: soroban_sdk::Val = String::from_str(&env, "").into_val(&env);
-    let amt_val: soroban_sdk::Val = 10_000_000i128.into_val(&env);
-    let ref_val: soroban_sdk::Val = settlement_ref.clone().into_val(&env);
+    let _ = payer; // no longer part of the minimized event (issue #512)
+    let _ = settlement_ref; // ditto — dropped from the event entirely
 
+    // As of issue #512 the event carries only schema_version + invoice_id —
+    // not even the settlement_ref commitment.
     assert_eq!(
         env.events().all(),
         soroban_sdk::vec![
@@ -2857,12 +2761,6 @@ fn test_settlement_ref_emitted_in_event() {
                 soroban_sdk::map![
                     &env,
                     (Symbol::new(&env, "invoice_id"), inv_val),
-                    (Symbol::new(&env, "payer"), pyr_val),
-                    (Symbol::new(&env, "asset_code"), code_val),
-                    (Symbol::new(&env, "asset_issuer"), iss_val),
-                    (Symbol::new(&env, "amount"), amt_val),
-                    (Symbol::new(&env, "asset_decimals"), 7u32.into_val(&env)),
-                    (Symbol::new(&env, "settlement_ref"), ref_val),
                     (Symbol::new(&env, "schema_version"), 2u32.into_val(&env))
                 ]
                 .into_val(&env),
@@ -2879,17 +2777,16 @@ fn test_settlement_ref_usdc_payment() {
 
     let invoice_id = String::from_str(&env, "invoisio-settle-usdc");
     let payer = Address::generate(&env);
-    let issuer = String::from_str(
+    let issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
 
     client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "USDC"),
-        &issuer,
+        &Asset::Token(String::from_str(&env, "USDC"), issuer.clone()),
         &50_000_000i128,
         &String::from_str(&env, "settle-usdc-hash-789"),
     );
@@ -2897,7 +2794,7 @@ fn test_settlement_ref_usdc_payment() {
     let record = client.get_payment(&invoice_id);
     assert_eq!(
         record.settlement_ref,
-        String::from_str(&env, "settle-usdc-hash-789")
+        settlement_commitment(&env, "settle-usdc-hash-789")
     );
 }
 
@@ -2913,7 +2810,7 @@ fn test_allow_asset_idempotent_double_allow() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer1");
+    let issuer = Address::generate(&env);
 
     // First allow — no error expected.
     client.allow_asset(&code, &issuer);
@@ -2926,8 +2823,7 @@ fn test_allow_asset_idempotent_double_allow() {
     client.record_payment(
         &String::from_str(&env, "inv-double-allow"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-double-allow"),
     );
@@ -2944,7 +2840,7 @@ fn test_allow_asset_after_revoke_restores_allowlist() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "EURT");
-    let issuer = String::from_str(&env, "GBEurtIssuer");
+    let issuer = Address::generate(&env);
     let payer = Address::generate(&env);
 
     // 1. Allow → payment succeeds.
@@ -2952,8 +2848,7 @@ fn test_allow_asset_after_revoke_restores_allowlist() {
     client.record_payment(
         &String::from_str(&env, "inv-readd-1"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &200i128,
         &String::from_str(&env, "settle-readd-1"),
     );
@@ -2964,8 +2859,7 @@ fn test_allow_asset_after_revoke_restores_allowlist() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-readd-2"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &200i128,
         &String::from_str(&env, "settle-readd-2"),
     );
@@ -2976,8 +2870,7 @@ fn test_allow_asset_after_revoke_restores_allowlist() {
     client.record_payment(
         &String::from_str(&env, "inv-readd-3"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &300i128,
         &String::from_str(&env, "settle-readd-3"),
     );
@@ -2994,7 +2887,7 @@ fn test_revoke_asset_nonexistent_is_noop() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "PHANTOM");
-    let issuer = String::from_str(&env, "GBPhantomIssuer");
+    let issuer = Address::generate(&env);
 
     // This asset was never added — revoke must succeed without error.
     let result = client.try_revoke_asset(&code, &issuer);
@@ -3008,8 +2901,7 @@ fn test_revoke_asset_nonexistent_is_noop() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-phantom"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-phantom"),
     );
@@ -3025,7 +2917,7 @@ fn test_revoke_asset_idempotent_double_revoke() {
     let (client, _admin) = setup(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer2");
+    let issuer = Address::generate(&env);
 
     // Add, then revoke once — standard path.
     client.allow_asset(&code, &issuer);
@@ -3044,16 +2936,13 @@ fn test_allowed_assets_enumerates_without_prior_knowledge() {
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
 
-    let pairs = [
-        ("USDC", "GBIssuerUSDC"),
-        ("EURT", "GBIssuerEURT"),
-        ("GBPT", "GBIssuerGBPT"),
+    let pairs: alloc::vec::Vec<(String, Address)> = alloc::vec![
+        (String::from_str(&env, "USDC"), Address::generate(&env)),
+        (String::from_str(&env, "EURT"), Address::generate(&env)),
+        (String::from_str(&env, "GBPT"), Address::generate(&env)),
     ];
-    for (code, issuer) in pairs {
-        client.allow_asset(
-            &String::from_str(&env, code),
-            &String::from_str(&env, issuer),
-        );
+    for (code, issuer) in pairs.iter() {
+        client.allow_asset(code, issuer);
     }
 
     let page = client.allowed_assets(&0u32, &25u32);
@@ -3061,13 +2950,13 @@ fn test_allowed_assets_enumerates_without_prior_knowledge() {
     assert!(!page.has_more);
     assert_eq!(page.gaps_skipped, 0);
 
-    let found: alloc::vec::Vec<(String, String)> = page
+    let found: alloc::vec::Vec<(String, Address)> = page
         .records
         .iter()
         .map(|entry| (entry.code.clone(), entry.issuer.clone()))
         .collect();
-    for (code, issuer) in pairs {
-        assert!(found.contains(&(String::from_str(&env, code), String::from_str(&env, issuer))));
+    for (code, issuer) in pairs.iter() {
+        assert!(found.contains(&(code.clone(), issuer.clone())));
     }
 }
 
@@ -3083,7 +2972,7 @@ fn test_allowed_assets_pagination_terminates_with_bounded_pages() {
     for idx in 0..30u32 {
         client.allow_asset(
             &String::from_str(&env, &format!("A{idx:02}")),
-            &String::from_str(&env, "GBIssuerShared"),
+            &Address::generate(&env),
         );
     }
 
@@ -3118,7 +3007,7 @@ fn test_allowlist_count_matches_enumerable_entries_after_adds_and_revokes() {
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
 
-    let issuer = String::from_str(&env, "GBIssuerCount");
+    let issuer = Address::generate(&env);
     let a = String::from_str(&env, "AAAA");
     let b = String::from_str(&env, "BBBB");
     let c = String::from_str(&env, "CCCC");
@@ -3158,7 +3047,7 @@ fn test_revoke_asset_removes_it_from_enumeration() {
     env.mock_all_auths();
     let (client, _admin) = setup(&env);
 
-    let issuer = String::from_str(&env, "GBIssuerRevokeEnum");
+    let issuer = Address::generate(&env);
     let kept = String::from_str(&env, "KEEP");
     let revoked = String::from_str(&env, "GONE");
 
@@ -3183,10 +3072,10 @@ fn test_allow_asset_rejects_code_longer_than_twelve_chars() {
 
     let result = client.try_allow_asset(
         &String::from_str(&env, "ABCDEFGHIJKLM"), // 13 chars
-        &String::from_str(
+        &Address::from_string(&String::from_str(
             &env,
             "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-        ),
+        )),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidAsset)));
 
@@ -3194,10 +3083,10 @@ fn test_allow_asset_rejects_code_longer_than_twelve_chars() {
     // still be allowed.
     client.allow_asset(
         &String::from_str(&env, "ABCDEFGHIJKL"), // 12 chars
-        &String::from_str(
+        &Address::from_string(&String::from_str(
             &env,
             "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-        ),
+        )),
     );
     assert_eq!(client.allowlist_count(), 1);
 }
@@ -3215,7 +3104,7 @@ fn test_revoke_asset_emits_no_event_when_never_allowlisted() {
     let (client, _admin) = setup(&env);
 
     let phantom_code = String::from_str(&env, "GHOST");
-    let issuer = String::from_str(&env, "GBIssuerEventDiff");
+    let issuer = Address::generate(&env);
 
     // env.events().all() only reflects the last invocation, so this must be
     // asserted immediately after the one call under test.
@@ -3238,7 +3127,7 @@ fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
 
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBLegacyIssuer");
+    let issuer = Address::generate(&env);
 
     // Simulate a pre-schema-V4 deployment: the asset was allowlisted and
     // paid with using only the legacy code path (no enumeration index).
@@ -3246,8 +3135,7 @@ fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
     client.record_payment(
         &String::from_str(&env, "inv-legacy-allowlist"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-legacy-allowlist"),
     );
@@ -3261,7 +3149,7 @@ fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
             .remove(&DataKey::AllowListLog(0u32));
         env.storage()
             .persistent()
-            .remove(&DataKey::AllowListIndex(code.clone(), issuer.clone()));
+            .remove(&DataKey::AllowListIndexV6(code.clone(), issuer.clone()));
         env.storage()
             .instance()
             .set(&DataKey::AllowListCount, &0u32);
@@ -3301,14 +3189,13 @@ fn test_migrate_schema_v3_to_v4_is_idempotent() {
 
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBLegacyIssuer2");
+    let issuer = Address::generate(&env);
 
     client.allow_asset(&code, &issuer);
     client.record_payment(
         &String::from_str(&env, "inv-legacy-allowlist-2"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-legacy-allowlist-2"),
     );
@@ -3337,7 +3224,7 @@ fn test_allow_asset_before_init_returns_not_initialized() {
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     let result = client.try_allow_asset(&code, &issuer);
     assert_eq!(
@@ -3357,7 +3244,7 @@ fn test_revoke_asset_before_init_returns_not_initialized() {
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     let result = client.try_revoke_asset(&code, &issuer);
     assert_eq!(
@@ -3377,7 +3264,7 @@ fn test_allow_asset_by_non_admin_returns_error() {
     let attacker = Address::generate(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     env.mock_auths(&[MockAuth {
         address: &attacker,
@@ -3401,7 +3288,7 @@ fn test_revoke_asset_by_non_admin_returns_error() {
     let attacker = Address::generate(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuer");
+    let issuer = Address::generate(&env);
 
     // Admin allows the asset first.
     env.mock_auths(&[MockAuth {
@@ -3478,8 +3365,7 @@ fn test_set_allow_native_idempotent_true_to_true() {
     client.record_payment(
         &String::from_str(&env, "inv-native-idempotent-true"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-idempotent-true"),
     );
@@ -3511,8 +3397,7 @@ fn test_set_allow_native_idempotent_false_to_false() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-native-idempotent-false"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-idempotent-false"),
     );
@@ -3540,8 +3425,7 @@ fn test_native_asset_rejected_when_contract_paused() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-native-paused"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-native-paused"),
     );
@@ -3681,7 +3565,7 @@ fn test_allow_asset_blocked_while_paused() {
     assert!(client.is_paused());
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuerPaused");
+    let issuer = Address::generate(&env);
 
     // allow_asset must fail while paused.
     let result = client.try_allow_asset(&code, &issuer);
@@ -3701,7 +3585,7 @@ fn test_revoke_asset_blocked_while_paused() {
     let (client, admin) = setup(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuerRevokePaused");
+    let issuer = Address::generate(&env);
     client.allow_asset(&code, &issuer);
 
     client.set_paused(&admin, &true);
@@ -3827,8 +3711,7 @@ fn test_record_payment_paused_returns_contract_paused_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-paused-explicit"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-paused-explicit"),
     );
@@ -3854,8 +3737,7 @@ fn test_unpause_resumes_record_payment() {
     let blocked = client.try_record_payment(
         &String::from_str(&env, "inv-resume-blocked"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-resume-blocked"),
     );
@@ -3868,8 +3750,7 @@ fn test_unpause_resumes_record_payment() {
     client.record_payment(
         &String::from_str(&env, "inv-resume-blocked"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-resume-unblocked"),
     );
@@ -3989,8 +3870,7 @@ fn test_record_payment_before_init_returns_not_initialized() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-uninit"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "settle-uninit"),
     );
@@ -4048,7 +3928,7 @@ fn test_allow_asset_explicit_auth_rejection() {
     let attacker = Address::generate(&env);
 
     let code = String::from_str(&env, "USDC");
-    let issuer = String::from_str(&env, "GBIssuerExplicit");
+    let issuer = Address::generate(&env);
 
     // Only attacker provides auth — admin's `require_auth()` is unsatisfied.
     env.mock_auths(&[MockAuth {
@@ -4075,8 +3955,7 @@ fn test_allow_asset_explicit_auth_rejection() {
     let pay_result = client.try_record_payment(
         &String::from_str(&env, "inv-explicit-auth"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-explicit-auth"),
     );
@@ -4096,7 +3975,7 @@ fn test_unauthorized_ops_cannot_modify_contract_state() {
     let attacker = Address::generate(&env);
 
     let code = String::from_str(&env, "HCKR");
-    let issuer = String::from_str(&env, "GBHackerIssuer");
+    let issuer = Address::generate(&env);
 
     // --- All attacker operations below must fail ---
 
@@ -4156,8 +4035,7 @@ fn test_unauthorized_ops_cannot_modify_contract_state() {
     let pay_result = client.try_record_payment(
         &String::from_str(&env, "inv-hacker"),
         &payer,
-        &code,
-        &issuer,
+        &Asset::Token(code.clone(), issuer.clone()),
         &100i128,
         &String::from_str(&env, "settle-hacker"),
     );
@@ -4208,10 +4086,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
         PaymentRecord {
             invoice_id: invoices.get(1).unwrap(),
             payer: payers.get(1).unwrap(),
-            asset: Asset::Token(
-                String::from_str(&env, "USDC"),
-                String::from_str(&env, "GBIssuer"),
-            ),
+            asset: Asset::Token(String::from_str(&env, "USDC"), Address::generate(&env),),
             amount: 100_000_000i128,
             asset_decimals: 7,
             timestamp: 200u64,
@@ -4320,12 +4195,11 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
     client.record_payment(
         &String::from_str(&env, "reg-new-001"),
         &new_payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &7_000_000i128,
         &String::from_str(&env, "reg-new-ref"),
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
     let has_v1 = env.as_contract(&client.address, || {
         env.storage()
             .persistent()
@@ -4469,7 +4343,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
 
     // Configure allowlist and pause.
     let usdc_code = String::from_str(&env, "USDC");
-    let usdc_issuer = String::from_str(&env, "GBIssuerPostUpgrade");
+    let usdc_issuer = Address::generate(&env);
     client.allow_asset(&usdc_code, &usdc_issuer);
     client.set_allow_native(&true);
 
@@ -4477,8 +4351,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
     client.record_payment(
         &String::from_str(&env, "reg-post-upgrade"),
         &payer,
-        &usdc_code,
-        &usdc_issuer,
+        &Asset::Token(usdc_code.clone(), usdc_issuer.clone()),
         &1_000_000i128,
         &String::from_str(&env, "reg-post-ref"),
     );
@@ -4489,8 +4362,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
     let blocked = client.try_record_payment(
         &String::from_str(&env, "reg-blocked"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "reg-blocked-ref"),
     );
@@ -4498,19 +4370,18 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
 
     // Read still works.
     assert!(client.has_payment(&String::from_str(&env, "reg-post-upgrade")));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&admin), 1);
 
     // Unpause and verify writes resume.
     client.set_paused(&admin, &false);
     client.record_payment(
         &String::from_str(&env, "reg-after-unpause"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &100i128,
         &String::from_str(&env, "reg-after-ref"),
     );
-    assert_eq!(client.payment_count(), 2);
+    assert_eq!(client.payment_count(&admin), 2);
 }
 
 /// Payment history pagination must work correctly after an upgrade from V0
@@ -4573,7 +4444,7 @@ fn test_regression_payment_history_after_upgrade() {
     client.upgrade_storage(&admin);
 
     // Verify history pagination: page 1 of 2.
-    let page1 = client.payment_history(&0u32, &2u32);
+    let page1 = client.payment_history(&admin, &0u32, &2u32);
     assert_eq!(page1.records.len(), 2);
     assert_eq!(
         page1.records.get(0).unwrap().invoice_id,
@@ -4586,7 +4457,7 @@ fn test_regression_payment_history_after_upgrade() {
     assert!(page1.has_more);
 
     // Page 2.
-    let page2 = client.payment_history(&page1.next_cursor, &2u32);
+    let page2 = client.payment_history(&admin, &page1.next_cursor, &2u32);
     assert_eq!(page2.records.len(), 1);
     assert_eq!(
         page2.records.get(0).unwrap().invoice_id,
@@ -4633,10 +4504,10 @@ fn test_regression_legacy_record_fields_preserved_after_upgrade() {
     let invoice_id = String::from_str(&env, "field-preserve-001");
     let payer = Address::generate(&env);
     let usdc_code = String::from_str(&env, "USDC");
-    let usdc_issuer = String::from_str(
+    let usdc_issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
 
     let legacy_record = PaymentRecord {
         invoice_id: invoice_id.clone(),
@@ -4684,15 +4555,14 @@ fn test_upgrade_storage_rebuilds_history_index() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((i as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-{:02}", i)),
         );
     }
 
     // Verify initial history
-    let history = client.payment_history(&0u32, &10u32);
+    let history = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(history.records.len(), 5);
 
     // Simulate a legacy deployment by clearing metadata
@@ -4709,7 +4579,7 @@ fn test_upgrade_storage_rebuilds_history_index() {
     });
 
     // History should now be empty
-    let empty = client.payment_history(&0u32, &10u32);
+    let empty = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(empty.records.len(), 0);
 
     // Upgrade storage - should rebuild index
@@ -4717,7 +4587,7 @@ fn test_upgrade_storage_rebuilds_history_index() {
     assert!(result.is_ok());
 
     // History should be restored
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.records.len(), 5);
     assert_eq!(rebuilt.next_cursor, 5);
     assert!(!rebuilt.has_more);
@@ -4737,8 +4607,7 @@ fn test_rebuild_history_index_manual() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((i as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-{:02}", i)),
         );
@@ -4756,7 +4625,7 @@ fn test_rebuild_history_index_manual() {
     });
 
     // Verify history is empty
-    let empty = client.payment_history(&0u32, &10u32);
+    let empty = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(empty.records.len(), 0);
 
     // Manually rebuild
@@ -4764,7 +4633,7 @@ fn test_rebuild_history_index_manual() {
     assert!(result.is_ok());
 
     // History should be restored
-    let rebuilt = client.payment_history(&0u32, &10u32);
+    let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.records.len(), 3);
 }
 
@@ -4775,7 +4644,7 @@ fn test_history_index_status() {
     let (client, admin) = setup(&env);
 
     // Check initial status
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 0);
     assert_eq!(payment_count, 0);
     assert!(is_consistent);
@@ -4788,15 +4657,14 @@ fn test_history_index_status() {
         client.record_payment(
             &invoice_id,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((i as i128 + 1) * 10_000_000i128),
             &String::from_str(&env, &format!("settle-{:02}", i)),
         );
     }
 
     // Status should show consistency
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 3);
     assert_eq!(payment_count, 3);
     assert!(is_consistent);
@@ -4809,7 +4677,7 @@ fn test_history_index_status() {
     });
 
     // Status should show inconsistency
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 1);
     assert_eq!(payment_count, 3);
     assert!(!is_consistent);
@@ -4819,10 +4687,186 @@ fn test_history_index_status() {
     assert!(result.is_ok());
 
     // Status should show consistency again
-    let (history_count, payment_count, is_consistent) = client.history_index_status();
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
     assert_eq!(history_count, 3);
     assert_eq!(payment_count, 3);
     assert!(is_consistent);
+}
+
+// ─── Issue #512: bulk/volume reads are admin-gated ─────────────────────────
+//
+// `payment_history`, `payment_count`, `history_index_status`,
+// `settlement_ref_history`, and `settlement_ref_index_status` all enumerate
+// or summarize activity across the whole contract, so — unlike `get_payment`
+// or `settlement_ref_owner`, which only ever answer about an identifier the
+// caller already supplied — they must reject a non-admin caller and work
+// normally for the admin, mirroring `rebuild_history_index`'s auth pattern.
+
+#[test]
+fn test_payment_history_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_payment_history(&attacker, &0u32, &10u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_payment_history_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-history", &payer, 10_000_000);
+
+    let page = client.payment_history(&admin, &0u32, &10u32);
+    assert_eq!(page.records.len(), 1);
+}
+
+#[test]
+fn test_payment_count_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_payment_count(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_payment_count_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-count", &payer, 10_000_000);
+
+    assert_eq!(client.payment_count(&admin), 1);
+}
+
+#[test]
+fn test_history_index_status_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_history_index_status(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_history_index_status_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let (history_count, payment_count, is_consistent) = client.history_index_status(&admin);
+    assert_eq!((history_count, payment_count, is_consistent), (0, 0, true));
+}
+
+#[test]
+fn test_settlement_ref_history_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_settlement_ref_history(&attacker, &0u32, &10u32);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_settlement_ref_history_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    record_xlm(&env, &client, "invoisio-gated-refhist", &payer, 10_000_000);
+
+    let page = client.settlement_ref_history(&admin, &0u32, &10u32);
+    assert_eq!(page.records.len(), 1);
+}
+
+#[test]
+fn test_settlement_ref_index_status_rejects_non_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    let attacker = Address::generate(&env);
+
+    let result = client.try_settlement_ref_index_status(&attacker);
+    assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
+}
+
+#[test]
+fn test_settlement_ref_index_status_works_for_admin() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    assert_eq!(client.settlement_ref_index_status(&admin), (0, 0, true));
+}
+
+// ─── Issue #512: settlement_ref is a SHA-256 commitment, not plaintext ─────
+
+#[test]
+fn test_settlement_ref_commitment_differs_for_different_plaintexts_same_length() {
+    let env = Env::default();
+    // Same length (12 chars), different content — commitments must differ.
+    let a = settlement_commitment(&env, "settle-aaaa1");
+    let b = settlement_commitment(&env, "settle-bbbb1");
+    assert_eq!(a.len(), b.len());
+    assert_ne!(a, b);
+}
+
+#[test]
+fn test_settlement_ref_commitment_is_deterministic() {
+    let env = Env::default();
+    // The same plaintext always hashes to the same commitment, so dedup via
+    // the settlement-reference uniqueness guard still works.
+    let a = settlement_commitment(&env, "settle-deterministic");
+    let b = settlement_commitment(&env, "settle-deterministic");
+    assert_eq!(a, b);
+    assert_eq!(a.len(), 64); // lowercase hex-encoded SHA-256 digest
+}
+
+#[test]
+fn test_settlement_ref_owner_resolves_correct_plaintext_and_rejects_wrong_one() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    let invoice_id = String::from_str(&env, "invoisio-commitment-resolve");
+    let settlement_ref = String::from_str(&env, "settle-commitment-resolve");
+
+    client.set_allow_native(&true);
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &Asset::Native,
+        &10_000_000i128,
+        &settlement_ref,
+    );
+
+    // The correct plaintext resolves to the invoice.
+    assert_eq!(
+        client.settlement_ref_owner(&settlement_ref),
+        Some(invoice_id)
+    );
+
+    // A wrong/unrelated plaintext — even one of the same length — resolves
+    // to nothing: the contract never stored the plaintext to compare against
+    // directly, only its commitment.
+    let wrong = String::from_str(&env, "settle-wrong-unrelated");
+    assert_eq!(client.settlement_ref_owner(&wrong), None);
 }
 
 #[test]
@@ -4871,8 +4915,7 @@ fn test_settlement_ref_cannot_be_reused_for_different_invoice() {
     client.record_payment(
         &invoice_id_1,
         &payer1,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -4882,15 +4925,14 @@ fn test_settlement_ref_cannot_be_reused_for_different_invoice() {
     let result = client.try_record_payment(
         &invoice_id_2,
         &payer2,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &settlement_ref,
     );
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -4903,10 +4945,10 @@ fn test_settlement_ref_cannot_be_reused_with_different_asset() {
     let (client, _admin) = setup(&env);
 
     client.set_allow_native(&true);
-    let usdc_issuer = String::from_str(
+    let usdc_issuer = Address::from_string(&String::from_str(
         &env,
         "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-    );
+    ));
     client.allow_asset(&String::from_str(&env, "USDC"), &usdc_issuer);
 
     let payer = Address::generate(&env);
@@ -4917,8 +4959,7 @@ fn test_settlement_ref_cannot_be_reused_with_different_asset() {
     client.record_payment(
         &invoice_id_1,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -4928,15 +4969,14 @@ fn test_settlement_ref_cannot_be_reused_with_different_asset() {
     let result = client.try_record_payment(
         &invoice_id_2,
         &payer,
-        &String::from_str(&env, "USDC"),
-        &usdc_issuer,
+        &Asset::Token(String::from_str(&env, "USDC"), usdc_issuer.clone()),
         &50_000_000i128,
         &settlement_ref,
     );
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -4958,8 +4998,7 @@ fn test_unique_settlement_refs_for_different_invoices_succeed() {
     client.record_payment(
         &invoice_id_1,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &ref_1,
     );
@@ -4970,23 +5009,28 @@ fn test_unique_settlement_refs_for_different_invoices_succeed() {
     client.record_payment(
         &invoice_id_2,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &ref_2,
     );
 
     // Both payments should succeed
-    assert_eq!(client.payment_count(), 2);
+    assert_eq!(client.payment_count(&_admin), 2);
     assert!(client.has_payment(&invoice_id_1));
     assert!(client.has_payment(&invoice_id_2));
 
-    // Verify settlement refs are stored correctly
+    // Verify settlement refs are stored as their commitments, not plaintext.
     let record1 = client.get_payment(&invoice_id_1);
-    assert_eq!(record1.settlement_ref, ref_1);
+    assert_eq!(
+        record1.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_1)
+    );
 
     let record2 = client.get_payment(&invoice_id_2);
-    assert_eq!(record2.settlement_ref, ref_2);
+    assert_eq!(
+        record2.settlement_ref,
+        crate::storage::commit_settlement_ref(&env, &ref_2)
+    );
 }
 
 /// Test that settlement_ref uniqueness is enforced even when invoice_id is different.
@@ -5007,8 +5051,7 @@ fn test_settlement_ref_reuse_fails_even_with_different_payer() {
     client.record_payment(
         &invoice_id_1,
         &payer1,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -5018,15 +5061,14 @@ fn test_settlement_ref_reuse_fails_even_with_different_payer() {
     let result = client.try_record_payment(
         &invoice_id_2,
         &payer2,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &settlement_ref,
     );
     assert_eq!(result, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only first payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_1));
     assert!(!client.has_payment(&invoice_id_2));
 }
@@ -5049,8 +5091,7 @@ fn test_settlement_ref_check_happens_after_invoice_id_check() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -5061,8 +5102,7 @@ fn test_settlement_ref_check_happens_after_invoice_id_check() {
     let result = client.try_record_payment(
         &invoice_id, // same invoice_id
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &new_ref,
     );
@@ -5074,15 +5114,14 @@ fn test_settlement_ref_check_happens_after_invoice_id_check() {
     let result2 = client.try_record_payment(
         &new_invoice,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &settlement_ref,
     );
     assert_eq!(result2, Err(Ok(ContractError::SettlementRefAlreadyUsed)));
 
     // Verify only one payment was recorded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 /// Test that empty settlement_ref is rejected (existing test, but verify error code).
@@ -5097,8 +5136,7 @@ fn test_empty_settlement_ref_still_rejected() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-empty-ref-test"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, ""), // empty settlement_ref
     );
@@ -5122,8 +5160,7 @@ fn test_settlement_ref_not_consumed_on_failed_transaction() {
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &0i128, // invalid amount
         &settlement_ref,
     );
@@ -5135,514 +5172,14 @@ fn test_settlement_ref_not_consumed_on_failed_transaction() {
     client.record_payment(
         &invoice_id_2,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
 
     // Verify payment succeeded
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
     assert!(client.has_payment(&invoice_id_2));
-}
-
-// ─── Issue #445: bounded payments_by_payer scan + per-payer index ──────────
-
-/// Number of history slots a single `payments_by_payer` invocation may
-/// examine on the scan fallback path (mirrors `storage::MAX_PAYER_SCAN_SLOTS`).
-const PAGER_SCAN_CAP: u32 = storage::MAX_PAYER_SCAN_SLOTS;
-
-/// Simulate legacy (pre-per-payer-index) storage for `payer` by removing the
-/// payer's index keys, forcing `payments_by_payer` onto the bounded-scan path.
-fn strip_payer_index(env: &Env, client: &InvoicePaymentContractClient, payer: &Address) {
-    let count = env.as_contract(&client.address, || {
-        let count = storage::get_payer_payment_count(env, payer).unwrap_or(0u32);
-        for ordinal in 0..count {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-        }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PayerPaymentCount(payer.clone()));
-        count
-    });
-    assert!(count > 0, "payer had no index entries to strip");
-}
-
-/// Write a synthetic `PaymentHistory` slot without going through
-/// `record_payment`. Lets read-path tests build histories larger than one
-/// scan cap cheaply (hundreds of slots), with no per-payer index entries so
-/// queries fall back to the bounded scan exactly like pre-V2 data.
-fn fabricate_history_slot(
-    env: &Env,
-    client: &InvoicePaymentContractClient,
-    slot: u32,
-    payer: &Address,
-) {
-    env.as_contract(&client.address, || {
-        let record = storage::PaymentRecord {
-            invoice_id: String::from_str(env, &format!("fabricated-{slot:04}")),
-            payer: payer.clone(),
-            asset: storage::Asset::Native,
-            amount: 1_000_000i128,
-            asset_decimals: 7,
-            timestamp: slot as u64,
-            settlement_ref: String::from_str(env, &format!("settle-fab-{slot:04}")),
-        };
-        env.storage()
-            .persistent()
-            .set(&DataKey::PaymentHistory(slot), &record);
-    });
-}
-
-/// Fabricate `total` contiguous history slots owned by `payer_at(slot)` and
-/// set `HistoryCount` accordingly.
-fn fabricate_history<F>(env: &Env, client: &InvoicePaymentContractClient, total: u32, payer_at: F)
-where
-    F: Fn(u32) -> Address,
-{
-    for slot in 0..total {
-        fabricate_history_slot(env, client, slot, &payer_at(slot));
-    }
-    env.as_contract(&client.address, || {
-        storage::set_history_count(env, total);
-    });
-}
-
-/// Regression test for #445: a large history with sparse payer matches must
-/// page through completely via the per-payer index without ever examining
-/// unbounded work, and every matching record must be returned exactly once,
-/// in insertion order.
-#[test]
-fn test_payments_by_payer_sparse_matches_page_through_completely() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // 61 payments total; the target payer owns every 6th record → 11
-    // matches spread across the whole index.
-    let total = 61u32;
-    let mut expected: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
-    for idx in 0..total {
-        let owner = if idx % 6 == 0 { &payer } else { &other };
-        let invoice_id = format!("invoisio-sparse-{idx:02}");
-        record_xlm(
-            &env,
-            &client,
-            &invoice_id,
-            owner,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-        if idx % 6 == 0 {
-            expected.push_back(String::from_str(&env, &invoice_id));
-        }
-    }
-
-    // Page through with a small limit; collect everything.
-    let mut seen: soroban_sdk::Vec<String> = soroban_sdk::Vec::new(&env);
-    let mut cursor = 0u32;
-    let mut calls = 0u32;
-    loop {
-        let page = client.payments_by_payer(&payer, &cursor, &5u32);
-        for rec in page.records.iter() {
-            seen.push_back(rec.invoice_id.clone());
-        }
-        cursor = page.next_cursor;
-        calls += 1;
-        if !page.has_more {
-            break;
-        }
-        assert!(calls < 50, "pagination did not terminate");
-    }
-
-    assert_eq!(seen.len(), expected.len());
-    for (got, want) in seen.iter().zip(expected.iter()) {
-        assert_eq!(got, want);
-    }
-    assert_eq!(calls, 3, "11 records at limit 5 should take 3 pages");
-}
-
-/// Regression test for #445 (scan fallback): with no per-payer index entries
-/// (simulating pre-V2 data), each call examines at most
-/// `MAX_PAYER_SCAN_SLOTS` history slots, even when nothing matches, and
-/// paging still terminates over the whole sparse result set.
-#[test]
-fn test_payments_by_payer_bounded_scan_caps_work_per_call() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // Grow the history well past several scan caps with only two early
-    // matches for the target payer. Fabricated slots carry no index entries,
-    // so the read falls back to the bounded scan.
-    let total = PAGER_SCAN_CAP * 6 + 40; // 520 slots
-    fabricate_history(&env, &client, total, |slot| {
-        if slot == 1 || slot == 4 {
-            payer.clone()
-        } else {
-            other.clone()
-        }
-    });
-
-    // First call: bounded work. The cursor must advance by exactly the cap;
-    // both early hits fall inside the first capped window.
-    let first = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(first.records.len(), 2);
-    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
-    assert!(first.has_more);
-
-    // A zero-match window still advances by exactly the cap and reports
-    // has_more so callers keep going instead of stalling.
-    let mut cursor = first.next_cursor;
-    let mut pages = 1u32;
-    while cursor < total {
-        let page = client.payments_by_payer(&payer, &cursor, &25u32);
-        let examined = page.next_cursor - cursor;
-        assert!(
-            examined <= PAGER_SCAN_CAP,
-            "call examined {} slots > cap {}",
-            examined,
-            PAGER_SCAN_CAP
-        );
-        cursor = page.next_cursor;
-        pages += 1;
-        assert!(
-            !page.records.is_empty() || page.has_more || cursor >= total,
-            "stalled: empty page without progress"
-        );
-        assert!(pages <= 10, "paging did not terminate");
-    }
-    assert_eq!(
-        pages, 7,
-        "520 slots / cap 80 should need ceil(520/80)=7 calls"
-    );
-}
-
-/// Regression test for #445: a payer whose per-payer index exists but who
-/// has no recorded payments returns an empty page immediately.
-#[test]
-fn test_payments_by_payer_zero_match_returns_empty_promptly() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let other = Address::generate(&env);
-    let stranger = Address::generate(&env); // never recorded a payment
-
-    for idx in 0..30u32 {
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-zero-{idx:02}"),
-            &other,
-            1_000_000i128,
-        );
-    }
-
-    let page = client.payments_by_payer(&stranger, &0u32, &25u32);
-    assert_eq!(page.records.len(), 0);
-    assert_eq!(page.gaps_skipped, 0);
-    assert!(!page.has_more);
-}
-
-/// Regression test for #445 (scan fallback): a never-seen payer against
-/// *legacy* data larger than one scan cap gets an empty first page with
-/// has_more set — documented behaviour — and paging walks off the end
-/// cleanly without ever scanning more than the cap per call.
-#[test]
-fn test_payments_by_payer_zero_match_legacy_scan_pages_off_end() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let other = Address::generate(&env);
-    let stranger = Address::generate(&env);
-
-    let total = PAGER_SCAN_CAP + 30;
-    fabricate_history(&env, &client, total, |_| other.clone());
-
-    // The stranger never paid, so they have no index entries; the read falls
-    // back to the bounded scan directly (nothing to strip).
-    let first = client.payments_by_payer(&stranger, &0u32, &25u32);
-    assert_eq!(first.records.len(), 0);
-    assert_eq!(first.next_cursor, PAGER_SCAN_CAP);
-    assert!(first.has_more, "empty page must signal callers to continue");
-
-    let second = client.payments_by_payer(&stranger, &first.next_cursor, &25u32);
-    assert_eq!(second.records.len(), 0);
-    assert_eq!(second.next_cursor, total);
-    assert!(!second.has_more);
-}
-
-/// Regression test for #445: matches spanning multiple pages are returned in
-/// order with correct termination, including when the final page is partial.
-#[test]
-fn test_payments_by_payer_multi_page_span_in_order() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    // Pattern: payer, filler, filler repeated — 7 payer payments spread over
-    // 28 history slots. With limit 3 that forces 3 pages (3/3/1).
-    let mut expected_idx: u32 = 0;
-    for idx in 0..28u32 {
-        let is_target = idx % 4 == 0 && expected_idx < 7;
-        let owner = if is_target { &payer } else { &other };
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-multi-{idx:02}"),
-            owner,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-        if is_target {
-            expected_idx += 1;
-        }
-    }
-    assert_eq!(expected_idx, 7);
-
-    let mut collected: alloc::vec::Vec<i128> = alloc::vec::Vec::new();
-    let mut cursor = 0u32;
-    loop {
-        let page = client.payments_by_payer(&payer, &cursor, &3u32);
-        for rec in page.records.iter() {
-            collected.push(rec.amount);
-        }
-        cursor = page.next_cursor;
-        if !page.has_more {
-            break;
-        }
-    }
-    assert_eq!(collected.len(), 7);
-    // Amounts encode original slot order: every 4th payment starting at 0.
-    for (n, amount) in collected.iter().enumerate() {
-        assert_eq!(*amount, ((n as i128) * 4 + 1) * 1_000_000i128);
-    }
-}
-
-/// Regression test for #445: bounded-work assertion via the CPU budget —
-/// a single zero-match call against a large history must stay far below the
-/// ledger budget now that the scan is capped.
-#[test]
-fn test_payments_by_payer_single_call_cpu_stays_bounded() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    let total = PAGER_SCAN_CAP + 100;
-    fabricate_history(&env, &client, total, |slot| {
-        if slot == 0 {
-            payer.clone()
-        } else {
-            other.clone()
-        }
-    });
-
-    let before = env.cost_estimate().budget().cpu_instruction_cost();
-    let page = client.payments_by_payer(&payer, &0u32, &25u32);
-    let after = env.cost_estimate().budget().cpu_instruction_cost();
-
-    assert_eq!(page.records.len(), 1);
-    // One capped invocation must consume well under the ~100M instruction
-    // ledger budget; a full uncapped scan of this size would already be
-    // several times larger and grows linearly forever with history length.
-    let used = after - before;
-    assert!(
-        used < 20_000_000u64,
-        "single capped call consumed {} CPU instructions",
-        used
-    );
-}
-
-/// Regression test for #445: gap semantics are preserved on the per-payer
-/// index path — a removed backing history slot for one of the payer's own
-/// ordinals counts in `gaps_skipped` without stalling or mis-ordering the
-/// remaining records.
-#[test]
-fn test_payments_by_payer_index_path_skips_gap_like_payment_history() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    let other = Address::generate(&env);
-
-    record_xlm(&env, &client, "invoisio-gap-a", &payer, 10_000_000);
-    record_xlm(&env, &client, "invoisio-gap-b", &other, 20_000_000);
-    record_xlm(&env, &client, "invoisio-gap-c", &payer, 30_000_000);
-
-    // Corrupt the shared history slot backing the payer's ordinal 1
-    // (slot 2 — their second recorded payment).
-    env.as_contract(&client.address, || {
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PaymentHistory(2));
-    });
-
-    let page = client.payments_by_payer(&payer, &0u32, &10u32);
-    assert_eq!(page.records.len(), 1);
-    assert_eq!(
-        page.records.get(0).unwrap().invoice_id,
-        String::from_str(&env, "invoisio-gap-a")
-    );
-    assert_eq!(page.gaps_skipped, 1);
-    assert!(!page.has_more);
-}
-
-/// Regression test for #445: `rebuild_history_index` reconstructs per-payer
-/// indexes for pre-existing payments, moving payers back onto the direct-
-/// read path after a rebuild (e.g. following corruption repair).
-#[test]
-fn test_rebuild_history_index_builds_payer_indexes() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer = Address::generate(&env);
-    for idx in 0..8u32 {
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-rebuild-payer-{idx:02}"),
-            &payer,
-            ((idx as i128) + 1) * 1_000_000i128,
-        );
-    }
-
-    // Wipe the payer's index entries entirely (as if the contract was
-    // upgraded from a pre-V2 deployment).
-    env.as_contract(&client.address, || {
-        for ordinal in 0..8u32 {
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-        }
-        env.storage()
-            .persistent()
-            .remove(&DataKey::PayerPaymentCount(payer.clone()));
-    });
-
-    // Before rebuild: bounded-scan fallback serves the data correctly.
-    let scanned = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(scanned.records.len(), 8);
-    assert_eq!(scanned.gaps_skipped, 0);
-
-    client.rebuild_history_index(&admin);
-
-    // After rebuild: direct-read path returns identical results.
-    let indexed = client.payments_by_payer(&payer, &0u32, &25u32);
-    assert_eq!(indexed.records.len(), 8);
-    assert_eq!(indexed.gaps_skipped, 0);
-    assert!(!indexed.has_more);
-    for n in 0..8u32 {
-        let rec = indexed.records.get(n).unwrap();
-        assert_eq!(
-            rec.invoice_id,
-            String::from_str(&env, &format!("invoisio-rebuild-payer-{n:02}"))
-        );
-    }
-}
-
-/// Regression test for #445: the schema V1 → V2 migration backfills
-/// per-payer indexes without data loss, and is idempotent.
-#[test]
-fn test_migration_v1_to_v2_backfills_payer_indexes() {
-    let env = Env::default();
-    env.mock_all_auths();
-    let (client, _admin) = setup(&env);
-
-    client.set_allow_native(&true);
-    let payer_a = Address::generate(&env);
-    let payer_b = Address::generate(&env);
-    // Kept small deliberately: since #495 the V1 → V2 → V3 upgrade path now
-    // runs two full-rebuild migration steps (payer indexes, then the
-    // settlement-reference index) in the same transaction, and Soroban caps
-    // total footprint entries per invocation. A larger payment count here
-    // would exceed that budget before the general chunked/resumable
-    // migration work lands (issue #480).
-    for idx in 0..6u32 {
-        let payer = if idx % 3 == 0 { &payer_a } else { &payer_b };
-        record_xlm(
-            &env,
-            &client,
-            &format!("invoisio-mig-{idx:02}"),
-            payer,
-            1_000_000i128,
-        );
-    }
-
-    // Roll storage metadata back to V1 and wipe payer indexes to simulate a
-    // V1-era deployment.
-    env.as_contract(&client.address, || {
-        let mut meta =
-            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
-        meta.storage_schema_version = storage::STORAGE_SCHEMA_V1;
-        storage::set_contract_meta(&env, &meta);
-        for payer in [payer_a.clone(), payer_b.clone()] {
-            let count = storage::get_payer_payment_count(&env, &payer).unwrap_or(0u32);
-            for ordinal in 0..count {
-                env.storage()
-                    .persistent()
-                    .remove(&DataKey::PayerPaymentIdx(payer.clone(), ordinal));
-            }
-            env.storage()
-                .persistent()
-                .remove(&DataKey::PayerPaymentCount(payer.clone()));
-        }
-    });
-    assert_eq!(
-        client.version_info().storage_schema_version,
-        storage::STORAGE_SCHEMA_V1
-    );
-
-    // Run the upgrade driver; it must route through migrate_schema_v1_to_v2.
-    let admin = client.admin();
-    client.upgrade_storage(&admin);
-
-    assert_eq!(
-        client.version_info().storage_schema_version,
-        storage::STORAGE_SCHEMA_VERSION
-    );
-
-    // Both payers are back on the direct-read path with complete results.
-    for payer in [&payer_a, &payer_b] {
-        let mut total = 0u32;
-        let mut cursor = 0u32;
-        loop {
-            let page = client.payments_by_payer(payer, &cursor, &2u32);
-            total += page.records.len() as u32;
-            cursor = page.next_cursor;
-            if !page.has_more {
-                break;
-            }
-        }
-        let expected = if payer == &payer_a { 2 } else { 4 };
-        assert_eq!(total, expected);
-
-        // Idempotency: running the migration again is safe.
-        client.upgrade_storage(&admin);
-        let again = client.payments_by_payer(payer, &0u32, &25u32);
-        assert_eq!(again.records.len() as u32, expected);
-        assert_eq!(again.gaps_skipped, 0);
-    }
 }
 
 // ─── Additional Pause-Scope Tests: Issue #482 ───────────────────────────────
@@ -5747,13 +5284,12 @@ fn test_rebuild_history_index_succeeds_while_paused() {
         client.record_payment(
             &inv,
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &((i as i128 + 1) * 10_000_000i128),
             &set,
         );
     }
-    let before = client.payment_history(&0u32, &25u32);
+    let before = client.payment_history(&admin, &0u32, &25u32);
     assert_eq!(
         before.records.len() as u32,
         N,
@@ -5771,7 +5307,7 @@ fn test_rebuild_history_index_succeeds_while_paused() {
             .instance()
             .set(&DataKey::PaymentHistoryCount, &0u32);
     });
-    let cleared = client.payment_history(&0u32, &25u32);
+    let cleared = client.payment_history(&admin, &0u32, &25u32);
     assert_eq!(
         cleared.records.len(),
         0,
@@ -5789,7 +5325,7 @@ fn test_rebuild_history_index_succeeds_while_paused() {
     );
 
     // Verify the index was actually rebuilt during the paused window.
-    let restored = client.payment_history(&0u32, &25u32);
+    let restored = client.payment_history(&admin, &0u32, &25u32);
     assert_eq!(
         restored.records.len() as u32,
         N,
@@ -5826,8 +5362,7 @@ fn test_invoice_id_exactly_max_len_succeeds() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-max-len-invoice-id"),
     );
@@ -5855,8 +5390,7 @@ fn test_invoice_id_over_max_len_returns_error() {
     let result = client.try_record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-over-max-len-invoice-id"),
     );
@@ -5875,8 +5409,7 @@ fn test_invoice_id_uppercase_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "INV-CANON-001"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-uppercase"),
     );
@@ -5895,8 +5428,7 @@ fn test_invoice_id_leading_whitespace_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, " inv-canon-002"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-leading-ws"),
     );
@@ -5915,8 +5447,7 @@ fn test_invoice_id_trailing_whitespace_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-canon-003 "),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-trailing-ws"),
     );
@@ -5935,8 +5466,7 @@ fn test_invoice_id_embedded_whitespace_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv canon 004"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-embedded-ws"),
     );
@@ -5955,8 +5485,7 @@ fn test_invoice_id_case_variant_cannot_defeat_idempotency_guard() {
     client.record_payment(
         &String::from_str(&env, "inv-canon-dup"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-dup-1"),
     );
@@ -5966,13 +5495,12 @@ fn test_invoice_id_case_variant_cannot_defeat_idempotency_guard() {
     let result = client.try_record_payment(
         &String::from_str(&env, "INV-CANON-DUP"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-dup-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -5987,8 +5515,7 @@ fn test_invoice_id_whitespace_variant_cannot_defeat_idempotency_guard() {
     client.record_payment(
         &String::from_str(&env, "inv-canon-ws-dup"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-ws-dup-1"),
     );
@@ -5998,13 +5525,12 @@ fn test_invoice_id_whitespace_variant_cannot_defeat_idempotency_guard() {
     let result = client.try_record_payment(
         &String::from_str(&env, "inv-canon-ws-dup "),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-ws-dup-2"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidInvoiceId)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6019,8 +5545,7 @@ fn test_settlement_ref_uppercase_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-canon-ref-001"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "SETTLE-CANON-001"),
     );
@@ -6039,8 +5564,7 @@ fn test_settlement_ref_whitespace_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-canon-ref-002"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle canon 002"),
     );
@@ -6060,8 +5584,7 @@ fn test_settlement_ref_invalid_format_returns_error() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-canon-ref-003"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle_canon+003"),
     );
@@ -6080,8 +5603,7 @@ fn test_settlement_ref_case_variant_cannot_defeat_uniqueness_guard() {
     client.record_payment(
         &String::from_str(&env, "invoisio-canon-ref-dup-1"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-ref-dup"),
     );
@@ -6092,13 +5614,12 @@ fn test_settlement_ref_case_variant_cannot_defeat_uniqueness_guard() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-canon-ref-dup-2"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "SETTLE-CANON-REF-DUP"),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6113,8 +5634,7 @@ fn test_settlement_ref_whitespace_variant_cannot_defeat_uniqueness_guard() {
     client.record_payment(
         &String::from_str(&env, "invoisio-canon-ref-ws-1"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-ref-ws"),
     );
@@ -6122,13 +5642,12 @@ fn test_settlement_ref_whitespace_variant_cannot_defeat_uniqueness_guard() {
     let result = client.try_record_payment(
         &String::from_str(&env, "invoisio-canon-ref-ws-2"),
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &String::from_str(&env, "settle-canon-ref-ws "),
     );
     assert_eq!(result, Err(Ok(ContractError::InvalidSettlementRef)));
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6171,8 +5690,7 @@ fn test_settlement_ref_owner_resolves_to_invoice() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -6221,8 +5739,7 @@ fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
     client.record_payment(
         &invoice_a,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -6234,8 +5751,7 @@ fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
     let retry = client.try_record_payment(
         &invoice_a,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -6253,8 +5769,7 @@ fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
     let conflict = client.try_record_payment(
         &invoice_b,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &settlement_ref,
     );
@@ -6263,7 +5778,7 @@ fn test_settlement_ref_owner_distinguishes_retry_from_conflict() {
         client.settlement_ref_owner(&settlement_ref),
         Some(invoice_a)
     );
-    assert_eq!(client.payment_count(), 1);
+    assert_eq!(client.payment_count(&_admin), 1);
 }
 
 #[test]
@@ -6288,7 +5803,7 @@ fn test_settlement_ref_history_pages_in_write_order() {
     let mut collected: alloc::vec::Vec<storage::SettlementRefEntry> = alloc::vec::Vec::new();
     let mut cursor = 0u32;
     loop {
-        let page = client.settlement_ref_history(&cursor, &2u32);
+        let page = client.settlement_ref_history(&_admin, &cursor, &2u32);
         assert!(page.records.len() as u32 <= 2);
         assert_eq!(page.gaps_skipped, 0);
         collected.extend(page.records.iter());
@@ -6306,7 +5821,7 @@ fn test_settlement_ref_history_pages_in_write_order() {
         );
         assert_eq!(
             entry.settlement_ref,
-            String::from_str(
+            settlement_commitment(
                 &env,
                 &format!("settle-xlm-default-invoisio-refhist-{idx:02}")
             )
@@ -6340,7 +5855,7 @@ fn test_settlement_ref_history_skips_missing_slot() {
             .remove(&DataKey::SettlementRefLog(2));
     });
 
-    let page = client.settlement_ref_history(&0u32, &10u32);
+    let page = client.settlement_ref_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 4);
     assert_eq!(page.gaps_skipped, 1);
     assert_eq!(page.next_cursor, 5);
@@ -6351,8 +5866,9 @@ fn test_settlement_ref_history_skips_missing_slot() {
 fn test_settlement_ref_history_empty_index_terminates_immediately() {
     let env = Env::default();
     let (client, _admin) = setup(&env);
+    env.mock_all_auths();
 
-    let page = client.settlement_ref_history(&0u32, &10u32);
+    let page = client.settlement_ref_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 0);
     assert_eq!(page.next_cursor, 0);
     assert!(!page.has_more);
@@ -6368,7 +5884,7 @@ fn test_settlement_ref_index_status_consistent_after_payments() {
     let payer = Address::generate(&env);
     client.set_allow_native(&true);
 
-    assert_eq!(client.settlement_ref_index_status(), (0, 0, true));
+    assert_eq!(client.settlement_ref_index_status(&_admin), (0, 0, true));
 
     for idx in 0..4u32 {
         record_xlm(
@@ -6380,7 +5896,7 @@ fn test_settlement_ref_index_status_consistent_after_payments() {
         );
     }
 
-    assert_eq!(client.settlement_ref_index_status(), (4, 4, true));
+    assert_eq!(client.settlement_ref_index_status(&_admin), (4, 4, true));
 }
 
 /// Regression for #495: a genuine duplicate settlement_ref in raw legacy
@@ -6402,28 +5918,39 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
     client.record_payment(
         &invoice_a,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &shared_ref,
     );
     client.record_payment(
         &invoice_b,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &20_000_000i128,
         &String::from_str(&env, "settle-legacy-conflict-original-b"),
     );
 
-    // Simulate raw pre-guard legacy data where B's stored record already
-    // carries the same settlement_ref as A (impossible to produce via
-    // `record_payment` today, but exactly what the uniqueness guard exists
-    // to prevent going forward — see issue #495's background). Also roll
-    // back the settlement-reference index itself, so the upgrade below
-    // discovers and resolves the conflict for the first time, rather than
-    // finding A's entry already present from the calls above.
+    // Simulate raw pre-guard legacy data where both A and B's stored records
+    // carry the *plaintext* settlement_ref, and it's the same for both
+    // (impossible to produce via `record_payment` today, but exactly what
+    // the uniqueness guard exists to prevent going forward — see issue
+    // #495's background). Pre-commitment (issue #512) legacy data stored the
+    // plaintext directly in `PaymentRecord.settlement_ref`, which is what
+    // `migrate_settlement_refs` expects to read and hash. Also roll back the
+    // settlement-reference index itself, so the upgrade below discovers and
+    // resolves the conflict for the first time, rather than finding A's
+    // entry already present from the calls above.
     env.as_contract(&client.address, || {
+        let mut record_a: PaymentRecord = env
+            .storage()
+            .persistent()
+            .get(&DataKey::PaymentV1(invoice_a.clone()))
+            .unwrap();
+        record_a.settlement_ref = shared_ref.clone();
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentV1(invoice_a.clone()), &record_a);
+
         let mut record_b: PaymentRecord = env
             .storage()
             .persistent()
@@ -6436,12 +5963,15 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
 
         env.storage()
             .persistent()
-            .remove(&DataKey::SettlementRef(shared_ref.clone()));
+            .remove(&DataKey::SettlementRef(storage::commit_settlement_ref(
+                &env,
+                &shared_ref,
+            )));
         env.storage()
             .persistent()
-            .remove(&DataKey::SettlementRef(String::from_str(
+            .remove(&DataKey::SettlementRef(storage::commit_settlement_ref(
                 &env,
-                "settle-legacy-conflict-original-b",
+                &String::from_str(&env, "settle-legacy-conflict-original-b"),
             )));
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
@@ -6467,7 +5997,8 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
     // The index is now visibly inconsistent (B has no mapping) — exactly the
     // signal an operator needs to investigate, rather than a silent
     // overwrite masking the conflict.
-    let (settlement_ref_count, payment_count, is_consistent) = client.settlement_ref_index_status();
+    let (settlement_ref_count, payment_count, is_consistent) =
+        client.settlement_ref_index_status(&admin);
     assert_eq!(settlement_ref_count, 1);
     assert_eq!(payment_count, 2);
     assert!(!is_consistent);
@@ -6503,8 +6034,7 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
         client.record_payment(
             &invoice_ids[idx],
             &payer,
-            &String::from_str(&env, "XLM"),
-            &String::from_str(&env, ""),
+            &Asset::Native,
             &10_000_000i128,
             &refs[idx],
         );
@@ -6512,12 +6042,26 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
 
     // Roll every settlement_ref entry back to the pre-V3 unit-value shape,
     // and clear the enumeration log/counter (neither existed before V3), to
-    // simulate a genuine V2 deployment.
+    // simulate a genuine V2 deployment. A genuine pre-#512 V2 deployment also
+    // stored the *plaintext* settlement_ref directly on `PaymentRecord` (the
+    // commitment scheme didn't exist yet) — roll that back too, since
+    // `migrate_schema_v2_to_v3` derives everything it writes from
+    // `PaymentRecord.settlement_ref`, not from the raw `SettlementRef` keys.
     env.as_contract(&client.address, || {
-        for r in &refs {
+        for (idx, r) in refs.iter().enumerate() {
             env.storage()
                 .persistent()
                 .set(&DataKey::SettlementRef(r.clone()), &());
+
+            let mut record: PaymentRecord = env
+                .storage()
+                .persistent()
+                .get(&DataKey::PaymentV1(invoice_ids[idx].clone()))
+                .unwrap();
+            record.settlement_ref = r.clone();
+            env.storage()
+                .persistent()
+                .set(&DataKey::PaymentV1(invoice_ids[idx].clone()), &record);
         }
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
@@ -6550,16 +6094,19 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
         );
     }
 
-    let page = client.settlement_ref_history(&0u32, &25u32);
+    let page = client.settlement_ref_history(&admin, &0u32, &25u32);
     assert_eq!(page.records.len(), 3);
     assert!(!page.has_more);
     assert_eq!(page.gaps_skipped, 0);
     for (idx, entry) in page.records.iter().enumerate() {
         assert_eq!(entry.invoice_id, invoice_ids[idx]);
-        assert_eq!(entry.settlement_ref, refs[idx]);
+        assert_eq!(
+            entry.settlement_ref,
+            crate::storage::commit_settlement_ref(&env, &refs[idx])
+        );
     }
 
-    assert_eq!(client.settlement_ref_index_status(), (3, 3, true));
+    assert_eq!(client.settlement_ref_index_status(&admin), (3, 3, true));
 }
 
 // ─── migrate_legacy_payments (issue #508) ──────────────────────────────────
@@ -6692,8 +6239,7 @@ fn test_migrate_legacy_payments_handles_mixed_batch() {
     client.record_payment(
         &already_current_id,
         &Address::generate(&env),
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &5_000_000i128,
         &String::from_str(&env, "settle-mixed-b"),
     );
@@ -6758,11 +6304,11 @@ fn test_migrate_legacy_payments_works_while_paused() {
     );
 }
 
-/// Regression for #508: exercising every permissionless read method must
-/// leave every counter and the legacy-record key layout exactly as it was.
-/// TTL extension is the only footprint effect any of these may have, and
-/// TTL has no observable value here, so an unchanged counter/key set is a
-/// direct proxy for "no data write happened".
+/// Regression for #508: exercising every read method (permissionless and
+/// admin-gated) must leave every counter and the legacy-record key layout
+/// exactly as it was. TTL extension is the only footprint effect any of
+/// these may have, and TTL has no observable value here, so an unchanged
+/// counter/key set is a direct proxy for "no data write happened".
 #[test]
 fn test_permissionless_reads_do_not_mutate_state() {
     let env = Env::default();
@@ -6772,10 +6318,10 @@ fn test_permissionless_reads_do_not_mutate_state() {
     client.set_allow_native(&true);
     client.allow_asset(
         &String::from_str(&env, "USDC"),
-        &String::from_str(
+        &Address::from_string(&String::from_str(
             &env,
             "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
-        ),
+        )),
     );
 
     let payer = Address::generate(&env);
@@ -6784,8 +6330,7 @@ fn test_permissionless_reads_do_not_mutate_state() {
     client.record_payment(
         &invoice_id,
         &payer,
-        &String::from_str(&env, "XLM"),
-        &String::from_str(&env, ""),
+        &Asset::Native,
         &10_000_000i128,
         &settlement_ref,
     );
@@ -6797,10 +6342,10 @@ fn test_permissionless_reads_do_not_mutate_state() {
 
     let snapshot = || {
         (
-            client.payment_count(),
-            client.settlement_ref_index_status(),
+            client.payment_count(&admin),
+            client.settlement_ref_index_status(&admin),
             client.allowlist_count(),
-            client.history_index_status(),
+            client.history_index_status(&admin),
             env.as_contract(&client.address, || {
                 (
                     env.storage()
@@ -6816,17 +6361,16 @@ fn test_permissionless_reads_do_not_mutate_state() {
 
     let before = snapshot();
 
-    // Exercise every permissionless read method.
+    // Exercise every read method — permissionless and admin-gated alike.
     let _ = client.get_payment(&invoice_id);
     let _ = client.get_payment(&legacy_id);
     let _ = client.has_payment(&invoice_id);
     let _ = client.has_payment(&legacy_id);
-    let _ = client.payment_count();
-    let _ = client.payment_history(&0u32, &10u32);
-    let _ = client.payments_by_payer(&payer, &0u32, &10u32);
+    let _ = client.payment_count(&admin);
+    let _ = client.payment_history(&admin, &0u32, &10u32);
     let _ = client.settlement_ref_owner(&settlement_ref);
-    let _ = client.settlement_ref_history(&0u32, &10u32);
-    let _ = client.settlement_ref_index_status();
+    let _ = client.settlement_ref_history(&admin, &0u32, &10u32);
+    let _ = client.settlement_ref_index_status(&admin);
     let _ = client.allowed_assets(&0u32, &10u32);
     let _ = client.allowlist_count();
     let _ = client.contract_version();
@@ -6835,12 +6379,12 @@ fn test_permissionless_reads_do_not_mutate_state() {
     let _ = client.pending_admin();
     let _ = client.config();
     let _ = client.is_paused();
-    let _ = client.history_index_status();
+    let _ = client.history_index_status(&admin);
 
     let after = snapshot();
     assert_eq!(
         before, after,
-        "no permissionless read may change a counter or the legacy-key layout"
+        "no read may change a counter or the legacy-key layout"
     );
 
     // The admin/write path is unaffected by this — confirm a fresh admin
@@ -6848,4 +6392,162 @@ fn test_permissionless_reads_do_not_mutate_state() {
     let result =
         client.try_migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, legacy_id.clone()]);
     assert!(result.is_ok());
+}
+
+fn circle_usdc_issuer(env: &Env) -> Address {
+    Address::from_string(&String::from_str(
+        env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    ))
+}
+
+/// A garbage issuer string is not an [`Address`], so it cannot be
+/// allowlisted or recorded.
+#[test]
+fn test_malformed_issuer_cannot_be_parsed_or_allowlisted() {
+    let env = Env::default();
+    assert!(storage::try_parse_issuer_address(&String::from_str(&env, "not-an-address")).is_none());
+    assert!(storage::try_parse_issuer_address(&String::from_str(&env, "")).is_none());
+    assert!(storage::try_parse_issuer_address(&String::from_str(&env, " GBIssuer ")).is_none());
+    assert!(storage::try_parse_issuer_address(&String::from_str(
+        &env,
+        "gbbd47if6lwk7p7mdevscwr7dpuwv3ny3dtqevfl4nat4aqh3zllfla5"
+    ))
+    .is_none());
+    assert!(storage::try_parse_issuer_address(&String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+    ))
+    .is_some());
+}
+
+/// The same Stellar issuer constructed twice is one allowlist key — Address
+/// is canonical, so case/spelling variants cannot fork the list.
+#[test]
+fn test_issuer_address_is_canonical_allowlist_key() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let code = String::from_str(&env, "USDC");
+    let a = circle_usdc_issuer(&env);
+    let b = circle_usdc_issuer(&env);
+    assert_eq!(a, b);
+
+    client.allow_asset(&code, &a);
+    assert_eq!(client.allowlist_count(), 1);
+    client.allow_asset(&code, &b);
+    assert_eq!(client.allowlist_count(), 1);
+
+    let payer = Address::generate(&env);
+    client.record_payment(
+        &String::from_str(&env, "inv-canonical-issuer"),
+        &payer,
+        &Asset::Token(code.clone(), b.clone()),
+        &1_000_000i128,
+        &String::from_str(&env, "settle-canonical-issuer"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-canonical-issuer")));
+}
+
+/// Native XLM is `Asset::Native` — there is no empty-issuer field.
+#[test]
+fn test_native_asset_has_no_issuer_field() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+    client.set_allow_native(&true);
+    let payer = Address::generate(&env);
+    client.record_payment(
+        &String::from_str(&env, "inv-native-struct"),
+        &payer,
+        &Asset::Native,
+        &10_000_000i128,
+        &String::from_str(&env, "settle-native-struct"),
+    );
+    match client
+        .get_payment(&String::from_str(&env, "inv-native-struct"))
+        .asset
+    {
+        Asset::Native => {}
+        Asset::Token(_, _) => panic!("native payment must not store a Token variant"),
+    }
+}
+
+/// Pre-V6 string-issuer payment records and allowlist entries are rewritten
+/// to Address without data loss.
+#[test]
+fn test_migrate_schema_v5_to_v6_rewrites_string_issuers() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let invoice_id = String::from_str(&env, "inv-legacy-issuer");
+    let payer = Address::generate(&env);
+    let code = String::from_str(&env, "USDC");
+    let issuer_str = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
+    let issuer = circle_usdc_issuer(&env);
+
+    let legacy = storage::LegacyStringIssuerPayment {
+        invoice_id: invoice_id.clone(),
+        payer: payer.clone(),
+        asset: storage::LegacyAsset::Token(code.clone(), issuer_str.clone()),
+        amount: 42_000_000i128,
+        asset_decimals: 7,
+        timestamp: 9_001u64,
+        settlement_ref: String::from_str(&env, "legacy-issuer-ref"),
+    };
+
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentV1(invoice_id.clone()), &legacy);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentLog(0u32), &invoice_id);
+        env.storage()
+            .persistent()
+            .set(&DataKey::PaymentHistory(0u32), &legacy);
+        env.storage().instance().set(&DataKey::PaymentCount, &1u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &1u32);
+        env.storage()
+            .persistent()
+            .set(&DataKey::AllowList(code.clone(), issuer_str.clone()), &7u32);
+
+        let mut meta =
+            storage::get_contract_meta(&env).unwrap_or_else(storage::current_contract_meta);
+        meta.storage_schema_version = storage::STORAGE_SCHEMA_V5;
+        storage::set_contract_meta(&env, &meta);
+    });
+
+    // Readable via the dual-read fallback before migration.
+    let before = client.get_payment(&invoice_id);
+    assert_eq!(before.asset, Asset::Token(code.clone(), issuer.clone()));
+    assert_eq!(before.amount, 42_000_000i128);
+
+    client.upgrade_storage(&admin);
+    assert_eq!(
+        client.version_info().storage_schema_version,
+        STORAGE_SCHEMA_VERSION
+    );
+
+    let after = client.get_payment(&invoice_id);
+    assert_eq!(after.asset, Asset::Token(code.clone(), issuer.clone()));
+    assert_eq!(after.payer, payer);
+    assert_eq!(after.amount, 42_000_000i128);
+
+    // New writes against the migrated allowlist succeed.
+    client.record_payment(
+        &String::from_str(&env, "inv-post-migrate"),
+        &payer,
+        &Asset::Token(code, issuer),
+        &1i128,
+        &String::from_str(&env, "settle-post-migrate"),
+    );
+    assert!(client.has_payment(&String::from_str(&env, "inv-post-migrate")));
 }

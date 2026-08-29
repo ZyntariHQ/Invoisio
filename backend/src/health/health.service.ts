@@ -2,7 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
 import { StellarService } from "../stellar/stellar.service";
-import { SorobanService } from "../stellar/soroban.service";
+import { SorobanService } from "../soroban/soroban.service";
 
 export interface DependencyStatus {
   status: "up" | "down";

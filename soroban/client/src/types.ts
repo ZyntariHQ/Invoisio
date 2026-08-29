@@ -73,9 +73,13 @@ export interface PaymentRecord {
   /** Unix seconds at which the ledger included this record */
   readonly timestamp: bigint;
   /**
-   * Normalised settlement reference (hash or reconciliation ID) used for
-   * backend deduplication and idempotent settlement reconciliation.
-   * Stores the value passed to `record_payment`.
+   * SHA-256 **commitment** of the settlement reference passed to
+   * `record_payment` — not the plaintext value itself (issue #512). A
+   * caller that already holds the plaintext (typically the Invoisio
+   * backend, which generated it) can still deduplicate/verify by hashing
+   * its own copy the same way, or by calling `getSettlementRefOwner` with
+   * the plaintext directly. The plaintext is not recoverable from this
+   * field.
    */
   readonly settlementRef: string;
 }
@@ -92,6 +96,7 @@ export interface PaymentHistoryPage {
  * `record_payment` or backfilled by migration.
  */
 export interface SettlementRefEntry {
+  /** SHA-256 commitment of the settlement reference — never the plaintext. */
   readonly settlementRef: string;
   readonly invoiceId: string;
 }
@@ -226,7 +231,7 @@ export interface RecordPaymentParams {
   readonly payer: string;
   /** "XLM" or a token code such as "USDC" */
   readonly assetCode: string;
-  /** Issuer G... address for token assets; empty string ("") for XLM */
+  /** Issuer G... address for token assets; empty string ("") for native XLM (`Asset::Native`). Must be a well-formed Stellar address when non-empty. */
   readonly assetIssuer: string;
   /** Amount in smallest denomination (must be > 0) */
   readonly amount: bigint;

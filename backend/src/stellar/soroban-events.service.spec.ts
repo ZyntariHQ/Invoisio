@@ -242,25 +242,59 @@ describe("SorobanEventsService", () => {
     expect(applySpy).not.toHaveBeenCalled();
   });
 
-  it("parses and forwards payment_recorded events", async () => {
+  it("parses a minimized payment_recorded event (issue #512: invoice_id + schema_version only) and forwards its invoice_id", async () => {
+    // As of issue #512 the on-chain event no longer carries payer/asset/
+    // amount — only schema_version and invoice_id.
     const ev = {
       id: "evt2",
       topic: ["InvoicePaymentRecorded"],
       ledger: 123,
       value: {
         invoice_id: "invoisio-550e8400-e29b-41d4-a716-446655440000",
-        payer: "GCBZQY7M2K6Z2QG2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2",
-        asset_code: "XLM",
-        asset_issuer: "",
-        amount: "10000000",
+        schema_version: 2,
       },
     };
+    // No read client configured in this test (mockConfigService omits
+    // merchantPublicKey/networkPassphrase) — enrichment is skipped and the
+    // payer/asset/amount fields degrade to undefined rather than throwing.
     await service.handleEvent(ev);
     expect(applySpy).toHaveBeenCalledTimes(1);
     expect(applySpy).toHaveBeenCalledWith(
       expect.objectContaining({
         eventId: "evt2",
         invoice_id: "invoisio-550e8400-e29b-41d4-a716-446655440000",
+        payer: undefined,
+        asset_code: undefined,
+        asset_issuer: undefined,
+        amount: undefined,
+      }),
+    );
+  });
+
+  it("enriches a minimized event with the full record via get_payment(invoice_id) (issue #512)", async () => {
+    const ev = {
+      id: "evt3",
+      topic: ["InvoicePaymentRecorded"],
+      ledger: 124,
+      value: {
+        invoice_id: "invoisio-enrich-test",
+        schema_version: 2,
+      },
+    };
+    (service as any).fetchPaymentRecord = jest.fn().mockResolvedValue({
+      payer: "GCBZQY7M2K6Z2QG2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2",
+      asset_code: "XLM",
+      asset_issuer: "",
+      amount: "10000000",
+    });
+
+    await service.handleEvent(ev);
+
+    expect(applySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "evt3",
+        invoice_id: "invoisio-enrich-test",
+        payer: "GCBZQY7M2K6Z2QG2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2",
         asset_code: "XLM",
         amount: "10000000",
       }),

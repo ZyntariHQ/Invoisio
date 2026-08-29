@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 0,
     "mux_id": 0
   },
@@ -21,7 +21,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -46,10 +46,17 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer"
+                  "vec": [
+                    {
+                      "symbol": "Token"
+                    },
+                    {
+                      "string": "USDC"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
                 },
                 {
                   "i128": "100"
@@ -78,7 +85,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -169,63 +176,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -257,9 +207,17 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
                     }
                   },
                   {
@@ -283,7 +241,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-al-2"
+                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
                     }
                   },
                   {
@@ -370,9 +328,17 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
                     }
                   },
                   {
@@ -396,7 +362,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-al-2"
+                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
                     }
                   },
                   {
@@ -428,7 +394,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-al-2"
+                    "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
                   }
                 ]
               },
@@ -475,7 +441,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-al-2"
+                      "string": "36060de0431a4025095f9d5c792fa755403b025120b447083b902f8181ab6d13"
                     }
                   }
                 ]
@@ -560,7 +526,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]

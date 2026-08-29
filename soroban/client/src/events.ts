@@ -10,16 +10,30 @@ export const EVENT_SCHEMA_VERSION = 2;
 
 // ─── Decoded event types (discriminated on `type`) ──────────────────────────
 
+/**
+ * As of issue #512 this event carries only `schemaVersion` and `invoiceId` —
+ * no payer, asset, amount, asset_decimals, or settlement_ref. A public event
+ * carrying the full record previously bypassed every read-method
+ * access-control decision in the contract; a consumer that needs the full
+ * record must already know `invoiceId` and call `getPayment(invoiceId)`.
+ *
+ * Schema 1 (pre-#512) payloads are still decoded during the migration
+ * window: they included `payer`, `assetCode`, `assetIssuer` (a raw string,
+ * not an Address), `amount`, and `settlementRef`. Schema 2 is the compact
+ * form. The issuer encoding change on stored records does not bump this
+ * event further — issuer is no longer in the live payload.
+ */
 export type InvoicePaymentRecordedEvent = {
   type: 'invoice_payment_recorded';
   schemaVersion: number;
   invoiceId: string;
-  payer: string;
-  assetCode: string;
-  assetIssuer: string;
-  amount: bigint;
-  assetDecimals: number;
-  settlementRef: string;
+  /** Present only on schema 1 (pre-#512 full payload). */
+  payer?: string;
+  assetCode?: string;
+  /** Present only on schema 1; unvalidated string issuer (may be empty for XLM). */
+  assetIssuer?: string;
+  amount?: bigint;
+  settlementRef?: string;
 };
 
 export type AssetAllowlistedEvent = {
@@ -83,6 +97,14 @@ export type ContractUpgradedEvent = {
   upgradedAt: bigint;
 };
 
+export type IssuersMigratedEvent = {
+  type: 'issuers_migrated';
+  payments: number;
+  allowlist: number;
+  skippedMalformed: number;
+  migratedAt: bigint;
+};
+
 export type UnknownSorobanEvent = {
   type: 'unknown';
   name?: string;
@@ -99,6 +121,7 @@ export type DecodedSorobanEvent =
   | AdminTransferProposedEvent
   | AdminTransferAcceptedEvent
   | ContractUpgradedEvent
+  | IssuersMigratedEvent
   | UnknownSorobanEvent;
 
 // ─── Raw event input ─────────────────────────────────────────────────────────
@@ -163,23 +186,48 @@ function checkArity(payload: unknown[] | Record<string, unknown>, expected: numb
 
 function decodePaymentEvent(payload: unknown[] | Record<string, unknown>): DecodedSorobanEvent {
   const schemaVersion = Number(fieldAt(payload, 0, 'schema_version'));
+
+  // Schema 1: pre-#512 full payload. Issuer was an unvalidated String.
+  // Positional: schema_version, invoice_id, payer, asset_code, asset_issuer,
+  // amount, settlement_ref. Named-key objects are accepted too.
+  if (schemaVersion === 1) {
+    if (Array.isArray(payload) && payload.length < 7) {
+      return {
+        type: 'unknown',
+        name: 'invoice_payment_recorded',
+        reason: `schema 1 payload expected at least 7 fields, got ${payload.length}`,
+      };
+    }
+    return {
+      type: 'invoice_payment_recorded',
+      schemaVersion: 1,
+      invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
+      payer: String(fieldAt(payload, 2, 'payer')),
+      assetCode: String(fieldAt(payload, 3, 'asset_code')),
+      assetIssuer: String(fieldAt(payload, 4, 'asset_issuer')),
+      amount: toBigInt(fieldAt(payload, 5, 'amount'), 'amount'),
+      settlementRef: String(fieldAt(payload, 6, 'settlement_ref')),
+    };
+  }
+
   if (schemaVersion !== EVENT_SCHEMA_VERSION) {
     return {
       type: 'unknown',
       name: 'invoice_payment_recorded',
-      reason: `unsupported schema version ${schemaVersion} (client supports ${EVENT_SCHEMA_VERSION})`,
+      reason: `unsupported schema version ${schemaVersion} (client supports 1 and ${EVENT_SCHEMA_VERSION})`,
+    };
+  }
+  if (Array.isArray(payload) && payload.length !== 2) {
+    return {
+      type: 'unknown',
+      name: 'invoice_payment_recorded',
+      reason: `schema ${EVENT_SCHEMA_VERSION} payload expected 2 fields, got ${payload.length}`,
     };
   }
   return {
     type: 'invoice_payment_recorded',
     schemaVersion,
     invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
-    payer: String(fieldAt(payload, 2, 'payer')),
-    assetCode: String(fieldAt(payload, 3, 'asset_code')),
-    assetIssuer: String(fieldAt(payload, 4, 'asset_issuer')),
-    amount: toBigInt(fieldAt(payload, 5, 'amount'), 'amount'),
-    assetDecimals: Number(fieldAt(payload, 6, 'asset_decimals')),
-    settlementRef: String(fieldAt(payload, 7, 'settlement_ref')),
   };
 }
 
@@ -215,7 +263,6 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
   try {
     switch (name) {
       case 'invoice_payment_recorded':
-        if (!checkArity(payload, 7)) break;
         return decodePaymentEvent(payload);
       case 'asset_allowlisted':
         if (!checkArity(payload, 2)) break;
@@ -278,6 +325,15 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
           newWasmHash: toHex(fieldAt(payload, 2, 'new_wasm_hash'), 'new_wasm_hash'),
           upgradedBy: String(fieldAt(payload, 3, 'upgraded_by')),
           upgradedAt: toBigInt(fieldAt(payload, 4, 'upgraded_at'), 'upgraded_at'),
+        };
+      case 'issuers_migrated':
+        if (!checkArity(payload, 4)) break;
+        return {
+          type: 'issuers_migrated',
+          payments: Number(fieldAt(payload, 0, 'payments')),
+          allowlist: Number(fieldAt(payload, 1, 'allowlist')),
+          skippedMalformed: Number(fieldAt(payload, 2, 'skipped_malformed')),
+          migratedAt: toBigInt(fieldAt(payload, 3, 'migrated_at'), 'migrated_at'),
         };
       default:
         return { type: 'unknown', name, reason: 'unrecognized event name' };

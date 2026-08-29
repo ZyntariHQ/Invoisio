@@ -56,17 +56,22 @@ export interface PaymentRecord {
     readonly payer: string;
     readonly asset: Asset;
     /**
-     * Amount in smallest denomination.
-     * - XLM: stroops — 1 XLM = 10_000_000 stroops
-     * - Token: 7-decimal units — 1 USDC = 10_000_000 units
+    * Amount in the asset's smallest denomination. Divide by 10^assetDecimals
+    * to format it; `0` means legacy precision is unknown.
      */
     readonly amount: bigint;
+    /** Decimal places for `amount`; legacy records expose 0 (unknown). */
+    readonly assetDecimals: number;
     /** Unix seconds at which the ledger included this record */
     readonly timestamp: bigint;
     /**
-     * Normalised settlement reference (hash or reconciliation ID) used for
-     * backend deduplication and idempotent settlement reconciliation.
-     * Stores the value passed to `record_payment`.
+     * SHA-256 **commitment** of the settlement reference passed to
+     * `record_payment` — not the plaintext value itself (issue #512). A
+     * caller that already holds the plaintext (typically the Invoisio
+     * backend, which generated it) can still deduplicate/verify by hashing
+     * its own copy the same way, or by calling `getSettlementRefOwner` with
+     * the plaintext directly. The plaintext is not recoverable from this
+     * field.
      */
     readonly settlementRef: string;
 }
@@ -81,6 +86,7 @@ export interface PaymentHistoryPage {
  * `record_payment` or backfilled by migration.
  */
 export interface SettlementRefEntry {
+    /** SHA-256 commitment of the settlement reference — never the plaintext. */
     readonly settlementRef: string;
     readonly invoiceId: string;
 }
@@ -181,6 +187,8 @@ export interface RecordPaymentParams {
     readonly assetIssuer: string;
     /** Amount in smallest denomination (must be > 0) */
     readonly amount: bigint;
+    /** Decimal places recorded for the asset. Defaults to Stellar's 7. */
+    readonly assetDecimals?: number;
     /**
      * Normalised settlement reference or hash for backend deduplication and
      * idempotent reconciliation. Required — must be in **canonical form**

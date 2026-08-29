@@ -30,6 +30,9 @@ import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { PrismaService } from "./prisma/prisma.service";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtAuthGuard } from "./auth/guard/auth.guard";
+import { CustomThrottlerGuard } from "./throttler/custom-throttler.guard";
 import { Module } from "@nestjs/common";
 
 @Module({
@@ -93,7 +96,8 @@ import { Module } from "@nestjs/common";
           then: Joi.string().min(56).required().messages({
             "any.required":
               "SOROBAN_CONTRACT_ID is required when SOROBAN_ANCHORING_ENABLED=true",
-            "string.min": "SOROBAN_CONTRACT_ID must be a valid Stellar contract ID (56+ characters)",
+            "string.min":
+              "SOROBAN_CONTRACT_ID must be a valid Stellar contract ID (56+ characters)",
             "string.empty":
               "SOROBAN_CONTRACT_ID must not be empty when SOROBAN_ANCHORING_ENABLED=true",
           }),
@@ -104,7 +108,8 @@ import { Module } from "@nestjs/common";
           then: Joi.string().min(56).required().messages({
             "any.required":
               "ADMIN_SECRET_KEY is required when SOROBAN_ANCHORING_ENABLED=true",
-            "string.min": "ADMIN_SECRET_KEY must be a valid Stellar secret key (56+ characters)",
+            "string.min":
+              "ADMIN_SECRET_KEY must be a valid Stellar secret key (56+ characters)",
             "string.empty":
               "ADMIN_SECRET_KEY must not be empty when SOROBAN_ANCHORING_ENABLED=true",
           }),
@@ -119,7 +124,6 @@ import { Module } from "@nestjs/common";
       },
     }),
     ObservabilityModule,
-    CustomThrottlerModule,
     PrismaModule,
     ScheduleModule.forRoot(),
     HealthModule,
@@ -139,7 +143,12 @@ import { Module } from "@nestjs/common";
     AdminAnalyticsModule,
     ActivityFeedModule,
     RealtimeModule,
+    CustomThrottlerModule,
   ],
-  providers: [PrismaService],
+  providers: [
+    PrismaService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: CustomThrottlerGuard },
+  ],
 })
 export class AppModule {}

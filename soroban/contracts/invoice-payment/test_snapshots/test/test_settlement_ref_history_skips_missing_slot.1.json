@@ -61,10 +61,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -114,10 +115,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -167,10 +169,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -220,10 +223,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -273,10 +277,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "10000000"
@@ -292,7 +297,31 @@
       ]
     ],
     [],
-    []
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "settlement_ref_history",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM"
+                },
+                {
+                  "u32": 0
+                },
+                {
+                  "u32": 10
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -394,6 +423,26 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "2032731177588607455"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "3126073502131104533"
                 }
               },
               "durability": "temporary",
@@ -534,183 +583,6 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PayerPaymentCount"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 5
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 0
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 0
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 1
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 2
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 2
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 3
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 3
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PayerPaymentIdx"
-                  },
-                  {
-                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                  },
-                  {
-                    "u32": 4
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 4
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
                     "symbol": "PaymentHistory"
                   },
                   {
@@ -739,6 +611,14 @@
                           "symbol": "Native"
                         }
                       ]
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
                     }
                   },
                   {
@@ -762,7 +642,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-00"
+                      "string": "90bcc7ee6b68e8980c3c766cb44b266aab6dbb3debf0d218972444bcc5d30e68"
                     }
                   },
                   {
@@ -823,6 +703,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -842,7 +730,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-01"
+                      "string": "570fa99c8393db76768f7c09f2ec0cefc8581026b19ea6c6f7ea3e6d72d91a4a"
                     }
                   },
                   {
@@ -903,6 +791,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -922,7 +818,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-02"
+                      "string": "fd1fab65752eed9fbb37c28032e003a77c1d6a9778f4499032d4ae6ec680ff55"
                     }
                   },
                   {
@@ -983,6 +879,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1002,7 +906,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-03"
+                      "string": "40e809371d7271d119355729793e66b0d450a736680dc66e7a53a0b1bbbd35f8"
                     }
                   },
                   {
@@ -1063,6 +967,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1082,7 +994,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-04"
+                      "string": "6f6f8811a7a3b7f292571bd49bd737de735b1c80d6ccb597a2de9cbd30fc70c5"
                     }
                   },
                   {
@@ -1278,6 +1190,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1297,7 +1217,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-00"
+                      "string": "90bcc7ee6b68e8980c3c766cb44b266aab6dbb3debf0d218972444bcc5d30e68"
                     }
                   },
                   {
@@ -1358,6 +1278,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1377,7 +1305,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-01"
+                      "string": "570fa99c8393db76768f7c09f2ec0cefc8581026b19ea6c6f7ea3e6d72d91a4a"
                     }
                   },
                   {
@@ -1438,6 +1366,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1457,7 +1393,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-02"
+                      "string": "fd1fab65752eed9fbb37c28032e003a77c1d6a9778f4499032d4ae6ec680ff55"
                     }
                   },
                   {
@@ -1518,6 +1454,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1537,7 +1481,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-03"
+                      "string": "40e809371d7271d119355729793e66b0d450a736680dc66e7a53a0b1bbbd35f8"
                     }
                   },
                   {
@@ -1598,6 +1542,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -1617,7 +1569,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-04"
+                      "string": "6f6f8811a7a3b7f292571bd49bd737de735b1c80d6ccb597a2de9cbd30fc70c5"
                     }
                   },
                   {
@@ -1649,88 +1601,7 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-xlm-default-invoisio-refgap-00"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "invoisio-refgap-00"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRef"
-                  },
-                  {
-                    "string": "settle-xlm-default-invoisio-refgap-01"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "invoisio-refgap-01"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRef"
-                  },
-                  {
-                    "string": "settle-xlm-default-invoisio-refgap-02"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "invoisio-refgap-02"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRef"
-                  },
-                  {
-                    "string": "settle-xlm-default-invoisio-refgap-03"
+                    "string": "40e809371d7271d119355729793e66b0d450a736680dc66e7a53a0b1bbbd35f8"
                   }
                 ]
               },
@@ -1757,13 +1628,94 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-xlm-default-invoisio-refgap-04"
+                    "string": "570fa99c8393db76768f7c09f2ec0cefc8581026b19ea6c6f7ea3e6d72d91a4a"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "string": "invoisio-refgap-01"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "6f6f8811a7a3b7f292571bd49bd737de735b1c80d6ccb597a2de9cbd30fc70c5"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
                 "string": "invoisio-refgap-04"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "90bcc7ee6b68e8980c3c766cb44b266aab6dbb3debf0d218972444bcc5d30e68"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "string": "invoisio-refgap-00"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRef"
+                  },
+                  {
+                    "string": "fd1fab65752eed9fbb37c28032e003a77c1d6a9778f4499032d4ae6ec680ff55"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "string": "invoisio-refgap-02"
               }
             }
           },
@@ -1804,7 +1756,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-00"
+                      "string": "90bcc7ee6b68e8980c3c766cb44b266aab6dbb3debf0d218972444bcc5d30e68"
                     }
                   }
                 ]
@@ -1848,7 +1800,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-01"
+                      "string": "570fa99c8393db76768f7c09f2ec0cefc8581026b19ea6c6f7ea3e6d72d91a4a"
                     }
                   }
                 ]
@@ -1892,7 +1844,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-03"
+                      "string": "40e809371d7271d119355729793e66b0d450a736680dc66e7a53a0b1bbbd35f8"
                     }
                   }
                 ]
@@ -1936,7 +1888,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-xlm-default-invoisio-refgap-04"
+                      "string": "6f6f8811a7a3b7f292571bd49bd737de735b1c80d6ccb597a2de9cbd30fc70c5"
                     }
                   }
                 ]
@@ -2009,7 +1961,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 4
+                              "u32": 6
                             }
                           }
                         ]

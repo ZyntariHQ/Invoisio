@@ -278,6 +278,52 @@ describe("BackfillService", () => {
       });
     });
 
+    it("enriches a minimized event (issue #512: invoice_id only) via get_payment(invoice_id)", async () => {
+      const stats = createMockStats();
+      const minimizedEvent = {
+        id: "event-min-1",
+        ledger: 12345,
+        txHash: "tx-min-1",
+        value: {
+          invoice_id: "invoice-min-1",
+          schema_version: 2,
+        },
+      };
+      prismaService.processedEvent.findUnique = jest
+        .fn()
+        .mockResolvedValue(null);
+      invoicesService.applySorobanPaymentEvent = jest.fn().mockResolvedValue({
+        id: "invoice-min-1",
+        status: "paid",
+      });
+      prismaService.processedEvent.create = jest.fn().mockResolvedValue({});
+      (service as any).sorobanService = {
+        getInvoicePayment: jest.fn().mockResolvedValue({
+          payer: "GABCDEF999",
+          asset: { type: "token", code: "USDC", issuer: "GISSUER999" },
+          amount: 2_500_000n,
+        }),
+      };
+
+      await service["processEvent"](
+        minimizedEvent,
+        mockContractId,
+        false,
+        stats,
+      );
+
+      expect(invoicesService.applySorobanPaymentEvent).toHaveBeenCalledWith({
+        eventId: "event-min-1",
+        contractId: mockContractId,
+        ledger: 12345,
+        invoice_id: "invoice-min-1",
+        payer: "GABCDEF999",
+        asset_code: "USDC",
+        asset_issuer: "GISSUER999",
+        amount: "2500000",
+      });
+    });
+
     it("should handle missing invoice in database", async () => {
       const stats = createMockStats();
       prismaService.processedEvent.findUnique = jest
