@@ -1408,7 +1408,7 @@ fn test_asset_enum_token_with_code_and_issuer() {
         Asset::Token(c, i) => {
             assert_eq!(c, code);
             assert_eq!(i, issuer);
-        }
+        },
         Asset::Native => panic!("Expected Token variant"),
     }
 }
@@ -1570,7 +1570,7 @@ fn test_asset_enum_serialization_deserialization() {
         Asset::Token(code, stored_issuer) => {
             assert_eq!(code, String::from_str(&env, "USDC"));
             assert_eq!(stored_issuer, issuer);
-        }
+        },
         Asset::Native => panic!("Expected Token variant"),
     }
 }
@@ -1934,7 +1934,10 @@ fn test_non_seven_decimal_asset_precision_round_trip() {
     let (client, _admin) = setup(&env);
     let payer = Address::generate(&env);
     let code = String::from_str(&env, "EURT");
-    let issuer = String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5");
+    let issuer = String::from_str(
+        &env,
+        "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+    );
     client.allow_asset_with_decimals(&code, &issuer, &6);
 
     let invoice_id = String::from_str(&env, "invoisio-six-decimals");
@@ -2022,7 +2025,9 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
     // under their legacy keys until explicitly migrated.
     for id in invoice_ids.iter() {
         let has_v1 = env.as_contract(&client.address, || {
-            env.storage().persistent().has(&DataKey::PaymentV1(id.clone()))
+            env.storage()
+                .persistent()
+                .has(&DataKey::PaymentV1(id.clone()))
         });
         assert!(!has_v1, "a bare read must not migrate the legacy record");
     }
@@ -2037,8 +2042,12 @@ fn test_multiple_legacy_payments_read_then_explicitly_migrated() {
     for id in invoice_ids.iter() {
         let (has_v1, has_legacy) = env.as_contract(&client.address, || {
             (
-                env.storage().persistent().has(&DataKey::PaymentV1(id.clone())),
-                env.storage().persistent().has(&DataKey::Payment(id.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::PaymentV1(id.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Payment(id.clone())),
             )
         });
         assert!(has_v1, "record must exist under PaymentV1 after migration");
@@ -2246,10 +2255,8 @@ fn test_upgrade_storage_preserves_payment_records() {
     );
 
     // The explicit, admin-gated migration is what actually moves it.
-    let (migrated, already_current, not_found) = client.migrate_legacy_payments(
-        &admin,
-        &soroban_sdk::vec![&env, invoice_id.clone()],
-    );
+    let (migrated, already_current, not_found) =
+        client.migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, invoice_id.clone()]);
     assert_eq!((migrated, already_current, not_found), (1, 0, 0));
 
     let final_read = client.get_payment(&invoice_id);
@@ -3255,7 +3262,9 @@ fn test_migrate_schema_v3_to_v4_backfills_allowlist_from_payment_history() {
         env.storage()
             .persistent()
             .remove(&DataKey::AllowListIndex(code.clone(), issuer.clone()));
-        env.storage().instance().set(&DataKey::AllowListCount, &0u32);
+        env.storage()
+            .instance()
+            .set(&DataKey::AllowListCount, &0u32);
         env.storage()
             .instance()
             .set(&DataKey::AllowListLogCount, &0u32);
@@ -4293,8 +4302,12 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
 
         let (has_v1, has_legacy) = env.as_contract(&client.address, || {
             (
-                env.storage().persistent().has(&DataKey::PaymentV1(inv.clone())),
-                env.storage().persistent().has(&DataKey::Payment(inv.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::PaymentV1(inv.clone())),
+                env.storage()
+                    .persistent()
+                    .has(&DataKey::Payment(inv.clone())),
             )
         });
         assert!(has_v1, "payment must be migrated to V1 key");
@@ -5671,11 +5684,7 @@ fn test_cancel_admin_transfer_blocked_while_paused() {
         Some(proposed.clone()),
         "pending_admin must NOT be cleared by a failed paused cancellation"
     );
-    assert_eq!(
-        client.admin(),
-        admin,
-        "admin must remain unchanged"
-    );
+    assert_eq!(client.admin(), admin, "admin must remain unchanged");
 
     // Lift containment — cancellation must now succeed normally.
     client.set_paused(&admin, &false);
@@ -5711,7 +5720,10 @@ fn test_upgrade_storage_succeeds_while_paused() {
         cfg.version.storage_schema_version, STORAGE_SCHEMA_VERSION,
         "storage schema must be current after a paused migration"
     );
-    assert!(client.is_paused(), "contract must remain paused after migration");
+    assert!(
+        client.is_paused(),
+        "contract must remain paused after migration"
+    );
 }
 
 /// `rebuild_history_index` is deliberately **exempt** from the pause guard.
@@ -5742,19 +5754,29 @@ fn test_rebuild_history_index_succeeds_while_paused() {
         );
     }
     let before = client.payment_history(&0u32, &25u32);
-    assert_eq!(before.records.len() as u32, N, "precondition: N payments recorded");
+    assert_eq!(
+        before.records.len() as u32,
+        N,
+        "precondition: N payments recorded"
+    );
 
     // Wipe the history index entries (simulate corruption that rebuild fixes).
     env.as_contract(&client.address, || {
         for i in 0..N {
-            env.storage().persistent().remove(&DataKey::PaymentHistory(i));
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PaymentHistory(i));
         }
         env.storage()
             .instance()
             .set(&DataKey::PaymentHistoryCount, &0u32);
     });
     let cleared = client.payment_history(&0u32, &25u32);
-    assert_eq!(cleared.records.len(), 0, "precondition: history index cleared");
+    assert_eq!(
+        cleared.records.len(),
+        0,
+        "precondition: history index cleared"
+    );
 
     // ── Pause, then rebuild — must NOT be blocked ───────────────────────
     client.set_paused(&admin, &true);
@@ -5769,14 +5791,18 @@ fn test_rebuild_history_index_succeeds_while_paused() {
     // Verify the index was actually rebuilt during the paused window.
     let restored = client.payment_history(&0u32, &25u32);
     assert_eq!(
-        restored.records.len() as u32, N,
+        restored.records.len() as u32,
+        N,
         "history index must be fully restored by a paused rebuild"
     );
     assert_eq!(
         restored.gaps_skipped, 0,
         "restored history must report zero gaps"
     );
-    assert!(client.is_paused(), "contract must remain paused after rebuild");
+    assert!(
+        client.is_paused(),
+        "contract must remain paused after rebuild"
+    );
 }
 
 // ─── invoice_id / settlement_ref canonicalisation (issue #497) ─────────────
@@ -6280,7 +6306,10 @@ fn test_settlement_ref_history_pages_in_write_order() {
         );
         assert_eq!(
             entry.settlement_ref,
-            String::from_str(&env, &format!("settle-xlm-default-invoisio-refhist-{idx:02}"))
+            String::from_str(
+                &env,
+                &format!("settle-xlm-default-invoisio-refhist-{idx:02}")
+            )
         );
     }
 }
@@ -6408,9 +6437,12 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
         env.storage()
             .persistent()
             .remove(&DataKey::SettlementRef(shared_ref.clone()));
-        env.storage().persistent().remove(&DataKey::SettlementRef(
-            String::from_str(&env, "settle-legacy-conflict-original-b"),
-        ));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::SettlementRef(String::from_str(
+                &env,
+                "settle-legacy-conflict-original-b",
+            )));
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
                 .persistent()
@@ -6440,8 +6472,9 @@ fn test_migrate_settlement_refs_skips_conflicting_duplicate() {
     assert_eq!(payment_count, 2);
     assert!(!is_consistent);
 
-    let (verified, mismatched) =
-        env.as_contract(&client.address, || migration::verify_settlement_ref_index(&env));
+    let (verified, mismatched) = env.as_contract(&client.address, || {
+        migration::verify_settlement_ref_index(&env)
+    });
     assert_eq!(verified, 1);
     assert_eq!(mismatched, 1);
 }
@@ -6482,7 +6515,9 @@ fn test_migrate_schema_v2_to_v3_backfills_settlement_ref_owner() {
     // simulate a genuine V2 deployment.
     env.as_contract(&client.address, || {
         for r in &refs {
-            env.storage().persistent().set(&DataKey::SettlementRef(r.clone()), &());
+            env.storage()
+                .persistent()
+                .set(&DataKey::SettlementRef(r.clone()), &());
         }
         for i in 0..storage::get_settlement_ref_count(&env) {
             env.storage()
@@ -6576,12 +6611,17 @@ fn test_migrate_legacy_payments_rejects_non_admin() {
         invoke: &soroban_sdk::testutils::MockAuthInvoke {
             contract: &client.address,
             fn_name: "migrate_legacy_payments",
-            args: (attacker.clone(), soroban_sdk::vec![&env, invoice_id.clone()]).into_val(&env),
+            args: (
+                attacker.clone(),
+                soroban_sdk::vec![&env, invoice_id.clone()],
+            )
+                .into_val(&env),
             sub_invokes: &[],
         },
     }]);
 
-    let result = client.try_migrate_legacy_payments(&attacker, &soroban_sdk::vec![&env, invoice_id.clone()]);
+    let result =
+        client.try_migrate_legacy_payments(&attacker, &soroban_sdk::vec![&env, invoice_id.clone()]);
     assert_eq!(result, Err(Ok(ContractError::Unauthorized)));
 
     // The legacy record must be untouched by the rejected attempt.
@@ -6732,7 +6772,10 @@ fn test_permissionless_reads_do_not_mutate_state() {
     client.set_allow_native(&true);
     client.allow_asset(
         &String::from_str(&env, "USDC"),
-        &String::from_str(&env, "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"),
+        &String::from_str(
+            &env,
+            "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5",
+        ),
     );
 
     let payer = Address::generate(&env);
@@ -6802,9 +6845,7 @@ fn test_permissionless_reads_do_not_mutate_state() {
 
     // The admin/write path is unaffected by this — confirm a fresh admin
     // action still works normally afterward.
-    let result = client.try_migrate_legacy_payments(
-        &admin,
-        &soroban_sdk::vec![&env, legacy_id.clone()],
-    );
+    let result =
+        client.try_migrate_legacy_payments(&admin, &soroban_sdk::vec![&env, legacy_id.clone()]);
     assert!(result.is_ok());
 }

@@ -32,8 +32,7 @@ use crate::storage::{
     migrate_legacy_payment_key, record_settlement_ref, set_contract_meta, set_history_count,
     set_settlement_ref_count, DataKey, LegacyMigrationOutcome, PaymentRecord,
     MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3,
-    STORAGE_SCHEMA_V4,
-    STORAGE_SCHEMA_VERSION,
+    STORAGE_SCHEMA_V4, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.

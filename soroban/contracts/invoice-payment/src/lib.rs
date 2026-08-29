@@ -21,9 +21,9 @@ use events::{
     emit_payment_recorded,
 };
 use storage::{
-    append_payer_entry, append_payment_history, append_payment_log, bump_count,
-    bump_history_count, clear_pending_admin, current_contract_meta, ensure_current_contract_meta,
-    get_admin, get_asset_decimals, get_contract_config, get_count, get_history_count, get_payment,
+    append_payer_entry, append_payment_history, append_payment_log, bump_count, bump_history_count,
+    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
+    get_asset_decimals, get_contract_config, get_count, get_history_count, get_payment,
     get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
     get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
     is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
@@ -845,11 +845,7 @@ impl InvoicePaymentContract {
     /// eventually reads `false`) even over a partially-rebuilt index.
     ///
     /// Permissionless read — no auth required, available while paused.
-    pub fn settlement_ref_history(
-        env: Env,
-        cursor: u32,
-        limit: u32,
-    ) -> storage::SettlementRefPage {
+    pub fn settlement_ref_history(env: Env, cursor: u32, limit: u32) -> storage::SettlementRefPage {
         storage::get_settlement_ref_page(&env, cursor, limit)
     }
 

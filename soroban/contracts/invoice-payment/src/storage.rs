@@ -476,16 +476,15 @@ fn read_payment_value(env: &Env, key: &DataKey) -> Option<PaymentRecord> {
         return Some(record);
     }
     let legacy: Option<LegacyPaymentRecord> = env.storage().persistent().get(key);
-    legacy
-        .map(|legacy| PaymentRecord {
-            invoice_id: legacy.invoice_id,
-            payer: legacy.payer,
-            asset: legacy.asset,
-            amount: legacy.amount,
-            asset_decimals: 0,
-            timestamp: legacy.timestamp,
-            settlement_ref: legacy.settlement_ref,
-        })
+    legacy.map(|legacy| PaymentRecord {
+        invoice_id: legacy.invoice_id,
+        payer: legacy.payer,
+        asset: legacy.asset,
+        amount: legacy.amount,
+        asset_decimals: 0,
+        timestamp: legacy.timestamp,
+        settlement_ref: legacy.settlement_ref,
+    })
 }
 
 /// A bounded, cursor-friendly slice of payment history.
@@ -593,7 +592,7 @@ pub fn ensure_current_contract_meta(env: &Env) {
         Some(meta) if meta == expected => {
             // Bump TTL on every critical instance read
             env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-        }
+        },
         _ => set_contract_meta(env, &expected),
     }
 }
@@ -796,7 +795,7 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
                 .persistent()
                 .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
             Ok(record)
-        }
+        },
         None => Err(ContractError::PaymentNotFound),
     }
 }
@@ -847,7 +846,7 @@ pub fn migrate_legacy_payment_key(env: &Env, invoice_id: &String) -> LegacyMigra
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
             env.storage().persistent().remove(&legacy_key);
             LegacyMigrationOutcome::Migrated
-        }
+        },
         None => LegacyMigrationOutcome::NotFound,
     }
 }
@@ -938,7 +937,7 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
             Some(record) => {
                 records.push_back(record);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1059,7 +1058,7 @@ pub fn get_payer_history_page(
                 } else {
                     gaps_skipped += 1;
                 }
-            }
+            },
             None => gaps_skipped += 1,
         }
         ordinal += 1;
@@ -1112,7 +1111,7 @@ pub fn get_payments_by_payer_page(
                     records.push_back(record);
                     collected += 1;
                 }
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1258,7 +1257,9 @@ pub fn get_asset_decimals(env: &Env, code: &String, issuer: &String) -> Option<u
     let key = DataKey::AllowList(code.clone(), issuer.clone());
     let decimals: Option<u32> = env.storage().persistent().get(&key);
     if decimals.is_some() {
-        env.storage().persistent().extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
     }
     decimals
 }
@@ -1459,7 +1460,7 @@ pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1533,24 +1534,24 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             0 => {
                 // Use the migration module for V0 → V1
                 crate::migration::migrate_schema_v0_to_v1(env)?;
-            }
+            },
             1 => {
                 // V1 → V2: backfill per-payer payment indexes (#445)
                 crate::migration::migrate_schema_v1_to_v2(env)?;
-            }
+            },
             2 => {
                 // V2 → V3: backfill settlement_ref → invoice_id mapping (#495)
                 crate::migration::migrate_schema_v2_to_v3(env)?;
-            }
+            },
             3 => {
                 // V3 → V4: backfill the allowlist enumeration index (#464)
                 crate::migration::migrate_schema_v3_to_v4(env)?;
-            }
+            },
             4 => {
                 // V4 → V5: precision metadata is written by the new paths;
                 // pre-existing records retain unknown precision (0).
                 crate::migration::migrate_schema_v4_to_v5(env)?;
-            }
+            },
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
         version += 1;
@@ -1749,7 +1750,7 @@ pub fn get_settlement_ref_page(env: &Env, cursor: u32, limit: u32) -> Settlement
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
