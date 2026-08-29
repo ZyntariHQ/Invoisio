@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 0,
     "mux_id": 0
   },
@@ -20,7 +20,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer1"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -42,7 +42,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer1"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -64,13 +64,20 @@
                   "string": "inv-double-allow"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 },
                 {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer1"
+                  "vec": [
+                    {
+                      "symbol": "Token"
+                    },
+                    {
+                      "string": "USDC"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                    }
+                  ]
                 },
                 {
                   "i128": "100"
@@ -167,43 +174,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowList"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "USDC"
                   },
                   {
-                    "string": "GBIssuer1"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowListIndex"
-                  },
-                  {
-                    "string": "USDC"
-                  },
-                  {
-                    "string": "GBIssuer1"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
                 ]
               },
@@ -258,10 +235,40 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuer1"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
               }
             }
           },
@@ -310,7 +317,7 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer1"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                         }
                       ]
                     }
@@ -336,7 +343,7 @@
                       "symbol": "payer"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   },
                   {
@@ -431,7 +438,7 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer1"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                         }
                       ]
                     }
@@ -457,7 +464,7 @@
                       "symbol": "payer"
                     },
                     "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   },
                   {
@@ -629,7 +636,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 5
+                              "u32": 6
                             }
                           }
                         ]

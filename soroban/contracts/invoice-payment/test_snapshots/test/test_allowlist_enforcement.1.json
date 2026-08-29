@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 3,
+    "address": 4,
     "nonce": 0,
     "mux_id": 0
   },
@@ -21,7 +21,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -46,10 +46,17 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "USDC"
-                },
-                {
-                  "string": "GBIssuer"
+                  "vec": [
+                    {
+                      "symbol": "Token"
+                    },
+                    {
+                      "string": "USDC"
+                    },
+                    {
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                    }
+                  ]
                 },
                 {
                   "i128": "100"
@@ -78,7 +85,7 @@
                   "string": "USDC"
                 },
                 {
-                  "string": "GBIssuer"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -200,7 +207,7 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       ]
                     }
@@ -321,7 +328,7 @@
                           "string": "USDC"
                         },
                         {
-                          "string": "GBIssuer"
+                          "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                         }
                       ]
                     }
@@ -519,7 +526,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 5
+                              "u32": 6
                             }
                           }
                         ]

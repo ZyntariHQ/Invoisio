@@ -38,6 +38,7 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 20, name: 'SettlementRefAlreadyUsed' },
   { code: 21, name: 'MustBePausedForUpgrade' },
   { code: 22, name: 'LegacyPaymentMigrationBatchTooLarge' },
+  { code: 23, name: 'IssuerMigrationIncomplete' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {

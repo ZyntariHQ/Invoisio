@@ -56,14 +56,14 @@ pub fn emit_payment_recorded(env: &Env, invoice_id: String) {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetAllowlisted {
     pub code: String,
-    pub issuer: String,
+    pub issuer: Address,
 }
 
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetRevoked {
     pub code: String,
-    pub issuer: String,
+    pub issuer: Address,
 }
 
 #[contractevent]
@@ -72,12 +72,12 @@ pub struct NativeAllowChanged {
     pub allowed: bool,
 }
 
-pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: String) {
+pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: Address) {
     let payload = AssetAllowlisted { code, issuer };
     payload.publish(env);
 }
 
-pub fn emit_asset_revoked(env: &Env, code: String, issuer: String) {
+pub fn emit_asset_revoked(env: &Env, code: String, issuer: Address) {
     let payload = AssetRevoked { code, issuer };
     payload.publish(env);
 }
@@ -243,7 +243,29 @@ pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
     payload.publish(env);
 }
 
-/// Emitted by `migrate_legacy_payments()` when at least one legacy
+/// Emitted by `migrate_schema_v5_to_v6` after rewriting Token issuers from
+/// unvalidated strings into [`Address`] values on payment records, history
+/// slots, and allowlist keys. `skipped_malformed` counts string issuers that
+/// were not a well-formed Stellar address and were therefore left on the
+/// legacy key rather than dropped.
+#[contractevent]
+#[derive(Clone, Debug, PartialEq)]
+pub struct IssuersMigrated {
+    pub payments: u32,
+    pub allowlist: u32,
+    pub skipped_malformed: u32,
+    pub migrated_at: u64,
+}
+
+pub fn emit_issuers_migrated(env: &Env, payments: u32, allowlist: u32, skipped_malformed: u32) {
+    let payload = IssuersMigrated {
+        payments,
+        allowlist,
+        skipped_malformed,
+        migrated_at: env.ledger().timestamp(),
+    };
+    payload.publish(env);
+}
 /// `Payment(invoice_id)` entry was migrated to `PaymentV1` and its legacy
 /// copy removed. `migrated` counts entries actually migrated in this call —
 /// it excludes ids that were already current or not found (issue #508).

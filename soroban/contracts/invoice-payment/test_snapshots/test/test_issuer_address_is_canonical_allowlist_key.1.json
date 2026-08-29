@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 3,
     "nonce": 0,
     "mux_id": 0
   },
@@ -14,80 +14,13 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "set_allow_native",
+              "function_name": "allow_asset",
               "args": [
                 {
-                  "bool": true
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "record_payment",
-              "args": [
-                {
-                  "string": "canonical-00"
+                  "string": "USDC"
                 },
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "vec": [
-                    {
-                      "symbol": "Native"
-                    }
-                  ]
-                },
-                {
-                  "i128": "10000000"
-                },
-                {
-                  "string": "canonical-ref-00"
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "function_name": "record_payment",
-              "args": [
-                {
-                  "string": "canonical-01"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "vec": [
-                    {
-                      "symbol": "Native"
-                    }
-                  ]
-                },
-                {
-                  "i128": "20000000"
-                },
-                {
-                  "string": "canonical-ref-01"
+                  "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                 }
               ]
             }
@@ -97,6 +30,70 @@
       ]
     ],
     [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "allow_asset",
+              "args": [
+                {
+                  "string": "USDC"
+                },
+                {
+                  "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "function_name": "record_payment",
+              "args": [
+                {
+                  "string": "inv-canonical-issuer"
+                },
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                },
+                {
+                  "vec": [
+                    {
+                      "symbol": "Token"
+                    },
+                    {
+                      "string": "USDC"
+                    },
+                    {
+                      "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                    }
+                  ]
+                },
+                {
+                  "i128": "1000000"
+                },
+                {
+                  "string": "settle-canonical-issuer"
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
     []
   ],
   "ledger": {
@@ -179,7 +176,37 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "PaymentHistory"
+                    "symbol": "AllowListIndexV6"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 0
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListLog"
                   },
                   {
                     "u32": 0
@@ -191,27 +218,15 @@
                 "map": [
                   {
                     "key": {
-                      "symbol": "amount"
+                      "symbol": "code"
                     },
                     "val": {
-                      "i128": "99000000"
+                      "string": "USDC"
                     }
                   },
                   {
                     "key": {
-                      "symbol": "asset"
-                    },
-                    "val": {
-                      "vec": [
-                        {
-                          "symbol": "Native"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "asset_decimals"
+                      "symbol": "decimals"
                     },
                     "val": {
                       "u32": 7
@@ -219,34 +234,10 @@
                   },
                   {
                     "key": {
-                      "symbol": "invoice_id"
+                      "symbol": "issuer"
                     },
                     "val": {
-                      "string": "divergent-history-only"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "payer"
-                    },
-                    "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "settlement_ref"
-                    },
-                    "val": {
-                      "string": "divergent-ref"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "timestamp"
-                    },
-                    "val": {
-                      "u64": "99"
+                      "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                     }
                   }
                 ]
@@ -267,10 +258,40 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "USDC"
+                  },
+                  {
+                    "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "PaymentHistory"
                   },
                   {
-                    "u32": 1
+                    "u32": 0
                   }
                 ]
               },
@@ -282,7 +303,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "20000000"
+                      "i128": "1000000"
                     }
                   },
                   {
@@ -292,7 +313,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -310,7 +337,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "canonical-01"
+                      "string": "inv-canonical-issuer"
                     }
                   },
                   {
@@ -326,7 +353,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "dc5a417df4567567f99239c9c6bd5836d86ead90ed93a16d6630df147a7ca076"
+                      "string": "735fd6d07d60d628657522893c2bcd3736c886ae3149d51b9288983563324a20"
                     }
                   },
                   {
@@ -364,34 +391,7 @@
               },
               "durability": "persistent",
               "val": {
-                "string": "canonical-00"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PaymentLog"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "canonical-01"
+                "string": "inv-canonical-issuer"
               }
             }
           },
@@ -412,7 +412,7 @@
                     "symbol": "PaymentV1"
                   },
                   {
-                    "string": "canonical-00"
+                    "string": "inv-canonical-issuer"
                   }
                 ]
               },
@@ -424,7 +424,7 @@
                       "symbol": "amount"
                     },
                     "val": {
-                      "i128": "10000000"
+                      "i128": "1000000"
                     }
                   },
                   {
@@ -434,7 +434,13 @@
                     "val": {
                       "vec": [
                         {
-                          "symbol": "Native"
+                          "symbol": "Token"
+                        },
+                        {
+                          "string": "USDC"
+                        },
+                        {
+                          "address": "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
                         }
                       ]
                     }
@@ -452,7 +458,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "canonical-00"
+                      "string": "inv-canonical-issuer"
                     }
                   },
                   {
@@ -468,95 +474,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "d0d44700ae87a33baf6d17d663a63f44c5611a8546a9955caf3dc9738e5ca630"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "timestamp"
-                    },
-                    "val": {
-                      "u64": "0"
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "PaymentV1"
-                  },
-                  {
-                    "string": "canonical-01"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "symbol": "amount"
-                    },
-                    "val": {
-                      "i128": "20000000"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "asset"
-                    },
-                    "val": {
-                      "vec": [
-                        {
-                          "symbol": "Native"
-                        }
-                      ]
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "asset_decimals"
-                    },
-                    "val": {
-                      "u32": 7
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "invoice_id"
-                    },
-                    "val": {
-                      "string": "canonical-01"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "payer"
-                    },
-                    "val": {
-                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "settlement_ref"
-                    },
-                    "val": {
-                      "string": "dc5a417df4567567f99239c9c6bd5836d86ead90ed93a16d6630df147a7ca076"
+                      "string": "735fd6d07d60d628657522893c2bcd3736c886ae3149d51b9288983563324a20"
                     }
                   },
                   {
@@ -588,40 +506,13 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "d0d44700ae87a33baf6d17d663a63f44c5611a8546a9955caf3dc9738e5ca630"
+                    "string": "735fd6d07d60d628657522893c2bcd3736c886ae3149d51b9288983563324a20"
                   }
                 ]
               },
               "durability": "persistent",
               "val": {
-                "string": "canonical-00"
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRef"
-                  },
-                  {
-                    "string": "dc5a417df4567567f99239c9c6bd5836d86ead90ed93a16d6630df147a7ca076"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "string": "canonical-01"
+                "string": "inv-canonical-issuer"
               }
             }
           },
@@ -654,7 +545,7 @@
                       "symbol": "invoice_id"
                     },
                     "val": {
-                      "string": "canonical-00"
+                      "string": "inv-canonical-issuer"
                     }
                   },
                   {
@@ -662,51 +553,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "d0d44700ae87a33baf6d17d663a63f44c5611a8546a9955caf3dc9738e5ca630"
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "SettlementRefLog"
-                  },
-                  {
-                    "u32": 1
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "map": [
-                  {
-                    "key": {
-                      "symbol": "invoice_id"
-                    },
-                    "val": {
-                      "string": "canonical-01"
-                    }
-                  },
-                  {
-                    "key": {
-                      "symbol": "settlement_ref"
-                    },
-                    "val": {
-                      "string": "dc5a417df4567567f99239c9c6bd5836d86ead90ed93a16d6630df147a7ca076"
+                      "string": "735fd6d07d60d628657522893c2bcd3736c886ae3149d51b9288983563324a20"
                     }
                   }
                 ]
@@ -748,12 +595,24 @@
                       "key": {
                         "vec": [
                           {
-                            "symbol": "AllowNative"
+                            "symbol": "AllowListCount"
                           }
                         ]
                       },
                       "val": {
-                        "bool": true
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "AllowListLogCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {
@@ -794,7 +653,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 2
+                        "u32": 1
                       }
                     },
                     {
@@ -818,7 +677,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 2
+                        "u32": 1
                       }
                     }
                   ]

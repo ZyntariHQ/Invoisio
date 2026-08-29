@@ -107,7 +107,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 5
+                              "u32": 6
                             }
                           }
                         ]

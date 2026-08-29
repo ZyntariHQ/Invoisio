@@ -87,10 +87,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "100"
@@ -533,7 +534,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 5
+                              "u32": 6
                             }
                           }
                         ]

@@ -2,6 +2,7 @@ export { SorobanInvoiceClient } from './soroban-invoice-client';
 
 export {
   assertCanonicalIdentifier,
+  encodeAsset,
   isCanonicalIdentifier,
   MAX_INVOICE_ID_LEN,
   MAX_SETTLEMENT_REF_LEN,
@@ -22,6 +23,7 @@ export type {
   ContractPausedEvent,
   DecodedSorobanEvent,
   InvoicePaymentRecordedEvent,
+  IssuersMigratedEvent,
   NativeAllowChangedEvent,
   SorobanEventInput,
   StorageSchemaUpgradedEvent,
