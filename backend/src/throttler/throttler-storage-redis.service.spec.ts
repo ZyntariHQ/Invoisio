@@ -28,8 +28,14 @@ describe("ThrottlerStorageRedisService", () => {
         store.set(key, entry);
         return entry.value;
       }),
-      expire: jest.fn(async (_key: string, _ttl: number) => {
-        // no-op for unit tests
+      expire: jest.fn(async (key: string, ttl: number) => {
+        // record TTL (seconds -> ms) so subsequent pttl reads are consistent
+        const entry = store.get(key);
+        if (entry) entry.pttl = ttl * 1000;
+      }),
+      pexpire: jest.fn(async (key: string, ttl: number) => {
+        const entry = store.get(key);
+        if (entry) entry.pttl = ttl;
       }),
       pttl: jest.fn(async (key: string) => {
         const entry = store.get(key);
@@ -40,6 +46,14 @@ describe("ThrottlerStorageRedisService", () => {
       psetex: jest.fn(async (key: string, pttl: number, _value: string) => {
         store.set(key, { value: 1, ttl: 0, pttl });
       }),
+      set: jest.fn(
+        async (key: string, _value: string, _mode?: string, ttl?: number) => {
+          const entry = store.get(key) || { value: 0, ttl: 0, pttl: 0 };
+          entry.value = 1;
+          if (typeof ttl === "number") entry.pttl = ttl;
+          store.set(key, entry);
+        },
+      ),
       del: jest.fn(async (key: string) => {
         store.delete(key);
       }),
