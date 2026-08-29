@@ -9,7 +9,7 @@ import {
 import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
-import { Auth, Public, CurrentUser } from "./guard/auth.guard";
+import { Auth, CurrentUser, Public } from "./guard/auth.guard";
 import { User } from "../users/user.entity";
 
 @Controller("auth")
@@ -22,7 +22,7 @@ export class AuthController {
    */
   @Public()
   @Post("nonce")
-  @Throttle({ default: { limit: 5, ttl: 900 } }) // 5 requests per 15 minutes
+  @Throttle({ default: { limit: 5, ttl: 900_000 } }) // 5 requests per 15 minutes
   @HttpCode(HttpStatus.OK)
   async nonce(@Body() dto: NonceRequestDto) {
     return this.authService.generateNonce(dto);
@@ -34,7 +34,7 @@ export class AuthController {
    */
   @Public()
   @Post("verify")
-  @Throttle({ default: { limit: 5, ttl: 900 } }) // 5 requests per 15 minutes
+  @Throttle({ default: { limit: 5, ttl: 900_000 } }) // 5 requests per 15 minutes
   @HttpCode(HttpStatus.OK)
   async verify(@Body() dto: VerifyRequestDto) {
     return this.authService.verify(dto);

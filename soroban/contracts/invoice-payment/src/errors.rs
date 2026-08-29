@@ -38,8 +38,12 @@ pub enum ContractError {
     /// case or whitespace variants of the same invoice.
     InvalidInvoiceId = 6,
 
-    /// `asset_code` was empty, or a non-XLM asset was supplied without an
-    /// `asset_issuer`. Every payment must identify the asset unambiguously.
+    /// `asset_code` was empty, exceeded 12 characters, used the reserved
+    /// `"XLM"` code on [`crate::Asset::Token`], or otherwise failed to
+    /// identify the asset unambiguously. Native XLM must use
+    /// [`crate::Asset::Native`]; token issuers are [`Address`] values, so a
+    /// malformed issuer cannot reach this error — it fails at the type
+    /// boundary.
     InvalidAsset = 7,
 
     /// The asset (code, issuer pair) is not in the admin-controlled allowlist.
@@ -136,4 +140,10 @@ pub enum ContractError {
     /// across multiple calls — each invoice_id migrates independently and
     /// idempotently, so the operation is safely resumable (issue #508).
     LegacyPaymentMigrationBatchTooLarge = 22,
+
+    /// The V5 → V6 issuer-address rewrite processed a bounded batch and has
+    /// more payment-log slots left. Call `upgrade_storage()` again to resume
+    /// from `IssuerMigrationCursor` (issue #480). The contract must stay
+    /// paused until `version_info().storage_schema_version` reads current.
+    IssuerMigrationIncomplete = 23,
 }

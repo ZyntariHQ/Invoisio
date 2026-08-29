@@ -1,11 +1,105 @@
 import { describe, expect, it } from 'vitest';
-import { nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { Address, nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 import { EVENT_SCHEMA_VERSION, decodeSorobanEvent, SorobanEventInput } from './events';
 
 const ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const HASH = Uint8Array.from({ length: 32 }, (_, index) => index);
+/** `#[contractevent]` structs publish with the event name as the sole topic. */
+const topic = (name: string): xdr.ScVal => nativeToScVal(name, { type: 'symbol' });
+
+/** Positional payload: ScVec of field values in Rust declaration order. */
+const vecPayload = (...values: xdr.ScVal[]): xdr.ScVal => xdr.ScVal.scvVec(values);
+
+const G_PAYER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+const G_ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+
+describe('decodeSorobanEvent', () => {
+  it('decodes an invoice_payment_recorded event from a positional ScVec payload', () => {
+    const event: SorobanEventInput = {
+      topics: [topic('invoice_payment_recorded')],
+      data: vecPayload(
+        nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
+        nativeToScVal('INV-2049', { type: 'string' }),
+      ),
+    };
+
+    expect(decodeSorobanEvent(event)).toEqual({
+      type: 'invoice_payment_recorded',
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      invoiceId: 'INV-2049',
+    });
+  });
+
+  it('decodes a schema 1 invoice_payment_recorded event (string issuer, full payload)', () => {
+    const event: SorobanEventInput = {
+      topics: [topic('invoice_payment_recorded')],
+      data: vecPayload(
+        nativeToScVal(1, { type: 'u32' }),
+        nativeToScVal('inv-1', { type: 'string' }),
+        nativeToScVal(G_PAYER, { type: 'address' }),
+        nativeToScVal('USDC', { type: 'string' }),
+        nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
+        nativeToScVal(50_000_000n, { type: 'i128' }),
+        nativeToScVal('settle-usdc-1', { type: 'string' }),
+      ),
+    };
+
+    expect(decodeSorobanEvent(event)).toEqual({
+      type: 'invoice_payment_recorded',
+      schemaVersion: 1,
+      invoiceId: 'inv-1',
+      payer: G_PAYER,
+      assetCode: 'USDC',
+      assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+      amount: 50_000_000n,
+      settlementRef: 'settle-usdc-1',
+    });
+  });
+
+  it('rejects an invoice payment event from an unsupported schema version instead of guessing', () => {
+    const event: SorobanEventInput = {
+      topics: [topic('invoice_payment_recorded')],
+      data: vecPayload(
+        nativeToScVal(99, { type: 'u32' }),
+        nativeToScVal('INV-1', { type: 'string' }),
+      ),
+    };
+
+    expect(decodeSorobanEvent(event)).toEqual({
+      type: 'unknown',
+      name: 'invoice_payment_recorded',
+      reason: `unsupported schema version 99 (client supports 1 and ${EVENT_SCHEMA_VERSION})`,
+    });
+  });
+
+  it('decodes asset_allowlisted when the issuer is an Address ScVal', () => {
+    const issuer = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+    const allowlisted = decodeSorobanEvent({
+      topics: [topic('asset_allowlisted')],
+      data: vecPayload(nativeToScVal('USDC', { type: 'string' }), new Address(issuer).toScVal()),
+    });
+    expect(allowlisted).toEqual({
+      type: 'asset_allowlisted',
+      code: 'USDC',
+      issuer,
+    });
+  });
+
+  it('decodes asset_allowlisted and asset_revoked events', () => {
+    const allowlisted = decodeSorobanEvent({
+      topics: [topic('asset_allowlisted')],
+      data: vecPayload(
+        nativeToScVal('USDC', { type: 'string' }),
+        nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
+      ),
+    });
+    expect(allowlisted).toEqual({
+      type: 'asset_allowlisted',
+      code: 'USDC',
+      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
+    });
 
 const topic = (name: string): xdr.ScVal => nativeToScVal(name, { type: 'symbol' });
 

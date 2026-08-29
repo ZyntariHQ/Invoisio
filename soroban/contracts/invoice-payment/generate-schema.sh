@@ -49,7 +49,7 @@ declare -A ERROR_DESC=(
   [PaymentNotFound]="get_payment() called for an invoice_id with no record."
   [InvalidAmount]="amount was zero or negative."
   [InvalidInvoiceId]="invoice_id was an empty string."
-  [InvalidAsset]="asset_code empty, or non-XLM asset supplied without asset_issuer."
+  [InvalidAsset]="token code empty, longer than 12 characters, or the reserved code XLM on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values."
   [AssetNotAllowed]="Asset not in the admin-controlled allowlist."
   [Unauthorized]="Caller is not authorized."
   [StorageSchemaTooNew]="Contract code is too old for the current storage schema."
@@ -65,6 +65,7 @@ declare -A ERROR_DESC=(
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
   [LegacyPaymentMigrationBatchTooLarge]="migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls."
+  [IssuerMigrationIncomplete]="upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -130,7 +131,7 @@ declare -A METHOD_AUTH=(
 )
 declare -A METHOD_DESC=(
   [initialize]="One-time setup; sets the admin."
-  [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded."
+  [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded. asset is Asset::Native or Asset::Token(code, Address)."
   [get_payment]="Return PaymentRecord for invoice_id."
   [has_payment]="Return true if a payment exists for invoice_id."
   [payment_count]="Admin-gated (issue #512): return total recorded payment count."
@@ -146,9 +147,9 @@ declare -A METHOD_DESC=(
   [propose_admin]="Step 1 of two-step handoff: propose the next admin."
   [accept_admin]="Step 2 of two-step handoff: accept the role and become admin."
   [cancel_admin_transfer]="Cancel a pending admin transfer proposed via propose_admin()."
-  [allow_asset]="Add (code, issuer) to allowlist."
-  [allow_asset_with_decimals]="Add (code, issuer) to allowlist with recorded decimal precision."
-  [revoke_asset]="Remove (code, issuer) from allowlist."
+  [allow_asset]="Add (code, issuer Address) to allowlist."
+  [allow_asset_with_decimals]="Add (code, issuer Address) to allowlist with recorded decimal precision."
+  [revoke_asset]="Remove (code, issuer Address) from allowlist."
   [allowed_assets]="Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs."
   [allowlist_count]="Return the number of currently-allowlisted (code, issuer) pairs."
   [set_allow_native]="Toggle native XLM acceptance."
@@ -190,7 +191,7 @@ EVENT_NAMES=(
   InvoicePaymentRecorded AssetAllowlisted AssetRevoked NativeAllowChanged
   StorageSchemaUpgraded ContractPaused AdminTransferProposed AdminTransferAccepted
   AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated ContractUpgraded
-  AllowlistIndexBackfilled LegacyPaymentsMigrated
+  AllowlistIndexBackfilled IssuersMigrated LegacyPaymentsMigrated
 )
 mapfile -t EVENTS_RS_NAMES < <(grep -B1 '^pub struct \w\+ {' "$EVENTS_RS" | grep -oP '^pub struct \K\w+(?= \{)')
 [ "${#EVENTS_RS_NAMES[@]}" -gt 0 ] || fail "no #[contractevent] structs found in $EVENTS_RS — regex out of date?"
@@ -230,7 +231,7 @@ cat > "$OUT" <<JSON
           "properties": {
             "tag":    { "const": "Token" },
             "code":   { "type": "string", "description": "Asset code (e.g. USDC)." },
-            "issuer": { "type": "string", "description": "Issuer Stellar account address (G...)." }
+            "issuer": { "type": "string", "description": "Validated Stellar issuer Address (G...), not an untyped string." }
           },
           "required": ["tag", "code", "issuer"],
           "additionalProperties": false
@@ -410,7 +411,7 @@ cat > "$OUT" <<JSON
         },
         "issuer": {
           "type": "string",
-          "description": "Issuer Stellar account address (G...)."
+          "description": "Issuer Stellar Address (G...), not an untyped string."
         },
         "decimals": {
           "type": "integer",
@@ -461,22 +462,22 @@ cat > "$OUT" <<JSON
       "required": ["invoice_id", "schema_version"]
     },
     "AssetAllowlisted": {
-      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
+      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist. issuer is a Stellar Address.",
       "topic": "asset_allowlisted",
       "fields": {
         "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["schema_version", "code", "issuer"]
     },
     "AssetRevoked": {
-      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist.",
+      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist. issuer is a Stellar Address.",
       "topic": "asset_revoked",
       "fields": {
         "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["schema_version", "code", "issuer"]
     },
@@ -574,6 +575,17 @@ cat > "$OUT" <<JSON
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
       "required": ["schema_version", "discovered", "migrated_at"]
+    },
+    "IssuersMigrated": {
+      "description": "Emitted by the V5 -> V6 storage migration after rewriting Token issuers from unvalidated strings into Address values on payment records, history slots, and allowlist keys. skipped_malformed counts string issuers that were not a well-formed Stellar address and were left on the legacy key rather than dropped.",
+      "topic": "issuers_migrated",
+      "fields": {
+        "payments": { "type": "integer", "description": "Number of payment records rewritten in this batch.", "minimum": 0 },
+        "allowlist": { "type": "integer", "description": "Number of allowlist entries moved from the string key to AllowListV6.", "minimum": 0 },
+        "skipped_malformed": { "type": "integer", "description": "Number of stored issuer strings that were not a well-formed G... address and were left in place.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when this batch completed." }
+      },
+      "required": ["payments", "allowlist", "skipped_malformed", "migrated_at"]
     },
     "LegacyPaymentsMigrated": {
       "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",

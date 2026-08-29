@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 2,
+    "address": 32,
     "nonce": 0,
     "mux_id": 0
   },
@@ -20,7 +20,7 @@
                   "string": "A00"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 }
               ]
             }
@@ -42,7 +42,7 @@
                   "string": "A01"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                 }
               ]
             }
@@ -64,7 +64,7 @@
                   "string": "A02"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                 }
               ]
             }
@@ -86,7 +86,7 @@
                   "string": "A03"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                 }
               ]
             }
@@ -108,7 +108,7 @@
                   "string": "A04"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
                 }
               ]
             }
@@ -130,7 +130,7 @@
                   "string": "A05"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                 }
               ]
             }
@@ -152,7 +152,7 @@
                   "string": "A06"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
                 }
               ]
             }
@@ -174,7 +174,7 @@
                   "string": "A07"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                 }
               ]
             }
@@ -196,7 +196,7 @@
                   "string": "A08"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                 }
               ]
             }
@@ -218,7 +218,7 @@
                   "string": "A09"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
                 }
               ]
             }
@@ -240,7 +240,7 @@
                   "string": "A10"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
                 }
               ]
             }
@@ -262,7 +262,7 @@
                   "string": "A11"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
                 }
               ]
             }
@@ -284,7 +284,7 @@
                   "string": "A12"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6J5N"
                 }
               ]
             }
@@ -306,7 +306,7 @@
                   "string": "A13"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB6KO"
                 }
               ]
             }
@@ -328,7 +328,7 @@
                   "string": "A14"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDWC6"
                 }
               ]
             }
@@ -350,7 +350,7 @@
                   "string": "A15"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFO3O"
                 }
               ]
             }
@@ -372,7 +372,7 @@
                   "string": "A16"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
                 }
               ]
             }
@@ -394,7 +394,7 @@
                   "string": "A17"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
                 }
               ]
             }
@@ -416,7 +416,7 @@
                   "string": "A18"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
                 }
               ]
             }
@@ -438,7 +438,7 @@
                   "string": "A19"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
                 }
               ]
             }
@@ -460,7 +460,7 @@
                   "string": "A20"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOHR6"
                 }
               ]
             }
@@ -482,7 +482,7 @@
                   "string": "A21"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABR4OP"
                 }
               ]
             }
@@ -504,7 +504,7 @@
                   "string": "A22"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
                 }
               ]
             }
@@ -526,7 +526,7 @@
                   "string": "A23"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVM7P"
                 }
               ]
             }
@@ -548,7 +548,7 @@
                   "string": "A24"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABXEX7"
                 }
               ]
             }
@@ -570,7 +570,7 @@
                   "string": "A25"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABY5MP"
                 }
               ]
             }
@@ -592,7 +592,7 @@
                   "string": "A26"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2VE7"
                 }
               ]
             }
@@ -614,7 +614,7 @@
                   "string": "A27"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4N5P"
                 }
               ]
             }
@@ -636,7 +636,7 @@
                   "string": "A28"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6FV7"
                 }
               ]
             }
@@ -658,7 +658,7 @@
                   "string": "A29"
                 },
                 {
-                  "string": "GBIssuerShared"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBKTY"
                 }
               ]
             }
@@ -1292,913 +1292,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowList"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A00"
                   },
                   {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A01"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A02"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A03"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A04"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A05"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A06"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A07"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A08"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A09"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A10"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A11"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A12"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A13"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A14"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A15"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A16"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A17"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A18"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A19"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A20"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A21"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A22"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A23"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A24"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A25"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A26"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A27"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A28"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowList"
-                  },
-                  {
-                    "string": "A29"
-                  },
-                  {
-                    "string": "GBIssuerShared"
-                  }
-                ]
-              },
-              "durability": "persistent",
-              "val": {
-                "u32": 7
-              }
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 518400
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
-              "key": {
-                "vec": [
-                  {
-                    "symbol": "AllowListIndex"
-                  },
-                  {
-                    "string": "A00"
-                  },
-                  {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                   }
                 ]
               },
@@ -2222,13 +1322,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A01"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                   }
                 ]
               },
@@ -2252,13 +1352,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A02"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                   }
                 ]
               },
@@ -2282,13 +1382,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A03"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                   }
                 ]
               },
@@ -2312,13 +1412,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A04"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
                   }
                 ]
               },
@@ -2342,13 +1442,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A05"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                   }
                 ]
               },
@@ -2372,13 +1472,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A06"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
                   }
                 ]
               },
@@ -2402,13 +1502,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A07"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                   }
                 ]
               },
@@ -2432,13 +1532,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A08"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                   }
                 ]
               },
@@ -2462,13 +1562,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A09"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
                   }
                 ]
               },
@@ -2492,13 +1592,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A10"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
                   }
                 ]
               },
@@ -2522,13 +1622,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A11"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
                   }
                 ]
               },
@@ -2552,13 +1652,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A12"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6J5N"
                   }
                 ]
               },
@@ -2582,13 +1682,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A13"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB6KO"
                   }
                 ]
               },
@@ -2612,13 +1712,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A14"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDWC6"
                   }
                 ]
               },
@@ -2642,13 +1742,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A15"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFO3O"
                   }
                 ]
               },
@@ -2672,13 +1772,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A16"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
                   }
                 ]
               },
@@ -2702,13 +1802,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A17"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
                   }
                 ]
               },
@@ -2732,13 +1832,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A18"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
                   }
                 ]
               },
@@ -2762,13 +1862,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A19"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
                   }
                 ]
               },
@@ -2792,13 +1892,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A20"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOHR6"
                   }
                 ]
               },
@@ -2822,13 +1922,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A21"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABR4OP"
                   }
                 ]
               },
@@ -2852,13 +1952,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A22"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
                   }
                 ]
               },
@@ -2882,13 +1982,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A23"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVM7P"
                   }
                 ]
               },
@@ -2912,13 +2012,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A24"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABXEX7"
                   }
                 ]
               },
@@ -2942,13 +2042,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A25"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABY5MP"
                   }
                 ]
               },
@@ -2972,13 +2072,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A26"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2VE7"
                   }
                 ]
               },
@@ -3002,13 +2102,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A27"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4N5P"
                   }
                 ]
               },
@@ -3032,13 +2132,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A28"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6FV7"
                   }
                 ]
               },
@@ -3062,13 +2162,13 @@
               "key": {
                 "vec": [
                   {
-                    "symbol": "AllowListIndex"
+                    "symbol": "AllowListIndexV6"
                   },
                   {
                     "string": "A29"
                   },
                   {
-                    "string": "GBIssuerShared"
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBKTY"
                   }
                 ]
               },
@@ -3123,7 +2223,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                     }
                   }
                 ]
@@ -3175,7 +2275,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
                     }
                   }
                 ]
@@ -3227,7 +2327,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
                     }
                   }
                 ]
@@ -3279,7 +2379,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
                     }
                   }
                 ]
@@ -3331,7 +2431,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
                     }
                   }
                 ]
@@ -3383,7 +2483,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
                     }
                   }
                 ]
@@ -3435,7 +2535,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
                     }
                   }
                 ]
@@ -3487,7 +2587,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
                     }
                   }
                 ]
@@ -3539,7 +2639,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
                     }
                   }
                 ]
@@ -3591,7 +2691,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
                     }
                   }
                 ]
@@ -3643,7 +2743,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
                     }
                   }
                 ]
@@ -3695,7 +2795,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
                     }
                   }
                 ]
@@ -3747,7 +2847,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6J5N"
                     }
                   }
                 ]
@@ -3799,7 +2899,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB6KO"
                     }
                   }
                 ]
@@ -3851,7 +2951,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDWC6"
                     }
                   }
                 ]
@@ -3903,7 +3003,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFO3O"
                     }
                   }
                 ]
@@ -3955,7 +3055,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
                     }
                   }
                 ]
@@ -4007,7 +3107,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
                     }
                   }
                 ]
@@ -4059,7 +3159,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
                     }
                   }
                 ]
@@ -4111,7 +3211,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
                     }
                   }
                 ]
@@ -4163,7 +3263,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOHR6"
                     }
                   }
                 ]
@@ -4215,7 +3315,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABR4OP"
                     }
                   }
                 ]
@@ -4267,7 +3367,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
                     }
                   }
                 ]
@@ -4319,7 +3419,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVM7P"
                     }
                   }
                 ]
@@ -4371,7 +3471,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABXEX7"
                     }
                   }
                 ]
@@ -4423,7 +3523,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABY5MP"
                     }
                   }
                 ]
@@ -4475,7 +3575,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2VE7"
                     }
                   }
                 ]
@@ -4527,7 +3627,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4N5P"
                     }
                   }
                 ]
@@ -4579,7 +3679,7 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6FV7"
                     }
                   }
                 ]
@@ -4631,10 +3731,910 @@
                       "symbol": "issuer"
                     },
                     "val": {
-                      "string": "GBIssuerShared"
+                      "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBKTY"
                     }
                   }
                 ]
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A00"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A01"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A02"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A03"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMDR4"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A04"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAOLZM"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A05"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAARQG5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A06"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAATYON"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A07"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A08"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAXI7N"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A09"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYRE5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A10"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA2ZMN"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A11"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA4BV5"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A12"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA6J5N"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A13"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABB6KO"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A14"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABDWC6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A15"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABFO3O"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A16"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABHGT6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A17"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABI7IO"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A18"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABKXA6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A19"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABMPZO"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A20"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABOHR6"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A21"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABR4OP"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A22"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABTUG7"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A23"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABVM7P"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A24"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABXEX7"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A25"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABY5MP"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A26"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB2VE7"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A27"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4N5P"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A28"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB6FV7"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "AllowListV6"
+                  },
+                  {
+                    "string": "A29"
+                  },
+                  {
+                    "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACBKTY"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "u32": 7
               }
             }
           },
@@ -4716,7 +4716,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 5
+                              "u32": 6
                             }
                           }
                         ]

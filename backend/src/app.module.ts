@@ -124,7 +124,6 @@ import { Module } from "@nestjs/common";
       },
     }),
     ObservabilityModule,
-    CustomThrottlerModule,
     PrismaModule,
     ScheduleModule.forRoot(),
     HealthModule,
@@ -144,6 +143,7 @@ import { Module } from "@nestjs/common";
     AdminAnalyticsModule,
     ActivityFeedModule,
     RealtimeModule,
+    CustomThrottlerModule,
   ],
   providers: [
     PrismaService,

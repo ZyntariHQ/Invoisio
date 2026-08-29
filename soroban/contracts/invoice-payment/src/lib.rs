@@ -175,7 +175,7 @@ use storage::{
 /// ## Typical backend flow
 /// 1. Deploy + call `initialize(admin)` once.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
-/// 3. Backend calls `record_payment(invoice_id, payer, asset_code, asset_issuer, amount)`.
+/// 3. Backend calls `record_payment(invoice_id, payer, asset, amount, settlement_ref)`.
 /// 4. Contract stores record + emits an event carrying only `invoice_id`.
 /// 5. A party who already knows `invoice_id` calls `get_payment(invoice_id)`
 ///    to verify it. The Invoisio backend (admin) can additionally call
@@ -269,8 +269,12 @@ impl InvoicePaymentContract {
     ///                       must be non-empty, max [`storage::MAX_INVOICE_ID_LEN`]
     ///                       chars, and in canonical form (see above)
     /// - `payer`           — Stellar account address that sent the payment
-    /// - `asset_code`      — `"XLM"` or token code (e.g. `"USDC"`)
-    /// - `asset_issuer`    — issuer public key for tokens; `""` for native XLM
+    /// - `asset`           — [`Asset::Native`] for XLM, or [`Asset::Token`]
+    ///                       `(code, issuer)` for a Stellar-issued token. The
+    ///                       issuer is an [`Address`], so a malformed value
+    ///                       cannot cross the type boundary. Native XLM is
+    ///                       the `Native` variant — there is no empty-issuer
+    ///                       field.
     /// - `amount`          — payment amount in the asset's smallest denomination
     ///                       (must be > 0 and fit in `i128`). The stored
     ///                       record carries `asset_decimals` for formatting.
@@ -293,15 +297,15 @@ impl InvoicePaymentContract {
     /// - [`ContractError::InvalidSettlementRef`] — `settlement_ref` is empty,
     ///   exceeds [`storage::MAX_SETTLEMENT_REF_LEN`] chars, or is not in
     ///   canonical form
-    /// - [`ContractError::InvalidAsset`] — `asset_code` is empty, or a non-XLM asset has no `asset_issuer`
+    /// - [`ContractError::InvalidAsset`] — token `code` is empty, exceeds 12
+    ///   characters, or is `"XLM"` (native XLM must use [`Asset::Native`])
     /// - [`ContractError::InvalidAmount`] — `amount` ≤ 0
     /// - [`ContractError::PaymentAlreadyRecorded`] — `invoice_id` already on-chain
     pub fn record_payment(
         env: Env,
         invoice_id: String,
         payer: Address,
-        asset_code: String,
-        asset_issuer: String,
+        asset: Asset,
         amount: i128,
         settlement_ref: String,
     ) -> Result<(), ContractError> {
@@ -361,53 +365,45 @@ impl InvoicePaymentContract {
             return Err(ContractError::InvalidSettlementRef);
         }
 
-        // asset_code must be non-empty.
-        if asset_code.is_empty() {
-            return Err(ContractError::InvalidAsset);
-        }
+        // asset: Native vs Token is structural — there is no empty-issuer
+        // field that could be confused with native XLM. Token codes are held
+        // to Stellar's 12-character limit; the code "XLM" is reserved for
+        // Asset::Native so the two cases cannot be mixed.
+        let (is_native, asset_code, asset_issuer) = match &asset {
+            Asset::Native => (true, None, None),
+            Asset::Token(code, issuer) => (false, Some(code.clone()), Some(issuer.clone())),
+        };
 
-        // Stellar asset code max length is 12 characters.
-        if asset_code.len() > 12 {
-            return Err(ContractError::InvalidAsset);
-        }
-
-        // Asset validation:
-        // - XLM (native) must have an empty issuer
-        // - Non-XLM assets (tokens) must have a non-empty issuer
-        let is_xlm = asset_code == String::from_str(&env, "XLM");
-        let issuer_empty = asset_issuer.is_empty();
-
-        if is_xlm && !issuer_empty {
-            // XLM with issuer is invalid
-            return Err(ContractError::InvalidAsset);
-        }
-        if !is_xlm && issuer_empty {
-            // Token without issuer is invalid
-            return Err(ContractError::InvalidAsset);
+        if let Some(ref code) = asset_code {
+            if code.is_empty() || code.len() > 12 {
+                return Err(ContractError::InvalidAsset);
+            }
+            if *code == String::from_str(&env, "XLM") {
+                return Err(ContractError::InvalidAsset);
+            }
         }
 
         // Enforce allowlist:
-        // - If asset is native: require allow_native == true.
-        // - If asset is token: (code, issuer) must exist in allowlist.
-        if is_xlm {
+        // - Native: require allow_native == true.
+        // - Token: (code, issuer Address) must exist in allowlist.
+        let asset_decimals = if is_native {
             if !is_native_allowed(&env) {
                 return Err(ContractError::AssetNotAllowed);
             }
-        } else if !is_asset_allowed(&env, &asset_code, &asset_issuer) {
-            return Err(ContractError::AssetNotAllowed);
-        }
+            7
+        } else {
+            let code = asset_code.as_ref().unwrap();
+            let issuer = asset_issuer.as_ref().unwrap();
+            if !is_asset_allowed(&env, code, issuer) {
+                return Err(ContractError::AssetNotAllowed);
+            }
+            get_asset_decimals(&env, code, issuer).ok_or(ContractError::AssetNotAllowed)?
+        };
 
         // 4. Amount guard: use the full positive range of the i128 storage type.
         if amount <= 0 {
             return Err(ContractError::InvalidAmount);
         }
-
-        let asset_decimals = if is_xlm {
-            7
-        } else {
-            get_asset_decimals(&env, &asset_code, &asset_issuer)
-                .ok_or(ContractError::AssetNotAllowed)?
-        };
 
         // 5. Idempotency guard: check invoice_id uniqueness.
         if has_payment(&env, &invoice_id) {
@@ -424,16 +420,8 @@ impl InvoicePaymentContract {
             return Err(ContractError::SettlementRefAlreadyUsed);
         }
 
-        // 7. Build the asset enum based on parameters.
-        let asset = if is_xlm {
-            Asset::Native
-        } else {
-            Asset::Token(asset_code.clone(), asset_issuer.clone())
-        };
-
-        // 8. Compute the settlement-ref commitment — this, not the plaintext,
-        //    is what's stored/returned/emitted from here on (issue #512). See
-        //    `storage::commit_settlement_ref` and `PaymentRecord::settlement_ref`.
+        // 7. Persist the caller-supplied asset enum as-is — Native vs Token
+        //    is already unambiguous, and Token's issuer is already Address.
         let settlement_ref_commitment = storage::commit_settlement_ref(&env, &settlement_ref);
 
         // 9. Build and persist the record (also bumps persistent TTL).
@@ -708,16 +696,21 @@ impl InvoicePaymentContract {
     /// and must remain stable during incident containment — a paused contract
     /// cannot silently change which assets are acceptable, and a suspect
     /// admin key cannot pre-stage new allowlist entries for later use.
-    pub fn allow_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+    pub fn allow_asset(env: Env, code: String, issuer: Address) -> Result<(), ContractError> {
         Self::allow_asset_with_decimals(env, code, issuer, 7)
     }
 
     /// Add a token and record its decimal precision. The admin must verify
     /// this value against the token contract's `decimals()` before calling.
+    ///
+    /// `issuer` is an [`Address`], so a malformed value cannot be
+    /// allowlisted. Remaining validation matches [`record_payment`]: `code`
+    /// must be non-empty, at most 12 characters, and must not be `"XLM"`
+    /// (native XLM is toggled via [`set_allow_native`], not the token list).
     pub fn allow_asset_with_decimals(
         env: Env,
         code: String,
-        issuer: String,
+        issuer: Address,
         decimals: u32,
     ) -> Result<(), ContractError> {
         if storage::is_paused(&env) {
@@ -725,12 +718,10 @@ impl InvoicePaymentContract {
         }
         let admin = get_admin(&env)?;
         admin.require_auth();
-        if code.is_empty() || issuer.is_empty() {
+        if code.is_empty() || code.len() > 12 {
             return Err(ContractError::InvalidAsset);
         }
-        // Stellar asset code max length is 12 characters — mirrors
-        // record_payment's asset_code validation exactly.
-        if code.len() > 12 {
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         if decimals > 18 {
@@ -754,13 +745,16 @@ impl InvoicePaymentContract {
     /// paused. Revoking an asset is a control-plane change that must not
     /// happen during the incident-containment window; the operator needs a
     /// stable allowlist to reconcile against while paused.
-    pub fn revoke_asset(env: Env, code: String, issuer: String) -> Result<(), ContractError> {
+    pub fn revoke_asset(env: Env, code: String, issuer: Address) -> Result<(), ContractError> {
         if storage::is_paused(&env) {
             return Err(ContractError::ContractPaused);
         }
         let admin = get_admin(&env)?;
         admin.require_auth();
-        if code.is_empty() || issuer.is_empty() {
+        if code.is_empty() || code.len() > 12 {
+            return Err(ContractError::InvalidAsset);
+        }
+        if code == String::from_str(&env, "XLM") {
             return Err(ContractError::InvalidAsset);
         }
         let removed = revoke_asset(&env, &code, &issuer);
