@@ -332,8 +332,8 @@ describe("Rate Limiting (e2e)", () => {
         })
         .expect(429)
         .expect((res) => {
-          expect(res.body).toHaveProperty("message");
-          expect(res.body.message).toContain("Too Many Requests");
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -369,8 +369,8 @@ describe("Rate Limiting (e2e)", () => {
         .send({ type: "view" })
         .expect(429)
         .expect((res) => {
-          expect(res.body).toHaveProperty("message");
-          expect(res.body.message).toContain("Too Many Requests");
+          expect(res.body).toHaveProperty("error");
+          expect(res.body.error).toContain("Too Many Requests");
           expect(res.headers).toHaveProperty("retry-after");
         });
     });
@@ -410,8 +410,24 @@ describe("Rate Limiting (e2e)", () => {
   describe("Identity isolation", () => {
     it("should isolate rate limits between different authenticated users", async () => {
       const jwtService = app.get(JwtService);
-      const userAToken = jwtService.sign({ sub: "user-a-isolation" });
-      const userBToken = jwtService.sign({ sub: "user-b-isolation" });
+      global.mockDb.users["user-a-isolation"] = {
+        id: "user-a-isolation",
+        merchantId: "m-a",
+        tokenVersion: 1,
+      };
+      global.mockDb.users["user-b-isolation"] = {
+        id: "user-b-isolation",
+        merchantId: "m-b",
+        tokenVersion: 1,
+      };
+      const userAToken = jwtService.sign({
+        sub: "user-a-isolation",
+        tokenVersion: 1,
+      });
+      const userBToken = jwtService.sign({
+        sub: "user-b-isolation",
+        tokenVersion: 1,
+      });
 
       const invoiceData = {
         clientName: "Isolation Test",
@@ -445,10 +461,10 @@ describe("Rate Limiting (e2e)", () => {
     });
 
     it("should isolate public endpoint rate limits by IP", async () => {
-      const testPublicKeyA =
-        "GD5DJ3B5A7PSBUKX7UHD3RO6X4JLFJRG2EMITJD4FNE2ZQY4C7I5LHN5";
-      const testPublicKeyB =
-        "GBX4Mir5PMGZ2J5FZ6C6Q2CKM6VZ7J6Y3B5A7PSBUKX7UHD3RO6X4JL";
+      const kpA = Keypair.random();
+      const kpB = Keypair.random();
+      const testPublicKeyA = kpA.publicKey();
+      const testPublicKeyB = kpB.publicKey();
 
       // First IP (default test client) hits auth/nonce limit
       for (let i = 0; i < 5; i++) {
