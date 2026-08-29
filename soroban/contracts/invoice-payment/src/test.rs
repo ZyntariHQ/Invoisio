@@ -6469,7 +6469,7 @@ fn test_native_asset_has_no_issuer_field() {
         .get_payment(&String::from_str(&env, "inv-native-struct"))
         .asset
     {
-        Asset::Native => {}
+        Asset::Native => {},
         Asset::Token(_, _) => panic!("native payment must not store a Token variant"),
     }
 }

@@ -566,7 +566,7 @@ fn upgrade_legacy_asset(asset: LegacyAsset) -> Option<Asset> {
         LegacyAsset::Native => Some(Asset::Native),
         LegacyAsset::Token(code, issuer) => {
             try_parse_issuer_address(&issuer).map(|addr| Asset::Token(code, addr))
-        }
+        },
     }
 }
 
@@ -1467,7 +1467,7 @@ fn get_allowlist_log_entry(env: &Env, slot: u32) -> Option<AllowlistEntry> {
                 issuer,
                 decimals: legacy.decimals,
             })
-        }
+        },
         None => None,
     }
 }
@@ -1691,12 +1691,12 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
                 // V4 → V5: precision metadata is written by the new paths;
                 // pre-existing records retain unknown precision (0).
                 crate::migration::migrate_schema_v4_to_v5(env)?;
-            }
+            },
             5 => {
                 // V5 → V6: rewrite Token issuers from String to Address
                 // in payment records, history slots, and the allowlist.
                 crate::migration::migrate_schema_v5_to_v6(env)?;
-            }
+            },
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
         version += 1;
