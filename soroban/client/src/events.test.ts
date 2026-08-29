@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Address, nativeToScVal, xdr } from '@stellar/stellar-sdk';
+import { nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
 import { EVENT_SCHEMA_VERSION, decodeSorobanEvent, SorobanEventInput } from './events';
 
@@ -10,23 +10,14 @@ const HASH = Uint8Array.from({ length: 32 }, (_, index) => index);
 const topic = (name: string): xdr.ScVal => nativeToScVal(name, { type: 'symbol' });
 
 function mapPayload(fields: Record<string, xdr.ScVal>): xdr.ScVal {
-  return xdr.ScVal.scvMap(
-    Object.entries(fields).map(([key, val]) =>
-      new xdr.ScMapEntry({ key: nativeToScVal(key, { type: 'symbol' }), val }),
-    ),
-  );
+  return xdr.ScVal.scvMap(Object.entries(fields).map(([key, val]) =>
+    new xdr.ScMapEntry({ key: nativeToScVal(key, { type: 'symbol' }), val }),
+  ));
 }
 
 function event(name: string, fields: Record<string, xdr.ScVal>): SorobanEventInput {
   return { topics: [topic(name)], data: mapPayload(fields) };
 }
-
-type EventCase = { name: string; fields: Record<string, xdr.ScVal> };
-
-const version = () => nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' });
-const time = () => nativeToScVal(100, { type: 'u64' });
-const address = (value: string) => nativeToScVal(value, { type: 'address' });
-const count = (value: number) => nativeToScVal(value, { type: 'u32' });
 
 const G_PAYER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
 const G_ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
@@ -35,10 +26,10 @@ describe('decodeSorobanEvent', () => {
   it('decodes an invoice_payment_recorded event from a positional ScVec payload', () => {
     const event: SorobanEventInput = {
       topics: [topic('invoice_payment_recorded')],
-      data: vecPayload(
-        nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
-        nativeToScVal('INV-2049', { type: 'string' }),
-      ),
+      data: mapPayload({
+        schema_version: nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
+        invoice_id: nativeToScVal('INV-2049', { type: 'string' }),
+      }),
     };
 
     expect(decodeSorobanEvent(event)).toEqual({
@@ -51,10 +42,10 @@ describe('decodeSorobanEvent', () => {
   it('rejects an invoice payment event from an unsupported schema version instead of guessing', () => {
     const event: SorobanEventInput = {
       topics: [topic('invoice_payment_recorded')],
-      data: vecPayload(
-        nativeToScVal(1, { type: 'u32' }),
-        nativeToScVal('INV-1', { type: 'string' }),
-      ),
+      data: mapPayload({
+        schema_version: nativeToScVal(1, { type: 'u32' }),
+        invoice_id: nativeToScVal('INV-1', { type: 'string' }),
+      }),
     };
 
     expect(decodeSorobanEvent(event)).toEqual({
@@ -64,15 +55,41 @@ describe('decodeSorobanEvent', () => {
     });
   });
 
-    it(`rejects a positional, reordered, or truncated payload for ${testCase.name}`, () => {
-      const values = Object.values(testCase.fields);
-      const malformed = values.length > 1 ? values.slice().reverse().slice(0, -1) : [];
-      expect(decodeSorobanEvent({ topics: [topic(testCase.name)], data: xdr.ScVal.scvVec(malformed) })).toMatchObject({
-        type: 'unknown',
-        name: testCase.name,
-      });
+  it('decodes named payloads and base64 XDR', () => {
+    const decoded = decodeSorobanEvent({
+      topics: [topic('invoice_payment_recorded').toXDR('base64')],
+      data: mapPayload({
+        invoice_id: nativeToScVal('INV-2049', { type: 'string' }),
+        schema_version: nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
+      }).toXDR('base64'),
     });
-  }
+    expect(decoded).toEqual({
+      type: 'invoice_payment_recorded',
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      invoiceId: 'INV-2049',
+    });
+  });
+
+  it('decodes versioned native_allow_changed payloads', () => {
+    expect(decodeSorobanEvent({
+      topics: [topic('native_allow_changed')],
+      data: mapPayload({
+        schema_version: nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
+        allowed: nativeToScVal(true, { type: 'bool' }),
+      }),
+    })).toEqual({
+      type: 'native_allow_changed',
+      schemaVersion: EVENT_SCHEMA_VERSION,
+      allowed: true,
+    });
+  });
+
+  it('rejects a reordered or truncated positional payload', () => {
+    expect(decodeSorobanEvent({
+      topics: [topic('native_allow_changed')],
+      data: mapPayload({ allowed: nativeToScVal(true, { type: 'bool' }) }),
+    })).toMatchObject({ type: 'unknown', name: 'native_allow_changed' });
+  });
 });
 
 describe('decodeSorobanEvent malformed input', () => {

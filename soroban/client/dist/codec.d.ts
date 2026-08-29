@@ -36,6 +36,15 @@ export declare function assertCanonicalIdentifier(value: string, maxLen: number,
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
 /**
+ * Encode the contract `Asset` enum for `record_payment`.
+ *
+ * Native XLM is the `Native` unit variant — an empty `issuer` maps here, so
+ * callers can keep passing `assetCode: 'XLM', assetIssuer: ''`. A token is
+ * `Token(code, Address)`: a malformed issuer fails at `new Address(...)`
+ * rather than being written on-chain.
+ */
+export declare function encodeAsset(code: string, issuer: string): xdr.ScVal;
+/**
  * Encode a BigInt as a Soroban i128 ScVal.
  * Soroban stores token amounts as i128 to safely cover the full range of
  * 7-decimal fixed-point values without floating-point rounding.

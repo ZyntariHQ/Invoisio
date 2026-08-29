@@ -7,6 +7,7 @@ exports.isCanonicalIdentifier = isCanonicalIdentifier;
 exports.assertCanonicalIdentifier = assertCanonicalIdentifier;
 exports.encodeString = encodeString;
 exports.encodeAddress = encodeAddress;
+exports.encodeAsset = encodeAsset;
 exports.encodeI128 = encodeI128;
 exports.encodeU32 = encodeU32;
 exports.encodeBool = encodeBool;
@@ -95,6 +96,24 @@ function encodeString(value) {
 }
 function encodeAddress(address) {
     return new stellar_sdk_1.Address(address).toScVal();
+}
+/**
+ * Encode the contract `Asset` enum for `record_payment`.
+ *
+ * Native XLM is the `Native` unit variant — an empty `issuer` maps here, so
+ * callers can keep passing `assetCode: 'XLM', assetIssuer: ''`. A token is
+ * `Token(code, Address)`: a malformed issuer fails at `new Address(...)`
+ * rather than being written on-chain.
+ */
+function encodeAsset(code, issuer) {
+    if (!issuer) {
+        return stellar_sdk_1.xdr.ScVal.scvVec([stellar_sdk_1.xdr.ScVal.scvSymbol('Native')]);
+    }
+    return stellar_sdk_1.xdr.ScVal.scvVec([
+        stellar_sdk_1.xdr.ScVal.scvSymbol('Token'),
+        encodeString(code),
+        encodeAddress(issuer),
+    ]);
 }
 /**
  * Encode a BigInt as a Soroban i128 ScVal.

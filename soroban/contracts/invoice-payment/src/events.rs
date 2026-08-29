@@ -78,13 +78,21 @@ pub struct NativeAllowChanged {
     pub allowed: bool,
 }
 
-pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: String) {
-    let payload = AssetAllowlisted { code, issuer };
+pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: Address) {
+    let payload = AssetAllowlisted {
+        schema_version: EVENT_SCHEMA_VERSION,
+        code,
+        issuer,
+    };
     payload.publish(env);
 }
 
-pub fn emit_asset_revoked(env: &Env, code: String, issuer: String) {
-    let payload = AssetRevoked { code, issuer };
+pub fn emit_asset_revoked(env: &Env, code: String, issuer: Address) {
+    let payload = AssetRevoked {
+        schema_version: EVENT_SCHEMA_VERSION,
+        code,
+        issuer,
+    };
     payload.publish(env);
 }
 
