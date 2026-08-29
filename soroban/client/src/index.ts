@@ -27,6 +27,8 @@ export type {
   ContractUpgradedEvent,
   HistoryIndexRebuiltEvent,
   InvoicePaymentRecordedEvent,
+  LegacyPaymentsMigratedEvent,
+  IssuersMigratedEvent,
   NativeAllowChangedEvent,
   SettlementRefsMigratedEvent,
   SorobanEventInput,
