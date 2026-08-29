@@ -251,7 +251,7 @@
       "topic": "invoice_payment_recorded",
       "fields": {
         "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
-        "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." },
+        "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." }
       },
       "required": ["invoice_id", "schema_version"]
     },
