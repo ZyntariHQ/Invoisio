@@ -50,7 +50,9 @@ describe("Rate Limiting (e2e)", () => {
 
     global.mockDb = global.mockDb || { users: {} };
 
-    jest.spyOn(prisma.user, "findUnique").mockImplementation((async (args: any) => {
+    jest.spyOn(prisma.user, "findUnique").mockImplementation((async (
+      args: any,
+    ) => {
       const key = args.where.publicKey || args.where.id;
       return global.mockDb.users[key] || null;
     }) as any);
@@ -82,11 +84,17 @@ describe("Rate Limiting (e2e)", () => {
       return u;
     }) as any);
 
-    jest.spyOn(prisma.merchant, "upsert").mockImplementation((async () => ({})) as any);
-    jest.spyOn(prisma.merchant, "create").mockImplementation((async () => ({})) as any);
+    jest
+      .spyOn(prisma.merchant, "upsert")
+      .mockImplementation((async () => ({})) as any);
+    jest
+      .spyOn(prisma.merchant, "create")
+      .mockImplementation((async () => ({})) as any);
 
     const inv = app.get(InvoicesService);
-    jest.spyOn(inv, "create").mockImplementation((async () => ({ id: "inv-1" })) as any);
+    jest
+      .spyOn(inv, "create")
+      .mockImplementation((async () => ({ id: "inv-1" })) as any);
 
     // Generate a valid JWT for protected endpoints
     const jwtService = app.get(JwtService);
