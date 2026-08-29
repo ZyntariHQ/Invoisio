@@ -62,33 +62,33 @@ pub fn rebuild_payment_history_index(env: &Env) -> Result<(), ContractError> {
         return Err(ContractError::StorageSchemaTooOld);
     }
 
-    // Check if index already exists and is complete
+    let payment_count = get_payment_count(env);
     let existing_count = get_history_count(env);
-    if existing_count > 0 {
-        // Index already exists - verify it's complete by checking all records
-        // are indexed. We'll scan all payment records and compare.
-        if is_index_complete(env) {
-            return Ok(());
-        }
-        // Index is incomplete - clear and rebuild
-        clear_history_index(env);
+
+    if existing_count > 0 && is_index_complete(env) {
+        return Ok(());
     }
 
-    // Collect all payment records from storage
-    let records = collect_all_payment_records(env)?;
+    // Rebuild index slots directly from PaymentLog to preserve slot index mapping
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            let key = DataKey::PaymentHistory(i);
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                env.storage().persistent().set(&key, &record);
+                env.storage().persistent().extend_ttl(
+                    &key,
+                    crate::storage::MIN_TTL,
+                    crate::storage::BUMP_TTL,
+                );
+            }
+        }
+    }
 
-    // Sort records by timestamp (legacy records without timestamp go first)
-    let sorted = sort_records_by_timestamp(env, records);
+    // Update history count to match payment count
+    set_history_count(env, payment_count);
 
-    // Write sorted records to history index
-    write_history_index(env, sorted)?;
-
-    // Update history count. Only emit when there was actually something to
-    // rebuild — an empty rebuild (e.g. a fresh deployment with no payments
-    // yet) is a no-op and shouldn't be reported as an index rebuild.
-    let new_count = get_history_count(env);
-    if new_count > 0 {
-        events::emit_history_index_rebuilt(env, new_count);
+    if payment_count > 0 {
+        events::emit_history_index_rebuilt(env, payment_count);
     }
 
     Ok(())
@@ -96,38 +96,24 @@ pub fn rebuild_payment_history_index(env: &Env) -> Result<(), ContractError> {
 
 /// Checks if the history index is complete.
 ///
-/// When `PaymentCount` is tracked (the common case), the index is complete
-/// only if it covers every payment and every entry it claims is actually
-/// present. When `PaymentCount` is unset (e.g. history entries were seeded
-/// directly, bypassing `record_payment()`), we fall back to verifying the
-/// entries the index itself claims to have, since there's no independent
-/// count to check against.
+/// When `PaymentCount` is tracked, the index is complete if `PaymentHistoryCount`
+/// matches `PaymentCount`. Archival of individual persistent records by the
+/// network does not mean the index structure is corrupt or incomplete.
 fn is_index_complete(env: &Env) -> bool {
     let history_count = get_history_count(env);
     let payment_count = get_payment_count(env);
 
     if payment_count == 0 {
-        return history_count == 0 || history_entries_exist(env, history_count);
+        return history_count == 0;
     }
 
-    history_count == payment_count && history_entries_exist(env, history_count)
-}
-
-/// Verifies that a `PaymentHistory` entry exists for every index in `0..count`.
-fn history_entries_exist(env: &Env, count: u32) -> bool {
-    for i in 0..count {
-        if !env.storage().persistent().has(&DataKey::PaymentHistory(i)) {
-            return false;
-        }
-    }
-    true
+    history_count == payment_count
 }
 
 /// Gets the total number of payment records stored.
 fn get_payment_count(env: &Env) -> u32 {
-    // We can't enumerate all keys directly, so we use the PaymentCount
-    // stored in instance storage. This is maintained by record_payment()
-    // and should be accurate.
+    // We use the PaymentCount stored in instance storage. This is maintained
+    // by record_payment() and should be accurate.
     env.storage()
         .instance()
         .get(&DataKey::PaymentCount)

@@ -39,6 +39,7 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 21, name: 'MustBePausedForUpgrade' },
   { code: 22, name: 'LegacyPaymentMigrationBatchTooLarge' },
   { code: 23, name: 'IssuerMigrationIncomplete' },
+  { code: 24, name: 'PaymentArchived' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {

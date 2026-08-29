@@ -428,7 +428,8 @@
     "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." },
     "MustBePausedForUpgrade":   { "code": 21, "description": "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window." },
     "LegacyPaymentMigrationBatchTooLarge":   { "code": 22, "description": "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls." },
-    "IssuerMigrationIncomplete":   { "code": 23, "description": "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused." }
+    "IssuerMigrationIncomplete":   { "code": 23, "description": "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused." },
+    "PaymentArchived":   { "code": 24, "description": "get_payment() called for an invoice_id that exists in the write log but has expired due to TTL policy." }
   },
   "methods": {
     "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
@@ -460,6 +461,7 @@
     "is_paused": { "auth": "none", "description": "Return true if the contract is currently paused." },
     "rebuild_history_index": { "auth": "admin", "description": "Rebuild the payment history index from existing records after a corruption or incomplete migration." },
     "migrate_legacy_payments": { "auth": "admin", "description": "Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)." },
+    "extend_history_ttl": { "auth": "admin", "description": "Admin-gated: extend persistent storage TTL across a bounded range of payment history records, write logs, and settlement references." },
     "history_index_status": { "auth": "admin", "description": "Admin-gated (issue #512): return (history_count, payment_count, is_consistent) diagnostic status for the history index." }
   }
 }

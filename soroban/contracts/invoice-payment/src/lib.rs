@@ -12,7 +12,8 @@ pub use errors::ContractError;
 pub use storage::{
     AllowlistEntry, AllowlistMode, AllowlistPage, Asset, ContractConfig, ContractMeta, DataKey,
     PaymentHistoryPage, PaymentRecord, SettlementRefEntry, SettlementRefPage, CONTRACT_VERSION,
-    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH, STORAGE_SCHEMA_VERSION,
+    CONTRACT_VERSION_MAJOR, CONTRACT_VERSION_MINOR, CONTRACT_VERSION_PATCH,
+    MAX_TTL_EXTEND_BATCH, STORAGE_SCHEMA_VERSION,
 };
 
 use events::{
@@ -22,9 +23,9 @@ use events::{
 };
 use storage::{
     append_payment_history, append_payment_log, bump_count, bump_history_count,
-    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, get_admin,
-    get_asset_decimals, get_contract_config, get_count, get_payment, get_payment_history_page,
-    get_pending_admin, get_pending_admin_opt, get_state_contract_version,
+    clear_pending_admin, current_contract_meta, ensure_current_contract_meta, extend_history_ttl_range,
+    get_admin, get_asset_decimals, get_contract_config, get_count, get_payment,
+    get_payment_history_page, get_pending_admin, get_pending_admin_opt, get_state_contract_version,
     get_storage_schema_version, has_admin, has_payment, has_pending_admin, is_asset_allowed,
     is_native_allowed, revoke_asset, set_admin, set_contract_meta, set_native_allowed, set_payment,
     set_pending_admin,
@@ -115,6 +116,7 @@ use storage::{
 ///   | `config`                       | permissionless | yes | Aggregates several of the instance reads above                                 |
 ///   | `is_paused`                    | permissionless | yes | Instance read                                                                  |
 ///   | `history_index_status`        | **admin-gated**| yes | Two instance counters, O(1) — volume summary                                   |
+///   | `extend_history_ttl`          | **admin-gated**| yes | Bounded bulk TTL extension across persistent payment & history records         |
 ///
 ///   "Extends TTL on a hit" means the call touches a read-write **footprint**
 ///   (Soroban tracks TTL on the entry's own key) but never changes the
@@ -467,7 +469,9 @@ impl InvoicePaymentContract {
     /// Return the [`PaymentRecord`] for `invoice_id`.
     ///
     /// Returns [`ContractError::InvalidInvoiceId`] if `invoice_id` is empty.
-    /// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded.
+    /// Returns [`ContractError::PaymentArchived`] if the payment was recorded on-chain
+    /// in the write log, but its persistent payment record has expired due to TTL.
+    /// Returns [`ContractError::PaymentNotFound`] if nothing was ever recorded for this `invoice_id`.
     /// Use [`has_payment`] first if existence is uncertain.
     ///
     /// ## Legacy records
@@ -1125,6 +1129,7 @@ impl InvoicePaymentContract {
     /// | `upgrade_storage`        | yes        | Storage migration runs between `upgrade()` and the final unpause         |
     /// | `rebuild_history_index`  | yes        | Administrative recovery; may run in the upgrade window or standalone    |
     /// | `migrate_legacy_payments`| yes        | Administrative cleanup of legacy keys; may run standalone (issue #508)  |
+    /// | `extend_history_ttl`     | yes        | Bulk TTL extension for retention maintenance; runs standalone or paused  |
     /// | `payment_count`          | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
     /// | `payment_history`        | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
     /// | `settlement_ref_history` | yes        | Admin-gated bulk read (issue #512); auditing must work during containment |
@@ -1276,6 +1281,40 @@ impl InvoicePaymentContract {
         admin.require_auth();
 
         crate::migration::migrate_legacy_payments(&env, &invoice_ids)
+    }
+
+    /// Extend persistent storage TTL for a bounded range of payment history records,
+    /// write logs, and settlement references.
+    ///
+    /// - `cursor` — zero-based history slot to start from.
+    /// - `limit` — maximum slots to process (capped internally at [`storage::MAX_TTL_EXTEND_BATCH`]).
+    ///
+    /// ## Authorization
+    /// **Admin-gated**: Only the contract admin can call this method.
+    ///
+    /// ## Pause interaction
+    /// **Exempt** from the pause guard. As a maintenance/retention function it
+    /// may be invoked either inside the pause window or standalone during normal
+    /// operations.
+    ///
+    /// ## Returns
+    /// `(extended_count, next_cursor, has_more)`
+    ///
+    /// ## Errors
+    /// - [`ContractError::NotInitialized`] — contract was never initialised
+    /// - [`ContractError::Unauthorized`] — caller is not admin
+    pub fn extend_history_ttl(
+        env: Env,
+        admin: Address,
+        cursor: u32,
+        limit: u32,
+    ) -> Result<(u32, u32, bool), ContractError> {
+        let current_admin = get_admin(&env)?;
+        if admin != current_admin {
+            return Err(ContractError::Unauthorized);
+        }
+        admin.require_auth();
+        Ok(extend_history_ttl_range(&env, cursor, limit))
     }
 
     /// Get the consistency status of the history index.
