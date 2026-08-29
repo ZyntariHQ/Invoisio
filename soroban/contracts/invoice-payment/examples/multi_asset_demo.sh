@@ -33,8 +33,7 @@ stellar contract invoke \
   record_payment \
   --invoice_id "invoisio-xlm-demo-001" \
   --payer "$PAYER" \
-  --asset_code "XLM" \
-  --asset_issuer "" \
+  --asset Native \
   --amount "100000000" \
   --settlement_ref "settle-xlm-demo-001"
 
@@ -57,8 +56,7 @@ stellar contract invoke \
   record_payment \
   --invoice_id "invoisio-usdc-demo-001" \
   --payer "$PAYER" \
-  --asset_code "USDC" \
-  --asset_issuer "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5" \
+  --asset '{"Token":["USDC","GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"]}' \
   --amount "500000000" \
   --settlement_ref "settle-usdc-demo-001"
 

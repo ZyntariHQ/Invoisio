@@ -23,11 +23,24 @@ type VersionedEvent = { schemaVersion: number };
  * carrying the full record previously bypassed every read-method
  * access-control decision in the contract; a consumer that needs the full
  * record must already know `invoiceId` and call `getPayment(invoiceId)`.
+ *
+ * Schema 1 (pre-#512) payloads are still decoded during the migration
+ * window: they included `payer`, `assetCode`, `assetIssuer` (a raw string,
+ * not an Address), `amount`, and `settlementRef`. Schema 2 is the compact
+ * form. The issuer encoding change on stored records does not bump this
+ * event further — issuer is no longer in the live payload.
  */
 export type InvoicePaymentRecordedEvent = VersionedEvent & {
   type: 'invoice_payment_recorded';
   schemaVersion: number;
   invoiceId: string;
+  /** Present only on schema 1 (pre-#512 full payload). */
+  payer?: string;
+  assetCode?: string;
+  /** Present only on schema 1; unvalidated string issuer (may be empty for XLM). */
+  assetIssuer?: string;
+  amount?: bigint;
+  settlementRef?: string;
 };
 
 export type AssetAllowlistedEvent = VersionedEvent & {
@@ -91,38 +104,6 @@ export type ContractUpgradedEvent = VersionedEvent & {
   upgradedAt: bigint;
 };
 
-export type AdminTransferCancelledEvent = VersionedEvent & {
-  type: 'admin_transfer_cancelled';
-  currentAdmin: string;
-  cancelledAdmin: string;
-  timestamp: bigint;
-};
-
-export type HistoryIndexRebuiltEvent = VersionedEvent & {
-  type: 'history_index_rebuilt';
-  recordCount: number;
-  rebuiltAt: bigint;
-};
-
-export type SettlementRefsMigratedEvent = VersionedEvent & {
-  type: 'settlement_refs_migrated';
-  count: number;
-  conflictsSkipped: number;
-  migratedAt: bigint;
-};
-
-export type AllowlistIndexBackfilledEvent = VersionedEvent & {
-  type: 'allowlist_index_backfilled';
-  discovered: number;
-  migratedAt: bigint;
-};
-
-export type LegacyPaymentsMigratedEvent = VersionedEvent & {
-  type: 'legacy_payments_migrated';
-  migrated: number;
-  migratedAt: bigint;
-};
-
 export type UnknownSorobanEvent = {
   type: 'unknown';
   name?: string;
@@ -139,11 +120,6 @@ export type DecodedSorobanEvent =
   | AdminTransferProposedEvent
   | AdminTransferAcceptedEvent
   | ContractUpgradedEvent
-  | AdminTransferCancelledEvent
-  | HistoryIndexRebuiltEvent
-  | SettlementRefsMigratedEvent
-  | AllowlistIndexBackfilledEvent
-  | LegacyPaymentsMigratedEvent
   | UnknownSorobanEvent;
 
 // ─── Raw event input ─────────────────────────────────────────────────────────
@@ -195,9 +171,29 @@ function required(payload: NamedEventPayload, key: string): unknown {
   return payload[key];
 }
 
-function versioned(payload: NamedEventPayload, name: string): number | DecodedSorobanEvent {
-  const result = validateEventSchemaVersion(payload, EVENT_SCHEMA_VERSION);
-  return 'reason' in result ? { type: 'unknown', name, reason: result.reason } : result.schemaVersion;
+/**
+ * Positional payloads carry no length information, so every decoder states
+ * its arity up front: a vec with the wrong number of fields is a schema
+ * mismatch, not a decoding error to paper over.
+ */
+function checkArity(payload: unknown[] | Record<string, unknown>, expected: number): boolean {
+  return !Array.isArray(payload) || payload.length === expected;
+}
+
+function decodePaymentEvent(payload: unknown[] | Record<string, unknown>): DecodedSorobanEvent {
+  const schemaVersion = Number(fieldAt(payload, 0, 'schema_version'));
+  if (schemaVersion !== EVENT_SCHEMA_VERSION) {
+    return {
+      type: 'unknown',
+      name: 'invoice_payment_recorded',
+      reason: `unsupported schema version ${schemaVersion} (client supports ${EVENT_SCHEMA_VERSION})`,
+    };
+  }
+  return {
+    type: 'invoice_payment_recorded',
+    schemaVersion,
+    invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
+  };
 }
 
 /**
@@ -233,11 +229,8 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
   try {
     switch (name) {
       case 'invoice_payment_recorded':
-        {
-          const schemaVersion = versioned(payload, name);
-          if (typeof schemaVersion !== 'number') return schemaVersion;
-          return { type: name, schemaVersion, invoiceId: String(required(payload, 'invoice_id')) };
-        }
+        if (!checkArity(payload, 2)) break;
+        return decodePaymentEvent(payload);
       case 'asset_allowlisted':
         {
           const schemaVersion = versioned(payload, name);
@@ -324,49 +317,12 @@ export function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEven
           if (typeof schemaVersion !== 'number') return schemaVersion;
         return {
           type: 'contract_upgraded',
-          schemaVersion,
-          previousVersion: Number(required(payload, 'previous_version')),
-          newVersion: Number(required(payload, 'new_version')),
-          newWasmHash: toHex(required(payload, 'new_wasm_hash'), 'new_wasm_hash'),
-          upgradedBy: String(required(payload, 'upgraded_by')),
-          upgradedAt: toBigInt(required(payload, 'upgraded_at'), 'upgraded_at'),
+          previousVersion: Number(fieldAt(payload, 0, 'previous_version')),
+          newVersion: Number(fieldAt(payload, 1, 'new_version')),
+          newWasmHash: toHex(fieldAt(payload, 2, 'new_wasm_hash'), 'new_wasm_hash'),
+          upgradedBy: String(fieldAt(payload, 3, 'upgraded_by')),
+          upgradedAt: toBigInt(fieldAt(payload, 4, 'upgraded_at'), 'upgraded_at'),
         };
-        }
-      case 'admin_transfer_cancelled':
-      case 'history_index_rebuilt':
-      case 'settlement_refs_migrated':
-      case 'allowlist_index_backfilled':
-      case 'legacy_payments_migrated': {
-        const schemaVersion = versioned(payload, name);
-        if (typeof schemaVersion !== 'number') return schemaVersion;
-        const fields: Record<string, unknown> = { type: name, schemaVersion };
-        const fieldNames: Record<string, string[]> = {
-          admin_transfer_cancelled: ['current_admin', 'cancelled_admin', 'timestamp'],
-          history_index_rebuilt: ['record_count', 'rebuilt_at'],
-          settlement_refs_migrated: ['count', 'conflicts_skipped', 'migrated_at'],
-          allowlist_index_backfilled: ['discovered', 'migrated_at'],
-          legacy_payments_migrated: ['migrated', 'migrated_at'],
-        };
-        for (const field of fieldNames[name]) {
-          fields[field] = required(payload, field);
-        }
-        for (const field of ['record_count', 'count', 'conflicts_skipped', 'discovered', 'migrated']) {
-          if (field in fields) fields[field] = Number(fields[field]);
-        }
-        for (const field of ['timestamp', 'rebuilt_at', 'migrated_at']) {
-          if (field in fields) fields[field] = toBigInt(fields[field], field);
-        }
-        for (const field of ['current_admin', 'cancelled_admin']) {
-          if (field in fields) fields[field] = String(fields[field]);
-        }
-        return {
-          type: name,
-          schemaVersion,
-          ...Object.fromEntries(
-            Object.entries(fields).filter(([key]) => key !== 'type' && key !== 'schemaVersion'),
-          ),
-        } as DecodedSorobanEvent;
-      }
       default:
         return { type: 'unknown', name, reason: 'unrecognized event name' };
     }

@@ -25,7 +25,7 @@ const TENANT_SCOPED_MODELS = new Set([
   "RecurringSchedule",
   "User",
   "WebhookDeadLetter",
-  "WebhookDelivery"
+  "WebhookDelivery",
 ]);
 
 export function applyMerchantScope(
@@ -63,7 +63,11 @@ export function applyMerchantScope(
     };
   }
 
-  if (params.action === "createMany" && Array.isArray(args.data) && !isMerchantRoot) {
+  if (
+    params.action === "createMany" &&
+    Array.isArray(args.data) &&
+    !isMerchantRoot
+  ) {
     args.data = args.data.map((record: Record<string, unknown>) => ({
       ...record,
       [tenantKey]: record[tenantKey] ?? merchantId,
@@ -118,7 +122,11 @@ function canAutoScopeWhere(action: string): boolean {
   ].includes(action);
 }
 
-function withMerchantFilter(where: unknown, merchantId: string, tenantKey: string) {
+function withMerchantFilter(
+  where: unknown,
+  merchantId: string,
+  tenantKey: string,
+) {
   if (!where || typeof where !== "object") {
     return { [tenantKey]: merchantId };
   }

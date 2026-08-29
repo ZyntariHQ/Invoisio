@@ -1,6 +1,6 @@
 use crate::errors::ContractError;
 use crate::events;
-use soroban_sdk::{contracttype, Address, Env, String, Vec};
+use soroban_sdk::{contracttype, Address, Env, String, TryFromVal, Val, Vec};
 
 // ============================================================================
 // TTL Policy
@@ -89,21 +89,24 @@ pub const CONTRACT_VERSION_MINOR: u32 = 0;
 pub const CONTRACT_VERSION_PATCH: u32 = 0;
 /// Current storage schema version.
 ///
-/// V4 adds a write-order enumeration index (`AllowListLog` /
-/// `AllowListCount` / `AllowListIndex`) for the asset allowlist, so
-/// `allowed_assets()`/`allowlist_count()` can enumerate it instead of
-/// requiring callers to already know which pairs to ask `is_asset_allowed`
-/// about. Backfilled for legacy deployments (to the extent recoverable —
-/// see its doc comment) by `migrate_schema_v3_to_v4`. See issue #464.
+/// V6 types the token issuer as [`Address`] in `Asset::Token`, the
+/// allowlist key, and the allowlist enumeration log, so a malformed or
+/// case/whitespace-variant issuer cannot be stored. Pre-V6 records and
+/// allowlist entries used a raw `String` issuer; `migrate_schema_v5_to_v6`
+/// rewrites every recoverable entry, and `get_payment` / `is_asset_allowed`
+/// still fall back to the string-keyed shape until that rewrite lands.
+/// Sequenced after the WASM `upgrade()` path (issue #444): pause → upgrade
+/// WASM → `upgrade_storage` (this step, chunked like issue #480 when the
+/// payment log is large) → verify → unpause.
 ///
 /// **Maintenance note:** each migration step function stamps
 /// `ContractMeta.storage_schema_version` with the fixed constant for the
 /// version *it* reaches (e.g. `migrate_schema_v1_to_v2` stamps
 /// `STORAGE_SCHEMA_V2`), never this constant directly — `upgrade_storage_schema`
 /// is what stamps `STORAGE_SCHEMA_VERSION` once every step up to the final
-/// target has run. If you add a new final step (e.g. V4 → V5), change the
+/// target has run. If you add a new final step (e.g. V6 → V7), change the
 /// previous final step to stamp its own fixed constant instead of this one.
-pub const STORAGE_SCHEMA_VERSION: u32 = 5;
+pub const STORAGE_SCHEMA_VERSION: u32 = 6;
 
 /// Schema version that introduced `ContractMeta` + `PaymentV1` keys.
 pub const STORAGE_SCHEMA_V1: u32 = 1;
@@ -128,6 +131,14 @@ pub const STORAGE_SCHEMA_V3: u32 = 3;
 /// Schema version that introduced precision on payment records and allowlist
 /// entries. Legacy records are not assigned a guessed scale by migration.
 pub const STORAGE_SCHEMA_V4: u32 = 4;
+
+/// Schema version that recorded precision metadata on the live write path
+/// without rewriting historical amounts (issue: unknown scale stays `0`).
+pub const STORAGE_SCHEMA_V5: u32 = 5;
+
+/// Schema version that typed the token issuer as [`Address`] in stored
+/// `Asset::Token` values, allowlist keys, and allowlist log entries.
+pub const STORAGE_SCHEMA_V6: u32 = 6;
 
 /// Legacy deployments (before explicit version metadata existed).
 pub const LEGACY_CONTRACT_VERSION: u32 = 0;
@@ -219,6 +230,18 @@ pub const MAX_SETTLEMENT_REF_LEN: u32 = 128;
 /// `value.len()` bytes into it.
 const MAX_IDENTIFIER_LEN: usize = MAX_SETTLEMENT_REF_LEN as usize;
 
+/// Stellar strkey length for account (`G...`) and contract (`C...`) addresses.
+pub const STELLAR_STRKEY_LEN: u32 = 56;
+
+/// Maximum number of payment-log slots rewritten in one
+/// [`crate::migration::migrate_schema_v5_to_v6`] / `migrate_asset_issuers`
+/// invocation. Mirrors [`MAX_LEGACY_MIGRATION_BATCH`]: each slot can cost
+/// several footprint entries (read the current record, write the Address-
+/// typed record, rewrite the matching history slot, migrate an allowlist
+/// key). Split a larger backlog across multiple `upgrade_storage` calls —
+/// the step is resumable via [`DataKey::IssuerMigrationCursor`] (issue #480).
+pub const MAX_ISSUER_MIGRATION_BATCH: u32 = 20;
+
 /// Returns `true` if `value` is already in canonical form: every byte is an
 /// ASCII lowercase letter, digit, or hyphen. See the module-level
 /// "Identifier Canonicalisation" notes above for the rationale.
@@ -233,6 +256,33 @@ pub fn is_canonical_identifier(value: &String) -> bool {
     buf[..len]
         .iter()
         .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
+}
+
+/// Parse a stored issuer string into a Stellar [`Address`] without trapping
+/// on garbage.
+///
+/// Classic-asset issuers are account addresses: `G` followed by 55 characters
+/// of the Stellar base32 alphabet (`A`–`Z`, `2`–`7`), 56 characters total.
+/// Anything else — empty, whitespace, a lowercase/mixed-case variant, a
+/// truncated key, `"not-an-address"` — returns `None` so a migration can skip
+/// it instead of aborting the whole upgrade. Address construction itself is
+/// canonical: two strings that pass this check and represent the same
+/// account compare equal as [`Address`] values, so the allowlist key no
+/// longer depends on the caller's spelling.
+pub fn try_parse_issuer_address(issuer: &String) -> Option<Address> {
+    let len = issuer.len() as usize;
+    if len != STELLAR_STRKEY_LEN as usize {
+        return None;
+    }
+    let mut buf = [0u8; STELLAR_STRKEY_LEN as usize];
+    issuer.copy_into_slice(&mut buf);
+    if buf[0] != b'G' {
+        return None;
+    }
+    if !buf.iter().all(|b| matches!(*b, b'A'..=b'Z' | b'2'..=b'7')) {
+        return None;
+    }
+    Some(Address::from_string(issuer))
 }
 
 #[contracttype]
@@ -317,9 +367,14 @@ pub enum DataKey {
     /// records stay enumerable during index rebuilds even if the history
     /// index itself is corrupted or cleared.
     PaymentLog(u32),
-    /// Allowlist entry for a token in **persistent** storage.
-    /// Key: AllowList(asset_code, issuer)
+    /// Legacy (pre-schema-V6) allowlist entry keyed by a raw issuer
+    /// *string*. Kept so `migrate_schema_v5_to_v6` and the dual-read
+    /// fallback in [`is_asset_allowed`] can still find keys written before
+    /// the issuer was typed as [`Address`]. New writes use [`Self::AllowListV6`].
     AllowList(String, String),
+    /// Allowlist entry for a token in **persistent** storage, keyed by a
+    /// validated issuer [`Address`]. Key: `AllowListV6(asset_code, issuer)`.
+    AllowListV6(String, Address),
     /// Flag for allowing native XLM in **instance** storage.
     AllowNative,
     /// Flag indicating whether the contract is paused (instance storage).
@@ -356,7 +411,16 @@ pub enum DataKey {
     /// but not yet indexed (a legacy entry predating schema V4, until
     /// `allow_asset` is called for it again or the V3 → V4 migration
     /// backfills it from payment history).
+    ///
+    /// Pre-schema-V6 this was keyed by a raw issuer string; that shape is
+    /// kept as this variant. New writes use [`Self::AllowListIndexV6`].
     AllowListIndex(String, String),
+    /// Schema-V6 reverse index, keyed by a validated issuer [`Address`].
+    AllowListIndexV6(String, Address),
+    /// Resume cursor for the V5 → V6 issuer-address rewrite (next
+    /// `PaymentLog` index to process). Instance storage. See
+    /// [`MAX_ISSUER_MIGRATION_BATCH`].
+    IssuerMigrationCursor,
     /// Running count of **currently-allowlisted** assets (i.e. `AllowListLog`
     /// entries that are not holes), in **instance** storage. Distinct from
     /// the log's own write-order length: revoking an asset decrements this
@@ -374,16 +438,27 @@ pub enum DataKey {
 
 /// Asset type enum for multi-asset support.
 ///
-/// This enum distinguishes between native XLM and Stellar-issued tokens,
-/// providing a type-safe way to handle different asset types in the contract.
+/// Native XLM and issued tokens are distinguished *structurally* — there is
+/// no empty-issuer field that signals native. `Native` has no issuer at all;
+/// `Token` carries a validated Stellar [`Address`], so a malformed or
+/// case/whitespace-variant issuer cannot be constructed, stored, or used as
+/// an allowlist key.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Asset {
-    /// Native XLM asset (no issuer required).
+    /// Native XLM. No issuer — the absence is the type, not an empty string.
     Native,
     /// Stellar-issued token with code and issuer.
     /// Format: (asset_code, issuer_address)
-    /// Example: ("USDC", "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5")
+    /// Example: ("USDC", GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5)
+    Token(String, Address),
+}
+
+/// Pre-schema-V6 `Asset` wire shape: the issuer was an unvalidated `String`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum LegacyAsset {
+    Native,
     Token(String, String),
 }
 
@@ -446,6 +521,9 @@ pub struct PaymentRecord {
 
 /// V4 wire shape retained so pre-precision records remain readable after the
 /// schema upgrade. The conversion deliberately marks their scale unknown.
+/// The asset here is the current [`Asset`] (Address-typed issuer); a
+/// still-unmigrated pre-V6 record is decoded via [`LegacyStringIssuerPayment`]
+/// / [`LegacyStringIssuerPaymentNoDecimals`] instead.
 #[contracttype]
 #[derive(Clone, Debug, PartialEq)]
 struct LegacyPaymentRecord {
@@ -457,13 +535,83 @@ struct LegacyPaymentRecord {
     settlement_ref: String,
 }
 
+/// Pre-schema-V6 payment record: `Asset::Token` carried a `String` issuer,
+/// with `asset_decimals` present (schema V5 shape).
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LegacyStringIssuerPayment {
+    pub(crate) invoice_id: String,
+    pub(crate) payer: Address,
+    pub(crate) asset: LegacyAsset,
+    pub(crate) amount: i128,
+    pub(crate) asset_decimals: u32,
+    pub(crate) timestamp: u64,
+    pub(crate) settlement_ref: String,
+}
+
+/// Pre-precision, pre-V6 payment record: string issuer and no decimals.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+struct LegacyStringIssuerPaymentNoDecimals {
+    invoice_id: String,
+    payer: Address,
+    asset: LegacyAsset,
+    amount: i128,
+    timestamp: u64,
+    settlement_ref: String,
+}
+
+fn upgrade_legacy_asset(asset: LegacyAsset) -> Option<Asset> {
+    match asset {
+        LegacyAsset::Native => Some(Asset::Native),
+        LegacyAsset::Token(code, issuer) => {
+            try_parse_issuer_address(&issuer).map(|addr| Asset::Token(code, addr))
+        },
+    }
+}
+
+fn try_read_persistent<T>(env: &Env, key: &DataKey) -> Option<T>
+where
+    T: TryFromVal<Env, Val>,
+{
+    // Persistent::get unwraps ConversionError. Fetch the raw Val first so a
+    // pre-V6 String-issuer record can fall through instead of trapping.
+    let raw: Option<Val> = env.storage().persistent().get(key);
+    raw.and_then(|v| T::try_from_val(env, &v).ok())
+}
+
 fn read_payment_value(env: &Env, key: &DataKey) -> Option<PaymentRecord> {
-    let current: Option<PaymentRecord> = env.storage().persistent().get(key);
-    if let Some(record) = current {
+    if let Some(record) = try_read_persistent::<PaymentRecord>(env, key) {
         return Some(record);
     }
-    let legacy: Option<LegacyPaymentRecord> = env.storage().persistent().get(key);
-    legacy.map(|legacy| PaymentRecord {
+
+    if let Some(legacy) = try_read_persistent::<LegacyStringIssuerPayment>(env, key) {
+        let asset = upgrade_legacy_asset(legacy.asset)?;
+        return Some(PaymentRecord {
+            invoice_id: legacy.invoice_id,
+            payer: legacy.payer,
+            asset,
+            amount: legacy.amount,
+            asset_decimals: legacy.asset_decimals,
+            timestamp: legacy.timestamp,
+            settlement_ref: legacy.settlement_ref,
+        });
+    }
+
+    if let Some(legacy) = try_read_persistent::<LegacyStringIssuerPaymentNoDecimals>(env, key) {
+        let asset = upgrade_legacy_asset(legacy.asset)?;
+        return Some(PaymentRecord {
+            invoice_id: legacy.invoice_id,
+            payer: legacy.payer,
+            asset,
+            amount: legacy.amount,
+            asset_decimals: 0,
+            timestamp: legacy.timestamp,
+            settlement_ref: legacy.settlement_ref,
+        });
+    }
+
+    try_read_persistent::<LegacyPaymentRecord>(env, key).map(|legacy| PaymentRecord {
         invoice_id: legacy.invoice_id,
         payer: legacy.payer,
         asset: legacy.asset,
@@ -528,9 +676,18 @@ pub struct SettlementRefPage {
 #[derive(Clone, Debug, PartialEq)]
 pub struct AllowlistEntry {
     pub code: String,
-    pub issuer: String,
+    pub issuer: Address,
     /// Decimal places recorded when the asset was allowlisted.
     pub decimals: u32,
+}
+
+/// Pre-schema-V6 allowlist log entry: issuer was an unvalidated `String`.
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct LegacyAllowlistEntry {
+    code: String,
+    issuer: String,
+    decimals: u32,
 }
 
 /// A bounded, cursor-friendly slice of the currently-allowlisted assets.
@@ -582,7 +739,7 @@ pub fn ensure_current_contract_meta(env: &Env) {
         Some(meta) if meta == expected => {
             // Bump TTL on every critical instance read
             env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-        }
+        },
         _ => set_contract_meta(env, &expected),
     }
 }
@@ -785,7 +942,7 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
                 .persistent()
                 .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
             Ok(record)
-        }
+        },
         None => Err(ContractError::PaymentNotFound),
     }
 }
@@ -836,7 +993,7 @@ pub fn migrate_legacy_payment_key(env: &Env, invoice_id: &String) -> LegacyMigra
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
             env.storage().persistent().remove(&legacy_key);
             LegacyMigrationOutcome::Migrated
-        }
+        },
         None => LegacyMigrationOutcome::NotFound,
     }
 }
@@ -927,7 +1084,7 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
             Some(record) => {
                 records.push_back(record);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1057,25 +1214,45 @@ pub fn set_native_allowed(env: &Env, allowed: bool) {
 
 /// Return `true` if the specific token is allowlisted.
 /// Extends persistent storage TTL if entry exists.
-pub fn is_asset_allowed(env: &Env, code: &String, issuer: &String) -> bool {
-    let key = DataKey::AllowList(code.clone(), issuer.clone());
-    let exists = env.storage().persistent().has(&key);
+///
+/// Looks up the schema-V6 Address-typed key first, then falls back to the
+/// pre-V6 string-keyed entry using the issuer's canonical strkey. That
+/// fallback is what keeps `record_payment` working in the window between
+/// WASM upgrade and the V5 → V6 storage rewrite.
+pub fn is_asset_allowed(env: &Env, code: &String, issuer: &Address) -> bool {
+    let v6_key = DataKey::AllowListV6(code.clone(), issuer.clone());
+    if env.storage().persistent().has(&v6_key) {
+        env.storage()
+            .persistent()
+            .extend_ttl(&v6_key, MIN_TTL, BUMP_TTL);
+        return true;
+    }
+    let legacy_key = DataKey::AllowList(code.clone(), issuer.to_string());
+    let exists = env.storage().persistent().has(&legacy_key);
     if exists {
         env.storage()
             .persistent()
-            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
     }
     exists
 }
 
 /// Return the recorded precision for an allowlisted token.
-pub fn get_asset_decimals(env: &Env, code: &String, issuer: &String) -> Option<u32> {
-    let key = DataKey::AllowList(code.clone(), issuer.clone());
-    let decimals: Option<u32> = env.storage().persistent().get(&key);
+pub fn get_asset_decimals(env: &Env, code: &String, issuer: &Address) -> Option<u32> {
+    let v6_key = DataKey::AllowListV6(code.clone(), issuer.clone());
+    let decimals: Option<u32> = env.storage().persistent().get(&v6_key);
     if decimals.is_some() {
         env.storage()
             .persistent()
-            .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+            .extend_ttl(&v6_key, MIN_TTL, BUMP_TTL);
+        return decimals;
+    }
+    let legacy_key = DataKey::AllowList(code.clone(), issuer.to_string());
+    let decimals: Option<u32> = env.storage().persistent().get(&legacy_key);
+    if decimals.is_some() {
+        env.storage()
+            .persistent()
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
     }
     decimals
 }
@@ -1089,17 +1266,24 @@ pub fn get_asset_decimals(env: &Env, code: &String, issuer: &String) -> Option<u
 /// (including a redundant re-allow of a currently-allowed pair) is left
 /// untouched, so re-allowing never creates a duplicate log entry or
 /// double-counts `allowlist_count()`.
-pub fn allow_asset(env: &Env, code: &String, issuer: &String) {
+pub fn allow_asset(env: &Env, code: &String, issuer: &Address) {
     allow_asset_with_decimals(env, code, issuer, 7);
 }
 
 /// Add an asset to the allowlist with its declared decimal precision.
-pub fn allow_asset_with_decimals(env: &Env, code: &String, issuer: &String, decimals: u32) {
-    let key = DataKey::AllowList(code.clone(), issuer.clone());
+pub fn allow_asset_with_decimals(env: &Env, code: &String, issuer: &Address, decimals: u32) {
+    let key = DataKey::AllowListV6(code.clone(), issuer.clone());
     env.storage().persistent().set(&key, &decimals);
     env.storage()
         .persistent()
         .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+
+    // Drop a leftover pre-V6 string key if one exists for this pair, so the
+    // asset is not stored twice after an allow during the migration window.
+    let legacy_key = DataKey::AllowList(code.clone(), issuer.to_string());
+    if env.storage().persistent().has(&legacy_key) {
+        env.storage().persistent().remove(&legacy_key);
+    }
 
     backfill_allowlist_index_with_decimals(env, code, issuer, decimals);
 }
@@ -1110,24 +1294,38 @@ pub fn allow_asset_with_decimals(env: &Env, code: &String, issuer: &String, deci
 /// if it was never allowlisted (a safe no-op) — lets the caller (`lib.rs`)
 /// decide whether to emit `AssetRevoked`, so revoking a never-allowlisted
 /// pair is distinguishable from revoking a real entry (issue #464).
-pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
-    let key = DataKey::AllowList(code.clone(), issuer.clone());
-    if !env.storage().persistent().has(&key) {
+pub fn revoke_asset(env: &Env, code: &String, issuer: &Address) -> bool {
+    let v6_key = DataKey::AllowListV6(code.clone(), issuer.clone());
+    let legacy_key = DataKey::AllowList(code.clone(), issuer.to_string());
+    let had_v6 = env.storage().persistent().has(&v6_key);
+    let had_legacy = env.storage().persistent().has(&legacy_key);
+    if !had_v6 && !had_legacy {
         return false;
     }
-    env.storage().persistent().remove(&key);
+    if had_v6 {
+        env.storage().persistent().remove(&v6_key);
+    }
+    if had_legacy {
+        env.storage().persistent().remove(&legacy_key);
+    }
 
     // Remove the pair's enumeration-log entry, if it has one. A currently
     // allowed pair predating schema V4 that has not yet been backfilled
     // (see `migrate_schema_v3_to_v4`) has no `AllowListIndex` entry — that
     // is not an error, just nothing left to remove from the enumeration.
-    let index_key = DataKey::AllowListIndex(code.clone(), issuer.clone());
-    let slot: Option<u32> = env.storage().persistent().get(&index_key);
+    let index_v6 = DataKey::AllowListIndexV6(code.clone(), issuer.clone());
+    let index_legacy = DataKey::AllowListIndex(code.clone(), issuer.to_string());
+    let slot: Option<u32> = env
+        .storage()
+        .persistent()
+        .get(&index_v6)
+        .or_else(|| env.storage().persistent().get(&index_legacy));
     if let Some(slot) = slot {
         env.storage()
             .persistent()
             .remove(&DataKey::AllowListLog(slot));
-        env.storage().persistent().remove(&index_key);
+        env.storage().persistent().remove(&index_v6);
+        env.storage().persistent().remove(&index_legacy);
         decrement_allowlist_count(env);
     }
 
@@ -1144,7 +1342,7 @@ pub fn revoke_asset(env: &Env, code: &String, issuer: &String) -> bool {
 /// Shared by `allow_asset` (the live write path) and the schema V3 → V4
 /// migration (backfilling legacy pre-index entries from payment history),
 /// so both paths agree on exactly one rule for "is this pair indexed yet".
-pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &String) -> bool {
+pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &Address) -> bool {
     backfill_allowlist_index_with_decimals(env, code, issuer, 7)
 }
 
@@ -1152,14 +1350,25 @@ pub fn backfill_allowlist_index(env: &Env, code: &String, issuer: &String) -> bo
 pub fn backfill_allowlist_index_with_decimals(
     env: &Env,
     code: &String,
-    issuer: &String,
+    issuer: &Address,
     decimals: u32,
 ) -> bool {
-    let index_key = DataKey::AllowListIndex(code.clone(), issuer.clone());
-    if env.storage().persistent().has(&index_key) {
+    let index_v6 = DataKey::AllowListIndexV6(code.clone(), issuer.clone());
+    let index_legacy = DataKey::AllowListIndex(code.clone(), issuer.to_string());
+    if env.storage().persistent().has(&index_v6) {
         env.storage()
             .persistent()
-            .extend_ttl(&index_key, MIN_TTL, BUMP_TTL);
+            .extend_ttl(&index_v6, MIN_TTL, BUMP_TTL);
+        return false;
+    }
+    // A pre-V6 index entry already occupies a log slot — promote it rather
+    // than appending a duplicate.
+    if let Some(slot) = env.storage().persistent().get::<_, u32>(&index_legacy) {
+        env.storage().persistent().set(&index_v6, &slot);
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_v6, MIN_TTL, BUMP_TTL);
+        env.storage().persistent().remove(&index_legacy);
         return false;
     }
 
@@ -1175,10 +1384,10 @@ pub fn backfill_allowlist_index_with_decimals(
         .persistent()
         .extend_ttl(&log_key, MIN_TTL, BUMP_TTL);
 
-    env.storage().persistent().set(&index_key, &slot);
+    env.storage().persistent().set(&index_v6, &slot);
     env.storage()
         .persistent()
-        .extend_ttl(&index_key, MIN_TTL, BUMP_TTL);
+        .extend_ttl(&index_v6, MIN_TTL, BUMP_TTL);
 
     set_allowlist_log_count(env, slot + 1);
     bump_allowlist_count(env);
@@ -1237,16 +1446,30 @@ fn set_allowlist_log_count(env: &Env, count: u32) {
 }
 
 /// Look up the allowlist log entry at write-order `slot`. Extends
-/// persistent TTL if the entry exists.
+/// persistent TTL if the entry exists. Falls back to a pre-V6 string-issuer
+/// log value and upgrades it in memory (the V5 → V6 migration rewrites it
+/// in place).
 fn get_allowlist_log_entry(env: &Env, slot: u32) -> Option<AllowlistEntry> {
     let key = DataKey::AllowListLog(slot);
-    let entry: Option<AllowlistEntry> = env.storage().persistent().get(&key);
-    if entry.is_some() {
+    if let Some(entry) = try_read_persistent::<AllowlistEntry>(env, &key) {
         env.storage()
             .persistent()
             .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+        return Some(entry);
     }
-    entry
+    match try_read_persistent::<LegacyAllowlistEntry>(env, &key) {
+        Some(legacy) => {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+            try_parse_issuer_address(&legacy.issuer).map(|issuer| AllowlistEntry {
+                code: legacy.code,
+                issuer,
+                decimals: legacy.decimals,
+            })
+        },
+        None => None,
+    }
 }
 
 /// Read a bounded page of the currently-allowlisted assets starting at
@@ -1276,7 +1499,7 @@ pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1288,6 +1511,107 @@ pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
         has_more: index < total,
         gaps_skipped,
     }
+}
+
+/// Next `PaymentLog` index the V5 → V6 issuer rewrite should process.
+pub fn get_issuer_migration_cursor(env: &Env) -> u32 {
+    let cursor = env
+        .storage()
+        .instance()
+        .get(&DataKey::IssuerMigrationCursor)
+        .unwrap_or(0u32);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+    cursor
+}
+
+pub fn set_issuer_migration_cursor(env: &Env, cursor: u32) {
+    env.storage()
+        .instance()
+        .set(&DataKey::IssuerMigrationCursor, &cursor);
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+}
+
+/// Copy a pre-V6 `AllowList(code, issuer_string)` entry to
+/// `AllowListV6(code, Address)`, migrating the reverse index and log slot
+/// with it. Returns `true` when a string-keyed entry was actually moved.
+/// Unparseable issuers are left in place (unreachable from the new write
+/// path) rather than dropped, so the upgrade never destroys data.
+pub fn migrate_legacy_allowlist_pair(env: &Env, code: &String, issuer_str: &String) -> bool {
+    let Some(addr) = try_parse_issuer_address(issuer_str) else {
+        return false;
+    };
+    let v6_key = DataKey::AllowListV6(code.clone(), addr.clone());
+    let legacy_key = DataKey::AllowList(code.clone(), issuer_str.clone());
+    let decimals: Option<u32> = env.storage().persistent().get(&legacy_key);
+
+    if env.storage().persistent().has(&v6_key) {
+        if decimals.is_some() {
+            env.storage().persistent().remove(&legacy_key);
+        }
+        migrate_legacy_allowlist_index(env, code, issuer_str, &addr);
+        return false;
+    }
+
+    let Some(decimals) = decimals else {
+        return false;
+    };
+    env.storage().persistent().set(&v6_key, &decimals);
+    env.storage()
+        .persistent()
+        .extend_ttl(&v6_key, MIN_TTL, BUMP_TTL);
+    env.storage().persistent().remove(&legacy_key);
+    migrate_legacy_allowlist_index(env, code, issuer_str, &addr);
+    true
+}
+
+fn migrate_legacy_allowlist_index(env: &Env, code: &String, issuer_str: &String, addr: &Address) {
+    let index_v6 = DataKey::AllowListIndexV6(code.clone(), addr.clone());
+    let index_legacy = DataKey::AllowListIndex(code.clone(), issuer_str.clone());
+    if env.storage().persistent().has(&index_v6) {
+        if env.storage().persistent().has(&index_legacy) {
+            env.storage().persistent().remove(&index_legacy);
+        }
+        return;
+    }
+    if let Some(slot) = env.storage().persistent().get::<_, u32>(&index_legacy) {
+        env.storage().persistent().set(&index_v6, &slot);
+        env.storage()
+            .persistent()
+            .extend_ttl(&index_v6, MIN_TTL, BUMP_TTL);
+        env.storage().persistent().remove(&index_legacy);
+        if let Some(entry) = get_allowlist_log_entry(env, slot) {
+            env.storage()
+                .persistent()
+                .set(&DataKey::AllowListLog(slot), &entry);
+            env.storage()
+                .persistent()
+                .extend_ttl(&DataKey::AllowListLog(slot), MIN_TTL, BUMP_TTL);
+        }
+    }
+}
+
+/// Rewrite one payment record (and its history slot, if any) so a pre-V6
+/// string issuer is stored as [`Address`]. Idempotent: a record already in
+/// the current shape is written back unchanged.
+pub fn rewrite_payment_asset(env: &Env, invoice_id: &String) -> bool {
+    let Ok(record) = get_payment(env, invoice_id) else {
+        return false;
+    };
+    set_payment(env, &record);
+    true
+}
+
+/// Rewrite `PaymentHistory(index)` to the current [`PaymentRecord`] shape.
+pub fn rewrite_history_slot(env: &Env, index: u32) -> bool {
+    let Some(record) = get_history_record(env, index) else {
+        return false;
+    };
+    let key = payment_history_key(index);
+    env.storage().persistent().set(&key, &record);
+    env.storage()
+        .persistent()
+        .extend_ttl(&key, MIN_TTL, BUMP_TTL);
+    true
 }
 
 // ─── Pause Helpers ──────────────────────────────────────────────────────────
@@ -1350,24 +1674,29 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             0 => {
                 // Use the migration module for V0 → V1
                 crate::migration::migrate_schema_v0_to_v1(env)?;
-            }
+            },
             1 => {
                 // V1 → V2: backfill per-payer payment indexes (#445)
                 crate::migration::migrate_schema_v1_to_v2(env)?;
-            }
+            },
             2 => {
                 // V2 → V3: backfill settlement_ref → invoice_id mapping (#495)
                 crate::migration::migrate_schema_v2_to_v3(env)?;
-            }
+            },
             3 => {
                 // V3 → V4: backfill the allowlist enumeration index (#464)
                 crate::migration::migrate_schema_v3_to_v4(env)?;
-            }
+            },
             4 => {
                 // V4 → V5: precision metadata is written by the new paths;
                 // pre-existing records retain unknown precision (0).
                 crate::migration::migrate_schema_v4_to_v5(env)?;
-            }
+            },
+            5 => {
+                // V5 → V6: rewrite Token issuers from String to Address
+                // in payment records, history slots, and the allowlist.
+                crate::migration::migrate_schema_v5_to_v6(env)?;
+            },
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
         version += 1;
@@ -1610,7 +1939,7 @@ pub fn get_settlement_ref_page(env: &Env, cursor: u32, limit: u32) -> Settlement
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;

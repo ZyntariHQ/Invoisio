@@ -1,6 +1,9 @@
 import { Logger } from "@nestjs/common";
 import { prismaExtensionCallback } from "./prisma.service";
-import { MerchantContextService, UNSCOPED_MERCHANT_CONTEXT } from "./merchant-context.service";
+import {
+  MerchantContextService,
+  UNSCOPED_MERCHANT_CONTEXT,
+} from "./merchant-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 
 type Deps = Parameters<typeof prismaExtensionCallback>[0];

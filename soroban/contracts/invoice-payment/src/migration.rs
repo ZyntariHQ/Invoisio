@@ -20,18 +20,21 @@
 //! remain readable exactly like any other record. Only a *new*
 //! `record_payment` call is held to the canonical-form rule.
 
-use soroban_sdk::{Env, String, Vec};
+use soroban_sdk::{Address, Env, String, Vec};
 
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
     backfill_allowlist_index, current_contract_meta, ensure_current_contract_meta,
-    get_contract_meta, get_history_count, get_payment, get_payment_log_entry,
-    get_settlement_ref_count, get_settlement_ref_owner, get_storage_schema_version,
-    is_asset_allowed, is_settlement_ref_used, migrate_legacy_payment_key, record_settlement_ref,
-    set_contract_meta, set_history_count, set_settlement_ref_count, DataKey,
-    LegacyMigrationOutcome, PaymentRecord, MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1,
-    STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3, STORAGE_SCHEMA_V4, STORAGE_SCHEMA_VERSION,
+    get_contract_meta, get_history_count, get_issuer_migration_cursor, get_payment,
+    get_payment_log_entry, get_settlement_ref_count, get_settlement_ref_owner,
+    get_storage_schema_version, is_asset_allowed, is_settlement_ref_used,
+    migrate_legacy_allowlist_pair, migrate_legacy_payment_key, record_settlement_ref,
+    rewrite_history_slot, rewrite_payment_asset, set_contract_meta, set_history_count,
+    set_issuer_migration_cursor, set_settlement_ref_count, DataKey, LegacyMigrationOutcome,
+    PaymentRecord, MAX_ISSUER_MIGRATION_BATCH, MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1,
+    STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3, STORAGE_SCHEMA_V4, STORAGE_SCHEMA_V5,
+    STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -448,7 +451,7 @@ pub fn migrate_schema_v2_to_v3(env: &Env) -> Result<(), ContractError> {
 pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
     let payment_count = get_payment_count(env);
     let mut discovered = 0u32;
-    let mut seen: alloc::vec::Vec<(String, String)> = alloc::vec::Vec::new();
+    let mut seen: alloc::vec::Vec<(String, Address)> = alloc::vec::Vec::new();
 
     for i in 0..payment_count {
         if let Some(invoice_id) = get_payment_log_entry(env, i) {
@@ -487,6 +490,104 @@ pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
 /// intentionally avoids inventing a seven-decimal value for an arbitrary
 /// token.
 pub fn migrate_schema_v4_to_v5(env: &Env) -> Result<(), ContractError> {
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_V5;
+    set_contract_meta(env, &meta);
+    Ok(())
+}
+
+/// Migration from schema V5 to V6.
+///
+/// V6 types the token issuer as [`soroban_sdk::Address`] in `Asset::Token`,
+/// `AllowListV6` / `AllowListIndexV6`, and `AllowlistEntry`. Pre-V6 records
+/// stored a raw `String`. This step:
+///
+/// 1. Walks `PaymentLog` (the same enumerable source every other migration
+///    uses) and rewrites each `PaymentV1` / history slot into the Address-
+///    typed shape.
+/// 2. For every distinct parseable token seen, copies
+///    `AllowList(code, issuer_string)` → `AllowListV6(code, Address)` and
+///    drops the string key.
+///
+/// # Sequencing (issues #444, #480)
+/// Runs *after* the WASM `upgrade()` call, as a step of `upgrade_storage`,
+/// while the contract is still paused. The rewrite is bounded by
+/// [`MAX_ISSUER_MIGRATION_BATCH`] and resumed via
+/// [`DataKey::IssuerMigrationCursor`] so a large payment log cannot blow
+/// the invocation footprint — call `upgrade_storage` again until
+/// `version_info().storage_schema_version` reads 6.
+///
+/// # Malformed issuers
+/// A stored string that is not a well-formed `G...` address cannot become
+/// an [`Address`]. Those entries are counted in `skipped_malformed` and
+/// left on the legacy key rather than deleted, so the upgrade never
+/// destroys data. They are unreachable from the new write path (which
+/// cannot construct them) and from `is_asset_allowed` (which looks up by
+/// Address).
+///
+/// # Recovery limit
+/// Same as V3 → V4: an allowlisted asset that has never been paid with is
+/// not discoverable from the payment log. `is_asset_allowed` still falls
+/// back to the string key using the issuer's canonical strkey, so a
+/// well-formed unused entry remains effective until `allow_asset` is
+/// called for it again (which writes the V6 key).
+pub fn migrate_schema_v5_to_v6(env: &Env) -> Result<(), ContractError> {
+    let payment_count = get_payment_count(env);
+    let mut cursor = get_issuer_migration_cursor(env);
+    let mut payments = 0u32;
+    let mut allowlist = 0u32;
+    let mut skipped_malformed = 0u32;
+    let mut processed = 0u32;
+    let mut seen: alloc::vec::Vec<(String, String)> = alloc::vec::Vec::new();
+
+    while cursor < payment_count && processed < MAX_ISSUER_MIGRATION_BATCH {
+        if let Some(invoice_id) = get_payment_log_entry(env, cursor) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                rewrite_payment_asset(env, &invoice_id);
+                rewrite_history_slot(env, cursor);
+                payments += 1;
+                if let crate::storage::Asset::Token(code, issuer) = record.asset {
+                    let issuer_str = issuer.to_string();
+                    if !seen.iter().any(|(c, i)| c == &code && i == &issuer_str) {
+                        seen.push((code.clone(), issuer_str.clone()));
+                        if migrate_legacy_allowlist_pair(env, &code, &issuer_str) {
+                            allowlist += 1;
+                        }
+                    }
+                }
+            } else {
+                // Unreadable because the stored issuer string is not an
+                // address — leave it, count it, keep going.
+                skipped_malformed += 1;
+            }
+        }
+        cursor += 1;
+        processed += 1;
+    }
+
+    set_issuer_migration_cursor(env, cursor);
+
+    if cursor < payment_count {
+        if payments > 0 || allowlist > 0 || skipped_malformed > 0 {
+            events::emit_issuers_migrated(env, payments, allowlist, skipped_malformed);
+        }
+        return Err(ContractError::IssuerMigrationIncomplete);
+    }
+
+    // Also rewrite any history slots past the payment-log walk (a rebuilt
+    // index can be longer); bounded by the same batch leftover.
+    let history_count = get_history_count(env);
+    let mut h = cursor.saturating_sub(payment_count);
+    while h < history_count && processed < MAX_ISSUER_MIGRATION_BATCH {
+        rewrite_history_slot(env, h);
+        h += 1;
+        processed += 1;
+    }
+
+    if payments > 0 || allowlist > 0 || skipped_malformed > 0 {
+        events::emit_issuers_migrated(env, payments, allowlist, skipped_malformed);
+    }
+
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
     meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
     set_contract_meta(env, &meta);
@@ -592,7 +693,7 @@ pub fn verify_settlement_ref_index(env: &Env) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{InvoicePaymentContract, InvoicePaymentContractClient};
+    use crate::{Asset, InvoicePaymentContract, InvoicePaymentContractClient};
     use alloc::format;
     use soroban_sdk::{
         testutils::{Address as _, Ledger as _},
@@ -623,8 +724,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("log-only-ref-{:02}", i)),
             );
@@ -668,8 +768,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("canonical-ref-{:02}", i)),
             );
@@ -720,8 +819,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("partial-ref-{:02}", i)),
             );
@@ -788,8 +886,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("settle-{:02}", i)),
             );
@@ -850,8 +947,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("settle-{}", id)),
             );
@@ -918,8 +1014,7 @@ mod tests {
             client.record_payment(
                 &invoice_id,
                 &payer,
-                &String::from_str(&env, "XLM"),
-                &String::from_str(&env, ""),
+                &Asset::Native,
                 &((i as i128 + 1) * 10_000_000i128),
                 &String::from_str(&env, &format!("settle-{:02}", i)),
             );

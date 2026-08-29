@@ -328,7 +328,10 @@ describe("HorizonWatcherService cursor persistence", () => {
     }
 
     it("treats PaymentAlreadyRecorded as a benign retry: no anchoring failure recorded", async () => {
-      const payment = makePayment({ paging_token: "900", id: "already-recorded" });
+      const payment = makePayment({
+        paging_token: "900",
+        id: "already-recorded",
+      });
       mockStellarService.getServer.mockReturnValue(makeServer([payment]));
       mockSorobanService.recordPayment.mockRejectedValue(
         new SorobanContractError(
@@ -339,7 +342,9 @@ describe("HorizonWatcherService cursor persistence", () => {
       );
 
       await service.pollPayments();
-      await waitFor(() => mockSorobanService.recordPayment.mock.calls.length > 0);
+      await waitFor(
+        () => mockSorobanService.recordPayment.mock.calls.length > 0,
+      );
       await flushAnchoringCatch();
 
       expect(mockInvoicesService.recordAnchoringFailure).not.toHaveBeenCalled();
@@ -368,7 +373,9 @@ describe("HorizonWatcherService cursor persistence", () => {
       mockSorobanService.getSettlementRefOwner.mockResolvedValue("42");
 
       await service.pollPayments();
-      await waitFor(() => mockSorobanService.getSettlementRefOwner.mock.calls.length > 0);
+      await waitFor(
+        () => mockSorobanService.getSettlementRefOwner.mock.calls.length > 0,
+      );
       await flushAnchoringCatch();
 
       expect(mockSorobanService.getSettlementRefOwner).toHaveBeenCalledWith(
