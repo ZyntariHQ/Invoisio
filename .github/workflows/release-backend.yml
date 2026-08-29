@@ -132,6 +132,28 @@ jobs:
           echo "=== Step 2: Applying pending migrations to test database ==="
           npx prisma migrate deploy || { echo "::error::Prisma migrate deploy failed! Pending migrations could not be applied cleanly."; exit 1; }
 
+      - name: Install psql client
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y postgresql-client
+
+      - name: Wait for Postgres to be ready
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: |
+          echo "Waiting for Postgres to become available..."
+          for i in $(seq 1 30); do
+            pg_isready -h localhost -p 5432 && break || sleep 1
+          done
+          pg_isready -h localhost -p 5432 || (echo "Postgres not ready" && exit 1)
+
+      - name: Apply non-blocking DB indexes
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
+        run: |
+          chmod +x scripts/run_non_blocking_migrations.sh || true
+          scripts/run_non_blocking_migrations.sh
+
       - name: Smoke Verification Test
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb?schema=public
