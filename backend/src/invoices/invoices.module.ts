@@ -1,7 +1,9 @@
 import { Module } from "@nestjs/common";
+import { ConfigModule } from "@nestjs/config";
 import { InvoicesController } from "./invoices.controller";
 import { InvoicesService } from "./invoices.service";
 import { DraftService } from "./draft.service";
+import { DraftCleanupJob } from "./draft-cleanup.job";
 import { PaymentReviewsService } from "./payment-reviews.service";
 import { StellarModule } from "../stellar/stellar.module";
 import { SorobanModule } from "../soroban/soroban.module";
@@ -23,6 +25,7 @@ import { ActivityFeedModule } from "../activity-feed/activity-feed.module";
  */
 @Module({
   imports: [
+    ConfigModule,
     StellarModule,
     SorobanModule,
     PrismaModule,
@@ -34,7 +37,7 @@ import { ActivityFeedModule } from "../activity-feed/activity-feed.module";
     ActivityFeedModule,
   ],
   controllers: [InvoicesController],
-  providers: [InvoicesService, PaymentReviewsService, DraftService],
+  providers: [InvoicesService, PaymentReviewsService, DraftService, DraftCleanupJob],
   exports: [InvoicesService, DraftService],
 })
 export class InvoicesModule {}

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
 } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "../prisma/prisma.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 import { ActivityFeedService } from "../activity-feed/activity-feed.service";
@@ -23,14 +24,24 @@ import { Invoice } from "./entities/invoice.entity";
 @Injectable()
 export class DraftService {
   private readonly AUTO_SAVE_INTERVAL_MS = 30_000; // 30 seconds
-  private readonly DRAFT_EXPIRY_DAYS = 30; // 30 days before cleanup
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly stellarService: StellarService,
     private readonly structuredLogger: StructuredLogger,
     private readonly activityFeed: ActivityFeedService,
+    private readonly configService: ConfigService,
   ) {}
+
+  /**
+   * How many days a draft may go without an auto-save before it is
+   * considered stale and eligible for cleanup.
+   * Reads DRAFT_RETENTION_DAYS at call time so a restart picks up changes
+   * immediately without a code deploy.
+   */
+  private get retentionDays(): number {
+    return this.configService.get<number>("draft.retentionDays") ?? 30;
+  }
 
   /**
    * Create a new draft invoice
@@ -427,7 +438,7 @@ export class DraftService {
    */
   async cleanupOldDrafts(): Promise<{ deletedCount: number }> {
     const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - this.DRAFT_EXPIRY_DAYS);
+    cutoff.setDate(cutoff.getDate() - this.retentionDays);
 
     const result = await this.prisma.invoice.deleteMany({
       where: {
