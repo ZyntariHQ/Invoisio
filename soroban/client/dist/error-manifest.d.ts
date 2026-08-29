@@ -41,7 +41,7 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
 }, {
     readonly code: 7;
     readonly name: "InvalidAsset";
-    readonly meaning: "asset_code was empty, or a non-XLM asset was supplied without an asset_issuer; every payment must identify the asset unambiguously.";
+    readonly meaning: "token code was empty, exceeded 12 characters, or was the reserved code \"XLM\" on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values, so a malformed issuer cannot reach this error.";
 }, {
     readonly code: 8;
     readonly name: "AssetNotAllowed";
@@ -102,6 +102,10 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 22;
     readonly name: "LegacyPaymentMigrationBatchTooLarge";
     readonly meaning: "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.";
+}, {
+    readonly code: 23;
+    readonly name: "IssuerMigrationIncomplete";
+    readonly meaning: "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again. Stay paused until storage_schema_version is current.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

@@ -343,6 +343,14 @@
                   "val": {
                     "u64": "0"
                   }
+                },
+                {
+                  "key": {
+                    "symbol": "schema_version"
+                  },
+                  "val": {
+                    "u32": 2
+                  }
                 }
               ]
             }

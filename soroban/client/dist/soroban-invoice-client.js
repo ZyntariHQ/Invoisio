@@ -101,7 +101,7 @@ class SorobanInvoiceClient {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call('record_payment', (0, codec_1.encodeString)(params.invoiceId), (0, codec_1.encodeAddress)(params.payer), (0, codec_1.encodeString)(params.assetCode), (0, codec_1.encodeString)(params.assetIssuer), (0, codec_1.encodeI128)(params.amount), (0, codec_1.encodeString)(params.settlementRef)))
+            .addOperation(this.contract.call('record_payment', (0, codec_1.encodeString)(params.invoiceId), (0, codec_1.encodeAddress)(params.payer), (0, codec_1.encodeAsset)(params.assetCode, params.assetIssuer), (0, codec_1.encodeI128)(params.amount), (0, codec_1.encodeString)(params.settlementRef)))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);
@@ -218,7 +218,7 @@ class SorobanInvoiceClient {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call(paramsDecimals === undefined ? 'allow_asset' : 'allow_asset_with_decimals', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer), ...(paramsDecimals === undefined ? [] : [(0, codec_1.encodeU32)(paramsDecimals)])))
+            .addOperation(this.contract.call(paramsDecimals === undefined ? 'allow_asset' : 'allow_asset_with_decimals', (0, codec_1.encodeString)(code), (0, codec_1.encodeAddress)(issuer), ...(paramsDecimals === undefined ? [] : [(0, codec_1.encodeU32)(paramsDecimals)])))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);
@@ -246,7 +246,7 @@ class SorobanInvoiceClient {
             fee: stellar_sdk_1.BASE_FEE,
             networkPassphrase: this.config.networkPassphrase,
         })
-            .addOperation(this.contract.call('revoke_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeString)(issuer)))
+            .addOperation(this.contract.call('revoke_asset', (0, codec_1.encodeString)(code), (0, codec_1.encodeAddress)(issuer)))
             .setTimeout(TX_TIMEOUT_SECONDS)
             .build();
         return this.submitWrite(tx);

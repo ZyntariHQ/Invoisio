@@ -1,5 +1,14 @@
 import { xdr } from '@stellar/stellar-sdk';
 import { AllowlistPage, ContractConfig, PaymentHistoryPage, PaymentRecord, SettlementRefIndexStatus, SettlementRefPage, SorobanContractError } from './types';
+export type NamedEventPayload = Record<string, unknown>;
+/** Decode contract-event data without treating declaration order as a schema. */
+export declare function decodeNamedEventPayload(value: unknown): NamedEventPayload;
+/** Apply the single schema-version policy shared by every contract event. */
+export declare function validateEventSchemaVersion(payload: NamedEventPayload, expectedVersion: number): {
+    schemaVersion: number;
+} | {
+    reason: string;
+};
 /** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
 export declare const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
@@ -26,6 +35,15 @@ export declare function isCanonicalIdentifier(value: string, maxLen: number): bo
 export declare function assertCanonicalIdentifier(value: string, maxLen: number, fieldName: string): void;
 export declare function encodeString(value: string): xdr.ScVal;
 export declare function encodeAddress(address: string): xdr.ScVal;
+/**
+ * Encode the contract `Asset` enum for `record_payment`.
+ *
+ * Native XLM is the `Native` unit variant — an empty `issuer` maps here, so
+ * callers can keep passing `assetCode: 'XLM', assetIssuer: ''`. A token is
+ * `Token(code, Address)`: a malformed issuer fails at `new Address(...)`
+ * rather than being written on-chain.
+ */
+export declare function encodeAsset(code: string, issuer: string): xdr.ScVal;
 /**
  * Encode a BigInt as a Soroban i128 ScVal.
  * Soroban stores token amounts as i128 to safely cover the full range of

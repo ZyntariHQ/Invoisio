@@ -244,6 +244,14 @@
                 },
                 {
                   "key": {
+                    "symbol": "schema_version"
+                  },
+                  "val": {
+                    "u32": 2
+                  }
+                },
+                {
+                  "key": {
                     "symbol": "timestamp"
                   },
                   "val": {

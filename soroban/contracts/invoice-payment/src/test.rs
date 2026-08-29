@@ -1696,6 +1696,7 @@ fn test_allowlist_events_emitted() {
                 soroban_sdk::vec![&env, Symbol::new(&env, "asset_allowlisted").into_val(&env)],
                 soroban_sdk::map![
                     &env,
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env)),
                     (Symbol::new(&env, "code"), code_val),
                     (Symbol::new(&env, "issuer"), issuer_val)
                 ]
@@ -1718,6 +1719,7 @@ fn test_allowlist_events_emitted() {
                 soroban_sdk::vec![&env, Symbol::new(&env, "asset_revoked").into_val(&env)],
                 soroban_sdk::map![
                     &env,
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env)),
                     (Symbol::new(&env, "code"), code_val),
                     (Symbol::new(&env, "issuer"), issuer_val)
                 ]
@@ -1740,7 +1742,12 @@ fn test_allowlist_events_emitted() {
                     &env,
                     Symbol::new(&env, "native_allow_changed").into_val(&env)
                 ],
-                soroban_sdk::map![&env, (Symbol::new(&env, "allowed"), allowed_val)].into_val(&env)
+                soroban_sdk::map![
+                    &env,
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env)),
+                    (Symbol::new(&env, "allowed"), allowed_val)
+                ]
+                .into_val(&env)
             )
         ]
     );
@@ -2551,6 +2558,7 @@ fn test_propose_admin_emits_admin_transfer_proposed_event() {
                 ],
                 soroban_sdk::map![
                     &env,
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env)),
                     (Symbol::new(&env, "current_admin"), admin_val),
                     (Symbol::new(&env, "new_admin"), new_admin_val),
                     (
@@ -2592,6 +2600,7 @@ fn test_accept_admin_emits_admin_transfer_accepted_event() {
                 ],
                 soroban_sdk::map![
                     &env,
+                    (Symbol::new(&env, "schema_version"), 2u32.into_val(&env)),
                     (Symbol::new(&env, "previous_admin"), admin_val),
                     (Symbol::new(&env, "new_admin"), new_admin_val),
                     (

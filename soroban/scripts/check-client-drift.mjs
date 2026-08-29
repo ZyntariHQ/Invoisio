@@ -28,6 +28,8 @@ const SOROBAN_DIR = path.resolve(__dirname, '..');
 const SCHEMA_PATH = path.join(SOROBAN_DIR, 'contracts/invoice-payment/schema.json');
 const ERROR_MANIFEST_PATH = path.join(SOROBAN_DIR, 'client/src/error-manifest.ts');
 const CLIENT_PATH = path.join(SOROBAN_DIR, 'client/src/soroban-invoice-client.ts');
+const EVENTS_RS_PATH = path.join(SOROBAN_DIR, 'contracts/invoice-payment/src/events.rs');
+const EVENTS_CLIENT_PATH = path.join(SOROBAN_DIR, 'client/src/events.ts');
 
 const failures = [];
 const fail = (msg) => failures.push(msg);
@@ -35,6 +37,8 @@ const fail = (msg) => failures.push(msg);
 const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
 const errorManifestSrc = readFileSync(ERROR_MANIFEST_PATH, 'utf8');
 const clientSrc = readFileSync(CLIENT_PATH, 'utf8');
+const eventsRsSrc = readFileSync(EVENTS_RS_PATH, 'utf8');
+const eventsClientSrc = readFileSync(EVENTS_CLIENT_PATH, 'utf8');
 
 // ─── 1. error-manifest.ts vs schema.json errors ─────────────────────────────
 
@@ -96,6 +100,45 @@ for (const name of calledMethods) {
   }
 }
 
+// ─── 3. Event payload ABI: Rust declaration order <-> schema <-> TS client ─
+
+const rustEvents = new Map();
+const rustEventRe = /#\[contractevent\][\s\S]*?pub struct (\w+) \{([\s\S]*?)\n\}/g;
+for (const match of eventsRsSrc.matchAll(rustEventRe)) {
+  const fields = [...match[2].matchAll(/^\s*pub (\w+):/gm)].map((field) => field[1]);
+  rustEvents.set(match[1], fields);
+}
+if (rustEvents.size === 0) fail('events.rs: found no #[contractevent] structs — event parser out of date?');
+
+const schemaEvents = schema.events ?? {};
+for (const [name, rustFields] of rustEvents) {
+  const schemaEvent = schemaEvents[name];
+  if (!schemaEvent) {
+    fail(`schema.json is missing contract event '${name}'.`);
+    continue;
+  }
+  const schemaFields = Object.keys(schemaEvent.fields ?? {});
+  if (JSON.stringify(rustFields) !== JSON.stringify(schemaFields)) {
+    fail(
+      `event '${name}' field order drift: Rust=[${rustFields.join(', ')}], ` +
+        `schema.json=[${schemaFields.join(', ')}]. Event field order is ABI and requires a schema version bump.`,
+    );
+  }
+}
+for (const name of Object.keys(schemaEvents)) {
+  if (!rustEvents.has(name)) fail(`schema.json declares stale contract event '${name}'.`);
+}
+
+const clientEventNames = new Set([...eventsClientSrc.matchAll(/type:\s*'([a-z_]+)'/g)].map((match) => match[1]));
+for (const schemaEvent of Object.values(schemaEvents)) {
+  if (!clientEventNames.has(schemaEvent.topic)) {
+    fail(`client/src/events.ts is missing decoder coverage for event topic '${schemaEvent.topic}'.`);
+  }
+}
+if (!eventsClientSrc.includes('schemaVersion: number')) {
+  fail('client/src/events.ts must declare schemaVersion on every decoded event.');
+}
+
 // ─── Report ──────────────────────────────────────────────────────────────
 
 if (failures.length > 0) {
@@ -112,5 +155,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `No ABI drift: ${manifestErrors.size} client error codes and ${calledMethods.size} client-called methods all match schema.json.`,
+  `No ABI drift: ${manifestErrors.size} error codes, ${calledMethods.size} methods, and ${rustEvents.size} event payloads match.`,
 );

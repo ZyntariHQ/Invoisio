@@ -183,7 +183,7 @@ export interface RecordPaymentParams {
     readonly payer: string;
     /** "XLM" or a token code such as "USDC" */
     readonly assetCode: string;
-    /** Issuer G... address for token assets; empty string ("") for XLM */
+    /** Issuer G... address for token assets; empty string ("") for native XLM (`Asset::Native`). Must be a well-formed Stellar address when non-empty. */
     readonly assetIssuer: string;
     /** Amount in smallest denomination (must be > 0) */
     readonly amount: bigint;
