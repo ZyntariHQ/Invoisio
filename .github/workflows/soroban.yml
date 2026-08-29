@@ -27,15 +27,23 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          toolchain: "1.91.0"
+          targets: wasm32v1-none
+          components: clippy, rustfmt
 
       - name: Cargo Cache
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: soroban
 
-      - name: Run Tests
-        run: cargo test
+      - name: Run Tests (locked)
+        run: cargo test --locked
+
+      - name: Run Clippy (warnings denied)
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
 
       - name: Guard against stale migration helper enumeration
         run: |
@@ -45,11 +53,44 @@ jobs:
             exit 1
           fi
 
-      - name: Build WASM
-        run: cargo build --target wasm32-unknown-unknown --release
+      - name: Build WASM (release target)
+        run: cargo build --locked --target wasm32v1-none --release
+
+      - name: Check WASM size
+        run: |
+          WASM_FILE="target/wasm32v1-none/release/invoice_payment.wasm"
+          if [ -f "$WASM_FILE" ]; then
+            SIZE=$(stat -c%s "$WASM_FILE")
+            SIZE_KB=$((SIZE / 1024))
+            echo "WASM size: ${SIZE_KB}KB (${SIZE} bytes)"
+            if [ $SIZE -gt 102400 ] && [ $SIZE -le 153600 ]; then
+              echo "::warning::WASM size exceeds 100KB threshold (${SIZE_KB}KB)"
+            elif [ $SIZE -gt 153600 ]; then
+              echo "::error::WASM size exceeds hard threshold (150KB); please reduce binary size or update the threshold. (${SIZE_KB}KB)"
+              exit 1
+            fi
+          else
+            echo "::error::WASM file not found at $WASM_FILE"
+            exit 1
+          fi
+
+      - name: Run dependency advisory check (fail on high/critical)
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install --locked cargo-audit
+          fi
+          sudo apt-get update && sudo apt-get install -y jq
+          cargo audit --json > audit.json || true
+          if jq -e '.vulnerabilities.list[] | select(.advisory.severity=="High" or .advisory.severity=="Critical")' audit.json >/dev/null 2>&1; then
+            echo "::error::High or Critical vulnerability found by cargo-audit. See audit.json for details."
+            cat audit.json
+            exit 1
+          else
+            echo "No high/critical advisories found. (low/medium advisories may be present.)"
+          fi
 
   abi-drift:
-    name: ABI Drift Check (contract ⇄ schema.json ⇄ TS client)
+    name: ABI Drift Check (contract ⇄ schema.json ⇄ TS client ⇄ ops tooling)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -68,11 +109,36 @@ jobs:
           cd contracts/invoice-payment
           ./generate-schema.sh
           if ! git diff --exit-code -- schema.json; then
-            echo "::error::soroban/contracts/invoice-payment/schema.json is out of date." \
-              "Run 'make schema' (or ./generate-schema.sh from contracts/invoice-payment/)" \
-              "and commit the result."
+            echo "::error::soroban/contracts/invoice-payment/schema.json is out of date."
+            echo "Run 'make schema' (or ./generate-schema.sh from contracts/invoice-payment/) and commit the result."
             exit 1
           fi
 
       - name: Check TypeScript client against schema.json
         run: node scripts/check-client-drift.mjs
+
+      - name: Check ops tooling against current ABI
+        run: |
+          echo "Checking ops tooling for ABI drift..."
+          if ! grep -q "settlement_ref" invoke-record-payment.sh; then
+            echo "::error::invoke-record-payment.sh is missing 'settlement_ref' parameter"
+            exit 1
+          fi
+          if ! grep -A 10 "invoke-record-payment:" contracts/invoice-payment/Makefile | grep -q "settlement_ref"; then
+            echo "::error::Makefile invoke-record-payment target is missing 'settlement_ref'"
+            exit 1
+          fi
+          echo "✅ All ops tooling checks passed"
+
+      - name: Coverage (cargo-llvm-cov)
+        run: |
+          if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
+            cargo install --locked cargo-llvm-cov || true
+          fi
+          rustup component add llvm-tools-preview || true
+          cargo llvm-cov --workspace --lcov --output-path target/llvm-cov || true
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: soroban-coverage
+          path: target/llvm-cov
