@@ -95,6 +95,14 @@ describe("Rate Limiting (e2e)", () => {
     jest
       .spyOn(inv, "create")
       .mockImplementation((async () => ({ id: "inv-1" })) as any);
+    jest
+      .spyOn(inv, "importFromCsv")
+      .mockImplementation((async () => ({
+        created: 1,
+        failed: 0,
+        skipped: 0,
+        errors: [],
+      })) as any);
 
     // Generate a valid JWT for protected endpoints
     const jwtService = app.get(JwtService);
@@ -430,8 +438,10 @@ describe("Rate Limiting (e2e)", () => {
       });
 
       const invoiceData = {
+        invoiceNumber: "INV-ISO",
         clientName: "Isolation Test",
-        amount: "50",
+        clientEmail: "iso@example.com",
+        amount: 50,
         asset_code: "USDC",
         description: "Isolation test invoice",
       };
