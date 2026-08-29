@@ -21,7 +21,7 @@ export class InvoiceEngagementController {
   constructor(private readonly engagementService: InvoiceEngagementService) {}
 
   @Public()
-  @Throttle({ default: { limit: 30, ttl: 60 } }) // 30 events per minute per IP
+  @Throttle({ default: { limit: 30, ttl: 60_000 } }) // 30 events per minute per IP
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
   async create(

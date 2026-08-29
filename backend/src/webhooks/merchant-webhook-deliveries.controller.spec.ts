@@ -287,9 +287,7 @@ describe("MerchantWebhookDeliveriesController (HTTP role enforcement)", () => {
         .set("Authorization", makeToken({ role: MerchantRole.OWNER }))
         .expect(200);
 
-      expect(
-        mockWebhooksService.listMerchantDeadLetters,
-      ).toHaveBeenCalledWith(
+      expect(mockWebhooksService.listMerchantDeadLetters).toHaveBeenCalledWith(
         MERCHANT_A,
         expect.objectContaining({ status: "pending_retry" }),
       );
@@ -304,9 +302,10 @@ describe("MerchantWebhookDeliveriesController (HTTP role enforcement)", () => {
         )
         .expect(200);
 
-      expect(
-        mockWebhooksService.listMerchantDeadLetters,
-      ).toHaveBeenCalledWith(MERCHANT_A, expect.any(Object));
+      expect(mockWebhooksService.listMerchantDeadLetters).toHaveBeenCalledWith(
+        MERCHANT_A,
+        expect.any(Object),
+      );
     });
   });
 
@@ -386,9 +385,10 @@ describe("MerchantWebhookDeliveriesController (HTTP role enforcement)", () => {
         )
         .expect(200);
 
-      expect(
-        mockWebhooksService.retryMerchantDeadLetter,
-      ).toHaveBeenCalledWith(DEAD_LETTER_ID, MERCHANT_A);
+      expect(mockWebhooksService.retryMerchantDeadLetter).toHaveBeenCalledWith(
+        DEAD_LETTER_ID,
+        MERCHANT_A,
+      );
     });
   });
 });

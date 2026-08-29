@@ -178,11 +178,15 @@ export class SorobanService implements OnModuleInit {
   }
 
   async pingRpc(): Promise<RpcCheckResult> {
-    const cfg = this.configService.get("stellar") as any;
+    const cfg = this.configService.get("stellar");
     if (!cfg || !cfg.sorobanRpcUrl) {
-      return { reachable: false, latencyMs: 0, error: "Soroban RPC URL not configured" };
+      return {
+        reachable: false,
+        latencyMs: 0,
+        error: "Soroban RPC URL not configured",
+      };
     }
-    
+
     const start = Date.now();
     try {
       // Import dynamically or rely on global fetch since we don't want to mess up stellar-sdk import

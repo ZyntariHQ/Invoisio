@@ -20,6 +20,7 @@ export class HealthController {
    * Liveness probe — confirms the process is running.
    * No dependency checks; safe to call frequently.
    */
+  @Public()
   @Get()
   @HttpCode(HttpStatus.OK)
   checkLiveness() {
@@ -31,6 +32,7 @@ export class HealthController {
    * Returns structured per-service status.
    * HTTP 200 when all dependencies are healthy, HTTP 503 when any are down.
    */
+  @Public()
   @Get("ready")
   async checkReadiness(@Res() res: Response) {
     const report: HealthReport = await this.healthService.checkReadiness();
