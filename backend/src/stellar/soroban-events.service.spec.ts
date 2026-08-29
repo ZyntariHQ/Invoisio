@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { EVENT_SCHEMA_VERSION } from "@invoisio/soroban-client";
 import { SorobanEventsService } from "./soroban-events.service";
 import { ConfigService } from "@nestjs/config";
 import { InvoicesService } from "../invoices/invoices.service";
@@ -10,11 +11,12 @@ import {
   mockStructuredLogger,
 } from "../observability/testing/observability.mock";
 
+
 describe("SorobanEventsService", () => {
   let service: SorobanEventsService;
   const applySpy = jest.fn();
 
-  const mockPrismaService = {
+  const mockPrismaService: any  = {
     watcherCursor: {
       findUnique: jest.fn().mockResolvedValue(null),
       upsert: jest.fn().mockResolvedValue({ updatedAt: new Date() }),
@@ -31,7 +33,7 @@ describe("SorobanEventsService", () => {
           sorobanRpcUrl: "https://soroban-testnet.stellar.org",
           sorobanContractId:
             "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
-          sorobanEventTopic: "InvoicePaymentRecorded",
+          sorobanEventTopic: "invoice_payment_recorded",
         };
       }
       if (key === "SOROBAN_RETRY_DELAY_MS") return "0";
@@ -98,14 +100,11 @@ describe("SorobanEventsService", () => {
     return {
       id: `evt-${Math.random().toString(36).slice(2, 8)}`,
       pagingToken: Math.ceil(Math.random() * 1_000_000).toString(),
-      topic: ["InvoicePaymentRecorded"],
+      topic: ["invoice_payment_recorded"],
       ledger: 123,
       value: {
         invoice_id: "invoisio-550e8400-e29b-41d4-a716-446655440000",
-        payer: "GCBZQY7M2K6Z2QG2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2",
-        asset_code: "XLM",
-        asset_issuer: "",
-        amount: "10000000",
+        schema_version: EVENT_SCHEMA_VERSION
       },
       ...overrides,
     };
@@ -188,6 +187,7 @@ describe("SorobanEventsService", () => {
         value: {
           invoice_id: "invoisio-99999999-9999-9999-9999-999999999999",
           amount: "5000000",
+          schema_version: EVENT_SCHEMA_VERSION
         },
       });
       await runTickOnce([poison, next]);
@@ -245,14 +245,15 @@ describe("SorobanEventsService", () => {
   it("parses a minimized payment_recorded event (issue #512: invoice_id + schema_version only) and forwards its invoice_id", async () => {
     // As of issue #512 the on-chain event no longer carries payer/asset/
     // amount — only schema_version and invoice_id.
+   
     const ev = {
       id: "evt2",
-      topic: ["InvoicePaymentRecorded"],
+      topic: ["invoice_payment_recorded"],
       ledger: 123,
       value: {
         invoice_id: "invoisio-550e8400-e29b-41d4-a716-446655440000",
-        schema_version: 2,
-      },
+        schema_version: EVENT_SCHEMA_VERSION
+      }
     };
     // No read client configured in this test (mockConfigService omits
     // merchantPublicKey/networkPassphrase) — enrichment is skipped and the
@@ -272,14 +273,15 @@ describe("SorobanEventsService", () => {
   });
 
   it("enriches a minimized event with the full record via get_payment(invoice_id) (issue #512)", async () => {
+    
     const ev = {
       id: "evt3",
-      topic: ["InvoicePaymentRecorded"],
+      topic: ["invoice_payment_recorded"],
       ledger: 124,
       value: {
         invoice_id: "invoisio-enrich-test",
-        schema_version: 2,
-      },
+        schema_version: EVENT_SCHEMA_VERSION
+      }
     };
     (service as any).fetchPaymentRecord = jest.fn().mockResolvedValue({
       payer: "GCBZQY7M2K6Z2QG2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2Z2",

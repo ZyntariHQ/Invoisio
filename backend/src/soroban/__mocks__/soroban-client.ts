@@ -6,6 +6,15 @@
  * as the real library without importing @stellar/stellar-sdk.
  */
 
+/**
+ * Must stay in sync with `EVENT_SCHEMA_VERSION` in soroban/client/src/events.ts.
+ * This mock exists so backend tests don't need soroban/client/node_modules/
+ * installed -- but that means a bump to the real constant won't be caught
+ * automatically here. If soroban-events tests start silently getting 0 calls
+ * on applySpy, check this number against the real export first.
+ */
+export const EVENT_SCHEMA_VERSION = 2;
+
 export interface PaymentRecord {
   invoiceId: string;
   payer: string;
@@ -91,3 +100,4 @@ export class SorobanInvoiceClient {
     throw new Error("stub — replace with jest.fn() in tests");
   }
 }
+

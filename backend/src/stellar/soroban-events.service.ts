@@ -1,5 +1,6 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { InvoicesService } from "../invoices/invoices.service";
 import { PrismaService } from "../prisma/prisma.service";
 import https from "node:https";
@@ -329,9 +330,15 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
           {};
 
         const payload = this.coercePaymentRecorded(val);
-        if (!payload || !payload.invoice_id) {
-          return;
-        }
+          if (!payload || !payload.invoice_id) {
+            this.logger.warn("soroban.event.schema_mismatch_or_unparseable", {
+              domain: "soroban",
+              eventId,
+              rawSchemaVersion: (val as any)?.schema_version,
+              expectedSchemaVersion: EVENT_SCHEMA_VERSION,
+            });
+            return;
+          }
 
         const invoiceId = String(payload.invoice_id);
         const ledger =
@@ -367,6 +374,15 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
     invoice_id?: string;
     schema_version?: number;
   } | null {
+    if (typeof obj === "string") {
+      try {
+        const parsed = xdr.ScVal.fromXDR(obj, "base64");
+        obj = scValToNative(parsed);
+      } catch {
+        return null;
+      }
+    }
+
     if (!obj || typeof obj !== "object") return null;
     if ("invoice_id" in obj) {
       return Number(obj.schema_version) === EVENT_SCHEMA_VERSION ? obj : null;
@@ -376,12 +392,18 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
       for (const entry of obj.map) {
         const key =
           entry?.key?.symbol ?? entry?.key?.string ?? entry?.key ?? undefined;
+        const rawVal = entry?.val;
         const val =
-          entry?.val?.string ??
-          entry?.val?.address ??
-          entry?.val?.i128 ??
-          entry?.val?.u64 ??
-          entry?.val ??
+          rawVal?.string ??
+          rawVal?.address ??
+          rawVal?.i128 ??
+          rawVal?.i64 ??
+          rawVal?.u64 ??
+          rawVal?.u32 ??
+          rawVal?.bool ??
+          rawVal?.symbol ??
+          rawVal?.bytes ??
+          rawVal ??
           undefined;
         if (key !== undefined) {
           out[String(key)] = val;
@@ -562,3 +584,5 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
     );
   }
 }
+export { EVENT_SCHEMA_VERSION };
+
