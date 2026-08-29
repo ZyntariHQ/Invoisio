@@ -31,9 +31,12 @@ describe("SorobanService", () => {
             get: jest.fn().mockReturnValue({
               sorobanRpcUrl: "https://soroban-testnet.stellar.org",
               networkPassphrase: "Test SDF Network ; September 2015",
-              contractId: "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-              adminSecretKey: "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-              merchantPublicKey: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+              contractId:
+                "CXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+              adminSecretKey:
+                "SXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+              merchantPublicKey:
+                "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
             }),
           },
         },
@@ -62,7 +65,7 @@ describe("SorobanService", () => {
         assetIssuer: "",
         amount: "100",
         settlementRef: "ref-123",
-      })
+      }),
     ).rejects.toThrow("SorobanService not initialized");
   });
 

@@ -1,9 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import {
-  PaymentRecord,
-  SorobanInvoiceClient,
-} from "@invoisio/soroban-client";
+import { PaymentRecord, SorobanInvoiceClient } from "@invoisio/soroban-client";
 
 export interface RecordPaymentParams {
   invoiceId: string;
@@ -73,9 +70,7 @@ export class SorobanService implements OnModuleInit {
       });
 
       this.isInitialized = true;
-      this.logger.log(
-        `SorobanService ready — contract: ${cfg.contractId}`,
-      );
+      this.logger.log(`SorobanService ready — contract: ${cfg.contractId}`);
     } catch (error) {
       this.logger.error(`SorobanService initialization failed: ${error}`);
       this.isInitialized = false;

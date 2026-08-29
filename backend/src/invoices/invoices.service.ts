@@ -1712,7 +1712,4 @@ export class InvoicesService implements OnModuleInit {
       where: { id: invoiceId },
     });
   }
-
 }
-
-
