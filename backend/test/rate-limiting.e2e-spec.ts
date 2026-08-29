@@ -440,7 +440,7 @@ describe("Rate Limiting (e2e)", () => {
         clientName: "Isolation Test",
         clientEmail: "iso@example.com",
         amount: 50,
-        asset_code: "USDC",
+        asset_code: "XLM",
         description: "Isolation test invoice",
       };
 
