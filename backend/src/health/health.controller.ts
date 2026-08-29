@@ -1,7 +1,6 @@
 import { Public } from "../auth/guard/auth.guard";
 import { Controller, Get, HttpCode, HttpStatus, Res } from "@nestjs/common";
 import type { Response } from "express";
-import { Public } from "../auth/guard/auth.guard";
 import { HealthService, HealthReport } from "./health.service";
 
 /**
