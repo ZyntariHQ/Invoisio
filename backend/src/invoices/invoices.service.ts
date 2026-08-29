@@ -764,10 +764,29 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Invoice states considered safe for the public, unauthenticated payer
+   * view. Deliberately an allowlist rather than a denylist of `draft`:
+   * `cancelled` is excluded too (an invoice a merchant voided should not
+   * still be payable/viewable via a leaked link), and any future status
+   * added to `InvoiceStatus` is rejected by default unless explicitly
+   * added here, rather than silently becoming publicly readable.
+   */
+  private static readonly PUBLIC_SAFE_INVOICE_STATUSES: InvoiceStatus[] = [
+    "pending",
+    "partially_paid",
+    "paid",
+    "overdue",
+  ];
+
+  /**
    * Find invoice by ID for public payer view (no auth required)
-   * Returns only payer-safe fields with merchant branding
+   * Returns only payer-safe fields with merchant branding for invoices in
+   * a {@link InvoicesService.PUBLIC_SAFE_INVOICE_STATUSES}. A draft,
+   * cancelled, or otherwise non-public invoice resolves to `null` — same
+   * as an unknown ID — so this endpoint never distinguishes "exists but
+   * not shareable yet" from "doesn't exist".
    * @param id - Invoice UUID
-   * @returns Public invoice data or null if not found
+   * @returns Public invoice data or null if not found or not publicly readable
    */
   async findPublicInvoice(id: string): Promise<{
     id: string;
@@ -794,7 +813,12 @@ export class InvoicesService implements OnModuleInit {
       },
     });
 
-    if (!invoice) return null;
+    if (
+      !invoice ||
+      !InvoicesService.PUBLIC_SAFE_INVOICE_STATUSES.includes(invoice.status)
+    ) {
+      return null;
+    }
 
     const normalized = this.normalizeInvoice(invoice);
 

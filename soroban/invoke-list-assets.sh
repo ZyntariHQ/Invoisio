@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-# invoke-list-assets.sh — Query the current allowlist from the Invoisio contract
+# invoke-list-assets.sh — Query contract config, including allowlist policy
 # ============================================================================
 #
-# Calls config() on the deployed contract and prints the allowed asset list
-# along with contract state (admin, paused status, version).
+# Calls config() on the deployed contract and prints its high-level state
+# (admin, paused status, version, native-XLM policy). Despite the script's
+# name, config() does NOT enumerate individual allowlisted (code, issuer)
+# pairs — it never has. For the actual per-asset list, use
+# ./invoke-list-allowlist.sh instead (issue #464).
 #
 # Usage:
 #   ./invoke-list-assets.sh [--json]
@@ -183,7 +186,8 @@ echo "" >&2
 ok "Config retrieved successfully."
 echo "" >&2
 echo "  Allowlist operations:" >&2
-echo "    Add asset:     ./invoke-allow-asset.sh  <code> <issuer>" >&2
-echo "    Remove asset:  ./invoke-revoke-asset.sh <code> <issuer>" >&2
-echo "    Unified tool:  ./manage-allowlist.sh" >&2
+echo "    List allowlisted assets: ./invoke-list-allowlist.sh [cursor] [limit]" >&2
+echo "    Add asset:               ./invoke-allow-asset.sh  <code> <issuer>" >&2
+echo "    Remove asset:            ./invoke-revoke-asset.sh <code> <issuer>" >&2
+echo "    Unified tool:            ./manage-allowlist.sh" >&2
 echo "" >&2

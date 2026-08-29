@@ -37,6 +37,7 @@ const EXPECTED_CONTRACT_ERRORS = [
   { code: 19, name: 'HistoryIndexIncomplete' },
   { code: 20, name: 'SettlementRefAlreadyUsed' },
   { code: 21, name: 'MustBePausedForUpgrade' },
+  { code: 22, name: 'LegacyPaymentMigrationBatchTooLarge' },
 ] as const;
 
 describe('CONTRACT_ERROR_MANIFEST', () => {
@@ -185,6 +186,15 @@ describe('representative contract failure scenarios', () => {
     expect(err.code).toBe('SettlementRefAlreadyUsed');
     expect(err.numericCode).toBe(20);
     expect(getContractError(20)?.meaning).toContain('globally unique');
+  });
+
+  it('maps an oversized migrate_legacy_payments() batch to LegacyPaymentMigrationBatchTooLarge', () => {
+    const err = parseContractError(
+      'simulation failed: migrate_legacy_payments: Error(Contract, #22)',
+    );
+    expect(err.code).toBe('LegacyPaymentMigrationBatchTooLarge');
+    expect(err.numericCode).toBe(22);
+    expect(getContractError(22)?.meaning).toContain('MAX_LEGACY_MIGRATION_BATCH');
   });
 
   it('falls back cleanly, without throwing, for a code the manifest does not know yet', () => {

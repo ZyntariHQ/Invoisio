@@ -389,6 +389,24 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
 
         this.anchorToSoroban(invoice, record, txHash).catch(
           async (err: unknown) => {
+            if (err instanceof SorobanContractError) {
+              const benignReason = await this.classifyBenignAnchoringDuplicate(
+                err,
+                invoice,
+                txHash,
+              );
+              if (benignReason) {
+                this.logger.info("horizon.soroban_anchor.duplicate_benign", {
+                  domain: "horizon",
+                  invoiceId: invoice.id,
+                  txHash,
+                  contractErrorCode: err.code,
+                  reason: benignReason,
+                });
+                return;
+              }
+            }
+
             const message = err instanceof Error ? err.message : String(err);
             const permanent = err instanceof SorobanContractError;
 
@@ -434,12 +452,63 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  /**
+   * Classify a `PaymentAlreadyRecorded` / `SettlementRefAlreadyUsed`
+   * rejection from `anchorToSoroban` as a benign retry of an
+   * already-successful anchoring attempt, so the watcher doesn't flag a
+   * healthy invoice as a permanent anchoring failure just because it saw the
+   * same Horizon payment twice (e.g. after a transient failure retry, or a
+   * cursor replay following #440).
+   *
+   * - `PaymentAlreadyRecorded` means this invoice's on-chain uniqueness key
+   *   is already recorded — whatever anchored it, this attempt cannot make
+   *   things worse, so it's always benign.
+   * - `SettlementRefAlreadyUsed` is ambiguous on its own (issue #495): it
+   *   could be this same invoice's own prior success, or a genuinely
+   *   different invoice claiming the same Horizon transaction hash. Resolve
+   *   it via `settlement_ref_owner` and compare the owner to this invoice's
+   *   on-chain ID (`invoice.memo`, not the DB `invoice.id`).
+   *
+   * Returns a short reason string when benign (caller should treat the
+   * rejection as success and skip failure recording), or `null` when it's a
+   * genuine conflict or an unrelated contract error that still needs the
+   * caller's normal failure handling. A genuine conflict is logged here with
+   * the conflicting invoice ID so it's directly actionable.
+   */
+  private async classifyBenignAnchoringDuplicate(
+    err: SorobanContractError,
+    invoice: { id: string; memo: string },
+    txHash: string,
+  ): Promise<string | null> {
+    if (err.code === "PaymentAlreadyRecorded") {
+      return "invoice_already_recorded";
+    }
+
+    if (err.code === "SettlementRefAlreadyUsed") {
+      const owner = await this.sorobanService.getSettlementRefOwner(txHash);
+      if (owner === invoice.memo) {
+        return "settlement_ref_owned_by_same_invoice";
+      }
+      if (owner !== null) {
+        this.logger.error("horizon.soroban_anchor.settlement_ref_conflict", {
+          domain: "horizon",
+          invoiceId: invoice.id,
+          txHash,
+          conflictingInvoiceId: owner,
+        });
+      }
+    }
+
+    return null;
+  }
+
   private async anchorToSoroban(
     invoice: any,
     record: any,
     txHash: string,
   ): Promise<void> {
-    const amount = this.convertToStroops(record.amount, record.asset_code);
+    const assetCode = record.asset_code ?? "XLM";
+    const amount = this.convertToStroops(record.amount, assetCode);
 
     const metadata = await traceAsync(
       this.logger,
@@ -453,7 +522,7 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
         this.sorobanService.recordPayment({
           invoiceId: invoice.memo,
           payer: record.from,
-          assetCode: record.asset_code ?? "XLM",
+          assetCode,
           assetIssuer: record.asset_issuer ?? "",
           amount,
           // The native Stellar payment hash anchors the Soroban record to the
@@ -487,17 +556,24 @@ export class HorizonWatcherService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /**
-   * Convert an amount string to integer stroops (1 unit = 10^7 stroops).
-   * Stellar network assets (native XLM and issued tokens) standardly use 7 decimal places
-   * of precision on-chain.
-   *
-   * Uses exact decimal arithmetic to avoid IEEE-754 binary floating-point errors.
-   * Explicit rounding mode: ROUND_HALF_UP is applied if sub-stroop precision is present.
-   */
-  convertToStroops(amount: string, _assetCode?: string): string {
+  /** Convert a Horizon amount using the configured precision for its asset. */
+  convertToStroops(amount: string, assetCode = "XLM"): string {
     const dec = new Prisma.Decimal(amount || "0");
-    return dec.times(10_000_000).toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
+    const configured = this.configService.get<string>("STELLAR_ASSET_DECIMALS");
+    const decimals = configured
+      ?.split(",")
+      .map((entry) => entry.trim().split("="))
+      .find(([code]) => code === assetCode)?.[1];
+    const precision = Number.isInteger(Number(decimals))
+      ? Number(decimals)
+      : 7;
+    if (precision < 0 || precision > 18) {
+      throw new Error(`Invalid decimal precision configured for ${assetCode}`);
+    }
+    return dec.times(new Prisma.Decimal(10).pow(precision)).toFixed(
+      0,
+      Prisma.Decimal.ROUND_HALF_UP,
+    );
   }
 
   private resolveMemoId(rawMemo: string, memoPrefix: string): string | null {

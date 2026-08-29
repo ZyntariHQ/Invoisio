@@ -1,3 +1,4 @@
+import { Public } from "../auth/guard/auth.guard";
 import { Controller, Get, HttpCode, HttpStatus, Res } from "@nestjs/common";
 import type { Response } from "express";
 import { Public } from "../auth/guard/auth.guard";
@@ -11,6 +12,7 @@ import { HealthService, HealthReport } from "./health.service";
  * - GET /ready   — readiness probe that checks Postgres, Horizon, and Soroban RPC.
  *                  Returns 200 when all dependencies are healthy, 503 otherwise.
  */
+@Public()
 @Controller("health")
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}

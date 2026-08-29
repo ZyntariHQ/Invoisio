@@ -4,16 +4,34 @@
 //! and counts for legacy data during storage upgrades. It ensures that
 //! `payment_history()` returns complete results after upgrade without requiring
 //! ad-hoc reads.
+//!
+//! ## Non-canonical existing identifiers
+//!
+//! `record_payment` rejects `invoice_id` / `settlement_ref` values that are
+//! not in canonical form (see `storage::is_canonical_identifier`), but that
+//! guard applies only to new writes. Deployments that recorded payments
+//! before the guard existed may already hold non-conforming identifiers.
+//! Every function in this module — `collect_all_payment_records`,
+//! `rebuild_payment_history_index`, `migrate_settlement_refs`,
+//! `migrate_schema_v2_to_v3`, and the schema migrations that call them —
+//! reads those identifiers back through
+//! `get_payment_log_entry` / `get_payment` and never re-validates their
+//! format, so pre-existing non-canonical records migrate, rebuild, and
+//! remain readable exactly like any other record. Only a *new*
+//! `record_payment` call is held to the canonical-form rule.
 
-use soroban_sdk::{Env, Vec};
+use soroban_sdk::{Env, String, Vec};
 
 use crate::errors::ContractError;
 use crate::events;
 use crate::storage::{
-    append_payer_entry, clear_payer_indexes, current_contract_meta, ensure_current_contract_meta,
+    backfill_allowlist_index, current_contract_meta, ensure_current_contract_meta,
     get_contract_meta, get_history_count, get_payment, get_payment_log_entry,
-    get_storage_schema_version, record_settlement_ref, set_contract_meta, set_history_count,
-    DataKey, PaymentRecord, STORAGE_SCHEMA_V1, STORAGE_SCHEMA_VERSION,
+    get_settlement_ref_count, get_settlement_ref_owner, get_storage_schema_version,
+    is_asset_allowed, is_settlement_ref_used, migrate_legacy_payment_key, record_settlement_ref,
+    set_contract_meta, set_history_count, set_settlement_ref_count, DataKey,
+    LegacyMigrationOutcome, PaymentRecord, MAX_LEGACY_MIGRATION_BATCH, STORAGE_SCHEMA_V1,
+    STORAGE_SCHEMA_V2, STORAGE_SCHEMA_V3, STORAGE_SCHEMA_V4, STORAGE_SCHEMA_VERSION,
 };
 
 /// Rebuilds the payment history index from all stored payment records.
@@ -124,6 +142,20 @@ fn clear_history_index(env: &Env) {
     set_history_count(env, 0);
 }
 
+/// Clears the settlement-reference write-order enumeration log.
+///
+/// Only touches `SettlementRefLog` / `SettlementRefCount` — never the
+/// primary `SettlementRef(ref) -> invoice_id` keys, which `record_settlement_ref`
+/// overwrites in place regardless of what shape (or absence) preceded them.
+fn clear_settlement_ref_log(env: &Env) {
+    let count = get_settlement_ref_count(env);
+    for i in 0..count {
+        let key = DataKey::SettlementRefLog(i);
+        env.storage().persistent().remove(&key);
+    }
+    set_settlement_ref_count(env, 0);
+}
+
 /// Collects all payment records from persistent storage.
 ///
 /// Soroban has no key enumeration, so records are found via the `PaymentLog`
@@ -169,23 +201,13 @@ fn sort_records_by_timestamp(env: &Env, records: Vec<PaymentRecord>) -> Vec<Paym
 }
 
 /// Writes the sorted records to the history index.
-///
-/// Also (re)constructs the per-payer payment index for every payer found in
-/// the write-order payment log, so a history rebuild always leaves
-/// `payments_by_payer` on its direct-read path (issue #445).
 fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), ContractError> {
     let count = records.len();
 
-    // Collect every payer that owns per-payer index entries. The payment
-    // log enumerates every recorded payment independently of the shared
-    // index, so this stays correct even when the history index is corrupt.
-    let owners = collect_payer_owners(env);
-
-    // Clear existing indexes first
+    // Clear the existing index first
     clear_history_index(env);
-    clear_payer_indexes(env, &owners);
 
-    // Write each record and its per-payer mapping
+    // Write each record
     for (i, record) in records.iter().enumerate() {
         let key = DataKey::PaymentHistory(i as u32);
         env.storage().persistent().set(&key, &record);
@@ -195,52 +217,12 @@ fn write_history_index(env: &Env, records: Vec<PaymentRecord>) -> Result<(), Con
             crate::storage::MIN_TTL,
             crate::storage::BUMP_TTL,
         );
-        append_payer_entry(env, &record.payer, i as u32);
     }
 
     // Update history count
     set_history_count(env, count);
 
     Ok(())
-}
-
-/// Rebuilds only the per-payer payment index from an intact history index.
-///
-/// Used by the schema V1 → V2 migration when the shared history index does
-/// not need repair: ordinals are assigned by walking the existing
-/// `PaymentHistory` slots in order, so the per-payer view matches exactly
-/// what the bounded-scan fallback would have produced.
-fn rebuild_payer_indexes(env: &Env) {
-    let owners = collect_payer_owners(env);
-    clear_payer_indexes(env, &owners);
-
-    let total = get_history_count(env);
-    for i in 0..total {
-        let record: Option<PaymentRecord> =
-            env.storage().persistent().get(&DataKey::PaymentHistory(i));
-        if let Some(record) = record {
-            append_payer_entry(env, &record.payer, i);
-        }
-    }
-}
-
-/// Enumerate every payer with recorded payments via the write-order payment
-/// log. The log survives history-index corruption, so this yields a complete
-/// owner list even when `PaymentHistory` has holes — required to clear stale
-/// per-payer entries before rebuilding.
-fn collect_payer_owners(env: &Env) -> alloc::vec::Vec<soroban_sdk::Address> {
-    let mut owners: alloc::vec::Vec<soroban_sdk::Address> = alloc::vec::Vec::new();
-    let payment_count = get_payment_count(env);
-    for i in 0..payment_count {
-        if let Some(invoice_id) = get_payment_log_entry(env, i) {
-            if let Ok(record) = get_payment(env, &invoice_id) {
-                if !owners.contains(&record.payer) {
-                    owners.push(record.payer);
-                }
-            }
-        }
-    }
-    owners
 }
 
 /// Migration from schema version 0 (legacy) to version 1.
@@ -273,53 +255,70 @@ pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
 
 /// Migration from schema version 1 to version 2.
 ///
-/// Schema V2 introduces the per-payer payment index so `payments_by_payer`
-/// serves pages with direct reads instead of an unbounded filtered scan of
-/// the shared history index (issue #445).
+/// Originally, schema V2 introduced the per-payer payment index backing
+/// `payments_by_payer` (issue #445). That index — and the read method it
+/// backed — was removed entirely (issue #512): a permissionless enumerable
+/// per-payer payment history was the sharpest disclosure the contract made,
+/// contradicting the product's privacy positioning. This step is kept, and
+/// still bumps the schema version, purely so the V0→V1→V2→V3→V4 upgrade path
+/// stays intact for already-deployed contracts sitting below V2 — but the
+/// payer-index construction it used to do is gone, since building an index
+/// for a removed feature would just be dead work.
 ///
-/// - If the shared history index is intact, only per-payer indexes are
-///   backfilled (ordinals mirror the existing slot order).
-/// - If the index is missing or incomplete, it is rebuilt first; the rebuild
-///   path constructs per-payer indexes as part of writing slots.
+/// What's left: repair the shared history index if it isn't already intact,
+/// mirroring what every other step in this chain does when it finds a gap.
 ///
-/// Idempotent: rebuilding indexes over the same record set converges to the
-/// same layout, so interrupted migrations can simply be re-run.
+/// Idempotent: rebuilding the index over the same record set converges to
+/// the same layout, so an interrupted migration can simply be re-run.
 pub fn migrate_schema_v1_to_v2(env: &Env) -> Result<(), ContractError> {
-    if is_index_complete(env) {
-        // Shared history index is intact — backfill payer indexes only.
-        rebuild_payer_indexes(env);
-    } else {
-        // Repair the shared index first; write_history_index constructs
-        // per-payer indexes as part of the rewrite.
+    if !is_index_complete(env) {
         let records = collect_all_payment_records(env)?;
         let sorted = sort_records_by_timestamp(env, records);
         write_history_index(env, sorted)?;
     }
 
-    // Update the storage schema version in metadata
+    // Update the storage schema version in metadata. This migration targets
+    // V2 specifically; the upgrade driver runs later steps (e.g. V2 → V3
+    // settlement-reference mapping backfill) separately. See the
+    // maintenance note on `STORAGE_SCHEMA_VERSION` — never stamp that
+    // constant directly from a non-final step.
     let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
-    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    meta.storage_schema_version = STORAGE_SCHEMA_V2;
     set_contract_meta(env, &meta);
 
     Ok(())
 }
 
-/// Migrates existing settlement references to the global uniqueness index.
+/// Migrates existing settlement references to the reference-to-invoice
+/// index.
 ///
 /// This function scans all payment records and records their settlement_ref
-/// values in the `SettlementRef` index. This ensures that after an upgrade,
-/// existing settlement references are protected from being reused.
+/// → invoice_id mapping. This ensures that after an upgrade, existing
+/// settlement references are both protected from reuse and resolvable back
+/// to the invoice that consumed them (issue #495).
+///
+/// A settlement_ref already present in the index (from an earlier migration
+/// run, or a genuine duplicate in pre-guard legacy data — see issue #497's
+/// history) is **not** overwritten: the existing owner is left in place and
+/// the payment is counted in `conflicts_skipped` rather than `migrated`, so
+/// a real conflict surfaces via the emitted event instead of being silently
+/// masked by the last write winning.
 pub fn migrate_settlement_refs(env: &Env) -> Result<(), ContractError> {
     // Use the payment log to enumerate all invoice IDs
     let payment_count = get_payment_count(env);
     let mut migrated_count = 0u32;
+    let mut conflicts_skipped = 0u32;
 
     for i in 0..payment_count {
         if let Some(invoice_id) = get_payment_log_entry(env, i) {
             if let Ok(record) = get_payment(env, &invoice_id) {
-                // Record the settlement reference as used
-                if !record.settlement_ref.is_empty() {
-                    record_settlement_ref(env, &record.settlement_ref);
+                if record.settlement_ref.is_empty() {
+                    continue;
+                }
+                if is_settlement_ref_used(env, &record.settlement_ref) {
+                    conflicts_skipped += 1;
+                } else {
+                    record_settlement_ref(env, &record.settlement_ref, &record.invoice_id);
                     migrated_count += 1;
                 }
             }
@@ -327,11 +326,268 @@ pub fn migrate_settlement_refs(env: &Env) -> Result<(), ContractError> {
     }
 
     // Emit event for settlement reference migration
-    if migrated_count > 0 {
-        events::emit_settlement_refs_migrated(env, migrated_count);
+    if migrated_count > 0 || conflicts_skipped > 0 {
+        events::emit_settlement_refs_migrated(env, migrated_count, conflicts_skipped);
     }
 
     Ok(())
+}
+
+/// Migration from schema version 2 to version 3.
+///
+/// Schema V3 changes what `DataKey::SettlementRef(ref)` stores: previously a
+/// unit value marking the reference as "used", now the invoice_id that
+/// consumed it, so `settlement_ref_owner` can resolve a reference back to
+/// its owning invoice (issue #495).
+///
+/// Unlike `migrate_settlement_refs` (the V0 → V1 step), every existing entry
+/// is unconditionally rewritten rather than skipped when already present:
+/// this step is fixing the *value shape* of keys already known to be correct
+/// (the pre-V3 write path already enforced settlement_ref uniqueness before
+/// allowing a `record_payment` write), not resolving a genuine duplicate
+/// conflict. Re-deriving from the payment log — the same source of truth
+/// `migrate_settlement_refs` uses — also (re)builds the write-order
+/// enumeration log (`SettlementRefLog`) so `settlement_ref_history` covers
+/// every pre-existing reference, not just ones recorded after this upgrade.
+///
+/// # Verification
+/// The result can be checked against the payment log with
+/// [`verify_settlement_ref_index`]: it re-walks the same payment log and
+/// confirms every non-empty `settlement_ref` resolves back to its own
+/// `invoice_id`.
+///
+/// # Idempotency
+/// The enumeration log (`SettlementRefLog` / `SettlementRefCount`) is reset
+/// to empty before rebuilding, so re-running this step reproduces the same
+/// log rather than appending a second copy of every entry. The primary
+/// `SettlementRef(ref) -> invoice_id` mapping is naturally idempotent too —
+/// writing the same owner twice is a no-op. Never read an existing
+/// `SettlementRef` value here to decide whether to skip it: on a genuine
+/// pre-V3 deployment that value is still the old unit shape, and decoding it
+/// as a `String` traps the transaction — see `get_settlement_ref_owner`.
+pub fn migrate_schema_v2_to_v3(env: &Env) -> Result<(), ContractError> {
+    clear_settlement_ref_log(env);
+
+    let payment_count = get_payment_count(env);
+    let mut migrated_count = 0u32;
+    let mut conflicts_skipped = 0u32;
+    // Refs already (re)written in this pass, tracked in memory rather than
+    // by reading the existing `SettlementRef` value back from storage: a
+    // pre-existing entry may still be in the old unit-value shape, and
+    // decoding that as a `String` traps the transaction. Walking the
+    // payment log in the same order and keeping "first one wins" here
+    // mirrors `migrate_settlement_refs`'s conflict rule exactly, so the two
+    // steps always agree on which invoice owns a duplicated legacy
+    // settlement_ref when both run in the same upgrade (a deployment
+    // starting below V2 runs the V0 → V1 step first, in the same
+    // transaction, immediately before this one).
+    let mut seen: alloc::vec::Vec<String> = alloc::vec::Vec::new();
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if record.settlement_ref.is_empty() {
+                    continue;
+                }
+                if seen.contains(&record.settlement_ref) {
+                    conflicts_skipped += 1;
+                } else {
+                    seen.push(record.settlement_ref.clone());
+                    record_settlement_ref(env, &record.settlement_ref, &record.invoice_id);
+                    migrated_count += 1;
+                }
+            }
+        }
+    }
+
+    if migrated_count > 0 || conflicts_skipped > 0 {
+        events::emit_settlement_refs_migrated(env, migrated_count, conflicts_skipped);
+    }
+
+    // No longer the final step in the chain (V4 added the allowlist
+    // enumeration index, #464) — stamp this step's own fixed constant per
+    // the maintenance note on STORAGE_SCHEMA_VERSION, not that constant
+    // directly.
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_V3;
+    set_contract_meta(env, &meta);
+
+    Ok(())
+}
+
+/// Migration from schema version 3 to version 4.
+///
+/// Schema V4 adds a write-order enumeration index (`AllowListLog` /
+/// `AllowListCount` / `AllowListIndex`) alongside the existing
+/// `AllowList(code, issuer)` existence keys, so `allowed_assets()` /
+/// `allowlist_count()` can paginate and size the allowlist instead of
+/// requiring callers to already know which pairs to ask `is_asset_allowed`
+/// about (issue #464).
+///
+/// # A fundamental recovery limit — read before relying on this
+/// Soroban has no key enumeration, so there is no way to discover every
+/// `AllowList(code, issuer)` key that exists on a legacy deployment
+/// directly. This migration recovers every allowlisted asset that has been
+/// used in at least one payment, by replaying the payment log (the same
+/// technique `migrate_settlement_refs` uses) and checking each distinct
+/// token seen against `is_asset_allowed`. An asset that was allowlisted but
+/// has never been paid with before this upgrade runs is **not** recoverable
+/// this way: it stays allowlisted — `is_asset_allowed`/`record_payment` are
+/// completely unaffected, since this migration never touches the primary
+/// `AllowList` key — but it will not appear in `allowed_assets()` /
+/// count towards `allowlist_count()` until the admin calls `allow_asset`
+/// for it again post-upgrade (a no-op on the existence check, but it
+/// backfills the enumeration index via `backfill_allowlist_index`).
+///
+/// # Idempotency
+/// Every discovered pair is backfilled through
+/// [`crate::storage::backfill_allowlist_index`], which no-ops on a pair
+/// that is already indexed. So re-running this step, or running it after
+/// the admin has already called `allow_asset` post-upgrade for some pairs,
+/// never creates a duplicate log entry or double-counts `allowlist_count()`.
+pub fn migrate_schema_v3_to_v4(env: &Env) -> Result<(), ContractError> {
+    let payment_count = get_payment_count(env);
+    let mut discovered = 0u32;
+    let mut seen: alloc::vec::Vec<(String, String)> = alloc::vec::Vec::new();
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if let crate::storage::Asset::Token(code, issuer) = record.asset {
+                    if seen.iter().any(|(c, iss)| c == &code && iss == &issuer) {
+                        continue;
+                    }
+                    seen.push((code.clone(), issuer.clone()));
+                    if is_asset_allowed(env, &code, &issuer)
+                        && backfill_allowlist_index(env, &code, &issuer)
+                    {
+                        discovered += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if discovered > 0 {
+        events::emit_allowlist_index_backfilled(env, discovered);
+    }
+
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_V4;
+    set_contract_meta(env, &meta);
+
+    Ok(())
+}
+
+/// Migration from schema V4 to V5.
+///
+/// Precision cannot be reconstructed from a bare historical amount. Existing
+/// records therefore remain readable with `asset_decimals = 0` (unknown),
+/// while new allowlist entries and payments carry verified metadata. This
+/// intentionally avoids inventing a seven-decimal value for an arbitrary
+/// token.
+pub fn migrate_schema_v4_to_v5(env: &Env) -> Result<(), ContractError> {
+    let mut meta = get_contract_meta(env).unwrap_or_else(current_contract_meta);
+    meta.storage_schema_version = STORAGE_SCHEMA_VERSION;
+    set_contract_meta(env, &meta);
+    Ok(())
+}
+
+/// Migrate a caller-supplied batch of legacy `Payment(invoice_id)` keys to
+/// `PaymentV1`, removing each legacy entry as it migrates so a record never
+/// sits under two keys afterward (issue #508).
+///
+/// ## Why this can't be driven by the payment log
+/// Every other migration in this module discovers records via `PaymentLog`
+/// (the write-order index `record_payment` has always populated — see
+/// issues #445, #495, #464). A genuinely legacy `Payment(invoice_id)` entry
+/// predates `PaymentLog`'s introduction entirely: it was written by code
+/// that never appended to that log, so there is no on-chain way to
+/// enumerate which invoice_ids still need migrating. The caller — the
+/// operator, working from off-chain records of which invoice_ids exist —
+/// must supply the batch explicitly.
+///
+/// ## Bounded and resumable
+/// Rejects a batch larger than [`MAX_LEGACY_MIGRATION_BATCH`] with
+/// [`ContractError::LegacyPaymentMigrationBatchTooLarge`] rather than
+/// silently truncating a write the caller expected to fully apply,
+/// mirroring the general chunking approach from issue #480. Each id is
+/// migrated independently through [`migrate_legacy_payment_key`], which is
+/// idempotent (an already-migrated or never-existing id is just counted,
+/// never an error) — so a full backlog can be split across as many calls as
+/// needed, and any call can be safely retried.
+///
+/// Returns `(migrated, already_current, not_found)`.
+pub fn migrate_legacy_payments(
+    env: &Env,
+    invoice_ids: &Vec<String>,
+) -> Result<(u32, u32, u32), ContractError> {
+    if invoice_ids.len() > MAX_LEGACY_MIGRATION_BATCH {
+        return Err(ContractError::LegacyPaymentMigrationBatchTooLarge);
+    }
+
+    let mut migrated = 0u32;
+    let mut already_current = 0u32;
+    let mut not_found = 0u32;
+
+    for invoice_id in invoice_ids.iter() {
+        match migrate_legacy_payment_key(env, &invoice_id) {
+            LegacyMigrationOutcome::Migrated => migrated += 1,
+            LegacyMigrationOutcome::AlreadyCurrent => already_current += 1,
+            LegacyMigrationOutcome::NotFound => not_found += 1,
+        }
+    }
+
+    if migrated > 0 {
+        events::emit_legacy_payments_migrated(env, migrated);
+    }
+
+    Ok((migrated, already_current, not_found))
+}
+
+/// Verify that the settlement-reference index matches the payment log.
+///
+/// Walks every recorded payment (via the same write-order payment log used
+/// by [`collect_all_payment_records`]) and confirms its non-empty
+/// `settlement_ref` resolves back to its own `invoice_id` through
+/// [`get_settlement_ref_owner`]. Used by tests and available to ops tooling
+/// to confirm `migrate_settlement_refs` / `migrate_schema_v2_to_v3` produced
+/// a consistent mapping (issue #495).
+///
+/// Returns `(verified, mismatched)`:
+/// - `verified` — payments whose settlement_ref correctly resolves back to
+///   their own invoice_id (or that legitimately have no settlement_ref).
+/// - `mismatched` — payments with a non-empty settlement_ref that resolves
+///   to nothing, or to a *different* invoice_id (e.g. a conflict
+///   `migrate_settlement_refs` deliberately skipped rather than overwrite).
+///
+/// O(n) in the number of payments — like `rebuild_payment_history_index`,
+/// this is a maintenance-window operation, not a bounded per-call read, so
+/// it is deliberately not exposed as a contract entrypoint. Callers needing
+/// an on-chain, permissionless check should instead page through
+/// `payment_history` and cross-check `settlement_ref_owner` for each record,
+/// or use the O(1) `settlement_ref_index_status` summary for a quick signal.
+pub fn verify_settlement_ref_index(env: &Env) -> (u32, u32) {
+    let payment_count = get_payment_count(env);
+    let mut verified = 0u32;
+    let mut mismatched = 0u32;
+
+    for i in 0..payment_count {
+        if let Some(invoice_id) = get_payment_log_entry(env, i) {
+            if let Ok(record) = get_payment(env, &invoice_id) {
+                if record.settlement_ref.is_empty() {
+                    verified += 1;
+                    continue;
+                }
+                match get_settlement_ref_owner(env, &record.settlement_ref) {
+                    Some(owner) if owner == record.invoice_id => verified += 1,
+                    _ => mismatched += 1,
+                }
+            }
+        }
+    }
+
+    (verified, mismatched)
 }
 #[cfg(test)]
 mod tests {
@@ -355,6 +611,152 @@ mod tests {
     }
 
     #[test]
+    fn test_collect_all_payment_records_uses_payment_log_when_history_is_empty() {
+        let env = Env::default();
+        let (client, _admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("log-only-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("log-only-ref-{:02}", i)),
+            );
+        }
+
+        env.as_contract(&client.address, || {
+            for i in 0..3u32 {
+                env.storage()
+                    .persistent()
+                    .remove(&DataKey::PaymentHistory(i));
+            }
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &0u32);
+        });
+
+        let records = env.as_contract(&client.address, || {
+            collect_all_payment_records(&env).unwrap()
+        });
+        assert_eq!(records.len(), 3);
+        assert_eq!(
+            records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "log-only-00")
+        );
+        assert_eq!(
+            records.get(2).unwrap().invoice_id,
+            String::from_str(&env, "log-only-02")
+        );
+    }
+
+    #[test]
+    fn test_collect_all_payment_records_ignores_divergent_history_slots() {
+        let env = Env::default();
+        let (client, _admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..2u32 {
+            let invoice_id = String::from_str(&env, &format!("canonical-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("canonical-ref-{:02}", i)),
+            );
+        }
+
+        let divergent = PaymentRecord {
+            invoice_id: String::from_str(&env, "divergent-history-only"),
+            payer: Address::generate(&env),
+            asset: crate::storage::Asset::Native,
+            amount: 99_000_000i128,
+            asset_decimals: 7,
+            timestamp: 99u64,
+            settlement_ref: String::from_str(&env, "divergent-ref"),
+        };
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::PaymentHistory(0), &divergent);
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &1u32);
+        });
+
+        let records = env.as_contract(&client.address, || {
+            collect_all_payment_records(&env).unwrap()
+        });
+        assert_eq!(records.len(), 2);
+        assert_eq!(
+            records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "canonical-00")
+        );
+        assert_eq!(
+            records.get(1).unwrap().invoice_id,
+            String::from_str(&env, "canonical-01")
+        );
+    }
+
+    #[test]
+    fn test_rebuild_history_index_repairs_partial_history_from_payment_log() {
+        let env = Env::default();
+        let (client, admin) = setup_test(&env);
+        env.mock_all_auths();
+
+        let payer = Address::generate(&env);
+        client.set_allow_native(&true);
+        for i in 0..3u32 {
+            let invoice_id = String::from_str(&env, &format!("partial-{:02}", i));
+            client.record_payment(
+                &invoice_id,
+                &payer,
+                &String::from_str(&env, "XLM"),
+                &String::from_str(&env, ""),
+                &((i as i128 + 1) * 10_000_000i128),
+                &String::from_str(&env, &format!("partial-ref-{:02}", i)),
+            );
+        }
+
+        env.as_contract(&client.address, || {
+            env.storage()
+                .persistent()
+                .remove(&DataKey::PaymentHistory(1));
+            env.storage()
+                .instance()
+                .set(&DataKey::PaymentHistoryCount, &3u32);
+        });
+
+        let result = client.try_rebuild_history_index(&admin);
+        assert!(result.is_ok());
+
+        let history = client.payment_history(&admin, &0u32, &10u32);
+        assert_eq!(history.records.len(), 3);
+        assert_eq!(
+            history.records.get(0).unwrap().invoice_id,
+            String::from_str(&env, "partial-00")
+        );
+        assert_eq!(
+            history.records.get(1).unwrap().invoice_id,
+            String::from_str(&env, "partial-01")
+        );
+        assert_eq!(
+            history.records.get(2).unwrap().invoice_id,
+            String::from_str(&env, "partial-02")
+        );
+        assert_eq!(client.history_index_status(&admin), (3, 3, true));
+    }
+
+    #[test]
     fn test_rebuild_history_index_empty() {
         let env = Env::default();
         let (client, _admin) = setup_test(&env);
@@ -365,7 +767,7 @@ mod tests {
         assert!(result.is_ok());
 
         // History should be empty
-        let history = client.payment_history(&0u32, &10u32);
+        let history = client.payment_history(&_admin, &0u32, &10u32);
         assert_eq!(history.records.len(), 0);
         assert_eq!(history.next_cursor, 0);
         assert!(!history.has_more);
@@ -394,7 +796,7 @@ mod tests {
         }
 
         // Verify initial history
-        let history = client.payment_history(&0u32, &10u32);
+        let history = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history.records.len(), 5);
 
         // Simulate a migration that clears and rebuilds
@@ -413,7 +815,7 @@ mod tests {
         });
 
         // History should now be empty
-        let empty = client.payment_history(&0u32, &10u32);
+        let empty = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(empty.records.len(), 0);
 
         // Rebuild the index
@@ -421,7 +823,7 @@ mod tests {
         assert!(result.is_ok());
 
         // History should be restored
-        let rebuilt = client.payment_history(&0u32, &10u32);
+        let rebuilt = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(rebuilt.records.len(), 5);
         assert_eq!(rebuilt.next_cursor, 5);
         assert!(!rebuilt.has_more);
@@ -456,7 +858,7 @@ mod tests {
         }
 
         // Verify order
-        let history = client.payment_history(&0u32, &10u32);
+        let history = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history.records.len(), 3);
         assert_eq!(
             history.records.get(0).unwrap().invoice_id,
@@ -486,7 +888,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Verify order is preserved
-        let rebuilt = client.payment_history(&0u32, &10u32);
+        let rebuilt = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(rebuilt.records.len(), 3);
         assert_eq!(
             rebuilt.records.get(0).unwrap().invoice_id,
@@ -526,18 +928,18 @@ mod tests {
         // Upgrade once
         let result1 = client.try_upgrade_storage(&admin);
         assert!(result1.is_ok());
-        let history1 = client.payment_history(&0u32, &10u32);
+        let history1 = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history1.records.len(), 3);
 
         // Upgrade again (idempotent)
         let result2 = client.try_upgrade_storage(&admin);
         assert!(result2.is_ok());
-        let history2 = client.payment_history(&0u32, &10u32);
+        let history2 = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history2.records.len(), 3);
 
         // Counts should match
-        assert_eq!(client.payment_count(), 3);
-        let history = client.payment_history(&0u32, &10u32);
+        assert_eq!(client.payment_count(&admin), 3);
+        let history = client.payment_history(&admin, &0u32, &10u32);
         assert_eq!(history.records.len(), 3);
     }
 }

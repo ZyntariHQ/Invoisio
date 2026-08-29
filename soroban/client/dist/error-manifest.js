@@ -98,7 +98,7 @@ exports.CONTRACT_ERROR_MANIFEST = [
     {
         code: 12,
         name: 'ContractPaused',
-        meaning: 'The contract is paused and cannot perform the requested operation.',
+        meaning: 'The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.',
     },
     {
         code: 13,
@@ -144,6 +144,11 @@ exports.CONTRACT_ERROR_MANIFEST = [
         code: 21,
         name: 'MustBePausedForUpgrade',
         meaning: 'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
+    },
+    {
+        code: 22,
+        name: 'LegacyPaymentMigrationBatchTooLarge',
+        meaning: 'migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.',
     },
 ];
 /**

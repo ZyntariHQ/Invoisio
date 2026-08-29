@@ -64,6 +64,7 @@ declare -A ERROR_DESC=(
   [HistoryIndexIncomplete]="The payment history index is incomplete and must be rebuilt via rebuild_history_index()."
   [SettlementRefAlreadyUsed]="The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments."
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
+  [LegacyPaymentMigrationBatchTooLarge]="migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -100,9 +101,11 @@ declare -A METHOD_AUTH=(
   [record_payment]="admin"
   [get_payment]="none"
   [has_payment]="none"
-  [payment_count]="none"
-  [payment_history]="none"
-  [payments_by_payer]="none"
+  [payment_count]="admin"
+  [payment_history]="admin"
+  [settlement_ref_owner]="none"
+  [settlement_ref_history]="admin"
+  [settlement_ref_index_status]="admin"
   [config]="none"
   [contract_version]="none"
   [version_info]="none"
@@ -112,23 +115,29 @@ declare -A METHOD_AUTH=(
   [accept_admin]="proposed_admin"
   [cancel_admin_transfer]="admin"
   [allow_asset]="admin"
+  [allow_asset_with_decimals]="admin"
   [revoke_asset]="admin"
+  [allowed_assets]="none"
+  [allowlist_count]="none"
   [set_allow_native]="admin"
   [upgrade]="admin"
   [upgrade_storage]="admin"
   [set_paused]="admin"
   [is_paused]="none"
   [rebuild_history_index]="admin"
-  [history_index_status]="none"
+  [history_index_status]="admin"
+  [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
   [initialize]="One-time setup; sets the admin."
   [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded."
   [get_payment]="Return PaymentRecord for invoice_id."
   [has_payment]="Return true if a payment exists for invoice_id."
-  [payment_count]="Return total recorded payment count."
-  [payment_history]="Return a bounded, cursor-paginated PaymentHistoryPage across all payments."
-  [payments_by_payer]="Return a bounded, cursor-paginated PaymentHistoryPage filtered to one payer."
+  [payment_count]="Admin-gated (issue #512): return total recorded payment count."
+  [payment_history]="Admin-gated (issue #512): return a bounded, cursor-paginated PaymentHistoryPage across all payments."
+  [settlement_ref_owner]="Resolve a settlement reference (plaintext) to the invoice_id that consumed it; None if unused. Hashes internally to the stored commitment (issue #512)."
+  [settlement_ref_history]="Admin-gated (issue #512): return a bounded, cursor-paginated SettlementRefPage of the settlement-reference index in write order. Each entry's settlement_ref is a SHA-256 commitment, not plaintext."
+  [settlement_ref_index_status]="Admin-gated (issue #512): return (settlement_ref_count, payment_count, is_consistent) diagnostic status for the settlement-reference index."
   [config]="Return ContractConfig snapshot."
   [contract_version]="Return packed semver as u32."
   [version_info]="Return on-chain ContractMeta."
@@ -138,14 +147,18 @@ declare -A METHOD_DESC=(
   [accept_admin]="Step 2 of two-step handoff: accept the role and become admin."
   [cancel_admin_transfer]="Cancel a pending admin transfer proposed via propose_admin()."
   [allow_asset]="Add (code, issuer) to allowlist."
+  [allow_asset_with_decimals]="Add (code, issuer) to allowlist with recorded decimal precision."
   [revoke_asset]="Remove (code, issuer) from allowlist."
+  [allowed_assets]="Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs."
+  [allowlist_count]="Return the number of currently-allowlisted (code, issuer) pairs."
   [set_allow_native]="Toggle native XLM acceptance."
   [upgrade]="Upgrade the deployed contract WASM in place. Requires the contract to already be paused."
   [upgrade_storage]="Explicitly upgrade storage schema to current version."
   [set_paused]="Pause or unpause the contract. Writes rejected when paused."
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
-  [history_index_status]="Return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [history_index_status]="Admin-gated (issue #512): return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [migrate_legacy_payments]="Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)."
 )
 
 # "pub fn name(" lines inside the #[contractimpl] block, in declaration order.
@@ -177,6 +190,7 @@ EVENT_NAMES=(
   InvoicePaymentRecorded AssetAllowlisted AssetRevoked NativeAllowChanged
   StorageSchemaUpgraded ContractPaused AdminTransferProposed AdminTransferAccepted
   AdminTransferCancelled HistoryIndexRebuilt SettlementRefsMigrated ContractUpgraded
+  AllowlistIndexBackfilled LegacyPaymentsMigrated
 )
 mapfile -t EVENTS_RS_NAMES < <(grep -B1 '^pub struct \w\+ {' "$EVENTS_RS" | grep -oP '^pub struct \K\w+(?= \{)')
 [ "${#EVENTS_RS_NAMES[@]}" -gt 0 ] || fail "no #[contractevent] structs found in $EVENTS_RS — regex out of date?"
@@ -241,8 +255,14 @@ cat > "$OUT" <<JSON
         },
         "amount": {
           "type": "integer",
-          "description": "Payment amount in the asset's smallest unit (stroops for XLM; 7-decimal units for USDC). Must be > 0.",
+          "description": "Payment amount in the asset's smallest unit. Interpret using asset_decimals. Must be > 0.",
           "minimum": 1
+        },
+        "asset_decimals": {
+          "type": "integer",
+          "description": "Decimal places for the asset; 0 means legacy precision unknown.",
+          "minimum": 0,
+          "maximum": 18
         },
         "timestamp": {
           "type": "integer",
@@ -251,12 +271,10 @@ cat > "$OUT" <<JSON
         },
         "settlement_ref": {
           "type": "string",
-          "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation (e.g. SHA-256 hex). Max 128 chars.",
-          "minLength": 1,
-          "maxLength": 128
+          "description": "SHA-256 commitment (64-char lowercase hex) of the settlement reference passed to record_payment() — not the plaintext value itself (issue #512). A caller that already holds the plaintext can dedupe/verify by hashing its own copy the same way, or by calling settlement_ref_owner() with the plaintext directly."
         }
       },
-      "required": ["invoice_id", "payer", "asset", "amount", "timestamp", "settlement_ref"],
+      "required": ["invoice_id", "payer", "asset", "amount", "asset_decimals", "timestamp", "settlement_ref"],
       "additionalProperties": false
     },
     "ContractMeta": {
@@ -276,19 +294,15 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "AllowlistMode": {
-      "description": "Asset allowlist policy for this contract instance.",
+      "description": "Asset allowlist policy for this contract instance. There is no requires_token_allowlist field: every non-native asset always requires allowlisting in this contract, so a field for it would only ever report a constant, never real state. Use allowed_assets()/allowlist_count() to inspect the actual allowlist.",
       "type": "object",
       "properties": {
         "native_allowed": {
           "type": "boolean",
           "description": "Whether native XLM payments are accepted."
-        },
-        "requires_token_allowlist": {
-          "type": "boolean",
-          "description": "Whether issued assets must be explicitly allowlisted. Currently always true."
         }
       },
-      "required": ["native_allowed", "requires_token_allowlist"],
+      "required": ["native_allowed"],
       "additionalProperties": false
     },
     "ContractConfig": {
@@ -322,7 +336,7 @@ cat > "$OUT" <<JSON
       "additionalProperties": false
     },
     "PaymentHistoryPage": {
-      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() and payments_by_payer().",
+      "description": "Bounded, cursor-friendly slice of payment history returned by payment_history() (admin-gated, issue #512).",
       "type": "object",
       "properties": {
         "records": {
@@ -342,21 +356,109 @@ cat > "$OUT" <<JSON
       },
       "required": ["records", "next_cursor", "has_more"],
       "additionalProperties": false
+    },
+    "SettlementRefEntry": {
+      "description": "A single settlement-reference to invoice_id mapping, as recorded by record_payment() or backfilled by migration.",
+      "type": "object",
+      "properties": {
+        "settlement_ref": {
+          "type": "string",
+          "description": "SHA-256 commitment of the settlement reference — never the plaintext (issue #512)."
+        },
+        "invoice_id": {
+          "type": "string",
+          "description": "Invoice ID that consumed this settlement reference."
+        }
+      },
+      "required": ["settlement_ref", "invoice_id"],
+      "additionalProperties": false
+    },
+    "SettlementRefPage": {
+      "description": "Bounded, cursor-friendly slice of the settlement-reference index returned by settlement_ref_history() (admin-gated, issue #512). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions.",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "\$ref": "#/types/SettlementRefEntry" },
+          "description": "Entries returned for this page, in write order."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        },
+        "gaps_skipped": {
+          "type": "integer",
+          "description": "Number of index slots in this page's range that were expected to hold an entry but did not (e.g. a corrupted or partially-rebuilt index). Always 0 for a healthy index.",
+          "minimum": 0
+        }
+      },
+      "required": ["records", "next_cursor", "has_more", "gaps_skipped"],
+      "additionalProperties": false
+    },
+    "AllowlistEntry": {
+      "description": "A single allowlisted (code, issuer) pair, as recorded by allow_asset() or backfilled by migration.",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Asset code (e.g. USDC)."
+        },
+        "issuer": {
+          "type": "string",
+          "description": "Issuer Stellar account address (G...)."
+        },
+        "decimals": {
+          "type": "integer",
+          "description": "Decimal places recorded for the asset.",
+          "minimum": 0,
+          "maximum": 18
+        }
+      },
+      "required": ["code", "issuer", "decimals"],
+      "additionalProperties": false
+    },
+    "AllowlistPage": {
+      "description": "Bounded, cursor-friendly slice of the currently-allowlisted assets returned by allowed_assets(). Mirrors PaymentHistoryPage's pagination and gap-skipping conventions, except a hole here is a normal outcome of revoke_asset(), not only a sign of corruption.",
+      "type": "object",
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": { "\$ref": "#/types/AllowlistEntry" },
+          "description": "Entries returned for this page, in write (allow) order."
+        },
+        "next_cursor": {
+          "type": "integer",
+          "description": "Cursor to pass to the next call.",
+          "minimum": 0
+        },
+        "has_more": {
+          "type": "boolean",
+          "description": "True when more entries are available after next_cursor."
+        },
+        "gaps_skipped": {
+          "type": "integer",
+          "description": "Number of log slots in this page's range that have been revoked (or, on a legacy pre-migration deployment, not yet backfilled).",
+          "minimum": 0
+        }
+      },
+      "required": ["records", "next_cursor", "has_more", "gaps_skipped"],
+      "additionalProperties": false
     }
   },
   "events": {
     "InvoicePaymentRecorded": {
-      "description": "Emitted by record_payment(). Primary indexer event — carries the full payment details.",
+      "description": "Emitted by record_payment(). As of issue #512 this is minimized to signal only that an invoice_id was recorded — no payer, asset, amount, or settlement_ref. A consumer that needs the full record must already know invoice_id and call get_payment(invoice_id).",
       "topic": "invoice_payment_recorded",
       "fields": {
-        "invoice_id":   { "type": "string",  "description": "Unique invoice identifier." },
-        "payer":        { "type": "string",  "description": "Stellar account address of the payer." },
-        "asset_code":   { "type": "string",  "description": "Asset code (XLM or token code)." },
-        "asset_issuer": { "type": "string",  "description": "Asset issuer address; empty string for native XLM." },
-        "amount":       { "type": "integer", "description": "Payment amount in smallest denomination. Must be > 0.", "minimum": 1 },
-        "settlement_ref": { "type": "string", "description": "Normalised settlement reference for backend deduplication and idempotent reconciliation." }
+        "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." },
+        "schema_version": { "type": "integer", "description": "Event payload schema version. Bumped to 2 for issue #512's payload shrink.", "minimum": 1 }
       },
-      "required": ["invoice_id", "payer", "asset_code", "asset_issuer", "amount", "settlement_ref"]
+      "required": ["invoice_id", "schema_version"]
     },
     "AssetAllowlisted": {
       "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
@@ -448,9 +550,28 @@ cat > "$OUT" <<JSON
       "topic": "settlement_refs_migrated",
       "fields": {
         "count": { "type": "integer", "description": "Number of settlement references migrated.", "minimum": 0 },
+        "conflicts_skipped": { "type": "integer", "description": "Number of payments whose settlement_ref was already owned by a different invoice in the index and was therefore left untouched rather than overwritten. Non-zero means a genuine pre-existing duplicate was found and needs operator investigation.", "minimum": 0 },
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
-      "required": ["count", "migrated_at"]
+      "required": ["count", "conflicts_skipped", "migrated_at"]
+    },
+    "AllowlistIndexBackfilled": {
+      "description": "Emitted by the V3 -> V4 storage migration after backfilling the allowlist enumeration index from payment history. discovered is not necessarily the deployment's full allowlist: an asset allowlisted but never paid with before the upgrade is not discoverable this way (Soroban has no key enumeration).",
+      "topic": "allowlist_index_backfilled",
+      "fields": {
+        "discovered": { "type": "integer", "description": "Number of distinct, still-allowed (code, issuer) pairs newly indexed.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["discovered", "migrated_at"]
+    },
+    "LegacyPaymentsMigrated": {
+      "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",
+      "topic": "legacy_payments_migrated",
+      "fields": {
+        "migrated": { "type": "integer", "description": "Number of legacy entries actually migrated (copied to PaymentV1 and removed from the legacy key) this call.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
+      },
+      "required": ["migrated", "migrated_at"]
     },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",

@@ -14,6 +14,7 @@ jest.mock("@invoisio/soroban-client", () => ({
       payer: "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
       amount: "100",
     }),
+    getSettlementRefOwner: jest.fn().mockResolvedValue(null),
   })),
 }));
 
@@ -76,6 +77,11 @@ describe("SorobanService", () => {
 
   it("should handle getInvoicePayment when not initialized", async () => {
     const result = await service.getInvoicePayment("test-123");
+    expect(result).toBe(null);
+  });
+
+  it("should handle getSettlementRefOwner when not initialized", async () => {
+    const result = await service.getSettlementRefOwner("settle-abc");
     expect(result).toBe(null);
   });
 

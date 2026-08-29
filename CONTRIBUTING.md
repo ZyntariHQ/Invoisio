@@ -281,6 +281,15 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 ---
 
+## Documentation
+
+All new project documentation should be placed within the `docs/` directory and referenced in `docs/INDEX.md`. Do not add loose markdown files to the repository root.
+
+When creating a new document, ensure it contains a header at the top with the following information:
+- **Status:** (e.g., Current, Historical, or Superseded)
+- **Owner:** (e.g., your GitHub handle or team name)
+- **Last Reviewed:** (e.g., YYYY-MM-DD)
+
 ## Getting help
 
 - Open an issue with the `question` label

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, notFound } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -144,6 +144,16 @@ function CustomerDetailContent() {
   }
 
   if (isError || !summary) {
+    const errObj = error as { status?: number; response?: { status?: number } };
+    const is404 =
+      errObj?.status === 404 ||
+      errObj?.response?.status === 404 ||
+      error?.message?.includes("404");
+
+    if (is404) {
+      notFound();
+    }
+
     return (
       <div className="mx-auto max-w-2xl text-center p-12">
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-red-50 text-red-600">

@@ -10,6 +10,7 @@ import { Throttle } from "@nestjs/throttler";
 import { AuthService } from "./auth.service";
 import { NonceRequestDto, VerifyRequestDto } from "./dtos/auth.dto";
 import { Auth, CurrentUser, Public } from "./guard/auth.guard";
+import { Auth, Public, CurrentUser } from "./guard/auth.guard";
 import { User } from "../users/user.entity";
 
 @Controller("auth")

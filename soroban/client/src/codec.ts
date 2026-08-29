@@ -1,14 +1,82 @@
 import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 
 import {
+  AllowlistEntry,
+  AllowlistPage,
   ContractConfig,
   Asset,
   ContractErrorCode,
   getContractErrorCode,
   PaymentHistoryPage,
   PaymentRecord,
+  SettlementRefEntry,
+  SettlementRefIndexStatus,
+  SettlementRefPage,
   SorobanContractError,
 } from './types';
+
+// ─── Identifier canonicalisation ─────────────────────────────────────────────
+//
+// Mirrors `storage::is_canonical_identifier` and the length bounds enforced
+// on-chain by `record_payment` in
+// `soroban/contracts/invoice-payment/src/lib.rs`. Validating here lets a
+// caller fail locally — before spending a transaction — instead of learning
+// about a malformed `invoiceId` or `settlementRef` from a simulation error.
+//
+// Canonical form (both fields): ASCII lowercase letters (`a`-`z`), digits
+// (`0`-`9`), and hyphens (`-`) only. The contract rejects anything else
+// (uppercase, whitespace, other punctuation) rather than normalising it, so
+// this client mirrors that rejection rather than silently lower-casing or
+// trimming input on the caller's behalf.
+
+/** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
+export const MAX_INVOICE_ID_LEN = 64;
+
+/** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */
+export const MAX_SETTLEMENT_REF_LEN = 128;
+
+/**
+ * Maximum number of invoice ids accepted in one `migrateLegacyPayments`
+ * call. Mirrors `storage::MAX_LEGACY_MIGRATION_BATCH` — exceeding it fails
+ * on-chain with `LegacyPaymentMigrationBatchTooLarge` rather than silently
+ * truncating; split a larger backlog across multiple calls instead.
+ */
+export const MAX_LEGACY_MIGRATION_BATCH = 20;
+
+const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
+
+/**
+ * Returns `true` if `value` is non-empty, at most `maxLen` characters, and
+ * consists solely of ASCII lowercase letters, digits, and hyphens.
+ */
+export function isCanonicalIdentifier(value: string, maxLen: number): boolean {
+  return value.length > 0 && value.length <= maxLen && CANONICAL_IDENTIFIER_PATTERN.test(value);
+}
+
+/**
+ * Throw a descriptive `Error` if `value` is not a canonical identifier —
+ * empty, too long, or containing anything other than lowercase letters,
+ * digits, and hyphens (e.g. uppercase, whitespace, or other punctuation).
+ *
+ * @param fieldName - used only in the thrown message, e.g. `"invoiceId"`.
+ */
+export function assertCanonicalIdentifier(
+  value: string,
+  maxLen: number,
+  fieldName: string,
+): void {
+  if (value.length === 0) {
+    throw new Error(`${fieldName} must not be empty`);
+  }
+  if (value.length > maxLen) {
+    throw new Error(`${fieldName} must be at most ${maxLen} characters, got ${value.length}`);
+  }
+  if (!CANONICAL_IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(
+      `${fieldName} must contain only lowercase letters, digits, and hyphens, got: ${value}`,
+    );
+  }
+}
 
 // ─── Encoders (TypeScript → XDR ScVal) ───────────────────────────────────────
 
@@ -35,6 +103,11 @@ export function encodeU32(value: number): xdr.ScVal {
 
 export function encodeBool(value: boolean): xdr.ScVal {
   return nativeToScVal(value, { type: 'bool' });
+}
+
+/** Encode a `Vec<String>` argument, e.g. for `migrate_legacy_payments`. */
+export function encodeStringVec(values: string[]): xdr.ScVal {
+  return xdr.ScVal.scvVec(values.map((value) => encodeString(value)));
 }
 
 /**
@@ -98,6 +171,7 @@ function decodePaymentRecordFromNative(raw: Record<string, unknown>): PaymentRec
     payer: String(raw['payer']),
     asset: decodeAsset(raw['asset']),
     amount: BigInt(raw['amount'] as bigint | number | string),
+    assetDecimals: Number(raw['asset_decimals'] ?? 0),
     timestamp: BigInt(raw['timestamp'] as bigint | number | string),
     settlementRef: String(raw['settlement_ref']),
   };
@@ -139,7 +213,6 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
  * - version.contract_version
  * - version.storage_schema_version
  * - allowlist_mode.native_allowed
- * - allowlist_mode.requires_token_allowlist
  */
 export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
   const raw = scValToNative(scVal) as Record<string, unknown>;
@@ -160,11 +233,83 @@ export function decodeContractConfig(scVal: xdr.ScVal): ContractConfig {
     },
     allowlistMode: {
       nativeAllowed: Boolean(allowlistMode['native_allowed']),
-      requiresTokenAllowlist: Boolean(
-        allowlistMode['requires_token_allowlist'],
-      ),
     },
     paused: Boolean(raw['paused']),
+  };
+}
+
+/**
+ * Decode the `Option<String>` returned by `settlement_ref_owner()`.
+ *
+ * `scValToNative` resolves an absent Soroban `Option` to `null` or
+ * `undefined` depending on SDK version; both map to `null` here so callers
+ * get a single, unambiguous "not found" sentinel rather than an error (issue
+ * #495) — the same convention `getPendingAdmin()` already uses.
+ */
+export function decodeSettlementRefOwner(scVal: xdr.ScVal): string | null {
+  const native = scValToNative(scVal);
+  return native === null || native === undefined ? null : String(native);
+}
+
+function decodeSettlementRefEntryFromNative(raw: Record<string, unknown>): SettlementRefEntry {
+  return {
+    settlementRef: String(raw['settlement_ref']),
+    invoiceId: String(raw['invoice_id']),
+  };
+}
+
+/**
+ * Decode a bounded settlement-reference page returned by
+ * `settlement_ref_history()`.
+ */
+export function decodeSettlementRefPage(scVal: xdr.ScVal): SettlementRefPage {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const records = (raw['records'] as Record<string, unknown>[] | undefined) ?? [];
+
+  return {
+    records: records.map((record) => decodeSettlementRefEntryFromNative(record)),
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
+    gapsSkipped: Number(raw['gaps_skipped']),
+  };
+}
+
+function decodeAllowlistEntryFromNative(raw: Record<string, unknown>): AllowlistEntry {
+  return {
+    code: String(raw['code']),
+    issuer: String(raw['issuer']),
+  };
+}
+
+/**
+ * Decode a bounded allowlist page returned by `allowed_assets()`.
+ */
+export function decodeAllowlistPage(scVal: xdr.ScVal): AllowlistPage {
+  const raw = scValToNative(scVal) as Record<string, unknown>;
+  const records = (raw['records'] as Record<string, unknown>[] | undefined) ?? [];
+
+  return {
+    records: records.map((record) => decodeAllowlistEntryFromNative(record)),
+    nextCursor: Number(raw['next_cursor']),
+    hasMore: Boolean(raw['has_more']),
+    gapsSkipped: Number(raw['gaps_skipped']),
+  };
+}
+
+/**
+ * Decode the `(u32, u32, bool)` tuple returned by
+ * `settlement_ref_index_status()`.
+ */
+export function decodeSettlementRefIndexStatus(scVal: xdr.ScVal): SettlementRefIndexStatus {
+  const [settlementRefCount, paymentCount, isConsistent] = scValToNative(scVal) as [
+    number,
+    number,
+    boolean,
+  ];
+  return {
+    settlementRefCount: Number(settlementRefCount),
+    paymentCount: Number(paymentCount),
+    isConsistent: Boolean(isConsistent),
   };
 }
 

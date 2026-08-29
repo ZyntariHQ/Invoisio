@@ -61,7 +61,7 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
 }, {
     readonly code: 12;
     readonly name: "ContractPaused";
-    readonly meaning: "The contract is paused and cannot perform the requested operation.";
+    readonly meaning: "The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.";
 }, {
     readonly code: 13;
     readonly name: "InvalidSettlementRef";
@@ -98,6 +98,10 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 21;
     readonly name: "MustBePausedForUpgrade";
     readonly meaning: "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.";
+}, {
+    readonly code: 22;
+    readonly name: "LegacyPaymentMigrationBatchTooLarge";
+    readonly meaning: "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

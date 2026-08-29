@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useState, useCallback, useMemo } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { CheckCircle, Clock, XCircle, AlertCircle } from "lucide-react";

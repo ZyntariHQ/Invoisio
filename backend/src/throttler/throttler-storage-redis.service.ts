@@ -41,15 +41,35 @@ export class ThrottlerStorageRedisService implements ThrottlerStorage {
     }
 
     // Increment the hit counter
-    const current = await this.redis.incr(key);
+    let timeToBlockExpire = await this.redis.pttl(blockKey);
 
-    // Set expiration only on first increment
-    if (current === 1) {
-      await this.redis.expire(key, Math.ceil(ttl / 1000));
+    if (timeToBlockExpire > 0) {
+      const timeToExpire = await this.redis.pttl(key);
+      return {
+        totalHits: limit + 1,
+        timeToExpire: timeToExpire > 0 ? timeToExpire : ttl,
+        isBlocked: true,
+        timeToBlockExpire,
+      };
     }
 
-    const timeToExpire = await this.getTimeToExpire(key, ttl);
+    const current = await this.redis.incr(key);
+    let timeToExpire = await this.redis.pttl(key);
+
+    // pttl fallback: if -1 (no expire) or -2 (does not exist)
+    if (current === 1 || timeToExpire <= 0) {
+      await this.redis.pexpire(key, ttl);
+      timeToExpire = ttl;
+    }
+
     const isBlocked = current > limit;
+    timeToBlockExpire = 0;
+
+    if (isBlocked) {
+      const blockTtl = blockDuration || ttl;
+      await this.redis.set(blockKey, "1", "PX", blockTtl);
+      timeToBlockExpire = blockTtl;
+    }
 
     // Activate block duration if limit exceeded and blockDuration is configured
     if (isBlocked && blockDuration > 0) {
@@ -70,7 +90,7 @@ export class ThrottlerStorageRedisService implements ThrottlerStorage {
       totalHits: current,
       timeToExpire,
       isBlocked,
-      timeToBlockExpire: 0,
+      timeToBlockExpire,
     };
   }
 

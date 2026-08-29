@@ -154,4 +154,53 @@ export class SorobanService implements OnModuleInit {
       return null;
     }
   }
+
+  /**
+   * Resolve a settlement reference to the on-chain invoice_id that consumed
+   * it, or `null` when unused or unresolvable (e.g. Soroban not
+   * initialized, or an RPC error).
+   *
+   * Used to disambiguate a `SettlementRefAlreadyUsed` rejection: compare the
+   * returned invoice_id to the one just attempted — equal means a benign
+   * retry of an already-successful anchoring attempt, different means a
+   * genuine reconciliation conflict (issue #495).
+   */
+  async getSettlementRefOwner(settlementRef: string): Promise<string | null> {
+    if (!this.isInitialized) {
+      return null;
+    }
+    try {
+      return await this.client.getSettlementRefOwner(settlementRef);
+    } catch (error) {
+      this.logger.error(`Failed to resolve settlement_ref owner: ${error}`);
+      return null;
+    }
+  }
+
+  async pingRpc(): Promise<RpcCheckResult> {
+    const cfg = this.configService.get("stellar") as any;
+    if (!cfg || !cfg.sorobanRpcUrl) {
+      return { reachable: false, latencyMs: 0, error: "Soroban RPC URL not configured" };
+    }
+    
+    const start = Date.now();
+    try {
+      // Import dynamically or rely on global fetch since we don't want to mess up stellar-sdk import
+      const response = await fetch(cfg.sorobanRpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getHealth" }),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP error ${response.status}`);
+      }
+      return { reachable: true, latencyMs: Date.now() - start };
+    } catch (error) {
+      return {
+        reachable: false,
+        latencyMs: Date.now() - start,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
 }

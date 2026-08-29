@@ -30,6 +30,9 @@ import { ActivityFeedModule } from "./activity-feed/activity-feed.module";
 import { RealtimeModule } from "./realtime/realtime.module";
 import { CustomThrottlerModule } from "./throttler/throttler.module";
 import { PrismaService } from "./prisma/prisma.service";
+import { APP_GUARD } from "@nestjs/core";
+import { JwtAuthGuard } from "./auth/guard/auth.guard";
+import { CustomThrottlerGuard } from "./throttler/custom-throttler.guard";
 import { Module } from "@nestjs/common";
 
 @Module({
@@ -142,6 +145,10 @@ import { Module } from "@nestjs/common";
     RealtimeModule,
     CustomThrottlerModule,
   ],
-  providers: [PrismaService],
+  providers: [
+    PrismaService,
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: CustomThrottlerGuard },
+  ],
 })
 export class AppModule {}
