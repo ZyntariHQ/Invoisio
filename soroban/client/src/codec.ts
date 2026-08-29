@@ -15,6 +15,30 @@ import {
   SorobanContractError,
 } from './types';
 
+export type NamedEventPayload = Record<string, unknown>;
+
+/** Decode contract-event data without treating declaration order as a schema. */
+export function decodeNamedEventPayload(value: unknown): NamedEventPayload {
+  if (Array.isArray(value) || value === null || typeof value !== 'object') {
+    throw new Error('event data is not a named struct');
+  }
+  return value as NamedEventPayload;
+}
+
+/** Apply the single schema-version policy shared by every contract event. */
+export function validateEventSchemaVersion(
+  payload: NamedEventPayload,
+  expectedVersion: number,
+): { schemaVersion: number } | { reason: string } {
+  const schemaVersion = Number(payload['schema_version']);
+  if (schemaVersion !== expectedVersion) {
+    return {
+      reason: `unsupported schema version ${schemaVersion} (client supports ${expectedVersion})`,
+    };
+  }
+  return { schemaVersion };
+}
+
 // ─── Identifier canonicalisation ─────────────────────────────────────────────
 //
 // Mirrors `storage::is_canonical_identifier` and the length bounds enforced

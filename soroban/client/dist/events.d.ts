@@ -6,6 +6,9 @@ import { xdr } from '@stellar/stellar-sdk';
  * payload shape changes in a breaking way.
  */
 export declare const EVENT_SCHEMA_VERSION = 2;
+type VersionedEvent = {
+    schemaVersion: number;
+};
 /**
  * As of issue #512 this event carries only `schemaVersion` and `invoiceId` —
  * no payer, asset, amount, asset_decimals, or settlement_ref. A public event
@@ -13,50 +16,50 @@ export declare const EVENT_SCHEMA_VERSION = 2;
  * access-control decision in the contract; a consumer that needs the full
  * record must already know `invoiceId` and call `getPayment(invoiceId)`.
  */
-export type InvoicePaymentRecordedEvent = {
+export type InvoicePaymentRecordedEvent = VersionedEvent & {
     type: 'invoice_payment_recorded';
     schemaVersion: number;
     invoiceId: string;
 };
-export type AssetAllowlistedEvent = {
+export type AssetAllowlistedEvent = VersionedEvent & {
     type: 'asset_allowlisted';
     code: string;
     issuer: string;
 };
-export type AssetRevokedEvent = {
+export type AssetRevokedEvent = VersionedEvent & {
     type: 'asset_revoked';
     code: string;
     issuer: string;
 };
-export type NativeAllowChangedEvent = {
+export type NativeAllowChangedEvent = VersionedEvent & {
     type: 'native_allow_changed';
     allowed: boolean;
 };
-export type StorageSchemaUpgradedEvent = {
+export type StorageSchemaUpgradedEvent = VersionedEvent & {
     type: 'storage_schema_upgraded';
     fromVersion: number;
     toVersion: number;
     upgradedAt: bigint;
 };
-export type ContractPausedEvent = {
+export type ContractPausedEvent = VersionedEvent & {
     type: 'contract_paused';
     paused: boolean;
     triggeredBy: string;
     timestamp: bigint;
 };
-export type AdminTransferProposedEvent = {
+export type AdminTransferProposedEvent = VersionedEvent & {
     type: 'admin_transfer_proposed';
     currentAdmin: string;
     newAdmin: string;
     timestamp: bigint;
 };
-export type AdminTransferAcceptedEvent = {
+export type AdminTransferAcceptedEvent = VersionedEvent & {
     type: 'admin_transfer_accepted';
     previousAdmin: string;
     newAdmin: string;
     timestamp: bigint;
 };
-export type ContractUpgradedEvent = {
+export type ContractUpgradedEvent = VersionedEvent & {
     type: 'contract_upgraded';
     /** Packed semver of the code that was running when `upgrade()` was called. */
     previousVersion: number;
@@ -71,12 +74,39 @@ export type ContractUpgradedEvent = {
     upgradedBy: string;
     upgradedAt: bigint;
 };
+export type AdminTransferCancelledEvent = VersionedEvent & {
+    type: 'admin_transfer_cancelled';
+    currentAdmin: string;
+    cancelledAdmin: string;
+    timestamp: bigint;
+};
+export type HistoryIndexRebuiltEvent = VersionedEvent & {
+    type: 'history_index_rebuilt';
+    recordCount: number;
+    rebuiltAt: bigint;
+};
+export type SettlementRefsMigratedEvent = VersionedEvent & {
+    type: 'settlement_refs_migrated';
+    count: number;
+    conflictsSkipped: number;
+    migratedAt: bigint;
+};
+export type AllowlistIndexBackfilledEvent = VersionedEvent & {
+    type: 'allowlist_index_backfilled';
+    discovered: number;
+    migratedAt: bigint;
+};
+export type LegacyPaymentsMigratedEvent = VersionedEvent & {
+    type: 'legacy_payments_migrated';
+    migrated: number;
+    migratedAt: bigint;
+};
 export type UnknownSorobanEvent = {
     type: 'unknown';
     name?: string;
     reason: string;
 };
-export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | ContractUpgradedEvent | UnknownSorobanEvent;
+export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | ContractUpgradedEvent | AdminTransferCancelledEvent | HistoryIndexRebuiltEvent | SettlementRefsMigratedEvent | AllowlistIndexBackfilledEvent | LegacyPaymentsMigratedEvent | UnknownSorobanEvent;
 /**
  * Shape of a contract event as delivered by the Soroban RPC `getEvents`
  * endpoint (or `SorobanRpc.Server.getEvents`). `topics` and `data` are
@@ -103,4 +133,5 @@ export declare function decodeSorobanEvent(event: SorobanEventInput): DecodedSor
  * Time: O(n). Space: O(n).
  */
 export declare function decodeEventStream(events: SorobanEventInput[]): DecodedSorobanEvent[];
+export {};
 //# sourceMappingURL=events.d.ts.map

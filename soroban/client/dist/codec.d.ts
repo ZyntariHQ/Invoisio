@@ -1,5 +1,14 @@
 import { xdr } from '@stellar/stellar-sdk';
 import { AllowlistPage, ContractConfig, PaymentHistoryPage, PaymentRecord, SettlementRefIndexStatus, SettlementRefPage, SorobanContractError } from './types';
+export type NamedEventPayload = Record<string, unknown>;
+/** Decode contract-event data without treating declaration order as a schema. */
+export declare function decodeNamedEventPayload(value: unknown): NamedEventPayload;
+/** Apply the single schema-version policy shared by every contract event. */
+export declare function validateEventSchemaVersion(payload: NamedEventPayload, expectedVersion: number): {
+    schemaVersion: number;
+} | {
+    reason: string;
+};
 /** Maximum length of `invoiceId` accepted by `record_payment` on-chain. */
 export declare const MAX_INVOICE_ID_LEN = 64;
 /** Maximum length of `settlementRef` accepted by `record_payment` on-chain. */

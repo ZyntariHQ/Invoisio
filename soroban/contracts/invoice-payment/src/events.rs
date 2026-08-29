@@ -1,6 +1,9 @@
 use soroban_sdk::{contractevent, Address, BytesN, Env, String};
 
-/// Schema version for the `invoice_payment_recorded` event payload.
+/// Schema version for ALL event payloads in this contract.
+///
+/// **Stability Note:** Event payload shape and field order are part of the
+/// published ABI interface. They must not change without a version bump.
 /// Bumped only when the payload shape changes in a breaking way so that
 /// off-chain indexers can detect and adapt to the event format.
 ///
@@ -55,6 +58,7 @@ pub fn emit_payment_recorded(env: &Env, invoice_id: String) {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetAllowlisted {
+    pub schema_version: u32,
     pub code: String,
     pub issuer: String,
 }
@@ -62,6 +66,7 @@ pub struct AssetAllowlisted {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AssetRevoked {
+    pub schema_version: u32,
     pub code: String,
     pub issuer: String,
 }
@@ -69,27 +74,40 @@ pub struct AssetRevoked {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct NativeAllowChanged {
+    pub schema_version: u32,
     pub allowed: bool,
 }
 
 pub fn emit_asset_allowlisted(env: &Env, code: String, issuer: String) {
-    let payload = AssetAllowlisted { code, issuer };
+    let payload = AssetAllowlisted {
+        schema_version: EVENT_SCHEMA_VERSION,
+        code,
+        issuer,
+    };
     payload.publish(env);
 }
 
 pub fn emit_asset_revoked(env: &Env, code: String, issuer: String) {
-    let payload = AssetRevoked { code, issuer };
+    let payload = AssetRevoked {
+        schema_version: EVENT_SCHEMA_VERSION,
+        code,
+        issuer,
+    };
     payload.publish(env);
 }
 
 pub fn emit_native_allow_changed(env: &Env, allowed: bool) {
-    let payload = NativeAllowChanged { allowed };
+    let payload = NativeAllowChanged {
+        schema_version: EVENT_SCHEMA_VERSION,
+        allowed,
+    };
     payload.publish(env);
 }
 
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct StorageSchemaUpgraded {
+    pub schema_version: u32,
     pub from_version: u32,
     pub to_version: u32,
     pub upgraded_at: u64,
@@ -97,6 +115,7 @@ pub struct StorageSchemaUpgraded {
 
 pub fn emit_storage_schema_upgraded(env: &Env, from_version: u32, to_version: u32) {
     let payload = StorageSchemaUpgraded {
+        schema_version: EVENT_SCHEMA_VERSION,
         from_version,
         to_version,
         upgraded_at: env.ledger().timestamp(),
@@ -107,6 +126,7 @@ pub fn emit_storage_schema_upgraded(env: &Env, from_version: u32, to_version: u3
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContractPaused {
+    pub schema_version: u32,
     pub paused: bool,
     pub triggered_by: Address,
     pub timestamp: u64,
@@ -114,6 +134,7 @@ pub struct ContractPaused {
 
 pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
     let payload = ContractPaused {
+        schema_version: EVENT_SCHEMA_VERSION,
         paused,
         triggered_by,
         timestamp: env.ledger().timestamp(),
@@ -124,6 +145,7 @@ pub fn emit_contract_paused(env: &Env, paused: bool, triggered_by: Address) {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdminTransferProposed {
+    pub schema_version: u32,
     /// Admin that initiated the handoff.
     pub current_admin: Address,
     /// Address proposed to become the next admin.
@@ -133,6 +155,7 @@ pub struct AdminTransferProposed {
 
 pub fn emit_admin_transfer_proposed(env: &Env, current_admin: Address, new_admin: Address) {
     let payload = AdminTransferProposed {
+        schema_version: EVENT_SCHEMA_VERSION,
         current_admin,
         new_admin,
         timestamp: env.ledger().timestamp(),
@@ -143,6 +166,7 @@ pub fn emit_admin_transfer_proposed(env: &Env, current_admin: Address, new_admin
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdminTransferAccepted {
+    pub schema_version: u32,
     /// Admin that relinquished the role.
     pub previous_admin: Address,
     /// Address that accepted and is now the contract admin.
@@ -152,6 +176,7 @@ pub struct AdminTransferAccepted {
 
 pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admin: Address) {
     let payload = AdminTransferAccepted {
+        schema_version: EVENT_SCHEMA_VERSION,
         previous_admin,
         new_admin,
         timestamp: env.ledger().timestamp(),
@@ -164,6 +189,7 @@ pub fn emit_admin_transfer_accepted(env: &Env, previous_admin: Address, new_admi
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AdminTransferCancelled {
+    pub schema_version: u32,
     /// Admin that cancelled the pending handoff.
     pub current_admin: Address,
     /// Address that had been proposed and is no longer in line for the role.
@@ -173,6 +199,7 @@ pub struct AdminTransferCancelled {
 
 pub fn emit_admin_transfer_cancelled(env: &Env, current_admin: Address, cancelled_admin: Address) {
     let payload = AdminTransferCancelled {
+        schema_version: EVENT_SCHEMA_VERSION,
         current_admin,
         cancelled_admin,
         timestamp: env.ledger().timestamp(),
@@ -184,6 +211,7 @@ pub fn emit_admin_transfer_cancelled(env: &Env, current_admin: Address, cancelle
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct HistoryIndexRebuilt {
+    pub schema_version: u32,
     pub record_count: u32,
     pub rebuilt_at: u64,
 }
@@ -191,6 +219,7 @@ pub struct HistoryIndexRebuilt {
 /// Emit a history index rebuilt event.
 pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
     let payload = HistoryIndexRebuilt {
+        schema_version: EVENT_SCHEMA_VERSION,
         record_count,
         rebuilt_at: env.ledger().timestamp(),
     };
@@ -207,6 +236,7 @@ pub fn emit_history_index_rebuilt(env: &Env, record_count: u32) {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct SettlementRefsMigrated {
+    pub schema_version: u32,
     pub count: u32,
     pub conflicts_skipped: u32,
     pub migrated_at: u64,
@@ -215,6 +245,7 @@ pub struct SettlementRefsMigrated {
 /// Emit settlement references migrated event.
 pub fn emit_settlement_refs_migrated(env: &Env, count: u32, conflicts_skipped: u32) {
     let payload = SettlementRefsMigrated {
+        schema_version: EVENT_SCHEMA_VERSION,
         count,
         conflicts_skipped,
         migrated_at: env.ledger().timestamp(),
@@ -231,12 +262,14 @@ pub fn emit_settlement_refs_migrated(env: &Env, count: u32, conflicts_skipped: u
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct AllowlistIndexBackfilled {
+    pub schema_version: u32,
     pub discovered: u32,
     pub migrated_at: u64,
 }
 
 pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
     let payload = AllowlistIndexBackfilled {
+        schema_version: EVENT_SCHEMA_VERSION,
         discovered,
         migrated_at: env.ledger().timestamp(),
     };
@@ -250,12 +283,14 @@ pub fn emit_allowlist_index_backfilled(env: &Env, discovered: u32) {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct LegacyPaymentsMigrated {
+    pub schema_version: u32,
     pub migrated: u32,
     pub migrated_at: u64,
 }
 
 pub fn emit_legacy_payments_migrated(env: &Env, migrated: u32) {
     let payload = LegacyPaymentsMigrated {
+        schema_version: EVENT_SCHEMA_VERSION,
         migrated,
         migrated_at: env.ledger().timestamp(),
     };
@@ -273,6 +308,7 @@ pub fn emit_legacy_payments_migrated(env: &Env, migrated: u32) {
 #[contractevent]
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContractUpgraded {
+    pub schema_version: u32,
     pub previous_version: u32,
     pub new_version: u32,
     pub new_wasm_hash: BytesN<32>,
@@ -289,6 +325,7 @@ pub fn emit_contract_upgraded(
     upgraded_by: Address,
 ) {
     let payload = ContractUpgraded {
+        schema_version: EVENT_SCHEMA_VERSION,
         previous_version,
         new_version,
         new_wasm_hash,

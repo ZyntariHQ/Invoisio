@@ -7,7 +7,7 @@
 # src/errors.rs and src/lib.rs: this script fails loudly if a contract error
 # variant or public method is added, removed, or renamed without a matching
 # update here, so schema.json can never silently drift from the contract.
-# `types` and `events` stay hand-authored (their rich field descriptions
+# `types` and event descriptions stay hand-authored (their rich field descriptions
 # aren't safely derivable by regex) but this script still fails if the set of
 # #[contractevent] structs in src/events.rs no longer matches the EVENT_NAMES
 # list below.
@@ -455,8 +455,8 @@ cat > "$OUT" <<JSON
       "description": "Emitted by record_payment(). As of issue #512 this is minimized to signal only that an invoice_id was recorded — no payer, asset, amount, or settlement_ref. A consumer that needs the full record must already know invoice_id and call get_payment(invoice_id).",
       "topic": "invoice_payment_recorded",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "invoice_id":     { "type": "string",  "description": "Unique invoice identifier." },
-        "schema_version": { "type": "integer", "description": "Event payload schema version. Bumped to 2 for issue #512's payload shrink.", "minimum": 1 }
       },
       "required": ["invoice_id", "schema_version"]
     },
@@ -464,126 +464,139 @@ cat > "$OUT" <<JSON
       "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
       "topic": "asset_allowlisted",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "code":   { "type": "string", "description": "Asset code." },
         "issuer": { "type": "string", "description": "Issuer address." }
       },
-      "required": ["code", "issuer"]
+      "required": ["schema_version", "code", "issuer"]
     },
     "AssetRevoked": {
       "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist.",
       "topic": "asset_revoked",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "code":   { "type": "string", "description": "Asset code." },
         "issuer": { "type": "string", "description": "Issuer address." }
       },
-      "required": ["code", "issuer"]
+      "required": ["schema_version", "code", "issuer"]
     },
     "NativeAllowChanged": {
       "description": "Emitted by set_allow_native(). Signals the XLM allowance flag changed.",
       "topic": "native_allow_changed",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "allowed": { "type": "boolean", "description": "New value of the native XLM allow flag." }
       },
-      "required": ["allowed"]
+      "required": ["schema_version", "allowed"]
     },
     "StorageSchemaUpgraded": {
       "description": "Emitted by upgrade_storage(). Signals a storage schema version upgrade.",
       "topic": "storage_schema_upgraded",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "from_version": { "type": "integer", "description": "Previous schema version." },
         "to_version":   { "type": "integer", "description": "New schema version." },
         "upgraded_at":  { "type": "integer", "description": "Ledger timestamp when upgrade occurred." }
       },
-      "required": ["from_version", "to_version", "upgraded_at"]
+      "required": ["schema_version", "from_version", "to_version", "upgraded_at"]
     },
     "ContractPaused": {
       "description": "Emitted by set_paused(). Signals a pause or unpause state change.",
       "topic": "contract_paused",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "paused": { "type": "boolean", "description": "New paused state." },
         "triggered_by": { "type": "string", "description": "Admin address that triggered the change." },
         "timestamp": { "type": "integer", "description": "Ledger timestamp when change occurred." }
       },
-      "required": ["paused", "triggered_by", "timestamp"]
+      "required": ["schema_version", "paused", "triggered_by", "timestamp"]
     },
     "AdminTransferProposed": {
       "description": "Emitted by propose_admin(). Signals step 1 of the two-step admin handoff.",
       "topic": "admin_transfer_proposed",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "current_admin": { "type": "string", "description": "Admin that initiated the handoff." },
         "new_admin": { "type": "string", "description": "Address proposed to become the next admin." },
         "timestamp": { "type": "integer", "description": "Ledger timestamp when the proposal was made." }
       },
-      "required": ["current_admin", "new_admin", "timestamp"]
+      "required": ["schema_version", "current_admin", "new_admin", "timestamp"]
     },
     "AdminTransferAccepted": {
       "description": "Emitted by accept_admin(). Signals step 2 of the two-step admin handoff — the role has transferred.",
       "topic": "admin_transfer_accepted",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "previous_admin": { "type": "string", "description": "Admin that relinquished the role." },
         "new_admin": { "type": "string", "description": "Address that accepted and is now the contract admin." },
         "timestamp": { "type": "integer", "description": "Ledger timestamp when the transfer completed." }
       },
-      "required": ["previous_admin", "new_admin", "timestamp"]
+      "required": ["schema_version", "previous_admin", "new_admin", "timestamp"]
     },
     "AdminTransferCancelled": {
       "description": "Emitted by cancel_admin_transfer(). Signals a pending admin handoff was revoked before acceptance.",
       "topic": "admin_transfer_cancelled",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "current_admin": { "type": "string", "description": "Admin that cancelled the pending handoff." },
         "cancelled_admin": { "type": "string", "description": "Address that had been proposed and is no longer in line for the role." },
         "timestamp": { "type": "integer", "description": "Ledger timestamp when the cancellation occurred." }
       },
-      "required": ["current_admin", "cancelled_admin", "timestamp"]
+      "required": ["schema_version", "current_admin", "cancelled_admin", "timestamp"]
     },
     "HistoryIndexRebuilt": {
       "description": "Emitted by rebuild_history_index(). Signals the payment history index was successfully rebuilt.",
       "topic": "history_index_rebuilt",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "record_count": { "type": "integer", "description": "Number of records in the rebuilt index.", "minimum": 0 },
         "rebuilt_at": { "type": "integer", "description": "Ledger timestamp when the rebuild completed." }
       },
-      "required": ["record_count", "rebuilt_at"]
+      "required": ["schema_version", "record_count", "rebuilt_at"]
     },
     "SettlementRefsMigrated": {
       "description": "Emitted during a storage upgrade when settlement references are backfilled/migrated.",
       "topic": "settlement_refs_migrated",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "count": { "type": "integer", "description": "Number of settlement references migrated.", "minimum": 0 },
         "conflicts_skipped": { "type": "integer", "description": "Number of payments whose settlement_ref was already owned by a different invoice in the index and was therefore left untouched rather than overwritten. Non-zero means a genuine pre-existing duplicate was found and needs operator investigation.", "minimum": 0 },
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
-      "required": ["count", "conflicts_skipped", "migrated_at"]
+      "required": ["schema_version", "count", "conflicts_skipped", "migrated_at"]
     },
     "AllowlistIndexBackfilled": {
       "description": "Emitted by the V3 -> V4 storage migration after backfilling the allowlist enumeration index from payment history. discovered is not necessarily the deployment's full allowlist: an asset allowlisted but never paid with before the upgrade is not discoverable this way (Soroban has no key enumeration).",
       "topic": "allowlist_index_backfilled",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "discovered": { "type": "integer", "description": "Number of distinct, still-allowed (code, issuer) pairs newly indexed.", "minimum": 0 },
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
-      "required": ["discovered", "migrated_at"]
+      "required": ["schema_version", "discovered", "migrated_at"]
     },
     "LegacyPaymentsMigrated": {
       "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",
       "topic": "legacy_payments_migrated",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "migrated": { "type": "integer", "description": "Number of legacy entries actually migrated (copied to PaymentV1 and removed from the legacy key) this call.", "minimum": 0 },
         "migrated_at": { "type": "integer", "description": "Ledger timestamp when the migration occurred." }
       },
-      "required": ["migrated", "migrated_at"]
+      "required": ["schema_version", "migrated", "migrated_at"]
     },
     "ContractUpgraded": {
       "description": "Emitted by upgrade(). Signals the deployed WASM was swapped in place.",
       "topic": "contract_upgraded",
       "fields": {
+        "schema_version": { "type": "integer", "description": "Event payload schema version.", "minimum": 1 },
         "previous_version": { "type": "integer", "description": "Packed semver of the code that was running when upgrade() was called." },
         "new_version": { "type": "integer", "description": "Caller-supplied packed semver of the code being deployed. Not verified on-chain against new_wasm_hash." },
         "new_wasm_hash": { "type": "string", "description": "Hex-encoded 32-byte hash of the newly installed WASM.", "contentEncoding": "hex" },
         "upgraded_by": { "type": "string", "description": "Admin address that triggered the upgrade." },
         "upgraded_at": { "type": "integer", "description": "Ledger timestamp when the upgrade occurred." }
       },
-      "required": ["previous_version", "new_version", "new_wasm_hash", "upgraded_by", "upgraded_at"]
+      "required": ["schema_version", "previous_version", "new_version", "new_wasm_hash", "upgraded_by", "upgraded_at"]
     }
   },
   "errors": {

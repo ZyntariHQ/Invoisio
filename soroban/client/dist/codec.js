@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.MAX_LEGACY_MIGRATION_BATCH = exports.MAX_SETTLEMENT_REF_LEN = exports.MAX_INVOICE_ID_LEN = void 0;
+exports.decodeNamedEventPayload = decodeNamedEventPayload;
+exports.validateEventSchemaVersion = validateEventSchemaVersion;
 exports.isCanonicalIdentifier = isCanonicalIdentifier;
 exports.assertCanonicalIdentifier = assertCanonicalIdentifier;
 exports.encodeString = encodeString;
@@ -20,6 +22,23 @@ exports.decodeSettlementRefIndexStatus = decodeSettlementRefIndexStatus;
 exports.parseContractError = parseContractError;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
 const types_1 = require("./types");
+/** Decode contract-event data without treating declaration order as a schema. */
+function decodeNamedEventPayload(value) {
+    if (Array.isArray(value) || value === null || typeof value !== 'object') {
+        throw new Error('event data is not a named struct');
+    }
+    return value;
+}
+/** Apply the single schema-version policy shared by every contract event. */
+function validateEventSchemaVersion(payload, expectedVersion) {
+    const schemaVersion = Number(payload['schema_version']);
+    if (schemaVersion !== expectedVersion) {
+        return {
+            reason: `unsupported schema version ${schemaVersion} (client supports ${expectedVersion})`,
+        };
+    }
+    return { schemaVersion };
+}
 // ─── Identifier canonicalisation ─────────────────────────────────────────────
 //
 // Mirrors `storage::is_canonical_identifier` and the length bounds enforced

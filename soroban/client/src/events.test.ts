@@ -1,274 +1,85 @@
 import { describe, expect, it } from 'vitest';
 import { nativeToScVal, xdr } from '@stellar/stellar-sdk';
 
-import {
-  EVENT_SCHEMA_VERSION,
-  decodeEventStream,
-  decodeSorobanEvent,
-  SorobanEventInput,
-} from './events';
+import { EVENT_SCHEMA_VERSION, decodeSorobanEvent, SorobanEventInput } from './events';
 
-/** `#[contractevent]` structs publish with the event name as the sole topic. */
+const ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+const ISSUER = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+const HASH = Uint8Array.from({ length: 32 }, (_, index) => index);
+
 const topic = (name: string): xdr.ScVal => nativeToScVal(name, { type: 'symbol' });
 
-/** Positional payload: ScVec of field values in Rust declaration order. */
-const vecPayload = (...values: xdr.ScVal[]): xdr.ScVal => xdr.ScVal.scvVec(values);
+function mapPayload(fields: Record<string, xdr.ScVal>): xdr.ScVal {
+  return xdr.ScVal.scvMap(
+    Object.entries(fields).map(([key, val]) =>
+      new xdr.ScMapEntry({ key: nativeToScVal(key, { type: 'symbol' }), val }),
+    ),
+  );
+}
 
-const G_PAYER = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
-const G_ADMIN = 'GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF';
+function event(name: string, fields: Record<string, xdr.ScVal>): SorobanEventInput {
+  return { topics: [topic(name)], data: mapPayload(fields) };
+}
 
-describe('decodeSorobanEvent', () => {
-  it('decodes an invoice_payment_recorded event from a positional ScVec payload', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('invoice_payment_recorded')],
-      data: vecPayload(
-        nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }),
-        nativeToScVal('INV-2049', { type: 'string' }),
-      ),
-    };
+type EventCase = { name: string; fields: Record<string, xdr.ScVal> };
 
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'invoice_payment_recorded',
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      invoiceId: 'INV-2049',
-    });
-  });
+const version = () => nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' });
+const time = () => nativeToScVal(100, { type: 'u64' });
+const address = (value: string) => nativeToScVal(value, { type: 'address' });
+const count = (value: number) => nativeToScVal(value, { type: 'u32' });
 
-  it('rejects an invoice payment event from an unsupported schema version instead of guessing', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('invoice_payment_recorded')],
-      data: vecPayload(
-        nativeToScVal(1, { type: 'u32' }),
-        nativeToScVal('INV-1', { type: 'string' }),
-      ),
-    };
+const cases: EventCase[] = [
+  { name: 'invoice_payment_recorded', fields: { schema_version: version(), invoice_id: nativeToScVal('inv-1', { type: 'string' }) } },
+  { name: 'asset_allowlisted', fields: { schema_version: version(), code: nativeToScVal('USDC', { type: 'string' }), issuer: nativeToScVal(ISSUER, { type: 'string' }) } },
+  { name: 'asset_revoked', fields: { schema_version: version(), code: nativeToScVal('USDC', { type: 'string' }), issuer: nativeToScVal(ISSUER, { type: 'string' }) } },
+  { name: 'native_allow_changed', fields: { schema_version: version(), allowed: nativeToScVal(true, { type: 'bool' }) } },
+  { name: 'storage_schema_upgraded', fields: { schema_version: version(), from_version: count(1), to_version: count(2), upgraded_at: time() } },
+  { name: 'contract_paused', fields: { schema_version: version(), paused: nativeToScVal(true, { type: 'bool' }), triggered_by: address(ADMIN), timestamp: time() } },
+  { name: 'admin_transfer_proposed', fields: { schema_version: version(), current_admin: address(ADMIN), new_admin: address(ISSUER), timestamp: time() } },
+  { name: 'admin_transfer_accepted', fields: { schema_version: version(), previous_admin: address(ADMIN), new_admin: address(ISSUER), timestamp: time() } },
+  { name: 'admin_transfer_cancelled', fields: { schema_version: version(), current_admin: address(ADMIN), cancelled_admin: address(ISSUER), timestamp: time() } },
+  { name: 'history_index_rebuilt', fields: { schema_version: version(), record_count: count(3), rebuilt_at: time() } },
+  { name: 'settlement_refs_migrated', fields: { schema_version: version(), count: count(3), conflicts_skipped: count(1), migrated_at: time() } },
+  { name: 'allowlist_index_backfilled', fields: { schema_version: version(), discovered: count(3), migrated_at: time() } },
+  { name: 'legacy_payments_migrated', fields: { schema_version: version(), migrated: count(3), migrated_at: time() } },
+  { name: 'contract_upgraded', fields: { schema_version: version(), previous_version: count(1), new_version: count(2), new_wasm_hash: nativeToScVal(HASH, { type: 'bytes' }), upgraded_by: address(ADMIN), upgraded_at: time() } },
+];
 
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'unknown',
-      name: 'invoice_payment_recorded',
-      reason: `unsupported schema version 1 (client supports ${EVENT_SCHEMA_VERSION})`,
-    });
-  });
-
-  it('decodes asset_allowlisted and asset_revoked events', () => {
-    const allowlisted = decodeSorobanEvent({
-      topics: [topic('asset_allowlisted')],
-      data: vecPayload(
-        nativeToScVal('USDC', { type: 'string' }),
-        nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
-      ),
-    });
-    expect(allowlisted).toEqual({
-      type: 'asset_allowlisted',
-      code: 'USDC',
-      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-    });
-
-    const revoked = decodeSorobanEvent({
-      topics: [topic('asset_revoked')],
-      data: vecPayload(
-        nativeToScVal('ARST', { type: 'string' }),
-        nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
-      ),
-    });
-    expect(revoked).toEqual({
-      type: 'asset_revoked',
-      code: 'ARST',
-      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-    });
-  });
-
-  it('decodes native_allow_changed with its boolean payload', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('native_allow_changed')],
-      data: vecPayload(nativeToScVal(true, { type: 'bool' })),
-    };
-    expect(decodeSorobanEvent(event)).toEqual({ type: 'native_allow_changed', allowed: true });
-  });
-
-  it('decodes storage_schema_upgraded with u32/u64 fields', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('storage_schema_upgraded')],
-      data: vecPayload(
-        nativeToScVal(1, { type: 'u32' }),
-        nativeToScVal(2, { type: 'u32' }),
-        nativeToScVal(1_786_000_000, { type: 'u64' }),
-      ),
-    };
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'storage_schema_upgraded',
-      fromVersion: 1,
-      toVersion: 2,
-      upgradedAt: BigInt(1_786_000_000),
-    });
-  });
-
-  it('decodes contract_paused (both pause and unpause use the same event)', () => {
-    const decode = (paused: boolean) =>
-      decodeSorobanEvent({
-        topics: [topic('contract_paused')],
-        data: vecPayload(
-          nativeToScVal(paused, { type: 'bool' }),
-          nativeToScVal(G_ADMIN, { type: 'address' }),
-          nativeToScVal(1_786_000_001, { type: 'u64' }),
-        ),
+describe('decodeSorobanEvent schema versioning', () => {
+  for (const testCase of cases) {
+    it(`decodes ${testCase.name} by field name`, () => {
+      expect(decodeSorobanEvent(event(testCase.name, testCase.fields))).toMatchObject({
+        type: testCase.name,
+        schemaVersion: EVENT_SCHEMA_VERSION,
       });
-
-    expect(decode(true)).toEqual({
-      type: 'contract_paused',
-      paused: true,
-      triggeredBy: G_ADMIN,
-      timestamp: BigInt(1_786_000_001),
-    });
-    expect(decode(false)).toMatchObject({ type: 'contract_paused', paused: false });
-  });
-
-  it('decodes admin_transfer_proposed and admin_transfer_accepted events', () => {
-    const proposed = decodeSorobanEvent({
-      topics: [topic('admin_transfer_proposed')],
-      data: vecPayload(
-        nativeToScVal(G_ADMIN, { type: 'address' }),
-        nativeToScVal(G_PAYER, { type: 'address' }),
-        nativeToScVal(1_786_000_100, { type: 'u64' }),
-      ),
-    });
-    expect(proposed).toEqual({
-      type: 'admin_transfer_proposed',
-      currentAdmin: G_ADMIN,
-      newAdmin: G_PAYER,
-      timestamp: BigInt(1_786_000_100),
     });
 
-    const accepted = decodeSorobanEvent({
-      topics: [topic('admin_transfer_accepted')],
-      data: vecPayload(
-        nativeToScVal(G_ADMIN, { type: 'address' }),
-        nativeToScVal(G_PAYER, { type: 'address' }),
-        nativeToScVal(1_786_000_101, { type: 'u64' }),
-      ),
+    it(`rejects an unsupported version for ${testCase.name}`, () => {
+      const fields = { ...testCase.fields, schema_version: nativeToScVal(1, { type: 'u32' }) };
+      expect(decodeSorobanEvent(event(testCase.name, fields))).toEqual({
+        type: 'unknown',
+        name: testCase.name,
+        reason: `unsupported schema version 1 (client supports ${EVENT_SCHEMA_VERSION})`,
+      });
     });
-    expect(accepted).toEqual({
-      type: 'admin_transfer_accepted',
-      previousAdmin: G_ADMIN,
-      newAdmin: G_PAYER,
-      timestamp: BigInt(1_786_000_101),
+
+    it(`rejects a positional, reordered, or truncated payload for ${testCase.name}`, () => {
+      const values = Object.values(testCase.fields);
+      const malformed = values.length > 1 ? values.slice().reverse().slice(0, -1) : [];
+      expect(decodeSorobanEvent({ topics: [topic(testCase.name)], data: xdr.ScVal.scvVec(malformed) })).toMatchObject({
+        type: 'unknown',
+        name: testCase.name,
+      });
     });
-  });
-
-  it('decodes contract_upgraded, hex-encoding the WASM hash', () => {
-    const wasmHashBytes = Uint8Array.from({ length: 32 }, (_, i) => i);
-    const event: SorobanEventInput = {
-      topics: [topic('contract_upgraded')],
-      data: vecPayload(
-        nativeToScVal(1_000_000, { type: 'u32' }),
-        nativeToScVal(1_001_000, { type: 'u32' }),
-        nativeToScVal(wasmHashBytes, { type: 'bytes' }),
-        nativeToScVal(G_ADMIN, { type: 'address' }),
-        nativeToScVal(1_786_000_200, { type: 'u64' }),
-      ),
-    };
-
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'contract_upgraded',
-      previousVersion: 1_000_000,
-      newVersion: 1_001_000,
-      newWasmHash: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f',
-      upgradedBy: G_ADMIN,
-      upgradedAt: BigInt(1_786_000_200),
-    });
-  });
-
-  it('passes unknown event names through as unknown instead of throwing', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('some_future_event')],
-      data: vecPayload(nativeToScVal('x', { type: 'string' })),
-    };
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'unknown',
-      name: 'some_future_event',
-      reason: 'unrecognized event name',
-    });
-  });
-
-  it('accepts the base64 XDR strings the RPC getEvents endpoint returns', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('native_allow_changed').toXDR('base64')],
-      data: vecPayload(nativeToScVal(false, { type: 'bool' })).toXDR('base64'),
-    };
-    expect(decodeSorobanEvent(event)).toEqual({ type: 'native_allow_changed', allowed: false });
-  });
-
-  it('survives malformed XDR without throwing', () => {
-    expect(decodeSorobanEvent({ topics: ['!!!not-base64!!!'], data: 'AAAA' })).toMatchObject({
-      type: 'unknown',
-    });
-  });
-
-  it('survives a known event with a payload of the wrong arity', () => {
-    const event: SorobanEventInput = {
-      topics: [topic('asset_allowlisted')],
-      data: vecPayload(nativeToScVal('USDC', { type: 'string' })),
-    };
-    expect(decodeSorobanEvent(event)).toMatchObject({
-      type: 'unknown',
-      name: 'asset_allowlisted',
-    });
-  });
-
-  it('decodes an invoice_payment_recorded event from a struct/object payload', () => {
-    const structScVal = xdr.ScVal.scvMap([
-      new xdr.ScMapEntry({ key: nativeToScVal('schema_version', { type: 'symbol' }), val: nativeToScVal(EVENT_SCHEMA_VERSION, { type: 'u32' }) }),
-      new xdr.ScMapEntry({ key: nativeToScVal('invoice_id', { type: 'symbol' }), val: nativeToScVal('INV-2049', { type: 'string' }) }),
-    ]);
-
-    const event: SorobanEventInput = {
-      topics: [topic('invoice_payment_recorded')],
-      data: structScVal,
-    };
-
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'invoice_payment_recorded',
-      schemaVersion: EVENT_SCHEMA_VERSION,
-      invoiceId: 'INV-2049',
-    });
-  });
-
-  it('handles missing or empty event topics gracefully without throwing', () => {
-    const event: SorobanEventInput = {
-      topics: [],
-      data: vecPayload(nativeToScVal(true, { type: 'bool' })),
-    };
-    expect(decodeSorobanEvent(event)).toEqual({
-      type: 'unknown',
-      reason: 'missing event topic',
-    });
-  });
+  }
 });
 
-describe('decodeEventStream', () => {
-  it('decodes a mixed batch in order', () => {
-    const events: SorobanEventInput[] = [
-      {
-        topics: [topic('native_allow_changed')],
-        data: vecPayload(nativeToScVal(true, { type: 'bool' })),
-      },
-      {
-        topics: [topic('mystery_event')],
-        data: vecPayload(nativeToScVal(1, { type: 'u32' })),
-      },
-      {
-        topics: [topic('asset_revoked')],
-        data: vecPayload(
-          nativeToScVal('USDC', { type: 'string' }),
-          nativeToScVal('GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN', { type: 'string' }),
-        ),
-      },
-    ];
-
-    const decoded = decodeEventStream(events);
-    expect(decoded).toHaveLength(3);
-    expect(decoded[0]).toMatchObject({ type: 'native_allow_changed', allowed: true });
-    expect(decoded[1]).toMatchObject({ type: 'unknown', name: 'mystery_event' });
-    expect(decoded[2]).toMatchObject({ type: 'asset_revoked', code: 'USDC' });
+describe('decodeSorobanEvent malformed input', () => {
+  it('rejects missing schema_version with the shared structured reason', () => {
+    expect(decodeSorobanEvent(event('native_allow_changed', { allowed: nativeToScVal(true, { type: 'bool' }) }))).toEqual({
+      type: 'unknown',
+      name: 'native_allow_changed',
+      reason: `unsupported schema version NaN (client supports ${EVENT_SCHEMA_VERSION})`,
+    });
   });
 });

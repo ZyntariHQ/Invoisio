@@ -4,6 +4,7 @@ exports.EVENT_SCHEMA_VERSION = void 0;
 exports.decodeSorobanEvent = decodeSorobanEvent;
 exports.decodeEventStream = decodeEventStream;
 const stellar_sdk_1 = require("@stellar/stellar-sdk");
+const codec_1 = require("./codec");
 /**
  * Schema version of the `invoice_payment_recorded` event payload that this
  * client knows how to decode. Mirrors `EVENT_SCHEMA_VERSION` in
@@ -39,38 +40,16 @@ function toHex(value, field) {
         return value;
     throw new Error(`Field ${field} is not bytes-like: ${JSON.stringify(value)}`);
 }
-/**
- * Field values arrive positionally: `#[contractevent]` structs publish as
- * `ScVec` with fields in declaration order, so decoders index by position.
- * An object form (named keys) is also accepted for forward-compatibility.
- */
-function fieldAt(payload, index, key) {
-    if (Array.isArray(payload))
-        return payload[index];
+/** Require a field by its Soroban symbol rather than by declaration position. */
+function required(payload, key) {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+        throw new Error(`missing field ${key}`);
+    }
     return payload[key];
 }
-/**
- * Positional payloads carry no length information, so every decoder states
- * its arity up front: a vec with the wrong number of fields is a schema
- * mismatch, not a decoding error to paper over.
- */
-function checkArity(payload, expected) {
-    return !Array.isArray(payload) || payload.length === expected;
-}
-function decodePaymentEvent(payload) {
-    const schemaVersion = Number(fieldAt(payload, 0, 'schema_version'));
-    if (schemaVersion !== exports.EVENT_SCHEMA_VERSION) {
-        return {
-            type: 'unknown',
-            name: 'invoice_payment_recorded',
-            reason: `unsupported schema version ${schemaVersion} (client supports ${exports.EVENT_SCHEMA_VERSION})`,
-        };
-    }
-    return {
-        type: 'invoice_payment_recorded',
-        schemaVersion,
-        invoiceId: String(fieldAt(payload, 1, 'invoice_id')),
-    };
+function versioned(payload, name) {
+    const result = (0, codec_1.validateEventSchemaVersion)(payload, exports.EVENT_SCHEMA_VERSION);
+    return 'reason' in result ? { type: 'unknown', name, reason: result.reason } : result.schemaVersion;
 }
 /**
  * Decode one contract event into a stable application-level type.
@@ -92,10 +71,7 @@ function decodeSorobanEvent(event) {
         const topic = parseScVal(event.topics[0]);
         name = String((0, stellar_sdk_1.scValToNative)(topic));
         const raw = (0, stellar_sdk_1.scValToNative)(parseScVal(event.data));
-        if (!(Array.isArray(raw) || (raw !== null && typeof raw === 'object'))) {
-            return { type: 'unknown', name, reason: 'event data is neither a struct nor a vec' };
-        }
-        payload = raw;
+        payload = (0, codec_1.decodeNamedEventPayload)(raw);
     }
     catch (e) {
         return { type: 'unknown', reason: `malformed event XDR: ${e.message}` };
@@ -103,79 +79,151 @@ function decodeSorobanEvent(event) {
     try {
         switch (name) {
             case 'invoice_payment_recorded':
-                if (!checkArity(payload, 2))
-                    break;
-                return decodePaymentEvent(payload);
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return { type: name, schemaVersion, invoiceId: String(required(payload, 'invoice_id')) };
+                }
             case 'asset_allowlisted':
-                if (!checkArity(payload, 2))
-                    break;
-                return {
-                    type: 'asset_allowlisted',
-                    code: String(fieldAt(payload, 0, 'code')),
-                    issuer: String(fieldAt(payload, 1, 'issuer')),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'asset_allowlisted',
+                        schemaVersion,
+                        code: String(required(payload, 'code')),
+                        issuer: String(required(payload, 'issuer')),
+                    };
+                }
             case 'asset_revoked':
-                if (!checkArity(payload, 2))
-                    break;
-                return {
-                    type: 'asset_revoked',
-                    code: String(fieldAt(payload, 0, 'code')),
-                    issuer: String(fieldAt(payload, 1, 'issuer')),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'asset_revoked',
+                        schemaVersion,
+                        code: String(required(payload, 'code')),
+                        issuer: String(required(payload, 'issuer')),
+                    };
+                }
             case 'native_allow_changed':
-                if (!checkArity(payload, 1))
-                    break;
-                return {
-                    type: 'native_allow_changed',
-                    allowed: Boolean(fieldAt(payload, 0, 'allowed')),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'native_allow_changed',
+                        schemaVersion,
+                        allowed: Boolean(required(payload, 'allowed')),
+                    };
+                }
             case 'storage_schema_upgraded':
-                if (!checkArity(payload, 3))
-                    break;
-                return {
-                    type: 'storage_schema_upgraded',
-                    fromVersion: Number(fieldAt(payload, 0, 'from_version')),
-                    toVersion: Number(fieldAt(payload, 1, 'to_version')),
-                    upgradedAt: toBigInt(fieldAt(payload, 2, 'upgraded_at'), 'upgraded_at'),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'storage_schema_upgraded',
+                        schemaVersion,
+                        fromVersion: Number(required(payload, 'from_version')),
+                        toVersion: Number(required(payload, 'to_version')),
+                        upgradedAt: toBigInt(required(payload, 'upgraded_at'), 'upgraded_at'),
+                    };
+                }
             case 'contract_paused':
-                if (!checkArity(payload, 3))
-                    break;
-                return {
-                    type: 'contract_paused',
-                    paused: Boolean(fieldAt(payload, 0, 'paused')),
-                    triggeredBy: String(fieldAt(payload, 1, 'triggered_by')),
-                    timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'contract_paused',
+                        schemaVersion,
+                        paused: Boolean(required(payload, 'paused')),
+                        triggeredBy: String(required(payload, 'triggered_by')),
+                        timestamp: toBigInt(required(payload, 'timestamp'), 'timestamp'),
+                    };
+                }
             case 'admin_transfer_proposed':
-                if (!checkArity(payload, 3))
-                    break;
-                return {
-                    type: 'admin_transfer_proposed',
-                    currentAdmin: String(fieldAt(payload, 0, 'current_admin')),
-                    newAdmin: String(fieldAt(payload, 1, 'new_admin')),
-                    timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'admin_transfer_proposed',
+                        schemaVersion,
+                        currentAdmin: String(required(payload, 'current_admin')),
+                        newAdmin: String(required(payload, 'new_admin')),
+                        timestamp: toBigInt(required(payload, 'timestamp'), 'timestamp'),
+                    };
+                }
             case 'admin_transfer_accepted':
-                if (!checkArity(payload, 3))
-                    break;
-                return {
-                    type: 'admin_transfer_accepted',
-                    previousAdmin: String(fieldAt(payload, 0, 'previous_admin')),
-                    newAdmin: String(fieldAt(payload, 1, 'new_admin')),
-                    timestamp: toBigInt(fieldAt(payload, 2, 'timestamp'), 'timestamp'),
-                };
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'admin_transfer_accepted',
+                        schemaVersion,
+                        previousAdmin: String(required(payload, 'previous_admin')),
+                        newAdmin: String(required(payload, 'new_admin')),
+                        timestamp: toBigInt(required(payload, 'timestamp'), 'timestamp'),
+                    };
+                }
             case 'contract_upgraded':
-                if (!checkArity(payload, 5))
-                    break;
-                return {
-                    type: 'contract_upgraded',
-                    previousVersion: Number(fieldAt(payload, 0, 'previous_version')),
-                    newVersion: Number(fieldAt(payload, 1, 'new_version')),
-                    newWasmHash: toHex(fieldAt(payload, 2, 'new_wasm_hash'), 'new_wasm_hash'),
-                    upgradedBy: String(fieldAt(payload, 3, 'upgraded_by')),
-                    upgradedAt: toBigInt(fieldAt(payload, 4, 'upgraded_at'), 'upgraded_at'),
+                {
+                    const schemaVersion = versioned(payload, name);
+                    if (typeof schemaVersion !== 'number')
+                        return schemaVersion;
+                    return {
+                        type: 'contract_upgraded',
+                        schemaVersion,
+                        previousVersion: Number(required(payload, 'previous_version')),
+                        newVersion: Number(required(payload, 'new_version')),
+                        newWasmHash: toHex(required(payload, 'new_wasm_hash'), 'new_wasm_hash'),
+                        upgradedBy: String(required(payload, 'upgraded_by')),
+                        upgradedAt: toBigInt(required(payload, 'upgraded_at'), 'upgraded_at'),
+                    };
+                }
+            case 'admin_transfer_cancelled':
+            case 'history_index_rebuilt':
+            case 'settlement_refs_migrated':
+            case 'allowlist_index_backfilled':
+            case 'legacy_payments_migrated': {
+                const schemaVersion = versioned(payload, name);
+                if (typeof schemaVersion !== 'number')
+                    return schemaVersion;
+                const fields = { type: name, schemaVersion };
+                const fieldNames = {
+                    admin_transfer_cancelled: ['current_admin', 'cancelled_admin', 'timestamp'],
+                    history_index_rebuilt: ['record_count', 'rebuilt_at'],
+                    settlement_refs_migrated: ['count', 'conflicts_skipped', 'migrated_at'],
+                    allowlist_index_backfilled: ['discovered', 'migrated_at'],
+                    legacy_payments_migrated: ['migrated', 'migrated_at'],
                 };
+                for (const field of fieldNames[name]) {
+                    fields[field] = required(payload, field);
+                }
+                for (const field of ['record_count', 'count', 'conflicts_skipped', 'discovered', 'migrated']) {
+                    if (field in fields)
+                        fields[field] = Number(fields[field]);
+                }
+                for (const field of ['timestamp', 'rebuilt_at', 'migrated_at']) {
+                    if (field in fields)
+                        fields[field] = toBigInt(fields[field], field);
+                }
+                for (const field of ['current_admin', 'cancelled_admin']) {
+                    if (field in fields)
+                        fields[field] = String(fields[field]);
+                }
+                return {
+                    type: name,
+                    schemaVersion,
+                    ...Object.fromEntries(Object.entries(fields).filter(([key]) => key !== 'type' && key !== 'schemaVersion')),
+                };
+            }
             default:
                 return { type: 'unknown', name, reason: 'unrecognized event name' };
         }

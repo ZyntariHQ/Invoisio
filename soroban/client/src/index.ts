@@ -15,14 +15,20 @@ export {
 } from './events';
 
 export type {
+  AdminTransferCancelledEvent,
   AdminTransferAcceptedEvent,
   AdminTransferProposedEvent,
+  AllowlistIndexBackfilledEvent,
   AssetAllowlistedEvent,
   AssetRevokedEvent,
   ContractPausedEvent,
   DecodedSorobanEvent,
+  ContractUpgradedEvent,
+  HistoryIndexRebuiltEvent,
   InvoicePaymentRecordedEvent,
+  LegacyPaymentsMigratedEvent,
   NativeAllowChangedEvent,
+  SettlementRefsMigratedEvent,
   SorobanEventInput,
   StorageSchemaUpgradedEvent,
   UnknownSorobanEvent,

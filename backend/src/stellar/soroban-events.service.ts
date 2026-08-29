@@ -7,7 +7,10 @@ import { URL } from "node:url";
 import { RequestContextService } from "../observability/request-context.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
 import { traceAsync } from "../observability/tracing.util";
-import { SorobanInvoiceClient } from "@invoisio/soroban-client";
+import {
+  EVENT_SCHEMA_VERSION,
+  SorobanInvoiceClient,
+} from "@invoisio/soroban-client";
 
 type Json = Record<string, any>;
 
@@ -362,9 +365,12 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
 
   private coercePaymentRecorded(obj: any): {
     invoice_id?: string;
+    schema_version?: number;
   } | null {
     if (!obj || typeof obj !== "object") return null;
-    if ("invoice_id" in obj) return obj;
+    if ("invoice_id" in obj) {
+      return Number(obj.schema_version) === EVENT_SCHEMA_VERSION ? obj : null;
+    }
     if (Array.isArray(obj?.map)) {
       const out: Record<string, any> = {};
       for (const entry of obj.map) {
@@ -381,7 +387,7 @@ export class SorobanEventsService implements OnModuleInit, OnModuleDestroy {
           out[String(key)] = val;
         }
       }
-      return out as any;
+      return Number(out.schema_version) === EVENT_SCHEMA_VERSION ? (out as any) : null;
     }
     return null;
   }
