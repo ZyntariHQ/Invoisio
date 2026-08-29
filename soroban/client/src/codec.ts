@@ -89,6 +89,25 @@ export function encodeAddress(address: string): xdr.ScVal {
 }
 
 /**
+ * Encode the contract `Asset` enum for `record_payment`.
+ *
+ * Native XLM is the `Native` unit variant — an empty `issuer` maps here, so
+ * callers can keep passing `assetCode: 'XLM', assetIssuer: ''`. A token is
+ * `Token(code, Address)`: a malformed issuer fails at `new Address(...)`
+ * rather than being written on-chain.
+ */
+export function encodeAsset(code: string, issuer: string): xdr.ScVal {
+  if (!issuer) {
+    return xdr.ScVal.scvVec([xdr.ScVal.scvSymbol('Native')]);
+  }
+  return xdr.ScVal.scvVec([
+    xdr.ScVal.scvSymbol('Token'),
+    encodeString(code),
+    encodeAddress(issuer),
+  ]);
+}
+
+/**
  * Encode a BigInt as a Soroban i128 ScVal.
  * Soroban stores token amounts as i128 to safely cover the full range of
  * 7-decimal fixed-point values without floating-point rounding.

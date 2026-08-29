@@ -31,6 +31,7 @@ import {
   decodeSettlementRefOwner,
   decodeSettlementRefPage,
   encodeAddress,
+  encodeAsset,
   encodeBool,
   encodeBytes32,
   encodeI128,
@@ -157,8 +158,7 @@ export class SorobanInvoiceClient {
           'record_payment',
           encodeString(params.invoiceId),
           encodeAddress(params.payer),
-          encodeString(params.assetCode),
-          encodeString(params.assetIssuer),
+          encodeAsset(params.assetCode, params.assetIssuer),
           encodeI128(params.amount),
           encodeString(params.settlementRef),
         ),
@@ -299,7 +299,7 @@ export class SorobanInvoiceClient {
         this.contract.call(
           paramsDecimals === undefined ? 'allow_asset' : 'allow_asset_with_decimals',
           encodeString(code),
-          encodeString(issuer),
+          encodeAddress(issuer),
           ...(paramsDecimals === undefined ? [] : [encodeU32(paramsDecimals)]),
         ),
       )
@@ -334,7 +334,7 @@ export class SorobanInvoiceClient {
       networkPassphrase: this.config.networkPassphrase,
     })
       .addOperation(
-        this.contract.call('revoke_asset', encodeString(code), encodeString(issuer)),
+        this.contract.call('revoke_asset', encodeString(code), encodeAddress(issuer)),
       )
       .setTimeout(TX_TIMEOUT_SECONDS)
       .build();

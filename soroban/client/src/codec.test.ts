@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { scValToNative } from '@stellar/stellar-sdk';
 
 import {
   assertCanonicalIdentifier,
+  encodeAsset,
   isCanonicalIdentifier,
   MAX_INVOICE_ID_LEN,
   MAX_SETTLEMENT_REF_LEN,
@@ -68,5 +70,17 @@ describe('assertCanonicalIdentifier', () => {
     expect(() =>
       assertCanonicalIdentifier('Settle Ref!', MAX_SETTLEMENT_REF_LEN, 'settlementRef'),
     ).toThrow(/settlementRef/);
+  });
+});
+
+describe('encodeAsset', () => {
+  it('encodes native XLM as the Native unit variant when issuer is empty', () => {
+    expect(scValToNative(encodeAsset('XLM', ''))).toEqual(['Native']);
+  });
+
+  it('encodes a token as Token(code, Address) and rejects a malformed issuer', () => {
+    const issuer = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+    expect(scValToNative(encodeAsset('USDC', issuer))).toEqual(['Token', 'USDC', issuer]);
+    expect(() => encodeAsset('USDC', 'not-an-address')).toThrow();
   });
 });

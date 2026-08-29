@@ -247,7 +247,7 @@ describe('allowlist operations', () => {
 });
 
 describe('recordPayment', () => {
-  it('recordPayment() submits record_payment with settlementRef as the 6th argument', async () => {
+  it('recordPayment() submits record_payment with an Asset enum (Native for empty issuer)', async () => {
     let prepared: Transaction | undefined;
     vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
       new Account(SIGNER_PUBLIC, '1'),
@@ -283,8 +283,62 @@ describe('recordPayment', () => {
     expect(result).toEqual({ hash: TX_HASH, ledger: LEDGER });
     expect(decodeInvocation(prepared as Transaction)).toEqual({
       method: 'record_payment',
-      args: ['invoisio-abc123', READER, 'XLM', '', amount, 'settle-hash-abc123'],
+      args: ['invoisio-abc123', READER, ['Native'], amount, 'settle-hash-abc123'],
     });
+  });
+
+  it('recordPayment() encodes a token as Asset::Token(code, Address)', async () => {
+    let prepared: Transaction | undefined;
+    vi.spyOn(rpc.Server.prototype, 'getAccount').mockResolvedValue(
+      new Account(SIGNER_PUBLIC, '1'),
+    );
+    vi.spyOn(rpc.Server.prototype, 'prepareTransaction').mockImplementation(
+      async (tx) => tx as Transaction,
+    );
+    vi.spyOn(rpc.Server.prototype, 'sendTransaction').mockImplementation(
+      async (tx) => {
+        prepared = tx as Transaction;
+        return {
+          status: 'PENDING',
+          hash: TX_HASH,
+          latestLedger: LEDGER,
+          latestLedgerCloseTime: 0,
+        };
+      },
+    );
+    vi.spyOn(rpc.Server.prototype, 'getTransaction').mockImplementation(
+      async () => getTransactionSuccess(prepared as Transaction, LEDGER),
+    );
+
+    await makeClient(signer.secret()).recordPayment({
+      invoiceId: 'invoisio-usdc-1',
+      payer: READER,
+      assetCode: 'USDC',
+      assetIssuer: ISSUER,
+      amount: 50_000_000n,
+      settlementRef: 'settle-usdc-1',
+    });
+
+    expect(decodeInvocation(prepared as Transaction)).toEqual({
+      method: 'record_payment',
+      args: ['invoisio-usdc-1', READER, ['Token', 'USDC', ISSUER], 50_000_000n, 'settle-usdc-1'],
+    });
+  });
+
+  it('recordPayment() rejects a malformed issuer before submitting', async () => {
+    const submit = vi.spyOn(rpc.Server.prototype, 'prepareTransaction');
+
+    await expect(
+      makeClient(signer.secret()).recordPayment({
+        invoiceId: 'invoisio-bad-issuer',
+        payer: READER,
+        assetCode: 'USDC',
+        assetIssuer: 'not-an-address',
+        amount: 1n,
+        settlementRef: 'settle-bad-issuer',
+      }),
+    ).rejects.toThrow();
+    expect(submit).not.toHaveBeenCalled();
   });
 
   it('recordPayment() rejects a non-canonical invoiceId before submitting', async () => {

@@ -3,7 +3,7 @@
   "title": "Invoisio Invoice Payment Contract Schema",
   "description": "Machine-readable schema for the invoice-payment Soroban contract. Generated from Rust types — do not edit manually. Re-generate with: make schema",
   "contract_version": "1.0.0",
-  "storage_schema_version": 5,
+  "storage_schema_version": 6,
   "types": {
     "Asset": {
       "description": "Asset type: native XLM or a Stellar-issued token.",
@@ -25,7 +25,7 @@
           "properties": {
             "tag":    { "const": "Token" },
             "code":   { "type": "string", "description": "Asset code (e.g. USDC)." },
-            "issuer": { "type": "string", "description": "Issuer Stellar account address (G...)." }
+            "issuer": { "type": "string", "description": "Validated Stellar issuer Address (G...), not an untyped string." }
           },
           "required": ["tag", "code", "issuer"],
           "additionalProperties": false
@@ -205,7 +205,7 @@
         },
         "issuer": {
           "type": "string",
-          "description": "Issuer Stellar account address (G...)."
+          "description": "Issuer Stellar Address (G...), not an untyped string."
         },
         "decimals": {
           "type": "integer",
@@ -256,20 +256,20 @@
       "required": ["invoice_id", "schema_version"]
     },
     "AssetAllowlisted": {
-      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist.",
+      "description": "Emitted by allow_asset(). Signals a token was added to the allowlist. issuer is a Stellar Address.",
       "topic": "asset_allowlisted",
       "fields": {
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["code", "issuer"]
     },
     "AssetRevoked": {
-      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist.",
+      "description": "Emitted by revoke_asset(). Signals a token was removed from the allowlist. issuer is a Stellar Address.",
       "topic": "asset_revoked",
       "fields": {
         "code":   { "type": "string", "description": "Asset code." },
-        "issuer": { "type": "string", "description": "Issuer address." }
+        "issuer": { "type": "string", "description": "Validated issuer Address (G...)." }
       },
       "required": ["code", "issuer"]
     },
@@ -359,6 +359,17 @@
       },
       "required": ["discovered", "migrated_at"]
     },
+    "IssuersMigrated": {
+      "description": "Emitted by the V5 -> V6 storage migration after rewriting Token issuers from unvalidated strings into Address values on payment records, history slots, and allowlist keys. skipped_malformed counts string issuers that were not a well-formed Stellar address and were left on the legacy key rather than dropped.",
+      "topic": "issuers_migrated",
+      "fields": {
+        "payments": { "type": "integer", "description": "Number of payment records rewritten in this batch.", "minimum": 0 },
+        "allowlist": { "type": "integer", "description": "Number of allowlist entries moved from the string key to AllowListV6.", "minimum": 0 },
+        "skipped_malformed": { "type": "integer", "description": "Number of stored issuer strings that were not a well-formed G... address and were left in place.", "minimum": 0 },
+        "migrated_at": { "type": "integer", "description": "Ledger timestamp when this batch completed." }
+      },
+      "required": ["payments", "allowlist", "skipped_malformed", "migrated_at"]
+    },
     "LegacyPaymentsMigrated": {
       "description": "Emitted by migrate_legacy_payments() when at least one legacy Payment(invoice_id) entry was migrated to PaymentV1 and its legacy copy removed. migrated excludes ids that were already current or not found in that call.",
       "topic": "legacy_payments_migrated",
@@ -388,7 +399,7 @@
     "PaymentNotFound":   { "code": 4, "description": "get_payment() called for an invoice_id with no record." },
     "InvalidAmount":   { "code": 5, "description": "amount was zero or negative." },
     "InvalidInvoiceId":   { "code": 6, "description": "invoice_id was an empty string." },
-    "InvalidAsset":   { "code": 7, "description": "asset_code empty, or non-XLM asset supplied without asset_issuer." },
+    "InvalidAsset":   { "code": 7, "description": "token code empty, longer than 12 characters, or the reserved code XLM on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values." },
     "AssetNotAllowed":   { "code": 8, "description": "Asset not in the admin-controlled allowlist." },
     "Unauthorized":   { "code": 9, "description": "Caller is not authorized." },
     "StorageSchemaTooNew":   { "code": 10, "description": "Contract code is too old for the current storage schema." },
@@ -403,11 +414,12 @@
     "HistoryIndexIncomplete":   { "code": 19, "description": "The payment history index is incomplete and must be rebuilt via rebuild_history_index()." },
     "SettlementRefAlreadyUsed":   { "code": 20, "description": "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments." },
     "MustBePausedForUpgrade":   { "code": 21, "description": "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window." },
-    "LegacyPaymentMigrationBatchTooLarge":   { "code": 22, "description": "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls." }
+    "LegacyPaymentMigrationBatchTooLarge":   { "code": 22, "description": "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls." },
+    "IssuerMigrationIncomplete":   { "code": 23, "description": "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused." }
   },
   "methods": {
     "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
-    "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded." },
+    "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded. asset is Asset::Native or Asset::Token(code, Address)." },
     "get_payment": { "auth": "none", "description": "Return PaymentRecord for invoice_id." },
     "has_payment": { "auth": "none", "description": "Return true if a payment exists for invoice_id." },
     "payment_count": { "auth": "admin", "description": "Admin-gated (issue #512): return total recorded payment count." },
@@ -418,9 +430,9 @@
     "propose_admin": { "auth": "admin", "description": "Step 1 of two-step handoff: propose the next admin." },
     "accept_admin": { "auth": "proposed_admin", "description": "Step 2 of two-step handoff: accept the role and become admin." },
     "cancel_admin_transfer": { "auth": "admin", "description": "Cancel a pending admin transfer proposed via propose_admin()." },
-    "allow_asset": { "auth": "admin", "description": "Add (code, issuer) to allowlist." },
-    "allow_asset_with_decimals": { "auth": "admin", "description": "Add (code, issuer) to allowlist with recorded decimal precision." },
-    "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer) from allowlist." },
+    "allow_asset": { "auth": "admin", "description": "Add (code, issuer Address) to allowlist." },
+    "allow_asset_with_decimals": { "auth": "admin", "description": "Add (code, issuer Address) to allowlist with recorded decimal precision." },
+    "revoke_asset": { "auth": "admin", "description": "Remove (code, issuer Address) from allowlist." },
     "allowed_assets": { "auth": "none", "description": "Return a bounded, cursor-paginated AllowlistPage of currently-allowlisted (code, issuer) pairs." },
     "allowlist_count": { "auth": "none", "description": "Return the number of currently-allowlisted (code, issuer) pairs." },
     "set_allow_native": { "auth": "admin", "description": "Toggle native XLM acceptance." },
