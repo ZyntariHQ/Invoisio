@@ -566,7 +566,7 @@ fn upgrade_legacy_asset(asset: LegacyAsset) -> Option<Asset> {
         LegacyAsset::Native => Some(Asset::Native),
         LegacyAsset::Token(code, issuer) => {
             try_parse_issuer_address(&issuer).map(|addr| Asset::Token(code, addr))
-        }
+        },
     }
 }
 
@@ -739,7 +739,7 @@ pub fn ensure_current_contract_meta(env: &Env) {
         Some(meta) if meta == expected => {
             // Bump TTL on every critical instance read
             env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
-        }
+        },
         _ => set_contract_meta(env, &expected),
     }
 }
@@ -942,7 +942,7 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
                 .persistent()
                 .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
             Ok(record)
-        }
+        },
         None => Err(ContractError::PaymentNotFound),
     }
 }
@@ -993,7 +993,7 @@ pub fn migrate_legacy_payment_key(env: &Env, invoice_id: &String) -> LegacyMigra
                 .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
             env.storage().persistent().remove(&legacy_key);
             LegacyMigrationOutcome::Migrated
-        }
+        },
         None => LegacyMigrationOutcome::NotFound,
     }
 }
@@ -1084,7 +1084,7 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
             Some(record) => {
                 records.push_back(record);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1467,7 +1467,7 @@ fn get_allowlist_log_entry(env: &Env, slot: u32) -> Option<AllowlistEntry> {
                 issuer,
                 decimals: legacy.decimals,
             })
-        }
+        },
         None => None,
     }
 }
@@ -1499,7 +1499,7 @@ pub fn get_allowlist_page(env: &Env, cursor: u32, limit: u32) -> AllowlistPage {
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;
@@ -1674,29 +1674,29 @@ pub fn upgrade_storage_schema(env: &Env, target_version: u32) -> Result<(), Cont
             0 => {
                 // Use the migration module for V0 → V1
                 crate::migration::migrate_schema_v0_to_v1(env)?;
-            }
+            },
             1 => {
                 // V1 → V2: backfill per-payer payment indexes (#445)
                 crate::migration::migrate_schema_v1_to_v2(env)?;
-            }
+            },
             2 => {
                 // V2 → V3: backfill settlement_ref → invoice_id mapping (#495)
                 crate::migration::migrate_schema_v2_to_v3(env)?;
-            }
+            },
             3 => {
                 // V3 → V4: backfill the allowlist enumeration index (#464)
                 crate::migration::migrate_schema_v3_to_v4(env)?;
-            }
+            },
             4 => {
                 // V4 → V5: precision metadata is written by the new paths;
                 // pre-existing records retain unknown precision (0).
                 crate::migration::migrate_schema_v4_to_v5(env)?;
-            }
+            },
             5 => {
                 // V5 → V6: rewrite Token issuers from String to Address
                 // in payment records, history slots, and the allowlist.
                 crate::migration::migrate_schema_v5_to_v6(env)?;
-            }
+            },
             _ => return Err(ContractError::StorageSchemaTooOld),
         }
         version += 1;
@@ -1939,7 +1939,7 @@ pub fn get_settlement_ref_page(env: &Env, cursor: u32, limit: u32) -> Settlement
             Some(entry) => {
                 records.push_back(entry);
                 collected += 1;
-            }
+            },
             None => gaps_skipped += 1,
         }
         index += 1;

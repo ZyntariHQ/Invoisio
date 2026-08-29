@@ -13,7 +13,8 @@ test: build
 
 fmt:
 	cargo fmt --all
-
+fmt-check:
+        cargo fmt -- --check
 clean:
 	cargo clean
 

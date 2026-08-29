@@ -1330,7 +1330,7 @@ fn test_asset_enum_token_with_code_and_issuer() {
         Asset::Token(c, i) => {
             assert_eq!(c, code);
             assert_eq!(i, issuer);
-        }
+        },
         Asset::Native => panic!("Expected Token variant"),
     }
 }
@@ -1484,7 +1484,7 @@ fn test_asset_enum_serialization_deserialization() {
         Asset::Token(code, stored_issuer) => {
             assert_eq!(code, String::from_str(&env, "USDC"));
             assert_eq!(stored_issuer, issuer);
-        }
+        },
         Asset::Native => panic!("Expected Token variant"),
     }
 }
@@ -6469,7 +6469,7 @@ fn test_native_asset_has_no_issuer_field() {
         .get_payment(&String::from_str(&env, "inv-native-struct"))
         .asset
     {
-        Asset::Native => {}
+        Asset::Native => {},
         Asset::Token(_, _) => panic!("native payment must not store a Token variant"),
     }
 }
