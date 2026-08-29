@@ -14,6 +14,9 @@ test: build
 fmt:
 	cargo fmt --all
 
+fmt-check:
+	cargo fmt --all -- --check
+
 clean:
 	cargo clean
 
@@ -22,8 +25,8 @@ clean:
 #   export ADMIN_SECRET=S...   (testnet secret key for the admin / backend account)
 #   The account must have testnet XLM; fund via: https://friendbot.stellar.org
 #
-# Run targets in order: generate-identity → fund → deploy → invoke-initialize
-# → invoke-record-payment → invoke-get-payment
+# Run targets in order: generate-identity  fund  deploy  invoke-initialize
+#  invoke-record-payment  invoke-get-payment
 
 # Generate a fresh local identity (one-time setup)
 generate-identity:
@@ -56,8 +59,8 @@ invoke-initialize:
 # Usage: make invoke-record-payment CONTRACT_ID=<id> \
 #          INVOICE_ID=invoisio-abc123 PAYER=<G...> \
 #          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000 SETTLEMENT_REF=settle-abc123
-# Native XLM: omit ASSET_ISSUER (or set it empty) → --asset Native
-# Token: ASSET_CODE=USDC ASSET_ISSUER=<G...> → --asset '{"Token":["USDC","G..."]}'
+# Native XLM: omit ASSET_ISSUER (or set it empty) -> --asset Native
+# Token: ASSET_CODE=USDC ASSET_ISSUER=<G...> -> --asset '{"Token":["USDC","G..."]}'
 invoke-record-payment:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
@@ -83,7 +86,7 @@ invoke-get-payment:
 # Read a bounded page of payment history.
 # Admin-gated (issue #512): bulk enumeration of every payment is exactly the
 # disclosure this contract's privacy guarantee exists to prevent for anyone
-# but the admin — invoisio-admin must be the current contract admin identity.
+# but the admin - invoisio-admin must be the current contract admin identity.
 # Usage: make invoke-payment-history CONTRACT_ID=<id> CURSOR=0 LIMIT=25
 invoke-payment-history:
 	stellar contract invoke \
@@ -126,7 +129,7 @@ invoke-accept-admin:
 	  -- accept_admin \
 	  --caller "$(NEW_ADMIN)"
 
-# Return current payment count. Admin-gated (issue #512) — see
+# Return current payment count. Admin-gated (issue #512) - see
 # invoke-payment-history above.
 invoke-payment-count:
 	stellar contract invoke \
@@ -149,7 +152,7 @@ events:
 schema:
 	bash generate-schema.sh
 
-.PHONY: default all build test fmt clean schema \
+.PHONY: default all build test fmt fmt-check clean schema \
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
 	invoke-has-payment invoke-payment-count invoke-payment-history \
