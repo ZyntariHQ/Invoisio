@@ -53,3 +53,7 @@ skip-lock.json/
 issue-list*.json
 created-issues*.json
 .trae_issue_list.json
+
+# Generated soroban events — ignore these artifacts
+soroban/events.json
+soroban/events.txt
