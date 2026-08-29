@@ -1,13 +1,11 @@
-default: build
+.PHONY: default
+default: build test
 
-all: test
+all: fmt build test
 
-# Build
 build:
-	stellar contract build
-	@ls -l ../../target/wasm32v1-none/release/invoice_payment.wasm
+	cargo build --target wasm32v1-none --release
 
-# Test
 test: build
 	cargo test
 
@@ -20,67 +18,75 @@ fmt-check:
 clean:
 	cargo clean
 
-# Testnet deployment & invocation
 # Prerequisites:
 #   export ADMIN_SECRET=S...   (testnet secret key for the admin / backend account)
 #   The account must have testnet XLM; fund via: https://friendbot.stellar.org
 #
-# Run targets in order: generate-identity  fund  deploy  invoke-initialize
-#  invoke-record-payment  invoke-get-payment
+# Run targets in order: generate-identity → fund → deploy → invoke-initialize
+# → invoke-record-payment → invoke-get-payment
 
 # Generate a fresh local identity (one-time setup)
 generate-identity:
-	stellar keys generate --global invoisio-admin --network testnet
+	stellar keys generate --name invoisio-admin --fund
 
-# Fund the identity from Friendbot
+# Fund the local identity (after generating fresh)
 fund:
-	stellar keys fund invoisio-admin --network testnet
+	@echo "Funding via friendbot: https://friendbot.stellar.org?addr=$$(stellar keys address invoisio-admin)"
+	curl "https://friendbot.stellar.org?addr=$$(stellar keys address invoisio-admin)"
 
-# Deploy contract WASM to Stellar testnet; saves CONTRACT_ID to .contract-id
+# Deploy contract
 deploy: build
 	stellar contract deploy \
-	  --wasm ../../target/wasm32v1-none/release/invoice_payment.wasm \
-	  --source invoisio-admin \
-	  --network testnet \
-	| tee .contract-id
-	@echo "Contract deployed. ID stored in .contract-id"
+	  --wasm target/wasm32v1-none/release/invoice_payment.wasm \
+	  --source-account invoisio-admin \
+	  --network testnet
 
-# Call initialize(admin) once after deployment
-# Usage: make invoke-initialize CONTRACT_ID=<id> ADMIN=<G...>
+# Initialize
+# Usage: make invoke-initialize CONTRACT_ID=<id> ADMIN_ACCOUNT=<G...>
 invoke-initialize:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
 	  -- initialize \
-	  --admin $(ADMIN)
+	  --admin "$(ADMIN_ACCOUNT)"
 
-# Record a sample invoice payment
+# Record Payment
 # Usage: make invoke-record-payment CONTRACT_ID=<id> \
 #          INVOICE_ID=invoisio-abc123 PAYER=<G...> \
 #          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000 SETTLEMENT_REF=settle-abc123
-# Native XLM: omit ASSET_ISSUER (or set it empty) -> --asset Native
-# Token: ASSET_CODE=USDC ASSET_ISSUER=<G...> -> --asset '{"Token":["USDC","G..."]}'
+# Native XLM: omit ASSET_ISSUER (or set it empty) → --asset Native
+# Token: ASSET_CODE=USDC ASSET_ISSUER=<G...> → --asset '{"Token":["USDC","G..."]}'
 invoke-record-payment:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
 	  -- record_payment \
-	  --invoice_id   "$(INVOICE_ID)" \
-	  --payer        "$(PAYER)" \
-	  --asset        $(if $(ASSET_ISSUER), '{"Token":["$(ASSET_CODE)","$(ASSET_ISSUER)"]}', Native) \
-	  --amount       $(AMOUNT) \
+	  --invoice_id "$(INVOICE_ID)" \
+	  --payer "$(PAYER)" \
+	  --asset "$(ASSET)" \
+	  --amount $(AMOUNT) \
 	  --settlement_ref "$(SETTLEMENT_REF)"
 
-# Read back a recorded payment
+# Get Payment
 # Usage: make invoke-get-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
 invoke-get-payment:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
 	  -- get_payment \
+	  --invoice_id "$(INVOICE_ID)"
+
+# Has Payment
+# Usage: make invoke-has-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
+invoke-has-payment:
+	stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source-account invoisio-admin \
+	  --network testnet \
+	  -- has_payment \
 	  --invoice_id "$(INVOICE_ID)"
 
 # Read a bounded page of payment history.
@@ -91,40 +97,28 @@ invoke-get-payment:
 invoke-payment-history:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
 	  -- payment_history \
-	  --admin $(shell stellar keys address invoisio-admin) \
 	  --cursor $(CURSOR) \
 	  --limit $(LIMIT)
 
-# Check whether an invoice has been recorded (returns true/false)
-# Usage: make invoke-has-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
-invoke-has-payment:
+# Rotate admin
+# Usage: make invoke-rotate-admin CONTRACT_ID=<id> NEW_ADMIN=<G...>
+invoke-rotate-admin:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
-	  -- has_payment \
-	  --invoice_id "$(INVOICE_ID)"
-
-# Step 1 of admin handoff: propose a new admin (current admin signs)
-# Usage: make invoke-propose-admin CONTRACT_ID=<id> NEW_ADMIN=<G...>
-invoke-propose-admin:
-	stellar contract invoke \
-	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
-	  --network testnet \
-	  -- propose_admin \
+	  -- rotate_admin \
 	  --new_admin "$(NEW_ADMIN)"
 
-# Step 2 of admin handoff: accept a pending proposal (proposed admin signs;
-# --source must be the new admin's identity)
+# Accept admin role
 # Usage: make invoke-accept-admin CONTRACT_ID=<id> NEW_ADMIN=<G...>
 invoke-accept-admin:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
 	  -- accept_admin \
 	  --caller "$(NEW_ADMIN)"
@@ -134,21 +128,14 @@ invoke-accept-admin:
 invoke-payment-count:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
-	  --source invoisio-admin \
+	  --source-account invoisio-admin \
 	  --network testnet \
-	  -- payment_count \
-	  --admin $(shell stellar keys address invoisio-admin)
+	  -- payment_count
 
-# Stream contract events from testnet (pipe to jq for readability)
+# Run Stellar CLI's contract spec command (useful for debugging ABI)
 events:
-	stellar events \
-	  --id $(CONTRACT_ID) \
-	  --network testnet \
-	  --type contract \
-	  --start-ledger 1
+	stellar contract event --id $(CONTRACT_ID) --network testnet
 
-# Generate the indexer-facing schema artifact from Rust type definitions.
-# schema.json is committed to VCS so schema changes are visible in pull requests.
 schema:
 	bash generate-schema.sh
 
@@ -156,4 +143,4 @@ schema:
 	generate-identity fund deploy \
 	invoke-initialize invoke-record-payment invoke-get-payment \
 	invoke-has-payment invoke-payment-count invoke-payment-history \
-	invoke-propose-admin invoke-accept-admin events
+	invoke-rotate-admin invoke-accept-admin events
