@@ -1,56 +1,56 @@
-# Ignore Node.js dependencies everywhere
-node_modules/
-
 # Logs
-logs/
+logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
 
-# Environment files
-.env
-.env.*
+# Dependencies
+node_modules
 
-# Editor/IDE
-.vscode/
+# Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, CLion, Android Studio and WebStorm
+# and more details can be found at https://www.jetbrains.com/help/idea/managing-projects-with-git.html
 .idea/
 
-# OS files
+# Various MacOS files
 .DS_Store
+
+# Various windows files
 Thumbs.db
 
-# Build outputs and coverage
-dist/
-!soroban/client/dist/
+# Rust
+target/
+Cargo.lock
+
+# Soroban
+.soroban
+.stellar
+invoisio*
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Build
 build/
-coverage/
-.tmp/
-tmp/
+dist/
 
-# Next.js
-.next/
-out/
-.vercel/
-
-# Hardhat build artifacts
-hardhat/artifacts/
-hardhat/cache/
-
-# Backend (NestJS) build outputs
-backend/dist/
-
-# Misc
+# OS generated files
+.AppleDouble/
+.LSOverride/
+*.pyo
+*.pyc
 *.swp
 *.swo
-
-.agents/
-.claude/
-github/
-skip-lock.json/
+*~
 
 # Issue tracking tooling output
 issue-list*.json
 created-issues*.json
-.trae_issue_list.jsonsoroban/events.json
+.trae_issue_list.json
+
+# Generated soroban events — ignore these artifacts
+soroban/events.json
 soroban/events.txt
