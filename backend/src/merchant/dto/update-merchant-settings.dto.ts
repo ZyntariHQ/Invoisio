@@ -1,4 +1,5 @@
 import { IsString, IsOptional, Matches, IsIn } from "class-validator";
+import { IsSafeWebhookUrl } from "../../common/validators/is-safe-webhook-url.validator";
 
 /**
  * DTO for updating merchant settings (profile, payout wallet, preferred asset).
@@ -28,8 +29,20 @@ export class UpdateMerchantSettingsDto {
   })
   preferredAsset?: string;
 
-  /** Webhook URL for event notifications */
+  /**
+   * Webhook URL for event notifications.
+   *
+   * SECURITY: `@IsSafeWebhookUrl` enforces shape synchronously (absolute
+   * URL, https-only unless localhost + local-dev flag, no embedded
+   * credentials). It does NOT resolve DNS/IP ranges - that async check
+   * happens in `MerchantsService.updateSettings` via
+   * `SsrfProtectionService.assertSafeForWrite` before persisting, and is
+   * re-checked independently at delivery time in `WebhooksService` /
+   * `SafeWebhookHttpService` to guard against DNS rebinding between save
+   * and send. Do not replace this with a bare `@IsString()` / `@IsUrl()`.
+   */
   @IsString()
   @IsOptional()
+  @IsSafeWebhookUrl()
   webhookUrl?: string;
 }
