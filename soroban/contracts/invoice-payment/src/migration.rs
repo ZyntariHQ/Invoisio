@@ -700,13 +700,17 @@ mod tests {
         Address, Env, String,
     };
 
+    /// Deploy an initialised contract for the migration tests.
+    ///
+    /// Uses the atomic constructor path added in issue #529; `__constructor`
+    /// requires the admin's authorisation, so all auths are mocked for the
+    /// registration itself. Callers re-establish whatever auth state they need
+    /// afterwards.
     fn setup_test(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
         let admin = Address::generate(env);
-        let contract_id = env.register(InvoicePaymentContract, ());
+        env.mock_all_auths();
+        let contract_id = env.register(InvoicePaymentContract, (Some(admin.clone()),));
         let client = InvoicePaymentContractClient::new(env, &contract_id);
-
-        // Initialize
-        client.initialize(&admin);
 
         (client, admin)
     }

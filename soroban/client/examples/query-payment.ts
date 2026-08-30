@@ -22,6 +22,9 @@
  *   }
  *
  *   Total payments on-chain: 1
+ *
+ * Note: the payment count is admin-gated (issue #512) and is only queried when
+ * ADMIN_PUBLIC_KEY is set; the rest of this script needs no admin credentials.
  */
 
 import * as dotenv from 'dotenv';
@@ -90,8 +93,16 @@ async function main(): Promise<void> {
     }
   }
 
-  const count = await client.getPaymentCount();
-  console.log(`\nTotal payments on-chain: ${count}`);
+  // payment_count is admin-gated (issue #512), so it is only queried when an
+  // admin public key is available. Everything above is a public read, and the
+  // script stays useful to a non-admin caller without it.
+  const adminPublicKey = process.env['ADMIN_PUBLIC_KEY'];
+  if (adminPublicKey) {
+    const count = await client.getPaymentCount(adminPublicKey);
+    console.log(`\nTotal payments on-chain: ${count}`);
+  } else {
+    console.log('\nTotal payments on-chain: skipped — set ADMIN_PUBLIC_KEY (payment_count is admin-gated)');
+  }
 }
 
 main().catch((err) => {

@@ -30,6 +30,27 @@ use storage::{
     set_pending_admin,
 };
 
+/// Write the initial contract state for `admin`.
+///
+/// Shared by [`InvoicePaymentContract::__constructor`] and
+/// [`InvoicePaymentContract::initialize`] so the atomic and the legacy
+/// initialisation paths can never drift into writing different state.
+///
+/// This helper deliberately performs **no** authorisation and **no**
+/// already-initialised check: both are the caller's responsibility, and
+/// keeping them at the entry points is what makes the auth model auditable by
+/// reading the `#[contractimpl]` block alone.
+fn init_contract_state(env: &Env, admin: &Address) {
+    set_admin(env, admin);
+    // Persist explicit metadata so clients can reason about upgrades.
+    set_contract_meta(env, &current_contract_meta());
+    // Initialise counters explicitly so read methods are always readable.
+    env.storage().instance().set(&DataKey::PaymentCount, &0u32);
+    env.storage()
+        .instance()
+        .set(&DataKey::PaymentHistoryCount, &0u32);
+}
+
 // Contract
 /// # Invoisio Invoice Payment Tracking Contract
 ///
@@ -64,8 +85,21 @@ use storage::{
 ///
 /// ## Access control model
 ///
-/// - `initialize(admin)` must be called once after deployment to set the
-///   contract **admin** (the Invoisio backend / merchant service account).
+/// - **Preferred (atomic, issue #529):** deploy with the admin as a
+///   constructor argument — `__constructor(Some(admin))` runs inside the
+///   deploy transaction itself, so no ledger state ever exists in which the
+///   contract is deployed but has no admin, and the role cannot be
+///   front-run.
+/// - **Legacy (two-step):** deploying with `__constructor(None)` leaves the
+///   contract uninitialised, and `initialize(admin)` must then be called to
+///   set the contract **admin** (the Invoisio backend / merchant service
+///   account). `initialize` requires `admin.require_auth()`, so the role can
+///   never be assigned to an address that did not consent to receive it —
+///   but that check alone does **not** close the deploy-to-initialise race,
+///   because an attacker can install (and sign for) *their own* address. The
+///   two-step path is retained only so the uninitialised state stays
+///   representable for the upgrade/migration paths and their tests; new
+///   deployments must use the constructor.
 /// - The admin address is stored in instance storage and is read via
 ///   [`admin`]; a missing admin means the contract is **not initialised**.
 /// - **Write methods**:
@@ -173,7 +207,10 @@ use storage::{
 /// on a deployment upgraded per `soroban/docs/upgrade-runbook.md`.
 ///
 /// ## Typical backend flow
-/// 1. Deploy + call `initialize(admin)` once.
+/// 1. Deploy with the admin as a constructor argument, in a single
+///    transaction (`stellar contract deploy … -- --admin G…`; see
+///    `soroban/deploy.sh`). Legacy deployments made without a constructor
+///    argument call `initialize(admin)` afterwards instead.
 /// 2. Backend detects a native Stellar Payment on Horizon (matched by memo).
 /// 3. Backend calls `record_payment(invoice_id, payer, asset, amount, settlement_ref)`.
 /// 4. Contract stores record + emits an event carrying only `invoice_id`.
@@ -187,25 +224,65 @@ pub struct InvoicePaymentContract;
 #[contractimpl]
 impl InvoicePaymentContract {
     // Lifecycle
+    /// Contract constructor — runs **inside the deploy transaction**.
+    ///
+    /// Passing `Some(admin)` initialises the contract atomically with its own
+    /// deployment. This is the only construction that makes the admin role
+    /// un-front-runnable (issue #529): the contract never exists on the
+    /// ledger in an uninitialised state, so there is no window in which an
+    /// observer can call [`initialize`] first and claim the role.
+    ///
+    /// `admin.require_auth()` is enforced here too, so a deployer cannot
+    /// install a third party as admin without that party's consent. When the
+    /// deployer *is* the admin — the documented Invoisio procedure, see
+    /// `soroban/deploy.sh` — the deploy transaction's own source-account
+    /// signature satisfies it; when it is not, the deploy transaction must
+    /// carry the prospective admin's authorisation entry.
+    ///
+    /// Passing `None` deploys the contract uninitialised and defers the admin
+    /// to [`initialize`]. That reproduces the pre-#529 two-step deployment and
+    /// **re-opens the front-running window**; it is retained only so the
+    /// uninitialised state stays representable (the storage-migration and
+    /// upgrade paths, and their tests, exercise it) and must not be used for
+    /// new production deployments.
+    pub fn __constructor(env: Env, admin: Option<Address>) {
+        if let Some(admin) = admin {
+            admin.require_auth();
+            init_contract_state(&env, &admin);
+        }
+    }
+
     /// Initialise the contract and register the `admin`.
     ///
-    /// Must be called **once** right after deployment. The `admin` is the only
-    /// account permitted to call [`record_payment`], [`propose_admin`] and the
-    /// other admin-gated write methods.
+    /// Only required for a contract deployed with `__constructor(None)`. The
+    /// `admin` is the only account permitted to call [`record_payment`],
+    /// [`propose_admin`] and the other admin-gated write methods.
+    ///
+    /// ## Authorization
+    /// The address being installed as `admin` must authorise the call
+    /// (`admin.require_auth()`). Before issue #529 this method had no
+    /// authorisation check of any kind, so anyone could install any address —
+    /// including one that had never consented — as the contract's sole and
+    /// unrecoverable admin.
+    ///
+    /// **This check does not, on its own, close the deploy-to-initialise
+    /// race.** An attacker observing an uninitialised contract can still call
+    /// `initialize` with *their own* address and sign for it, and the outcome
+    /// is unrecoverable ([`propose_admin`] needs the current admin's
+    /// authorisation). Closing that window requires deploying with
+    /// `__constructor(Some(admin))`, which is what `soroban/deploy.sh` does.
     ///
     /// Returns [`ContractError::AlreadyInitialized`] if called a second time.
+    /// That guard runs *before* the authorisation check on purpose: once an
+    /// admin exists there is nothing left to authorise, the current admin is
+    /// already public via [`admin`], and reporting the state must not require
+    /// a signature.
     pub fn initialize(env: Env, admin: Address) -> Result<(), ContractError> {
         if has_admin(&env) {
             return Err(ContractError::AlreadyInitialized);
         }
-        set_admin(&env, &admin);
-        // Persist explicit metadata so clients can reason about upgrades.
-        set_contract_meta(&env, &current_contract_meta());
-        // Initialise counters explicitly so read methods are always readable.
-        env.storage().instance().set(&DataKey::PaymentCount, &0u32);
-        env.storage()
-            .instance()
-            .set(&DataKey::PaymentHistoryCount, &0u32);
+        admin.require_auth();
+        init_contract_state(&env, &admin);
         Ok(())
     }
 

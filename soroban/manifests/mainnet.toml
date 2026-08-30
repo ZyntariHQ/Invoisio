@@ -27,6 +27,19 @@ secret_key_env = "INVOISIO_ADMIN_SECRET"
 [contract]
 wasm_path        = "target/wasm32v1-none/release/invoice_payment.wasm"
 contract_id_file = "contracts/invoice-payment/.contract-id-mainnet"
+# Address that MUST end up as the contract admin (issue #529).
+#
+# Deployment and initialisation are a single transaction: deploy.sh passes the
+# admin as a constructor argument, so the contract is never on the ledger
+# without an admin and the role cannot be front-run. There is deliberately no
+# separate initialise step to run afterwards.
+#
+# Set this to the G-address the mainnet admin identity is expected to resolve
+# to. deploy.sh refuses to deploy if the local identity resolves to a different
+# address, and refuses to hand over the deployment if the admin read back from
+# the contract does not match. Leave it empty to fall back to whatever the
+# identity above resolves to (acceptable on testnet, not on mainnet).
+expected_admin = ""
 
 [assets]
 # Allowlist of accepted payment assets on mainnet.
@@ -41,8 +54,16 @@ allowlist = [
 #   1. Build the WASM:         ./build.sh
 #   2. Verify the WASM hash before deploying (check with the team).
 #   3. Ensure the admin account has enough XLM for fees + rent.
-#   4. Run:  STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
-#   5. Commit the resulting .contract-id-mainnet file to git.
+#   4. Set expected_admin above to the agreed admin G-address.
+#   5. Run:  STELLAR_NETWORK=mainnet INVOISIO_ADMIN_SECRET=S... ./deploy.sh
+#      This deploys and installs the admin in ONE transaction and then reads
+#      the admin back. Never split it into a deploy followed by a separate
+#      initialize: between the two, anyone watching the ledger can claim the
+#      admin role, and the role is not recoverable (propose_admin requires the
+#      current admin's authorisation, and there is no reset path).
+#   6. Confirm the script printed "Verified: contract admin is <expected>".
+#      If it did not, the deployment is not safe to use — redeploy.
+#   7. Commit the resulting .contract-id-mainnet file to git.
 #
 # Mainnet upgrade checklist (in-place, existing contract ID — no redeploy):
 #   Full procedure, ordering rationale, and rollback expectations:

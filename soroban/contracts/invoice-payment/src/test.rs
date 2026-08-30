@@ -11,11 +11,49 @@ use soroban_sdk::{
 
 // TTL / Helpers
 
-/// Deploy the contract and call `initialize`, returning the client and admin.
+/// Deploy the contract with the admin installed by the constructor, returning
+/// the client and admin.
+///
+/// This is the atomic deployment path (issue #529) and is what every test that
+/// simply needs an initialised contract uses. `Env::register` invokes
+/// `__constructor` under the environment's *current* auth configuration (a
+/// native test contract is not registered through the recording-auth path that
+/// Wasm registration uses), so the constructor's `admin.require_auth()` has to
+/// be satisfied here: the helper mocks all auths for that one registration.
+///
+/// Every caller that cares about authorisation re-establishes its own auth
+/// state immediately afterwards — `env.mock_auths(..)` for a scoped mock,
+/// `env.mock_all_auths()` for a blanket one, or `env.set_auths(&[])` to switch
+/// the environment back to real, unmocked authorisation (see
+/// `assert_requires_real_auth` below) — so the mock enabled here never leaks
+/// into what a test is actually asserting.
 fn setup(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
     let admin = Address::generate(env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, (Some(admin.clone()),));
     let client = InvoicePaymentContractClient::new(env, &contract_id);
+    (client, admin)
+}
+
+/// Deploy the contract uninitialised and bring it up through the **legacy**
+/// two-step `initialize(admin)` path, authorising exactly that one call.
+///
+/// Used by the tests that must keep covering `initialize` itself. It leaves a
+/// narrowly-scoped auth mock in place, so a test that needs broader auth after
+/// this must set it up itself.
+fn setup_via_initialize(env: &Env) -> (InvoicePaymentContractClient<'_>, Address) {
+    let admin = Address::generate(env);
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
+    let client = InvoicePaymentContractClient::new(env, &contract_id);
+    env.mock_auths(&[MockAuth {
+        address: &admin,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (admin.clone(),).into_val(env),
+            sub_invokes: &[],
+        },
+    }]);
     client.initialize(&admin);
     (client, admin)
 }
@@ -79,7 +117,7 @@ fn test_initialize_sets_version_metadata() {
 #[test]
 fn test_config_before_initialize_reports_uninitialized_state() {
     let env = Env::default();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     assert_eq!(
@@ -136,7 +174,11 @@ fn test_contract_version_is_packed_semver() {
 #[test]
 fn test_initialize_twice_returns_error() {
     let env = Env::default();
-    let (client, admin) = setup(&env);
+    // Deliberately the legacy two-step path: this test is about calling
+    // `initialize` twice, which only a contract deployed with
+    // `__constructor(None)` can even attempt. The constructor path is covered
+    // by `test_initialize_after_constructor_returns_already_initialized`.
+    let (client, admin) = setup_via_initialize(&env);
     // try_initialize returns Result — second call must fail with AlreadyInitialized.
     let result = client.try_initialize(&admin);
     assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
@@ -2030,7 +2072,7 @@ fn test_mixed_legacy_and_new_payments() {
 fn test_legacy_deployment_without_metadata_then_write() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Simulate a legacy deployment that initialized admin and payment count,
@@ -2077,7 +2119,7 @@ fn test_legacy_deployment_without_metadata_then_write() {
 fn test_upgrade_storage_schema_v0_to_v1() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Simulate legacy deployment (schema version 0)
@@ -2115,7 +2157,7 @@ fn test_upgrade_storage_schema_v0_to_v1() {
 fn test_upgrade_storage_preserves_payment_records() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Simulate legacy deployment with payments
@@ -2248,7 +2290,7 @@ fn dummy_wasm_hash(env: &Env) -> BytesN<32> {
 #[test]
 fn test_upgrade_before_initialize_returns_not_initialized() {
     let env = Env::default();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
     env.mock_all_auths();
 
@@ -3229,7 +3271,7 @@ fn test_migrate_schema_v3_to_v4_is_idempotent() {
 fn test_allow_asset_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let code = String::from_str(&env, "USDC");
@@ -3249,7 +3291,7 @@ fn test_allow_asset_before_init_returns_not_initialized() {
 fn test_revoke_asset_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let code = String::from_str(&env, "USDC");
@@ -3337,7 +3379,7 @@ fn test_revoke_asset_by_non_admin_returns_error() {
 fn test_set_allow_native_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let result = client.try_set_allow_native(&true);
@@ -3772,7 +3814,7 @@ fn test_unpause_resumes_record_payment() {
 fn test_set_paused_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
     let caller = Address::generate(&env);
 
@@ -3844,7 +3886,7 @@ fn test_set_paused_wrong_caller_returns_unauthorized() {
 fn test_admin_transfer_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
     let new_admin = Address::generate(&env);
 
@@ -3870,7 +3912,7 @@ fn test_admin_transfer_before_init_returns_not_initialized() {
 fn test_record_payment_before_init_returns_not_initialized() {
     let env = Env::default();
     env.mock_all_auths();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
     let payer = Address::generate(&env);
 
@@ -3912,7 +3954,7 @@ fn test_upgrade_storage_non_admin_returns_unauthorized() {
 #[test]
 fn test_admin_before_init_returns_not_initialized() {
     let env = Env::default();
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let result = client.try_admin();
@@ -4065,7 +4107,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // 1. Seed legacy V0 state: admin + 3 payments under legacy keys, no metadata.
@@ -4223,7 +4265,7 @@ fn test_regression_upgrade_preserves_multiple_legacy_payments_and_history() {
 fn test_regression_config_after_upgrade_reflects_all_fields() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     env.as_contract(&client.address, || {
@@ -4255,7 +4297,7 @@ fn test_regression_admin_controls_after_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Seed legacy state.
@@ -4301,7 +4343,7 @@ fn test_regression_upgrade_storage_schema_upgraded_event_emitted() {
 
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Seed legacy V0 state.
@@ -4338,7 +4380,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Seed legacy state.
@@ -4399,7 +4441,7 @@ fn test_regression_allowlist_and_pause_intact_after_upgrade() {
 fn test_regression_payment_history_after_upgrade() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     // Seed 3 legacy V0 payments.
@@ -4507,7 +4549,7 @@ fn test_regression_fresh_deploy_is_at_current_schema() {
 fn test_regression_legacy_record_fields_preserved_after_upgrade() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let invoice_id = String::from_str(&env, "field-preserve-001");
@@ -6284,7 +6326,7 @@ fn test_migrate_legacy_payments_handles_mixed_batch() {
 fn test_migrate_legacy_payments_before_init_returns_not_initialized() {
     let env = Env::default();
     let admin = Address::generate(&env);
-    let contract_id = env.register(InvoicePaymentContract, ());
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
     let client = InvoicePaymentContractClient::new(&env, &contract_id);
 
     let result = client.try_migrate_legacy_payments(
@@ -6559,4 +6601,386 @@ fn test_migrate_schema_v5_to_v6_rewrites_string_issuers() {
         &String::from_str(&env, "settle-post-migrate"),
     );
     assert!(client.has_payment(&String::from_str(&env, "inv-post-migrate")));
+}
+
+// ─── Real (unmocked) authorisation — issue #529 ─────────────────────────────
+//
+// Every test above this line runs with `mock_all_auths()` or a scoped
+// `mock_auths(..)` in force. That is precisely what let the missing
+// `require_auth()` in `initialize()` sit in the contract undetected: under a
+// blanket mock there is no such thing as an unauthorised call, so a test can
+// only ever observe the *shape* of the authorisation model, never its
+// enforcement.
+//
+// The tests below hand the environment back to the host's real authorisation
+// machinery: `Env::set_auths(&[])` disables any mocking previously enabled
+// (documented on `set_auths` in soroban-sdk) and supplies no authorisation
+// entries, so every `require_auth()` reached from that point on MUST fail. An
+// entry point that loses its `require_auth()` in a future change fails one of
+// these tests instead of passing silently.
+//
+// Each test deliberately passes the *legitimate* admin address, so the
+// contract's `admin == get_admin()` comparison succeeds and execution actually
+// reaches the authorisation check — the assertion is that not even the real
+// admin can act without a real signature.
+//
+// A rejected `require_auth()` surfaces at the client boundary as
+// `Err(Err(InvokeError::Abort))`. The tests assert exactly that instead of a
+// bare `is_err()`, so a call that fails for an unrelated contract reason (a
+// `NotInitialized`, a `MustBePausedForUpgrade`) cannot be mistaken for proof
+// that the entry point is gated.
+
+/// Switch `env` to real, unmocked authorisation with no authorisation entries
+/// supplied — i.e. every `require_auth()` after this call must fail.
+fn enforce_real_auth(env: &Env) {
+    env.set_auths(&[]);
+}
+
+/// The client-boundary shape of a `require_auth()` rejection.
+fn auth_abort<T>() -> Result<T, Result<ContractError, soroban_sdk::InvokeError>> {
+    Err(Err(soroban_sdk::InvokeError::Abort))
+}
+
+// Constructor — atomic deployment (issue #529)
+
+#[test]
+fn test_constructor_installs_admin_atomically() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    env.mock_all_auths();
+
+    // Deploy and initialise are the same host operation: there is no ledger
+    // state in which this contract exists without an admin.
+    let contract_id = env.register(InvoicePaymentContract, (Some(admin.clone()),));
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    assert_eq!(client.admin(), admin);
+    assert_eq!(client.payment_count(&admin), 0);
+    assert_eq!(
+        client.version_info(),
+        ContractMeta {
+            contract_version: CONTRACT_VERSION,
+            storage_schema_version: STORAGE_SCHEMA_VERSION,
+        }
+    );
+    assert!(client.config().initialized);
+}
+
+#[test]
+fn test_constructor_with_none_leaves_contract_uninitialised() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    assert!(
+        !client.config().initialized,
+        "__constructor(None) must leave the contract uninitialised so the \
+         legacy two-step deployment and the migration tests stay representable"
+    );
+    assert_eq!(client.try_admin(), Err(Ok(ContractError::NotInitialized)));
+}
+
+#[test]
+#[should_panic(expected = "InvalidAction")]
+fn test_constructor_requires_authorization_from_the_installed_admin() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    enforce_real_auth(&env);
+
+    // Registration invokes `__constructor`, whose `admin.require_auth()` is
+    // now evaluated by the real authorisation machinery: the deploy itself
+    // must abort rather than install an admin that never consented.
+    env.register(InvoicePaymentContract, (Some(admin),));
+}
+
+// initialize() — authorisation (issue #529)
+
+#[test]
+fn test_initialize_rejected_under_real_authorization() {
+    let env = Env::default();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(
+        client.try_initialize(&admin),
+        auth_abort(),
+        "initialize() must reject an unauthorised caller; before issue #529 \
+         this call succeeded and handed over the admin role"
+    );
+    assert_eq!(
+        client.try_admin(),
+        Err(Ok(ContractError::NotInitialized)),
+        "a rejected initialize() must not have written an admin"
+    );
+}
+
+#[test]
+fn test_initialize_cannot_install_an_unconsenting_third_party_as_admin() {
+    let env = Env::default();
+    let attacker = Address::generate(&env);
+    let victim = Address::generate(&env);
+    let contract_id = env.register(InvoicePaymentContract, (None::<Address>,));
+    let client = InvoicePaymentContractClient::new(&env, &contract_id);
+
+    // The attacker authorises the invocation, but only for *their own*
+    // address. The address actually being installed never consented.
+    env.mock_auths(&[MockAuth {
+        address: &attacker,
+        invoke: &MockAuthInvoke {
+            contract: &contract_id,
+            fn_name: "initialize",
+            args: (victim.clone(),).into_val(&env),
+            sub_invokes: &[],
+        },
+    }]);
+
+    assert_eq!(
+        client.try_initialize(&victim),
+        auth_abort(),
+        "an account must not be able to install a different address as admin \
+         without that address's authorisation"
+    );
+    assert_eq!(client.try_admin(), Err(Ok(ContractError::NotInitialized)));
+}
+
+#[test]
+fn test_initialize_succeeds_when_the_installed_admin_authorises() {
+    let env = Env::default();
+    let (client, admin) = setup_via_initialize(&env);
+
+    assert_eq!(client.admin(), admin);
+    assert!(client.config().initialized);
+}
+
+#[test]
+fn test_initialize_after_constructor_returns_already_initialized() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+
+    // The constructor already installed the admin, so the legacy entry point
+    // has nothing left to do and cannot be used to take the role.
+    assert_eq!(
+        client.try_initialize(&admin),
+        Err(Ok(ContractError::AlreadyInitialized))
+    );
+    let attacker = Address::generate(&env);
+    assert_eq!(
+        client.try_initialize(&attacker),
+        Err(Ok(ContractError::AlreadyInitialized))
+    );
+    assert_eq!(client.admin(), admin);
+}
+
+// Every admin-gated entry point under real authorisation
+
+#[test]
+fn test_record_payment_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(
+        client.try_record_payment(
+            &String::from_str(&env, "inv-real-auth"),
+            &payer,
+            &Asset::Native,
+            &1i128,
+            &String::from_str(&env, "settle-real-auth"),
+        ),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_payment_count_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_payment_count(&admin), auth_abort());
+}
+
+#[test]
+fn test_payment_history_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(
+        client.try_payment_history(&admin, &0u32, &10u32),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_settlement_ref_history_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(
+        client.try_settlement_ref_history(&admin, &0u32, &10u32),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_settlement_ref_index_status_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_settlement_ref_index_status(&admin), auth_abort());
+}
+
+#[test]
+fn test_history_index_status_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_history_index_status(&admin), auth_abort());
+}
+
+#[test]
+fn test_propose_admin_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let successor = Address::generate(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_propose_admin(&successor), auth_abort());
+}
+
+#[test]
+fn test_accept_admin_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let successor = Address::generate(&env);
+    client.propose_admin(&successor);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(client.try_accept_admin(&successor), auth_abort());
+    assert_eq!(
+        client.pending_admin(),
+        Some(successor),
+        "a rejected accept_admin must leave the proposal pending"
+    );
+}
+
+#[test]
+fn test_cancel_admin_transfer_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let successor = Address::generate(&env);
+    client.propose_admin(&successor);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(client.try_cancel_admin_transfer(), auth_abort());
+    assert_eq!(client.pending_admin(), Some(successor));
+}
+
+#[test]
+fn test_allow_asset_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let issuer = Address::generate(&env);
+    enforce_real_auth(&env);
+
+    // `allow_asset` carries no `require_auth()` of its own: it delegates to
+    // `allow_asset_with_decimals`, which does. This test exists so that the
+    // delegation cannot be replaced by an inlined, ungated body.
+    assert_eq!(
+        client.try_allow_asset(&String::from_str(&env, "USDC"), &issuer),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_allow_asset_with_decimals_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let issuer = Address::generate(&env);
+    enforce_real_auth(&env);
+    assert_eq!(
+        client.try_allow_asset_with_decimals(&String::from_str(&env, "USDC"), &issuer, &6u32),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_revoke_asset_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    let issuer = Address::generate(&env);
+    client.allow_asset(&String::from_str(&env, "USDC"), &issuer);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(
+        client.try_revoke_asset(&String::from_str(&env, "USDC"), &issuer),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_set_allow_native_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, _admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_set_allow_native(&true), auth_abort());
+}
+
+#[test]
+fn test_set_paused_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_set_paused(&admin, &true), auth_abort());
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_upgrade_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    client.set_paused(&admin, &true);
+
+    enforce_real_auth(&env);
+
+    assert_eq!(
+        client.try_upgrade(&admin, &dummy_wasm_hash(&env), &2_000_000u32),
+        auth_abort()
+    );
+}
+
+#[test]
+fn test_upgrade_storage_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_upgrade_storage(&admin), auth_abort());
+}
+
+#[test]
+fn test_rebuild_history_index_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    enforce_real_auth(&env);
+    assert_eq!(client.try_rebuild_history_index(&admin), auth_abort());
+}
+
+#[test]
+fn test_migrate_legacy_payments_rejected_under_real_authorization() {
+    let env = Env::default();
+    let (client, admin) = setup(&env);
+    let ids = soroban_sdk::vec![&env, String::from_str(&env, "inv-legacy-1")];
+    enforce_real_auth(&env);
+    assert_eq!(
+        client.try_migrate_legacy_payments(&admin, &ids),
+        auth_abort()
+    );
 }

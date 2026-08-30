@@ -431,7 +431,8 @@
     "IssuerMigrationIncomplete":   { "code": 23, "description": "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused." }
   },
   "methods": {
-    "initialize": { "auth": "none", "description": "One-time setup; sets the admin." },
+    "__constructor": { "auth": "new_admin", "description": "Contract constructor, invoked inside the deploy transaction. Some(admin) initialises the contract atomically with deployment so the admin role cannot be front-run (issue #529); None deploys uninitialised and defers to initialize(). Requires authorisation from the address being installed as admin." },
+    "initialize": { "auth": "new_admin", "description": "One-time setup for a contract deployed with __constructor(None); sets the admin. Requires authorisation from the address being installed as admin (issue #529). Does not close the deploy-to-initialise race on its own - deploy via __constructor(Some(admin)) instead." },
     "record_payment": { "auth": "admin", "description": "Persist PaymentRecord + emit InvoicePaymentRecorded. asset is Asset::Native or Asset::Token(code, Address)." },
     "get_payment": { "auth": "none", "description": "Return PaymentRecord for invoice_id." },
     "has_payment": { "auth": "none", "description": "Return true if a payment exists for invoice_id." },

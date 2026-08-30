@@ -30,6 +30,17 @@ secret_key_env = "INVOISIO_ADMIN_SECRET"
 wasm_path       = "target/wasm32v1-none/release/invoice_payment.wasm"
 # File where the deployed contract ID is written after a successful deploy.
 contract_id_file = "contracts/invoice-payment/.contract-id"
+# Address that MUST end up as the contract admin (issue #529).
+#
+# Deployment and initialisation are a single transaction: deploy.sh passes the
+# admin as a constructor argument, so the contract is never observable on the
+# ledger without an admin and the role cannot be front-run. There is
+# deliberately no separate initialise step to run afterwards.
+#
+# Leave empty to fall back to whatever the identity above resolves to, which is
+# fine on testnet where the identity is generated locally. Pin it explicitly on
+# any deployment whose admin is agreed in advance.
+expected_admin = ""
 
 [assets]
 # Allowlist of accepted payment assets.
