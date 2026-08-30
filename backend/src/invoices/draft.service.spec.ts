@@ -1,5 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { DraftService } from "./draft.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { StructuredLogger } from "../observability/structured-logger.service";
@@ -24,6 +25,10 @@ describe("DraftService — placeholder validation on conversion", () => {
 
   const mockActivityFeed = {
     recordEvent: jest.fn(),
+  };
+
+  const mockConfigService = {
+    get: jest.fn().mockReturnValue(30),
   };
 
   /**
@@ -133,6 +138,7 @@ describe("DraftService — placeholder validation on conversion", () => {
         { provide: StellarService, useValue: mockStellarService },
         { provide: StructuredLogger, useValue: mockStructuredLogger },
         { provide: ActivityFeedService, useValue: mockActivityFeed },
+        { provide: ConfigService, useValue: mockConfigService },
       ],
     }).compile();
 

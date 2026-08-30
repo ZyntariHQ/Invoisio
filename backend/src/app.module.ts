@@ -6,6 +6,7 @@ import appConfig from "./config/app.config";
 import stellarConfig from "./config/stellar.config";
 import throttlerConfig from "./config/throttler.config";
 import observabilityConfig from "./config/observability.config";
+import draftConfig from "./config/draft.config";
 import { ObservabilityModule } from "./observability/observability.module";
 
 // Modules
@@ -40,7 +41,7 @@ import { Module } from "@nestjs/common";
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ".env",
-      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig],
+      load: [appConfig, stellarConfig, throttlerConfig, observabilityConfig, draftConfig],
       validationSchema: Joi.object({
         PORT: Joi.number().default(3001),
         CORS_ORIGIN: Joi.string().default("http://localhost:3000"),
@@ -117,6 +118,20 @@ import { Module } from "@nestjs/common";
         }),
         // SOROBAN_SECRET_KEY (deprecated - kept for backward compatibility)
         SOROBAN_SECRET_KEY: Joi.string().optional().allow(""),
+        // Draft cleanup configuration
+        DRAFT_RETENTION_DAYS: Joi.number()
+          .integer()
+          .min(1)
+          .default(30)
+          .description(
+            "Days a draft can go without an auto-save before the cleanup job deletes it (default: 30)",
+          ),
+        DRAFT_CLEANUP_CRON: Joi.string()
+          .optional()
+          .allow("")
+          .description(
+            "Cron expression for the stale-draft cleanup job (default: \"0 3 * * *\" — daily at 03:00 UTC)",
+          ),
       }),
       validationOptions: {
         abortEarly: false,
