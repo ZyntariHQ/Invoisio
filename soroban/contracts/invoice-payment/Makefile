@@ -14,7 +14,7 @@ test: build
 fmt:
 	cargo fmt --all
 fmt-check:
-        cargo fmt -- --check
+	cargo fmt -- --check
 clean:
 	cargo clean
 
@@ -23,8 +23,13 @@ clean:
 #   export ADMIN_SECRET=S...   (testnet secret key for the admin / backend account)
 #   The account must have testnet XLM; fund via: https://friendbot.stellar.org
 #
-# Run targets in order: generate-identity → fund → deploy → invoke-initialize
+# Run targets in order: generate-identity → fund → deploy → verify-admin
 # → invoke-record-payment → invoke-get-payment
+#
+# `deploy` installs the admin in the same transaction as the deployment (issue
+# #529). There is no separate initialisation step, and there must not be one:
+# a contract deployed without its constructor argument is claimable by anyone
+# watching the ledger, permanently and unrecoverably.
 
 # Generate a fresh local identity (one-time setup)
 generate-identity:
@@ -34,22 +39,47 @@ generate-identity:
 fund:
 	stellar keys fund invoisio-admin --network testnet
 
-# Deploy contract WASM to Stellar testnet; saves CONTRACT_ID to .contract-id
+# Deploy contract WASM to Stellar testnet and install the admin atomically;
+# saves CONTRACT_ID to .contract-id. Everything after the bare `--` is a
+# constructor argument.
 deploy: build
 	stellar contract deploy \
 	  --wasm ../../target/wasm32v1-none/release/invoice_payment.wasm \
 	  --source invoisio-admin \
 	  --network testnet \
+	  -- \
+	  --admin $(shell stellar keys address invoisio-admin) \
 	| tee .contract-id
-	@echo "Contract deployed. ID stored in .contract-id"
+	@echo "Contract deployed and initialised. ID stored in .contract-id"
 
-# Call initialize(admin) once after deployment
+# Verify the installed admin before the contract is put into service.
+# Usage: make verify-admin CONTRACT_ID=<id>
+verify-admin:
+	@ADMIN_ADDR=$$(stellar keys address invoisio-admin); \
+	ON_CHAIN=$$(stellar contract invoke \
+	  --id $(CONTRACT_ID) \
+	  --source invoisio-admin \
+	  --network testnet \
+	  -- admin | tr -d '"[:space:]'); \
+	if [ "$$ON_CHAIN" != "$$ADMIN_ADDR" ]; then \
+	  echo "ERROR: admin mismatch — expected $$ADMIN_ADDR, on-chain $$ON_CHAIN"; \
+	  echo "Do NOT put this contract into service; the role is unrecoverable."; \
+	  exit 1; \
+	fi; \
+	echo "Verified: contract admin is $$ADMIN_ADDR"
+
+# LEGACY. Only for a contract that was deployed without a constructor argument
+# and is therefore still uninitialised. `deploy` above does not need this, and
+# a deployment that does need it has already been exposed to the front-running
+# window this call cannot close: initialize() requires the installed admin's
+# authorisation, but nothing stops an attacker from installing themselves.
 # Usage: make invoke-initialize CONTRACT_ID=<id> ADMIN=<G...>
 invoke-initialize:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
 	  --source invoisio-admin \
 	  --network testnet \
+	  --send yes \
 	  -- initialize \
 	  --admin $(ADMIN)
 
@@ -150,8 +180,8 @@ events:
 schema:
 	bash generate-schema.sh
 
-.PHONY: default all build test fmt clean schema \
-	generate-identity fund deploy \
+.PHONY: default all build test fmt fmt-check clean schema \
+	generate-identity fund deploy verify-admin \
 	invoke-initialize invoke-record-payment invoke-get-payment \
 	invoke-has-payment invoke-payment-count invoke-payment-history \
 	invoke-propose-admin invoke-accept-admin events

@@ -108,8 +108,16 @@ async function main() {
   const wasmHashHex = Buffer.from(uploadResult.returnValue!.bytes()).toString('hex');
   console.log(`  ✓ WASM uploaded — hash: ${wasmHashHex.slice(0, 16)}...\n`);
 
-  // ── Step 3: Create contract instance ─────────────────────────────────────
-  console.log('── Step 3: Creating contract instance ──');
+  // ── Step 3: Create contract instance (admin installed atomically) ────────
+  // The admin is passed as a constructor argument, so creating the contract
+  // and installing its admin are the same transaction. Never split these into
+  // a create followed by a separate `initialize` call: in the gap between the
+  // two, anyone watching the ledger can call `initialize` with their own
+  // address and take the admin role permanently (issue #529).
+  //
+  // The contract's constructor parameter is `Option<Address>`; `Some(admin)`
+  // is encoded as the plain Address value (a `None` would be an ScVal Void).
+  console.log('── Step 3: Creating contract instance with admin (atomic) ──');
   const wasmHash = Buffer.from(wasmHashHex, 'hex');
   const salt = Buffer.alloc(32, Date.now() & 0xff);
   const createResult = await submitTx(adminKeypair, (account) =>
@@ -119,26 +127,28 @@ async function main() {
           address: new Address(adminKeypair.publicKey()),
           wasmHash,
           salt,
+          constructorArgs: [new Address(adminKeypair.publicKey()).toScVal()],
         }),
       ),
   );
   const contractId = Address.fromScVal(createResult.returnValue!).toString();
-  console.log(`  ✓ Contract created — ID: ${contractId}\n`);
+  console.log(`  ✓ Contract created and initialised — ID: ${contractId}\n`);
 
-  // ── Step 4: Initialize contract ───────────────────────────────────────────
-  console.log('── Step 4: Initialising contract with admin ──');
-  const { Contract } = await import('@stellar/stellar-sdk');
-  const contract = new Contract(contractId);
-  await submitTx(adminKeypair, (account) =>
-    new TransactionBuilder(account, { fee: BASE_FEE, networkPassphrase: NETWORK_PASSPHRASE })
-      .addOperation(
-        contract.call(
-          'initialize',
-          new Address(adminKeypair.publicKey()).toScVal(),
-        ),
-      ),
-  );
-  console.log(`  ✓ Contract initialised — admin: ${adminKeypair.publicKey()}\n`);
+  // ── Step 4: Verify the installed admin ───────────────────────────────────
+  console.log('── Step 4: Verifying the installed admin ──');
+  const verifyClient = new SorobanInvoiceClient({
+    rpcUrl: RPC_URL,
+    networkPassphrase: NETWORK_PASSPHRASE,
+    contractId,
+  });
+  const onChainAdmin = await verifyClient.getAdmin();
+  if (onChainAdmin !== adminKeypair.publicKey()) {
+    throw new Error(
+      `Admin mismatch: expected ${adminKeypair.publicKey()}, contract reports ${onChainAdmin}. ` +
+        'Do not use this deployment — the admin role is not recoverable.',
+    );
+  }
+  console.log(`  ✓ Verified — admin: ${onChainAdmin}\n`);
 
   // ── Step 5: record_payment via client ─────────────────────────────────────
   console.log('── Step 5: record_payment (write) ──');

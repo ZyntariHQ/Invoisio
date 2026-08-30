@@ -12,7 +12,7 @@ soroban/
 ├── Cargo.toml                      # Workspace manifest (soroban-sdk = "25")
 ├── README.md                       # This file
 ├── build.sh                        # Build contract WASM
-├── deploy.sh                       # Deploy to testnet + initialize
+├── deploy.sh                       # Deploy + install admin atomically, then verify
 ├── invoke-record-payment.sh        # Record invoice payment
 ├── invoke-get-payment.sh           # Query payment record
 ├── invoke-config.sh                # Query high-level contract config (raw)
@@ -126,9 +126,9 @@ Identity: invoisio-admin
 
 💾 Contract ID saved to contracts/invoice-payment/.contract-id
 
-⚙️  Step 4/4: Initializing contract...
+🔎 Step 4/4: Verifying the installed admin...
 
-✅ Contract initialized with admin: GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
+✅ Verified: contract admin is GAIC6UD7QYAYHJ3Q5LLXWRBWGNLNKAZBFIN4CEH77CQASDOCTDRIHENL
 
 =========================================
 🎉 Deployment Complete!
@@ -245,7 +245,17 @@ Builds the contract WASM file for deployment.
 
 ### `./deploy.sh`
 
-Deploys the contract to Stellar testnet and initializes it.
+Deploys the contract to Stellar testnet **and installs the admin in the same
+transaction**, then reads the admin back to verify it before the contract is
+put into service.
+
+Deploy and initialise are one indivisible step (issue #529). The admin is
+passed as a constructor argument, so the contract never exists on the ledger
+without an admin. Do not split it into a deploy followed by a separate
+`initialize`: in the gap between the two, anyone watching the ledger can call
+`initialize` with their own address and take the admin role, and there is no
+way back — `propose_admin` requires the current admin's authorisation, so the
+only remedy is redeploying to a new contract ID.
 
 **Environment variables:**
 - `STELLAR_NETWORK` — Network to use (default: `testnet`)
@@ -683,7 +693,7 @@ only payments recorded **after** the upgrade. Full detail:
 Contract v1 (C1) live
   -> freeze new writes in backend
   -> export invoice/payment records from C1 (state + events)
-  -> deploy v2 contract (C2) and initialize admin
+  -> deploy v2 contract (C2) with the admin as a constructor argument
   -> replay/import records into C2 (idempotent write path)
   -> backend dual-read (C1 + C2), write only to C2
   -> switch indexers/clients to C2 as primary
@@ -702,7 +712,8 @@ Contract v1 (C1) live
 
 | Method | Auth | Description |
 |--------|------|-------------|
-| `initialize(admin)` | — | One-time setup; registers the admin address. |
+| `__constructor(admin: Option<Address>)` | new admin | Runs **inside the deploy transaction**. `Some(admin)` installs the admin atomically with deployment, which is what makes the role un-front-runnable (issue #529); the installed address must authorise the call. `None` deploys uninitialised and defers to `initialize` — legacy only. |
+| `initialize(admin)` | new admin | One-time setup for a contract deployed with `__constructor(None)`; registers the admin address. The address being installed must authorise the call (issue #529), so no one can install an address that did not consent. This does **not** by itself close the deploy-to-initialise race — an attacker can still install and sign for *their own* address — which is why new deployments must use the constructor. |
 | `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `invoice_id` (≤ 64 chars) and `settlement_ref` (non-empty, ≤ 128 chars) must both be in **canonical form** — lowercase letters, digits, and hyphens only; non-canonical input is rejected, not normalised, since both fields back byte-exact idempotency guards. |
 | `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). Pure read — falls back to a pre-schema-versioning legacy key for an unmigrated record, but never writes it (issue #508); use `migrate_legacy_payments` to actually migrate one. |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |

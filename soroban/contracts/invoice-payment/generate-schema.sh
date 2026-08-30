@@ -98,7 +98,11 @@ done
 # Source of truth for names is the #[contractimpl] block in src/lib.rs. Add an
 # entry below whenever a new public method is added.
 declare -A METHOD_AUTH=(
-  [initialize]="none"
+  # "new_admin" (issue #529): the authorising party is the address being
+  # installed as admin — neither the current admin (there is none yet) nor a
+  # permissionless call.
+  [__constructor]="new_admin"
+  [initialize]="new_admin"
   [record_payment]="admin"
   [get_payment]="none"
   [has_payment]="none"
@@ -130,7 +134,8 @@ declare -A METHOD_AUTH=(
   [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
-  [initialize]="One-time setup; sets the admin."
+  [__constructor]="Contract constructor, invoked inside the deploy transaction. Some(admin) initialises the contract atomically with deployment so the admin role cannot be front-run (issue #529); None deploys uninitialised and defers to initialize(). Requires authorisation from the address being installed as admin."
+  [initialize]="One-time setup for a contract deployed with __constructor(None); sets the admin. Requires authorisation from the address being installed as admin (issue #529). Does not close the deploy-to-initialise race on its own - deploy via __constructor(Some(admin)) instead."
   [record_payment]="Persist PaymentRecord + emit InvoicePaymentRecorded. asset is Asset::Native or Asset::Token(code, Address)."
   [get_payment]="Return PaymentRecord for invoice_id."
   [has_payment]="Return true if a payment exists for invoice_id."
