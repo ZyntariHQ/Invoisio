@@ -405,7 +405,13 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
     }
 
     assert_eq!(total_records, 5);
-    assert_eq!(total_gaps, 1);
+    // Slot 0 was removed but PaymentLog entry exists — classified as archived_skipped, not gaps_skipped.
+    assert_eq!(total_gaps, 0);
+    let mut total_archived = 0u32;
+    // Re-run a single full page to collect archived_skipped count.
+    let full_page = client.payment_history(&_admin, &0u32, &10u32);
+    total_archived += full_page.archived_skipped;
+    assert_eq!(total_archived, 1);
     assert_eq!(cursor, 6);
 }
 
@@ -441,6 +447,8 @@ fn test_payment_history_has_no_gaps_after_rebuild() {
     assert_eq!(corrupted.gaps_skipped, 0);
     assert_eq!(corrupted.records.len(), 3);
 
+    // After rebuild: rebuild re-writes PaymentHistory(1) from the existing PaymentV1 record,
+    // so the slot is restored and archived_skipped drops to 0, records.len() is 4.
     client.rebuild_history_index(&admin);
 
     let rebuilt = client.payment_history(&admin, &0u32, &10u32);

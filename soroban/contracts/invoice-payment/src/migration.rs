@@ -69,11 +69,26 @@ pub fn rebuild_payment_history_index(env: &Env) -> Result<(), ContractError> {
         return Ok(());
     }
 
-    // Rebuild index slots directly from PaymentLog to preserve slot index mapping
+    // Guard: if PaymentLog is empty (pre-log V0 era) but history entries
+    // already exist, leave them intact — we have nothing to rebuild from.
+    // Clobbering existing_count to 0 would make all V0 records invisible.
+    if payment_count == 0 && existing_count > 0 {
+        return Ok(());
+    }
+
+    // Rebuild index slots directly from PaymentLog to preserve slot index
+    // mapping. We bypass get_payment() here because it returns PaymentArchived
+    // for log-confirmed-but-expired entries; rebuild should re-write those
+    // slots from the underlying persistent record if it exists under either key.
     for i in 0..payment_count {
         if let Some(invoice_id) = get_payment_log_entry(env, i) {
             let key = DataKey::PaymentHistory(i);
-            if let Ok(record) = get_payment(env, &invoice_id) {
+            // Try V1 key first, then legacy key — read directly to bypass the
+            // PaymentArchived sentinel that get_payment() would return for a
+            // log-confirmed but missing PaymentHistory slot.
+            let record_opt = crate::storage::read_payment_value_v1(env, &invoice_id)
+                .or_else(|| crate::storage::read_payment_value_legacy(env, &invoice_id));
+            if let Some(record) = record_opt {
                 env.storage().persistent().set(&key, &record);
                 env.storage().persistent().extend_ttl(
                     &key,
@@ -81,6 +96,8 @@ pub fn rebuild_payment_history_index(env: &Env) -> Result<(), ContractError> {
                     crate::storage::BUMP_TTL,
                 );
             }
+            // If neither key exists (truly archived/unrestorable), leave the
+            // slot absent — it will surface as archived_skipped in pagination.
         }
     }
 
@@ -260,11 +277,21 @@ pub fn migrate_schema_v0_to_v1(env: &Env) -> Result<(), ContractError> {
 /// Idempotent: rebuilding the index over the same record set converges to
 /// the same layout, so an interrupted migration can simply be re-run.
 pub fn migrate_schema_v1_to_v2(env: &Env) -> Result<(), ContractError> {
-    if !is_index_complete(env) {
+    let payment_count = get_payment_count(env);
+    let existing_count = get_history_count(env);
+
+    // Guard: in the pre-log V0 era, records were written directly to
+    // PaymentHistory without a PaymentLog, so payment_count==0 with existing
+    // history is a valid state, not corruption. Skip the rebuild to avoid
+    // wiping those entries.
+    let should_rebuild = !is_index_complete(env) && !(payment_count == 0 && existing_count > 0);
+
+    if should_rebuild {
         let records = collect_all_payment_records(env)?;
         let sorted = sort_records_by_timestamp(env, records);
         write_history_index(env, sorted)?;
     }
+
 
     // Update the storage schema version in metadata. This migration targets
     // V2 specifically; the upgrade driver runs later steps (e.g. V2 → V3

@@ -870,6 +870,22 @@ fn payment_history_key(index: u32) -> DataKey {
     DataKey::PaymentHistory(index)
 }
 
+/// Read a [`PaymentRecord`] directly from the `PaymentV1` key, bypassing the
+/// archival-sentinel logic in [`get_payment`]. Used by migration to restore a
+/// `PaymentHistory` slot without triggering `PaymentArchived`.
+pub fn read_payment_value_v1(env: &Env, invoice_id: &String) -> Option<PaymentRecord> {
+    let key = payment_key_v1(invoice_id);
+    read_payment_value(env, &key)
+}
+
+/// Read a [`PaymentRecord`] directly from the legacy `Payment` key, bypassing
+/// the archival-sentinel logic in [`get_payment`]. Used by migration to restore
+/// a `PaymentHistory` slot without triggering `PaymentArchived`.
+pub fn read_payment_value_legacy(env: &Env, invoice_id: &String) -> Option<PaymentRecord> {
+    let key = payment_key_legacy(invoice_id);
+    read_payment_value(env, &key)
+}
+
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
 /// Extends persistent storage TTL if record exists.
 pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
