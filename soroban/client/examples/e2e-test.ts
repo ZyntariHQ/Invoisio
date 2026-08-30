@@ -206,7 +206,7 @@ async function main() {
   console.log('  }');
 
   // ── Step 8: getPaymentCount ───────────────────────────────────────────────
-  const count = await client.getPaymentCount();
+  const count = await client.getPaymentCount(adminKeypair.publicKey());
   console.log(`\n  Total payments on-chain : ${count}`);
 
   // ── Step 9: idempotency check ─────────────────────────────────────────────
