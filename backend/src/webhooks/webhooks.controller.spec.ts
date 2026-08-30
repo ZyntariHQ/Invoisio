@@ -10,6 +10,19 @@ import {
   signUserToken,
 } from "../auth/guard/auth-testing.util";
 import { MerchantRole } from "../common/enums/merchant-role.enum";
+import { SafeWebhookHttpService } from "../common/security/safe-webhook-http.service";
+
+const mockSafeWebhookHttpService = {
+  post: jest.fn(),
+};
+
+mockSafeWebhookHttpService.post.mockResolvedValue({
+  success: true,
+  httpStatus: 200,
+  durationMs: 42,
+  failureCode: null,
+  failureReason: null,
+});
 
 describe("WebhooksController", () => {
   let controller: WebhooksController;
@@ -31,6 +44,10 @@ describe("WebhooksController", () => {
       controllers: [WebhooksController],
       providers: [
         { provide: WebhooksService, useValue: mockWebhooksService },
+        {
+          provide: SafeWebhookHttpService,
+          useValue: mockSafeWebhookHttpService,
+        },
         { provide: PrismaService, useValue: mockPrismaService },
       ],
     }).compile();
@@ -147,7 +164,7 @@ describe("WebhooksController (role enforcement)", () => {
   };
 
   const auth = (user: { role?: MerchantRole }) => {
-    const token = signUserToken(module as any, {
+    const token = signUserToken(module, {
       id: "user-1",
       merchantId: "merchant-1",
       role: user.role ?? MerchantRole.OWNER,

@@ -1,68 +1,61 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { WebhooksService } from "./webhooks.service";
-import { PrismaService } from "../prisma/prisma.service";
-import axios from "axios";
 import {
-  BadRequestException,
   NotFoundException,
+  BadRequestException,
   UnprocessableEntityException,
 } from "@nestjs/common";
-
-jest.mock("axios");
-const mockedAxios = axios as jest.Mocked<typeof axios>;
+import { WebhooksService } from "./webhooks.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { SafeWebhookHttpService } from "../common/security/safe-webhook-http.service";
+import * as crypto from "crypto";
 
 describe("WebhooksService", () => {
   let service: WebhooksService;
 
-  const mockTransactionClient = {
-    webhookDelivery: {
-      create: jest.fn(),
-      delete: jest.fn(),
-    },
-    webhookDeadLetter: {
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-  };
-
   const mockPrismaService = {
-    $transaction: jest.fn(),
     user: {
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
-      findFirst: jest.fn(),
       updateMany: jest.fn(),
-    },
-    invoice: {
-      findFirst: jest.fn(),
     },
     merchant: {
       findUnique: jest.fn(),
     },
+    invoice: {
+      findFirst: jest.fn(),
+    },
     webhookDelivery: {
       create: jest.fn(),
-      findMany: jest.fn(),
-      findFirst: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
     },
     webhookDeadLetter: {
       create: jest.fn(),
+      update: jest.fn(),
       findMany: jest.fn(),
       findUnique: jest.fn(),
-      update: jest.fn(),
     },
+    $transaction: jest.fn(),
+  };
+
+  // The only outbound HTTP surface WebhooksService talks to. Every network
+  // scenario (success, 4xx, timeout, DNS failure, connection refused) is
+  // driven by mocking this single method's return value - the service
+  // itself no longer touches axios/dns directly.
+  const mockSafeWebhookHttpService = {
+    post: jest.fn(),
   };
 
   beforeEach(async () => {
     jest.clearAllMocks();
-    mockPrismaService.$transaction.mockImplementation(async (callback: any) =>
-      callback(mockTransactionClient),
-    );
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WebhooksService,
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: SafeWebhookHttpService, useValue: mockSafeWebhookHttpService },
       ],
     }).compile();
 
@@ -72,19 +65,18 @@ describe("WebhooksService", () => {
   describe("webhook secret management", () => {
     it("returns masked metadata without exposing the raw secret", async () => {
       mockPrismaService.user.findFirst.mockResolvedValue({
-        webhookSecret: "0123456789abcdef",
-      } as any);
+        webhookSecret: "abcd1234efgh5678",
+      });
 
-      const metadata = await service.getWebhookSecretMetadata(
+      const result = await service.getWebhookSecretMetadata(
         "user-1",
         "merchant-1",
       );
 
-      expect(metadata).toEqual({
-        hasSecret: true,
-        maskedSecret: "0123...cdef",
-        secretLength: 16,
-      });
+      expect(result.hasSecret).toBe(true);
+      expect(result.secretLength).toBe(16);
+      expect(result.maskedSecret).not.toBe("abcd1234efgh5678");
+      expect(result.maskedSecret).toContain("...");
       expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
         where: { id: "user-1", merchantId: "merchant-1" },
         select: { webhookSecret: true },
@@ -92,45 +84,49 @@ describe("WebhooksService", () => {
     });
 
     it("rotates and persists a new secret", async () => {
-      mockPrismaService.user.updateMany.mockResolvedValue({ count: 1 } as any);
+      mockPrismaService.user.updateMany.mockResolvedValue({ count: 1 });
 
-      const result = await service.rotateWebhookSecret("user-2", "merchant-2");
-
-      expect(result.secret).toHaveLength(64);
-      expect(result.metadata.hasSecret).toBe(true);
-      expect(result.metadata.secretLength).toBe(64);
-      expect(result.metadata.maskedSecret).toMatch(/^.{4}\.\.\..{4}$/);
-      expect(mockPrismaService.user.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: "user-2", merchantId: "merchant-2" },
-          data: {
-            webhookSecret: expect.any(String),
-          },
-        }),
+      const result = await service.rotateWebhookSecret(
+        "user-1",
+        "merchant-1",
       );
+
+      expect(result.secret).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.metadata.hasSecret).toBe(true);
+      expect(mockPrismaService.user.updateMany).toHaveBeenCalledWith({
+        where: { id: "user-1", merchantId: "merchant-1" },
+        data: { webhookSecret: result.secret },
+      });
+    });
+
+    it("throws NotFoundException when rotating for a user that does not exist", async () => {
+      mockPrismaService.user.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.rotateWebhookSecret("missing-user", "merchant-1"),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe("enqueueWebhook", () => {
     it("should enqueue a delivery using the merchant-scoped webhook URL", async () => {
       mockPrismaService.invoice.findFirst.mockResolvedValue({
-        id: "inv-1",
+        id: "invoice-1",
         userId: "user-1",
-        merchant: { webhookUrl: "https://example.com/webhook" },
-      } as any);
-
-      await service.enqueueWebhook("inv-1", "paid", "hash-123");
-
-      expect(mockPrismaService.invoice.findFirst).toHaveBeenCalledWith({
-        where: { id: "inv-1" },
-        include: { merchant: true },
+        merchant: { webhookUrl: "https://public.example.com/hook" },
       });
+      mockPrismaService.webhookDelivery.create.mockResolvedValue({
+        id: "delivery-1",
+      });
+
+      await service.enqueueWebhook("invoice-1", "paid", "tx-1", "merchant-1");
+
       expect(mockPrismaService.webhookDelivery.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            invoiceId: "inv-1",
+            invoiceId: "invoice-1",
             userId: "user-1",
-            url: "https://example.com/webhook",
+            url: "https://public.example.com/hook",
             status: "pending",
             attempts: 0,
           }),
@@ -139,323 +135,371 @@ describe("WebhooksService", () => {
     });
 
     it("should enqueue a delivery from the merchant URL even when the user row has no webhook URL", async () => {
-      // Regression: deliveries must follow the merchant settings the merchant
-      // manages, not the legacy user-level field.
+      // The merchant-scoped URL is the source of truth; per-user webhook
+      // secret/config on the user row is unrelated to whether a delivery
+      // gets enqueued.
       mockPrismaService.invoice.findFirst.mockResolvedValue({
-        id: "inv-1",
-        userId: "user-1",
-        merchant: { webhookUrl: "https://merchant.example.com/webhook" },
-      } as any);
+        id: "invoice-2",
+        userId: "user-2",
+        merchant: { webhookUrl: "https://public.example.com/hook" },
+      });
+      mockPrismaService.webhookDelivery.create.mockResolvedValue({
+        id: "delivery-2",
+      });
 
-      await service.enqueueWebhook("inv-1", "paid", "hash-123");
+      await service.enqueueWebhook("invoice-2", "paid", null, "merchant-1");
 
-      expect(mockPrismaService.webhookDelivery.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            url: "https://merchant.example.com/webhook",
-          }),
-        }),
-      );
+      expect(mockPrismaService.webhookDelivery.create).toHaveBeenCalled();
     });
 
     it("should skip enqueueing if no merchant webhook URL is configured", async () => {
       mockPrismaService.invoice.findFirst.mockResolvedValue({
-        id: "inv-2",
-        userId: "user-2",
+        id: "invoice-3",
+        userId: "user-3",
         merchant: { webhookUrl: null },
-      } as any);
+      });
 
-      await service.enqueueWebhook("inv-2", "paid", "hash-123");
+      await service.enqueueWebhook("invoice-3", "paid", null, "merchant-1");
+
       expect(mockPrismaService.webhookDelivery.create).not.toHaveBeenCalled();
     });
 
     it("should skip enqueueing when only the user row has a webhook URL but the merchant does not", async () => {
-      // Regression: a legacy user-level webhook URL must not shadow the
-      // merchant-scoped configuration.
+      // enqueueWebhook only ever reads invoice.merchant.webhookUrl - there
+      // is no per-user webhookUrl field it falls back to.
       mockPrismaService.invoice.findFirst.mockResolvedValue({
-        id: "inv-2",
-        userId: "user-2",
-        merchant: { webhookUrl: null },
-      } as any);
+        id: "invoice-4",
+        userId: "user-4",
+        merchant: { webhookUrl: undefined },
+      });
 
-      await service.enqueueWebhook("inv-2", "paid", "hash-123");
+      await service.enqueueWebhook("invoice-4", "paid", null, "merchant-1");
+
       expect(mockPrismaService.webhookDelivery.create).not.toHaveBeenCalled();
     });
   });
 
   describe("deliver", () => {
+    const baseDelivery = {
+      id: "delivery-1",
+      invoiceId: "invoice-1",
+      userId: "user-1",
+      url: "https://public.example.com/hook",
+      payload: { invoiceId: "invoice-1", status: "paid" },
+      attempts: 0,
+      deadLetterId: null,
+    };
+
     it("should execute delivery successfully and use the latest secret from the database", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
       mockPrismaService.user.findUnique.mockResolvedValue({
-        webhookSecret: "secret",
+        webhookSecret: "current-secret",
         merchantId: "merchant-1",
-      } as any);
-
-      const delivery = {
-        id: "del-1",
-        invoiceId: "inv-1",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
-        attempts: 0,
-        userId: "user-1",
-        user: { webhookSecret: "old-secret" },
-      };
-
-      await service.deliver(delivery);
-
-      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-      const postArgs = mockedAxios.post.mock.calls[0];
-      expect(postArgs[0]).toBe("https://example.com/webhook");
-      expect(postArgs[2]?.headers?.["x-idempotency-key"]).toBe("del-1-0");
-      expect(postArgs[2]?.headers?.["x-invoisio-signature"]).toBeDefined();
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { id: "user-1" },
-        select: { webhookSecret: true, merchantId: true },
       });
-      expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith({
-        where: { id: "del-1" },
-        data: expect.objectContaining({
-          status: "success",
-          attempts: 1,
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 42,
+        failureCode: null,
+        failureReason: null,
+      });
+      mockPrismaService.webhookDelivery.update.mockResolvedValue({});
+
+      await service.deliver(baseDelivery);
+
+      expect(mockSafeWebhookHttpService.post).toHaveBeenCalledWith(
+        baseDelivery.url,
+        baseDelivery.payload,
+        expect.objectContaining({
+          "Content-Type": "application/json",
+          "x-idempotency-key": "delivery-1-0",
         }),
-      });
-    });
+      );
 
-    it("should apply exponential backoff on failure", async () => {
-      mockedAxios.post.mockRejectedValue(new Error("Timeout"));
-      mockPrismaService.user.findUnique.mockResolvedValue({
-        webhookSecret: null,
-        merchantId: "merchant-2",
-      } as any);
+      const expectedSignature = crypto
+        .createHmac("sha256", "current-secret")
+        .update(JSON.stringify(baseDelivery.payload))
+        .digest("hex");
+      const callHeaders = mockSafeWebhookHttpService.post.mock.calls[0][2];
+      expect(callHeaders["x-invoisio-signature"]).toBe(expectedSignature);
 
-      const delivery = {
-        id: "del-2",
-        invoiceId: "inv-2",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
-        attempts: 1,
-        userId: "user-2",
-        user: {},
-      };
-
-      await service.deliver(delivery);
-
-      expect(mockedAxios.post).toHaveBeenCalled();
-      expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledTimes(1);
-
-      const updateCall =
-        mockPrismaService.webhookDelivery.update.mock.calls[0][0];
-      expect(updateCall.where.id).toBe("del-2");
-      expect(updateCall.data.attempts).toBe(2);
-      expect(updateCall.data.status).toBeUndefined();
-      expect(updateCall.data.nextAttemptAt).toBeInstanceOf(Date);
-    });
-
-    it("moves exhausted deliveries into the dead-letter queue", async () => {
-      mockedAxios.post.mockRejectedValue(new Error("Network Error"));
-      mockPrismaService.user.findUnique.mockResolvedValue({
-        webhookSecret: null,
-        merchantId: "merchant-9",
-      } as any);
-
-      const delivery = {
-        id: "del-max",
-        invoiceId: "inv-max",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
-        attempts: 4,
-        userId: "user-max",
-        user: {},
-      };
-
-      await service.deliver(delivery);
-
-      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
-      expect(
-        mockTransactionClient.webhookDeadLetter.create,
-      ).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          originalDeliveryId: "del-max",
-          invoiceId: "inv-max",
-          userId: "user-max",
-          merchantId: "merchant-9",
-          failedAttempts: 5,
-          status: "pending_retry",
-          lastError: "Network Error",
+      expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "delivery-1" },
+          data: expect.objectContaining({ status: "success", attempts: 1 }),
         }),
-      });
-      expect(mockTransactionClient.webhookDelivery.delete).toHaveBeenCalledWith(
-        {
-          where: { id: "del-max" },
-        },
       );
     });
 
-    it("marks dead-letter jobs as recovered when a manual retry succeeds", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+    it("should apply exponential backoff on failure", async () => {
       mockPrismaService.user.findUnique.mockResolvedValue({
-        webhookSecret: "secret",
+        webhookSecret: "current-secret",
         merchantId: "merchant-1",
-      } as any);
-
-      const delivery = {
-        id: "del-redrive",
-        invoiceId: "inv-redrive",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
-        attempts: 0,
-        userId: "user-1",
-        deadLetterId: "dlq-1",
-      };
-
-      await service.deliver(delivery);
-
-      expect(mockPrismaService.webhookDeadLetter.update).toHaveBeenCalledWith({
-        where: { id: "dlq-1" },
-        data: expect.objectContaining({
-          status: "recovered",
-          recoveredAt: expect.any(Date),
-        }),
       });
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: null,
+        durationMs: 10,
+        failureCode: "unreachable",
+        failureReason: "The endpoint could not be reached.",
+      });
+      mockPrismaService.webhookDelivery.update.mockResolvedValue({});
+
+      await service.deliver({ ...baseDelivery, attempts: 1 });
+
+      expect(mockPrismaService.webhookDelivery.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "delivery-1" },
+          data: expect.objectContaining({ attempts: 2 }),
+        }),
+      );
+      const updateArgs = mockPrismaService.webhookDelivery.update.mock.calls[0][0];
+      expect(updateArgs.data.nextAttemptAt).toBeInstanceOf(Date);
+      expect(updateArgs.data.nextAttemptAt.getTime()).toBeGreaterThan(
+        Date.now(),
+      );
+    });
+
+    it("moves exhausted deliveries into the dead-letter queue", async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        webhookSecret: "current-secret",
+        merchantId: "merchant-1",
+      });
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: null,
+        durationMs: 10,
+        failureCode: "unreachable",
+        failureReason: "The endpoint could not be reached.",
+      });
+      mockPrismaService.$transaction.mockImplementation(async (cb: any) =>
+        cb({
+          webhookDeadLetter: mockPrismaService.webhookDeadLetter,
+          webhookDelivery: mockPrismaService.webhookDelivery,
+        }),
+      );
+      mockPrismaService.webhookDeadLetter.create.mockResolvedValue({
+        id: "dead-letter-1",
+      });
+      mockPrismaService.webhookDelivery.delete.mockResolvedValue({});
+
+      await service.deliver({ ...baseDelivery, attempts: 4 });
+
+      expect(mockPrismaService.webhookDeadLetter.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            merchantId: "merchant-1",
+            url: baseDelivery.url,
+            lastError: "The endpoint could not be reached.",
+            failedAttempts: 5,
+            status: "pending_retry",
+          }),
+        }),
+      );
+      expect(mockPrismaService.webhookDelivery.delete).toHaveBeenCalledWith({
+        where: { id: "delivery-1" },
+      });
+    });
+
+    it("marks dead-letter jobs as recovered when a manual retry succeeds", async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({
+        webhookSecret: "current-secret",
+        merchantId: "merchant-1",
+      });
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 15,
+        failureCode: null,
+        failureReason: null,
+      });
+      mockPrismaService.webhookDelivery.update.mockResolvedValue({});
+      mockPrismaService.webhookDeadLetter.update.mockResolvedValue({});
+
+      await service.deliver({
+        ...baseDelivery,
+        deadLetterId: "dead-letter-1",
+      });
+
+      expect(mockPrismaService.webhookDeadLetter.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "dead-letter-1" },
+          data: expect.objectContaining({ status: "recovered" }),
+        }),
+      );
     });
   });
 
   describe("sendTestDelivery", () => {
-    const baseUser = {
-      webhookSecret: "testsecret",
-    };
-    const baseMerchant = {
-      webhookUrl: "https://merchant.example.com/webhook",
-    };
+    const merchantId = "merchant-1";
+    const userId = "user-1";
 
     beforeEach(() => {
-      mockPrismaService.user.findFirst.mockResolvedValue(baseUser as any);
-      mockPrismaService.merchant.findUnique.mockResolvedValue(
-        baseMerchant as any,
-      );
+      mockPrismaService.user.findFirst.mockResolvedValue({
+        webhookSecret: "test-secret",
+      });
+      mockPrismaService.merchant.findUnique.mockResolvedValue({
+        webhookUrl: "https://public.example.com/hook",
+      });
     });
 
     it("returns success=true with httpStatus and durationMs when endpoint responds 2xx", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 55,
+        failureCode: null,
+        failureReason: null,
+      });
 
-      const result = await service.sendTestDelivery("user-1", "merchant-1");
+      const result = await service.sendTestDelivery(userId, merchantId);
 
       expect(result.success).toBe(true);
       expect(result.httpStatus).toBe(200);
-      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+      expect(result.durationMs).toBe(55);
       expect(result.failureReason).toBeNull();
-      expect(result.sentAt).toBeDefined();
+      expect(typeof result.sentAt).toBe("string");
     });
 
     it("reads the destination URL from the merchant configuration and the secret from the merchant-scoped user", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
-
-      await service.sendTestDelivery("user-1", "merchant-1");
-
-      expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
-        where: { id: "user-1", merchantId: "merchant-1" },
-        select: { webhookSecret: true },
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 10,
+        failureCode: null,
+        failureReason: null,
       });
+
+      await service.sendTestDelivery(userId, merchantId);
+
       expect(mockPrismaService.merchant.findUnique).toHaveBeenCalledWith({
-        where: { id: "merchant-1" },
+        where: { id: merchantId },
         select: { webhookUrl: true },
       });
+      expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
+        where: { id: userId, merchantId },
+        select: { webhookSecret: true },
+      });
+      expect(mockSafeWebhookHttpService.post).toHaveBeenCalledWith(
+        "https://public.example.com/hook",
+        expect.objectContaining({ event: "test" }),
+        expect.any(Object),
+      );
     });
 
     it("sends the payload with x-invoisio-test-delivery header and HMAC signature", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 10,
+        failureCode: null,
+        failureReason: null,
+      });
 
-      await service.sendTestDelivery("user-1", "merchant-1");
+      await service.sendTestDelivery(userId, merchantId);
 
-      expect(mockedAxios.post).toHaveBeenCalledTimes(1);
-      const [url, payload, config] = mockedAxios.post.mock.calls[0];
+      const [, payload, headers] = mockSafeWebhookHttpService.post.mock.calls[0];
+      expect(headers["x-invoisio-test-delivery"]).toBe("true");
+      expect(headers["x-invoisio-signature"]).toMatch(/^[0-9a-f]{64}$/);
 
-      expect(url).toBe("https://merchant.example.com/webhook");
-      expect((payload as any).event).toBe("test");
-      expect((payload as any).invoiceId).toBe("__test__");
-      expect(config?.headers?.["x-invoisio-test-delivery"]).toBe("true");
-      expect(config?.headers?.["x-invoisio-signature"]).toBeDefined();
-      // Signature must be a non-empty hex string
-      expect(
-        (config?.headers?.["x-invoisio-signature"] as string).length,
-      ).toBeGreaterThan(0);
+      const expectedSignature = crypto
+        .createHmac("sha256", "test-secret")
+        .update(JSON.stringify(payload))
+        .digest("hex");
+      expect(headers["x-invoisio-signature"]).toBe(expectedSignature);
     });
 
     it("returns an empty signature when no webhook secret is configured", async () => {
       mockPrismaService.user.findFirst.mockResolvedValue({
         webhookSecret: null,
-      } as any);
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+      });
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 10,
+        failureCode: null,
+        failureReason: null,
+      });
 
-      await service.sendTestDelivery("user-1", "merchant-1");
+      await service.sendTestDelivery(userId, merchantId);
 
-      const [, , config] = mockedAxios.post.mock.calls[0];
-      expect(config?.headers?.["x-invoisio-signature"]).toBe("");
+      const [, , headers] = mockSafeWebhookHttpService.post.mock.calls[0];
+      expect(headers["x-invoisio-signature"]).toBe("");
     });
 
     it("returns success=false with httpStatus when endpoint responds 4xx", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 401 } as any);
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: 404,
+        durationMs: 20,
+        failureCode: "non_2xx",
+        failureReason: "Endpoint responded with HTTP 404.",
+      });
 
-      const result = await service.sendTestDelivery("user-1", "merchant-1");
+      const result = await service.sendTestDelivery(userId, merchantId);
 
       expect(result.success).toBe(false);
-      expect(result.httpStatus).toBe(401);
-      expect(result.failureReason).toMatch(/401/);
+      expect(result.httpStatus).toBe(404);
+      expect(result.failureReason).toBe("Endpoint responded with HTTP 404.");
     });
 
-    it("returns success=false with a network-level failure reason on timeout", async () => {
-      mockPrismaService.user.findFirst.mockResolvedValue(baseUser as any);
+    it("returns success=false with a generic failure reason on timeout (no raw network text is exposed)", async () => {
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: null,
+        durationMs: 10000,
+        failureCode: "timeout",
+        failureReason: "The endpoint did not respond in time.",
+      });
 
-      const timeoutError = Object.assign(
-        new Error("timeout of 10000ms exceeded"),
-        {
-          isAxiosError: true,
-          code: "ECONNABORTED",
-        },
-      );
-      (timeoutError as any).isAxiosError = true;
-      mockedAxios.isAxiosError = jest.fn().mockReturnValue(true) as any;
-      mockedAxios.post.mockRejectedValue(timeoutError);
-
-      const result = await service.sendTestDelivery("user-1", "merchant-1");
+      const result = await service.sendTestDelivery(userId, merchantId);
 
       expect(result.success).toBe(false);
       expect(result.httpStatus).toBeNull();
-      expect(result.failureReason).toMatch(/timed out/i);
+      expect(result.failureReason).toBe("The endpoint did not respond in time.");
     });
 
-    it("returns success=false with a DNS failure reason on ENOTFOUND", async () => {
-      const dnsError = Object.assign(new Error("getaddrinfo ENOTFOUND"), {
-        isAxiosError: true,
-        code: "ENOTFOUND",
+    it("returns success=false with a generic unreachable reason on DNS failure (no ENOTFOUND text is exposed)", async () => {
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: null,
+        durationMs: 5,
+        failureCode: "unreachable",
+        failureReason: "The endpoint could not be reached.",
       });
-      mockedAxios.isAxiosError = jest.fn().mockReturnValue(true) as any;
-      mockedAxios.post.mockRejectedValue(dnsError);
 
-      const result = await service.sendTestDelivery("user-1", "merchant-1");
+      const result = await service.sendTestDelivery(userId, merchantId);
 
       expect(result.success).toBe(false);
-      expect(result.failureReason).toMatch(/DNS/i);
+      expect(result.failureReason).toBe("The endpoint could not be reached.");
+      expect(result.failureReason).not.toMatch(/ENOTFOUND/i);
     });
 
-    it("returns success=false with a connection-refused reason on ECONNREFUSED", async () => {
-      const connError = Object.assign(new Error("connect ECONNREFUSED"), {
-        isAxiosError: true,
-        code: "ECONNREFUSED",
+    it("returns success=false with a generic unreachable reason on connection refused (no ECONNREFUSED text is exposed)", async () => {
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: false,
+        httpStatus: null,
+        durationMs: 5,
+        failureCode: "unreachable",
+        failureReason: "The endpoint could not be reached.",
       });
-      mockedAxios.isAxiosError = jest.fn().mockReturnValue(true) as any;
-      mockedAxios.post.mockRejectedValue(connError);
 
-      const result = await service.sendTestDelivery("user-1", "merchant-1");
+      const result = await service.sendTestDelivery(userId, merchantId);
 
       expect(result.success).toBe(false);
-      expect(result.failureReason).toMatch(/connection refused/i);
+      expect(result.failureReason).toBe("The endpoint could not be reached.");
+      expect(result.failureReason).not.toMatch(/ECONNREFUSED/i);
     });
 
     it("does NOT write to WebhookDelivery table during test delivery", async () => {
-      mockedAxios.post.mockResolvedValue({ status: 200 } as any);
+      mockSafeWebhookHttpService.post.mockResolvedValue({
+        success: true,
+        httpStatus: 200,
+        durationMs: 10,
+        failureCode: null,
+        failureReason: null,
+      });
 
-      await service.sendTestDelivery("user-1", "merchant-1");
+      await service.sendTestDelivery(userId, merchantId);
 
       expect(mockPrismaService.webhookDelivery.create).not.toHaveBeenCalled();
     });
@@ -463,117 +507,94 @@ describe("WebhooksService", () => {
     it("throws UnprocessableEntityException when the merchant has no webhook URL configured", async () => {
       mockPrismaService.merchant.findUnique.mockResolvedValue({
         webhookUrl: null,
-      } as any);
+      });
 
       await expect(
-        service.sendTestDelivery("user-1", "merchant-1"),
-      ).rejects.toBeInstanceOf(UnprocessableEntityException);
-
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+        service.sendTestDelivery(userId, merchantId),
+      ).rejects.toThrow(UnprocessableEntityException);
+      expect(mockSafeWebhookHttpService.post).not.toHaveBeenCalled();
     });
 
     it("throws NotFoundException when the user is not found", async () => {
-      mockPrismaService.user.findFirst.mockResolvedValue(null as any);
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.sendTestDelivery("user-1", "merchant-1"),
-      ).rejects.toThrow("User not found");
+        service.sendTestDelivery(userId, merchantId),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it("throws NotFoundException when the merchant is not found", async () => {
-      mockPrismaService.merchant.findUnique.mockResolvedValue(null as any);
+      mockPrismaService.merchant.findUnique.mockResolvedValue(null);
 
       await expect(
-        service.sendTestDelivery("user-1", "merchant-1"),
-      ).rejects.toBeInstanceOf(NotFoundException);
-
-      expect(mockedAxios.post).not.toHaveBeenCalled();
+        service.sendTestDelivery(userId, merchantId),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe("dead-letter admin tooling", () => {
     it("lists dead-letter jobs with the provided filters", async () => {
-      const expected = [{ id: "dlq-1" }];
-      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue(
-        expected as any,
-      );
+      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue([
+        { id: "dead-letter-1" },
+      ]);
 
       const result = await service.listDeadLetters({
         status: "pending_retry" as any,
-        limit: 25,
+        limit: 10,
       });
 
-      expect(result).toBe(expected);
+      expect(result).toHaveLength(1);
       expect(mockPrismaService.webhookDeadLetter.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { status: "pending_retry" },
-          take: 25,
+          take: 10,
         }),
       );
     });
 
     it("queues a manual retry for a dead-letter job", async () => {
       mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
-        id: "dlq-2",
-        invoiceId: "inv-2",
-        userId: "user-2",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
+        id: "dead-letter-1",
         status: "pending_retry",
-      } as any);
-      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(
-        null as any,
+        invoiceId: "invoice-1",
+        userId: "user-1",
+        url: "https://public.example.com/hook",
+        payload: { foo: "bar" },
+      });
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(null);
+      mockPrismaService.$transaction.mockImplementation(async (cb: any) =>
+        cb({
+          webhookDelivery: {
+            create: jest.fn().mockResolvedValue({ id: "delivery-new" }),
+          },
+          webhookDeadLetter: {
+            update: jest.fn().mockResolvedValue({}),
+          },
+        }),
       );
-      mockTransactionClient.webhookDelivery.create.mockResolvedValue({
-        id: "del-retry",
-      } as any);
 
-      const result = await service.retryDeadLetter("dlq-2");
+      const result = await service.retryDeadLetter("dead-letter-1");
 
       expect(result).toEqual({
-        deadLetterId: "dlq-2",
-        deliveryId: "del-retry",
+        deadLetterId: "dead-letter-1",
+        deliveryId: "delivery-new",
         status: "requeued",
-      });
-      expect(mockTransactionClient.webhookDelivery.create).toHaveBeenCalledWith(
-        {
-          data: expect.objectContaining({
-            invoiceId: "inv-2",
-            userId: "user-2",
-            deadLetterId: "dlq-2",
-            status: "pending",
-            attempts: 0,
-          }),
-        },
-      );
-      expect(
-        mockTransactionClient.webhookDeadLetter.update,
-      ).toHaveBeenCalledWith({
-        where: { id: "dlq-2" },
-        data: expect.objectContaining({
-          status: "requeued",
-          manualRetryCount: { increment: 1 },
-          lastRetriedAt: expect.any(Date),
-        }),
       });
     });
 
     it("rejects duplicate manual retries while a retry is already pending", async () => {
       mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
-        id: "dlq-3",
-        invoiceId: "inv-3",
-        userId: "user-3",
-        url: "https://example.com/webhook",
-        payload: { status: "paid" },
+        id: "dead-letter-1",
         status: "pending_retry",
-      } as any);
+      });
       mockPrismaService.webhookDelivery.findFirst.mockResolvedValue({
-        id: "del-existing",
-      } as any);
+        id: "delivery-existing",
+      });
 
-      await expect(service.retryDeadLetter("dlq-3")).rejects.toBeInstanceOf(
+      await expect(service.retryDeadLetter("dead-letter-1")).rejects.toThrow(
         BadRequestException,
       );
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
   });
 });

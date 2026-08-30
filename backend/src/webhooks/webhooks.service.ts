@@ -7,10 +7,10 @@ import {
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../prisma/prisma.service";
-import axios from "axios";
 import * as crypto from "crypto";
 import { DeadLetterStatus, Prisma } from "@prisma/client";
 import { WebhookTestDeliveryResultDto } from "./dto/webhook-test-delivery.dto";
+import { SafeWebhookHttpService } from "../common/security/safe-webhook-http.service";
 
 export interface WebhookSecretMetadata {
   hasSecret: boolean;
@@ -37,7 +37,10 @@ export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
   private isProcessing = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly safeHttp: SafeWebhookHttpService,
+  ) {}
 
   /**
    * Return masked metadata for the merchant's current webhook signing secret.
@@ -91,17 +94,17 @@ export class WebhooksService {
   /**
    * Send a signed test webhook delivery to the merchant's configured endpoint.
    *
-   * The delivery is entirely transient – it is **never** written to the
+   * The delivery is entirely transient - it is **never** written to the
    * `WebhookDelivery` table and therefore never appears in production delivery
    * history or the dead-letter queue.
    *
-   * The destination URL comes from the merchant-scoped webhook configuration
-   * (the same value merchants manage in settings), while the signing secret is
-   * read from the requesting user within that merchant.
-   *
-   * Returns a result object describing whether the endpoint accepted the
-   * payload, the HTTP status code, round-trip latency, and a clear failure
-   * reason when the endpoint is unreachable or rejects the request.
+   * SECURITY: the destination is re-validated against the SSRF blocklist
+   * and DNS-pinned immediately before the request via `SafeWebhookHttpService`
+   * (the stored URL having passed validation at save time is not sufficient,
+   * since DNS can change - see DNS rebinding). The result returned to the
+   * caller reports only a generic success/failure classification, not raw
+   * network error text, so this endpoint cannot be used to probe internal
+   * hosts and ports.
    */
   async sendTestDelivery(
     userId: string,
@@ -146,8 +149,6 @@ export class WebhooksService {
 
     const payloadStr = JSON.stringify(payload);
 
-    // Sign with the active secret so merchants can verify HMAC validation
-    // works end-to-end before going live.
     let signature = "";
     if (user.webhookSecret) {
       signature = crypto
@@ -156,66 +157,23 @@ export class WebhooksService {
         .digest("hex");
     }
 
-    const startMs = Date.now();
-    let httpStatus: number | null = null;
-    let success = false;
-    let failureReason: string | null = null;
-
-    try {
-      const response = await axios.post(merchant.webhookUrl, payload, {
-        headers: {
-          "Content-Type": "application/json",
-          "x-invoisio-signature": signature,
-          "x-invoisio-test-delivery": "true",
-        },
-        timeout: 10_000,
-        // Treat any 2xx as success; do not throw on 4xx/5xx so we can
-        // capture the status code and report it back to the merchant.
-        validateStatus: () => true,
-      });
-
-      httpStatus = response.status;
-      success = response.status >= 200 && response.status < 300;
-
-      if (!success) {
-        failureReason = `Endpoint responded with HTTP ${response.status}.`;
-      }
-    } catch (error: any) {
-      // Network-level failure (DNS, timeout, TLS, etc.)
-      httpStatus = null;
-      success = false;
-
-      if (axios.isAxiosError(error)) {
-        if (error.code === "ECONNABORTED") {
-          failureReason =
-            "Request timed out. The endpoint did not respond within 10 seconds.";
-        } else if (error.code === "ECONNREFUSED") {
-          failureReason =
-            "Connection refused. Verify the endpoint URL is reachable from the internet.";
-        } else if (error.code === "ENOTFOUND") {
-          failureReason =
-            "DNS resolution failed. Verify the hostname in your webhook URL is correct.";
-        } else {
-          failureReason = error.message ?? "Network error";
-        }
-      } else {
-        failureReason =
-          (error as Error)?.message ?? "Unknown error during test delivery.";
-      }
-    }
-
-    const durationMs = Date.now() - startMs;
+    const result = await this.safeHttp.post(merchant.webhookUrl, payload, {
+      "Content-Type": "application/json",
+      "x-invoisio-signature": signature,
+      "x-invoisio-test-delivery": "true",
+    });
 
     this.logger.log(
       `Test webhook delivery for user ${userId} (merchant ${merchantId}): ` +
-        `success=${success}, httpStatus=${httpStatus ?? "N/A"}, durationMs=${durationMs}`,
+        `success=${result.success}, httpStatus=${result.httpStatus ?? "N/A"}, ` +
+        `durationMs=${result.durationMs}`,
     );
 
     return {
-      success,
-      httpStatus,
-      durationMs,
-      failureReason,
+      success: result.success,
+      httpStatus: result.httpStatus,
+      durationMs: result.durationMs,
+      failureReason: result.failureReason,
       sentAt,
     };
   }
@@ -225,7 +183,9 @@ export class WebhooksService {
    *
    * The destination URL is read from the merchant-scoped webhook configuration
    * (the same value merchants manage in settings) so that deliveries always
-   * follow the configuration the merchant actually sees.
+   * follow the configuration the merchant actually sees. It is re-validated
+   * against the SSRF blocklist at send time regardless of having been
+   * validated when saved.
    */
   async enqueueWebhook(
     invoiceId: string,
@@ -313,6 +273,11 @@ export class WebhooksService {
 
   /**
    * Delivers a single webhook payload, handling retries and HMAC signatures.
+   *
+   * SECURITY: uses `SafeWebhookHttpService`, which re-resolves and
+   * re-validates the destination against the SSRF blocklist immediately
+   * before connecting (DNS-pinned), disables automatic redirect
+   * following, and re-validates every redirect hop before following it.
    */
   public async deliver(delivery: any): Promise<void> {
     // Re-read the current secret from the database so secret rotation takes
@@ -335,17 +300,13 @@ export class WebhooksService {
     // Adding idempotency key based on delivery ID and attempts
     const idempotencyKey = `${delivery.id}-${delivery.attempts}`;
 
-    try {
-      await axios.post(delivery.url, delivery.payload, {
-        headers: {
-          "Content-Type": "application/json",
-          "x-invoisio-signature": signature,
-          "x-idempotency-key": idempotencyKey,
-        },
-        timeout: 5000,
-      });
+    const result = await this.safeHttp.post(delivery.url, delivery.payload, {
+      "Content-Type": "application/json",
+      "x-invoisio-signature": signature,
+      "x-idempotency-key": idempotencyKey,
+    });
 
-      // Update on success
+    if (result.success) {
       await this.prisma.webhookDelivery.update({
         where: { id: delivery.id },
         data: {
@@ -366,42 +327,44 @@ export class WebhooksService {
       }
 
       this.logger.log(`Webhook delivery ${delivery.id} succeeded.`);
-    } catch (error: any) {
-      const attempts = delivery.attempts + 1;
-      const failure = this.toFailureDetails(error);
-      this.logger.warn(
-        `Webhook delivery ${delivery.id} failed (attempt ${attempts}): ${failure.message}`,
+      return;
+    }
+
+    const attempts = delivery.attempts + 1;
+    // Stored failure text is the same generic, non-leaking classification
+    // returned to merchants via the API - it's still useful for our own
+    // operational visibility without exposing internal reachability
+    // details through the dead-letter / delivery-history endpoints.
+    const failureMessage = result.failureReason ?? "Webhook delivery failed.";
+    this.logger.warn(
+      `Webhook delivery ${delivery.id} failed (attempt ${attempts}): ${failureMessage}`,
+    );
+
+    if (attempts >= MAX_DELIVERY_ATTEMPTS) {
+      await this.moveToDeadLetter(
+        {
+          ...delivery,
+          merchantId: user?.merchantId,
+        },
+        attempts,
+        { message: failureMessage, httpStatus: result.httpStatus },
       );
+      this.logger.error(
+        `Webhook delivery ${delivery.id} moved to dead-letter queue after ${MAX_DELIVERY_ATTEMPTS} attempts.`,
+      );
+    } else {
+      // Exponential backoff: Math.pow(2, attempts) minutes
+      const nextAttempt = new Date();
+      nextAttempt.setMinutes(nextAttempt.getMinutes() + Math.pow(2, attempts));
 
-      if (attempts >= MAX_DELIVERY_ATTEMPTS) {
-        await this.moveToDeadLetter(
-          {
-            ...delivery,
-            merchantId: user?.merchantId,
-          },
+      await this.prisma.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: {
           attempts,
-          failure,
-        );
-        this.logger.error(
-          `Webhook delivery ${delivery.id} moved to dead-letter queue after ${MAX_DELIVERY_ATTEMPTS} attempts.`,
-        );
-      } else {
-        // Exponential backoff: Math.pow(2, attempts) minutes
-        // E.g., attempts: 1 -> 2m, 2 -> 4m, 3 -> 8m, 4 -> 16m
-        const nextAttempt = new Date();
-        nextAttempt.setMinutes(
-          nextAttempt.getMinutes() + Math.pow(2, attempts),
-        );
-
-        await this.prisma.webhookDelivery.update({
-          where: { id: delivery.id },
-          data: {
-            attempts,
-            lastAttemptAt: new Date(),
-            nextAttemptAt: nextAttempt,
-          },
-        });
-      }
+          lastAttemptAt: new Date(),
+          nextAttemptAt: nextAttempt,
+        },
+      });
     }
   }
 
@@ -573,37 +536,6 @@ export class WebhooksService {
     }
 
     return Math.min(Math.max(limit, 1), MAX_DEAD_LETTER_LIMIT);
-  }
-
-  private toFailureDetails(error: any): {
-    message: string;
-    httpStatus: number | null;
-  } {
-    const httpStatus = error?.response?.status ?? null;
-    const responseData = error?.response?.data;
-
-    if (typeof responseData === "string" && responseData.trim().length > 0) {
-      return {
-        message: responseData.slice(0, 500),
-        httpStatus,
-      };
-    }
-
-    if (responseData && typeof responseData === "object") {
-      try {
-        return {
-          message: JSON.stringify(responseData).slice(0, 500),
-          httpStatus,
-        };
-      } catch {
-        // fall back to the generic message below
-      }
-    }
-
-    return {
-      message: error?.message ?? "Unknown webhook delivery error",
-      httpStatus,
-    };
   }
 
   private async moveToDeadLetter(
