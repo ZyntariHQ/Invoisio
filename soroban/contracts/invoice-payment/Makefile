@@ -13,7 +13,8 @@ test: build
 
 fmt:
 	cargo fmt --all
-
+fmt-check:
+        cargo fmt -- --check
 clean:
 	cargo clean
 
@@ -55,7 +56,9 @@ invoke-initialize:
 # Record a sample invoice payment
 # Usage: make invoke-record-payment CONTRACT_ID=<id> \
 #          INVOICE_ID=invoisio-abc123 PAYER=<G...> \
-#          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000
+#          ASSET_CODE=XLM ASSET_ISSUER="" AMOUNT=10000000 SETTLEMENT_REF=settle-abc123
+# Native XLM: omit ASSET_ISSUER (or set it empty) → --asset Native
+# Token: ASSET_CODE=USDC ASSET_ISSUER=<G...> → --asset '{"Token":["USDC","G..."]}'
 invoke-record-payment:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
@@ -64,9 +67,9 @@ invoke-record-payment:
 	  -- record_payment \
 	  --invoice_id   "$(INVOICE_ID)" \
 	  --payer        "$(PAYER)" \
-	  --asset_code   "$(ASSET_CODE)" \
-	  --asset_issuer "$(ASSET_ISSUER)" \
-	  --amount       $(AMOUNT)
+	  --asset        $(if $(ASSET_ISSUER), '{"Token":["$(ASSET_CODE)","$(ASSET_ISSUER)"]}', Native) \
+	  --amount       $(AMOUNT) \
+	  --settlement_ref "$(SETTLEMENT_REF)"
 
 # Read back a recorded payment
 # Usage: make invoke-get-payment CONTRACT_ID=<id> INVOICE_ID=invoisio-abc123
@@ -78,7 +81,10 @@ invoke-get-payment:
 	  -- get_payment \
 	  --invoice_id "$(INVOICE_ID)"
 
-# Read a bounded page of payment history
+# Read a bounded page of payment history.
+# Admin-gated (issue #512): bulk enumeration of every payment is exactly the
+# disclosure this contract's privacy guarantee exists to prevent for anyone
+# but the admin — invoisio-admin must be the current contract admin identity.
 # Usage: make invoke-payment-history CONTRACT_ID=<id> CURSOR=0 LIMIT=25
 invoke-payment-history:
 	stellar contract invoke \
@@ -86,6 +92,7 @@ invoke-payment-history:
 	  --source invoisio-admin \
 	  --network testnet \
 	  -- payment_history \
+	  --admin $(shell stellar keys address invoisio-admin) \
 	  --cursor $(CURSOR) \
 	  --limit $(LIMIT)
 
@@ -120,13 +127,15 @@ invoke-accept-admin:
 	  -- accept_admin \
 	  --caller "$(NEW_ADMIN)"
 
-# Return current payment count
+# Return current payment count. Admin-gated (issue #512) — see
+# invoke-payment-history above.
 invoke-payment-count:
 	stellar contract invoke \
 	  --id $(CONTRACT_ID) \
 	  --source invoisio-admin \
 	  --network testnet \
-	  -- payment_count
+	  -- payment_count \
+	  --admin $(shell stellar keys address invoisio-admin)
 
 # Stream contract events from testnet (pipe to jq for readability)
 events:

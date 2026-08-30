@@ -77,7 +77,10 @@ export default function LandingScreen() {
             </Text>
             <View className="mt-6 flex-row gap-3">
               <Link href="/login" asChild>
-                <Pressable className="flex-1 items-center justify-center rounded-2xl bg-[#2663FF] px-4 py-4 shadow-lg shadow-[#2663FF]/40">
+                <Pressable
+                  accessibilityRole="button"
+                  className="flex-1 items-center justify-center rounded-2xl bg-[#2663FF] px-4 py-4 shadow-lg shadow-[#2663FF]/40"
+                >
                   <Text
                     className="text-base text-white"
                     style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
@@ -87,7 +90,10 @@ export default function LandingScreen() {
                 </Pressable>
               </Link>
               <Link href="/dashboard" asChild>
-                <Pressable className="flex-1 items-center justify-center rounded-2xl border border-white/20 px-4 py-4">
+                <Pressable
+                  accessibilityRole="button"
+                  className="flex-1 items-center justify-center rounded-2xl border border-white/20 px-4 py-4"
+                >
                   <Text
                     className="text-base text-white"
                     style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -206,7 +212,10 @@ export default function LandingScreen() {
                 </Text>
               </View>
               <Link href="/create-invoice" asChild>
-                <Pressable className="rounded-2xl bg-white px-4 py-3">
+                <Pressable
+                  accessibilityRole="button"
+                  className="rounded-2xl bg-white px-4 py-3"
+                >
                   <Text
                     className="text-base text-[#050914]"
                     style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}

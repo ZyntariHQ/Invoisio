@@ -84,6 +84,43 @@ Supports both Android and iOS expectations for simulators and physical devices.
 - [ ] Choose a target share channel and confirm the system returns to the app afterward.
 - [ ] If copy-to-clipboard is available, verify the copied content is correct.
 
+## 6. Accessibility (VoiceOver / TalkBack)
+
+Verify the primary merchant journeys end to end with a screen reader enabled. On iOS use VoiceOver; on Android use TalkBack.
+
+### Login / connect wallet
+
+- [ ] Every control on the login screen announces a clear name (e.g. "Connect Wallet", "Continue to Dashboard", "Disconnect Wallet").
+- [ ] Connection errors are announced when they appear (not conveyed by colour alone).
+
+### Create invoice
+
+- [ ] Form fields announce their labels: "Search saved clients", "Counterparty name", "Client email", "Amount", "Currency", "Payment terms", "Memo or scope".
+- [ ] Required fields are announced as required.
+- [ ] Validation errors are announced as they surface.
+- [ ] The saved-customer picker sheet traps screen-reader focus: background content is not reachable while it is open, focus lands in the search field, and the dialog can be dismissed.
+- [ ] The currency and payment-terms segmented controls announce their selected state.
+
+### Scan and pay
+
+- [ ] "Scan to Pay" screen controls announce clear names.
+- [ ] Scanning a QR code announces "Payment QR code scanned".
+- [ ] The confirm-payment dialog traps focus: the camera/background is not reachable while it is open, and it announces "Confirm payment dialog opened".
+- [ ] "Open Wallet to Pay" and "Cancel" announce correctly.
+
+### View receipt
+
+- [ ] Receipt status announces its text equivalent (e.g. "Paid", "Partially paid", "Pending").
+- [ ] Payment-status transitions are announced while the receipt polls for settlement.
+- [ ] "Share receipt" and "Export as PDF" announce their labels and disabled state.
+
+### Status indicators (global)
+
+- [ ] Losing connectivity announces "You are offline" / "Network is unstable" via a live region.
+- [ ] The offline banner's message and action (e.g. "Retry when online") are announced.
+- [ ] Sync activity announces "Syncing your data" and "Sync completed" (or the failure state).
+- [ ] The invoice live-status badge announces connection-state transitions (e.g. "Live updates unavailable") instead of relying on colour.
+
 ## Platform-specific expectations
 
 ### Android
@@ -91,12 +128,14 @@ Supports both Android and iOS expectations for simulators and physical devices.
 - [ ] Android share sheet appears and is usable.
 - [ ] Hardware/back button behavior is correct in each flow.
 - [ ] No platform-specific UI clipping or input issues exist.
+- [ ] TalkBack announces live-region status changes and modal focus lands inside the sheet.
 
 ### iOS
 
 - [ ] iOS share sheet appears and is usable.
 - [ ] Swipe gestures and native navigation behave correctly.
 - [ ] The on-screen keyboard does not hide important fields.
+- [ ] VoiceOver announces status changes and modal focus returns to the previous element on dismiss.
 
 ## PR readiness checklist
 
@@ -106,6 +145,8 @@ Before opening a PR, confirm:
 - [ ] Android and iOS platform expectations were validated when available.
 - [ ] Any regressions were documented with screenshots and device/emulator details.
 - [ ] The checklist covers login, invoice list, invoice detail, create flow, and share flow.
+- [ ] Accessibility verification was completed on at least one platform with VoiceOver or TalkBack.
+- [ ] `npm run lint` passes, including the `invoisio/a11y-interactive-name` rule that flags interactive elements without an accessible name.
 
 ## Notes
 

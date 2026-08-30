@@ -1,89 +1,91 @@
 import { xdr } from '@stellar/stellar-sdk';
-/**
- * Schema version of the `invoice_payment_recorded` event payload that this
- * client knows how to decode. Mirrors `EVENT_SCHEMA_VERSION` in
- * `contracts/invoice-payment/src/events.rs` — bump both together when the
- * payload shape changes in a breaking way.
- */
-export declare const EVENT_SCHEMA_VERSION = 1;
-export type InvoicePaymentRecordedEvent = {
-    type: 'invoice_payment_recorded';
+export declare const EVENT_SCHEMA_VERSION = 2;
+type VersionedEvent = {
     schemaVersion: number;
-    invoiceId: string;
-    payer: string;
-    assetCode: string;
-    assetIssuer: string;
-    amount: bigint;
-    settlementRef: string;
 };
-export type AssetAllowlistedEvent = {
+export type InvoicePaymentRecordedEvent = VersionedEvent & {
+    type: 'invoice_payment_recorded';
+    invoiceId: string;
+};
+export type AssetAllowlistedEvent = VersionedEvent & {
     type: 'asset_allowlisted';
     code: string;
     issuer: string;
 };
-export type AssetRevokedEvent = {
+export type AssetRevokedEvent = VersionedEvent & {
     type: 'asset_revoked';
     code: string;
     issuer: string;
 };
-export type NativeAllowChangedEvent = {
+export type NativeAllowChangedEvent = VersionedEvent & {
     type: 'native_allow_changed';
     allowed: boolean;
 };
-export type StorageSchemaUpgradedEvent = {
+export type StorageSchemaUpgradedEvent = VersionedEvent & {
     type: 'storage_schema_upgraded';
     fromVersion: number;
     toVersion: number;
     upgradedAt: bigint;
 };
-export type ContractPausedEvent = {
+export type ContractPausedEvent = VersionedEvent & {
     type: 'contract_paused';
     paused: boolean;
     triggeredBy: string;
     timestamp: bigint;
 };
-export type AdminTransferProposedEvent = {
+export type AdminTransferProposedEvent = VersionedEvent & {
     type: 'admin_transfer_proposed';
     currentAdmin: string;
     newAdmin: string;
     timestamp: bigint;
 };
-export type AdminTransferAcceptedEvent = {
+export type AdminTransferAcceptedEvent = VersionedEvent & {
     type: 'admin_transfer_accepted';
     previousAdmin: string;
     newAdmin: string;
     timestamp: bigint;
+};
+export type AdminTransferCancelledEvent = VersionedEvent & {
+    type: 'admin_transfer_cancelled';
+    currentAdmin: string;
+    cancelledAdmin: string;
+    timestamp: bigint;
+};
+export type ContractUpgradedEvent = VersionedEvent & {
+    type: 'contract_upgraded';
+    previousVersion: number;
+    newVersion: number;
+    newWasmHash: string;
+    upgradedBy: string;
+    upgradedAt: bigint;
+};
+export type HistoryIndexRebuiltEvent = VersionedEvent & {
+    type: 'history_index_rebuilt';
+    recordCount: number;
+    rebuiltAt: bigint;
+};
+export type SettlementRefsMigratedEvent = VersionedEvent & {
+    type: 'settlement_refs_migrated';
+    count: number;
+    conflictsSkipped: number;
+    migratedAt: bigint;
+};
+export type AllowlistIndexBackfilledEvent = VersionedEvent & {
+    type: 'allowlist_index_backfilled';
+    discovered: number;
+    migratedAt: bigint;
 };
 export type UnknownSorobanEvent = {
     type: 'unknown';
     name?: string;
     reason: string;
 };
-export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | UnknownSorobanEvent;
-/**
- * Shape of a contract event as delivered by the Soroban RPC `getEvents`
- * endpoint (or `SorobanRpc.Server.getEvents`). `topics` and `data` are
- * accepted either as decoded `xdr.ScVal` values or as the base64 XDR strings
- * the RPC returns, so both raw API payloads and pre-parsed ones work.
- */
+export type DecodedSorobanEvent = InvoicePaymentRecordedEvent | AssetAllowlistedEvent | AssetRevokedEvent | NativeAllowChangedEvent | StorageSchemaUpgradedEvent | ContractPausedEvent | AdminTransferProposedEvent | AdminTransferAcceptedEvent | AdminTransferCancelledEvent | ContractUpgradedEvent | HistoryIndexRebuiltEvent | SettlementRefsMigratedEvent | AllowlistIndexBackfilledEvent | UnknownSorobanEvent;
 export type SorobanEventInput = {
     topics: Array<xdr.ScVal | string>;
     data: xdr.ScVal | string;
 };
-/**
- * Decode one contract event into a stable application-level type.
- *
- * Never throws for unrecognized or malformed events — an indexer consuming a
- * ledger stream must keep going, so anything undecodable becomes
- * `{ type: 'unknown', reason }` with the event name preserved when the topic
- * could be read.
- *
- * Time:  O(1) per event. Space: O(1).
- */
 export declare function decodeSorobanEvent(event: SorobanEventInput): DecodedSorobanEvent;
-/**
- * Decode a batch of contract events, preserving input order.
- * Time: O(n). Space: O(n).
- */
 export declare function decodeEventStream(events: SorobanEventInput[]): DecodedSorobanEvent[];
+export {};
 //# sourceMappingURL=events.d.ts.map

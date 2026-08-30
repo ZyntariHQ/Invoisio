@@ -16,6 +16,7 @@ import { useWalletAuth } from "../hooks/use-wallet-auth";
 import { useInvoicesList, Invoice } from "../lib/invoices";
 import { useMemo, useEffect, useState, useRef } from "react";
 import { getInvoicesLastSynced } from "../lib/cache";
+import { formatLastSyncTime } from "../lib/sync-coordinator";
 import {
   useInvoiceFilters,
   STATUS_OPTIONS,
@@ -119,6 +120,9 @@ export default function DashboardScreen() {
 
   const hasActiveFilters = search.trim().length > 0 || status !== "all";
 
+  // Null when missing or malformed, so the UI never renders "Invalid Date".
+  const lastSyncedLabel = formatLastSyncTime(lastSynced);
+
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
       { text: "Cancel", style: "cancel" },
@@ -162,7 +166,24 @@ export default function DashboardScreen() {
               </View>
               <View className="flex-row gap-2">
                 <Pressable
-                  className="rounded-2xl border border-white/20 px-3 py-2"
+                  className="rounded-2xl border border-white/20 px-3 py-3"
+                  accessibilityLabel="Open customers"
+                  accessibilityRole="button"
+                  onPress={() => {
+                    router.push("/customers");
+                  }}
+                >
+                  <Text
+                    className="text-sm text-white"
+                    style={{ fontFamily: "SpaceGrotesk_600SemiBold" }}
+                  >
+                    👥
+                  </Text>
+                </Pressable>
+                <Pressable
+                  className="rounded-2xl border border-white/20 px-3 py-3"
+                  accessibilityLabel="Open settings"
+                  accessibilityRole="button"
                   onPress={() => {
                     router.push("/settings");
                   }}
@@ -175,7 +196,9 @@ export default function DashboardScreen() {
                   </Text>
                 </Pressable>
                 <Pressable
-                  className="rounded-2xl border border-red-500/30 px-3 py-2"
+                  className="rounded-2xl border border-red-500/30 px-3 py-3"
+                  accessibilityLabel="Logout"
+                  accessibilityRole="button"
                   onPress={handleLogout}
                 >
                   <Text
@@ -243,6 +266,7 @@ export default function DashboardScreen() {
             <View className="mt-2 flex-row items-center rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
               <Text className="mr-2 text-base text-slate-400">🔍</Text>
               <TextInput
+                accessibilityLabel="Search invoices"
                 className="flex-1 text-base text-white"
                 style={{ fontFamily: "SpaceGrotesk_400Regular" }}
                 placeholder="Search by invoice #, client name, email..."
@@ -259,6 +283,9 @@ export default function DashboardScreen() {
               />
               {searchDraft.length > 0 && (
                 <Pressable
+                  accessibilityLabel="Clear search"
+                  accessibilityRole="button"
+                  className="p-2"
                   onPress={() => {
                     setSearchDraft("");
                     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -280,6 +307,7 @@ export default function DashboardScreen() {
                 const isActive = status === opt.value;
                 return (
                   <Pressable
+                    accessibilityRole="button"
                     key={opt.value}
                     className={`rounded-full px-4 py-2 ${
                       isActive
@@ -301,6 +329,7 @@ export default function DashboardScreen() {
               })}
               {hasActiveFilters && (
                 <Pressable
+                  accessibilityRole="button"
                   className="rounded-full border border-red-500/40 px-3 py-2"
                   onPress={clearFilters}
                 >
@@ -325,7 +354,8 @@ export default function DashboardScreen() {
                 </Text>
                 <View className="flex-row gap-2">
                   <Pressable
-                    className="rounded-2xl bg-[#2663FF] px-4 py-2"
+                    className="rounded-2xl bg-[#2663FF] px-4 py-3"
+                    accessibilityRole="button"
                     onPress={() => {
                       router.push("/scan");
                     }}
@@ -338,7 +368,10 @@ export default function DashboardScreen() {
                     </Text>
                   </Pressable>
                   <Link href="/create-invoice" asChild>
-                    <Pressable className="rounded-2xl border border-white/20 px-4 py-2">
+                    <Pressable
+                      accessibilityRole="button"
+                      className="rounded-2xl border border-white/20 px-4 py-2"
+                    >
                       <Text
                         className="text-white"
                         style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -349,7 +382,10 @@ export default function DashboardScreen() {
                   </Link>
                   {/* Drafts button */}
                   <Link href="/drafts" asChild>
-                    <Pressable className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-4 py-2">
+                    <Pressable
+                      accessibilityRole="button"
+                      className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-4 py-2"
+                    >
                       <Text
                         className="text-[#00D6B9]"
                         style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -360,12 +396,12 @@ export default function DashboardScreen() {
                   </Link>
                 </View>
               </View>
-              {lastSynced ? (
+              {lastSyncedLabel ? (
                 <Text
                   className="mt-2 text-xs text-slate-400"
                   style={{ fontFamily: "SpaceGrotesk_400Regular" }}
                 >
-                  Last synced: {new Date(lastSynced).toLocaleString()}
+                  Last synced: {lastSyncedLabel}
                 </Text>
               ) : null}
             </View>
@@ -399,6 +435,7 @@ export default function DashboardScreen() {
                   : "Cancelled";
           return (
             <Pressable
+              accessibilityRole="button"
               className="mx-6 my-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-4"
               onPress={() => {
                 router.push(`/invoices/${item.id}`);
@@ -421,7 +458,7 @@ export default function DashboardScreen() {
                   </Text>
                   {item.clientEmail ? (
                     <Text
-                      className="mt-0.5 text-xs text-slate-500"
+                      className="mt-0.5 text-xs text-slate-400"
                       style={{ fontFamily: "SpaceGrotesk_400Regular" }}
                       numberOfLines={1}
                     >
@@ -491,6 +528,7 @@ export default function DashboardScreen() {
                   : "No invoices match the selected filter."}
               </Text>
               <Pressable
+                accessibilityRole="button"
                 className="mt-4 rounded-2xl border border-white/20 px-5 py-2"
                 onPress={clearFilters}
               >
@@ -518,7 +556,10 @@ export default function DashboardScreen() {
               </Text>
               <View className="mt-4 flex-row gap-3">
                 <Link href="/create-invoice" asChild>
-                  <Pressable className="rounded-2xl bg-[#2663FF] px-5 py-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    className="rounded-2xl bg-[#2663FF] px-5 py-2"
+                  >
                     <Text
                       className="text-white"
                       style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -528,7 +569,10 @@ export default function DashboardScreen() {
                   </Pressable>
                 </Link>
                 <Link href="/drafts" asChild>
-                  <Pressable className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-5 py-2">
+                  <Pressable
+                    accessibilityRole="button"
+                    className="rounded-2xl border border-[#00D6B9]/30 bg-[#00D6B9]/10 px-5 py-2"
+                  >
                     <Text
                       className="text-[#00D6B9]"
                       style={{ fontFamily: "SpaceGrotesk_500Medium" }}

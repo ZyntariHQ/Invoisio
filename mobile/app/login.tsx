@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Link, useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import {
+  AccessibilityInfo,
   Image,
   Pressable,
   ScrollView,
@@ -56,6 +57,13 @@ export default function LoginScreen() {
       })();
     }
   }, [isConnected, publicKey, expoPushToken]);
+
+  // Announce connection errors to screen readers as they surface.
+  useEffect(() => {
+    if (error) {
+      AccessibilityInfo.announceForAccessibility(error);
+    }
+  }, [error]);
 
   const handleConnectWallet = async () => {
     try {
@@ -151,6 +159,7 @@ export default function LoginScreen() {
 
               <Pressable
                 className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                accessibilityRole="button"
                 onPress={() => {
                   router.push("/dashboard");
                 }}
@@ -165,6 +174,7 @@ export default function LoginScreen() {
 
               <Pressable
                 className="rounded-2xl border border-red-500/30 py-4"
+                accessibilityRole="button"
                 onPress={handleDisconnect}
               >
                 <Text
@@ -179,6 +189,7 @@ export default function LoginScreen() {
             <>
               <Pressable
                 className="rounded-2xl bg-[#2663FF] py-4 shadow-lg shadow-[#1d4ed8]/40"
+                accessibilityRole="button"
                 onPress={handleConnectWallet}
               >
                 <Text
@@ -201,7 +212,13 @@ export default function LoginScreen() {
           )}
 
           {error && (
-            <View className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4">
+            <View
+              accessible
+              accessibilityRole="alert"
+              accessibilityLabel={error}
+              accessibilityLiveRegion="assertive"
+              className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4"
+            >
               <Text
                 className="text-center text-red-300"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}
@@ -220,7 +237,10 @@ export default function LoginScreen() {
             New to Invoisio?
           </Text>
           <Link href="/create-invoice" asChild>
-            <Pressable className="rounded-2xl border border-white/15 px-6 py-3">
+            <Pressable
+              className="rounded-2xl border border-white/15 px-6 py-3"
+              accessibilityRole="button"
+            >
               <Text
                 className="text-white"
                 style={{ fontFamily: "SpaceGrotesk_500Medium" }}

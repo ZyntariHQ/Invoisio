@@ -128,6 +128,7 @@ model WebhookDelivery {
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
+  @@index([status, nextAttemptAt])
   @@map("webhook_deliveries")
 }
 
@@ -246,6 +247,8 @@ model Invoice {
   @@index([merchantId])
   @@index([isDraft, merchantId])
   @@index([lastAutoSavedAt])
+  @@index([status, dueDate])
+  @@index([merchantId, isDraft, status, createdAt])
   @@map("invoices")
 }
 
@@ -423,7 +426,7 @@ model PaymentReview {
   assetIssuer     String?  @map("asset_issuer")
   payer           String?
   originalMemo    String?  @map("original_memo")
-  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid'
+  issueType       String   @map("issue_type") // 'unmatched', 'underpaid', 'overpaid', 'asset_mismatch'
   status          String   @default("pending") // 'pending', 'resolved', 'ignored'
   resolutionNote  String?  @map("resolution_note")
   resolvedAt      DateTime? @map("resolved_at")
@@ -526,4 +529,45 @@ model PushNotification {
   @@index([pushToken])
   @@index([status, receiptFetchedAt])
   @@map("push_notifications")
+}
+
+// Durable paging cursors for the live reconciliation watchers
+// (HorizonWatcherService, SorobanEventsService). One row per watcher so a
+// restart resumes from the last checkpointed position instead of re-polling
+// from "now" and permanently skipping everything that settled during downtime.
+enum WatcherName {
+  horizon
+  soroban
+}
+
+model WatcherCursor {
+  watcher   WatcherName @id
+  cursor    String
+  ledger    BigInt?
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  @@map("watcher_cursors")
+}
+
+// Poison-record quarantine for the live watchers. A record whose processing
+// keeps failing after the bounded retry budget is parked here (with its raw
+// payload) so it can never stall cursor advancement — but it is never
+// silently dropped either.
+model WatcherDeadLetter {
+  id         String      @id @default(uuid())
+  watcher    WatcherName
+  recordId   String      @map("record_id")
+  recordCursor String?   @map("record_cursor")
+  payload    Json
+  errorCount Int         @default(1) @map("error_count")
+  lastError  String?     @map("last_error")
+  status     String      @default("pending") // pending | resolved | ignored
+  resolvedAt DateTime?   @map("resolved_at")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  @@unique([watcher, recordId])
+  @@index([watcher, status])
+  @@map("watcher_dead_letters")
 }

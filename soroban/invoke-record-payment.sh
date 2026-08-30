@@ -8,7 +8,9 @@
 #   invoice_id      - Unique invoice identifier (e.g., 'invoisio-abc123')
 #   payer           - Stellar account address that made the payment (G...)
 #   asset_code      - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)
-#   asset_issuer    - Issuer address for tokens (use empty string "" for XLM)
+#   asset_issuer    - Issuer Address for tokens (use empty string "" for native XLM).
+#                     Native XLM is encoded as Asset::Native; tokens as Asset::Token(code, Address).
+#                     A malformed issuer is rejected here rather than written on-chain.
 #   amount          - Amount in smallest unit (stroops for XLM, token base units otherwise)
 #   settlement_ref  - Normalised settlement reference for backend deduplication (max 128 chars)
 #
@@ -58,7 +60,7 @@ if [ $# -lt 6 ]; then
     echo "  invoice_id      - Unique invoice identifier (e.g., 'invoisio-abc123')"
     echo "  payer           - Stellar account that made the payment (G...)"
     echo "  asset_code      - Asset code ('XLM' for native, or 'USDC', 'EURT', etc.)"
-    echo "  asset_issuer    - Issuer address for tokens (use \"\" for XLM)"
+    echo "  asset_issuer    - Issuer Address for tokens (use \"\" for native XLM)"
     echo "  amount          - Amount in smallest unit (stroops for XLM)"
     echo "  settlement_ref  - Normalised settlement reference (max 128 chars)"
     echo ""
@@ -91,6 +93,18 @@ fi
 if [ -z "$ASSET_CODE" ]; then
     echo "❌ Error: asset_code cannot be empty"
     exit 1
+fi
+
+if [ -n "$ASSET_ISSUER" ]; then
+    if ! validate_stellar_address "$ASSET_ISSUER"; then
+        echo "❌ Error: Invalid Stellar address format for asset_issuer: $ASSET_ISSUER"
+        echo "   Expected format: G followed by 55 base-32 characters"
+        exit 1
+    fi
+    if [ "$ASSET_CODE" = "XLM" ]; then
+        echo "❌ Error: native XLM must use an empty issuer (Asset::Native), not Asset::Token"
+        exit 1
+    fi
 fi
 
 if ! [[ "$AMOUNT" =~ ^[0-9]+$ ]] || [ "$AMOUNT" -le 0 ]; then
@@ -145,11 +159,11 @@ echo ""
 echo "🚀 Invoking record_payment..."
 echo ""
 
-# For XLM (empty issuer), we need to pass '""' as a JSON empty string
+# Encode Asset::Native or Asset::Token(code, Address) for the CLI.
 if [ -z "$ASSET_ISSUER" ]; then
-    ISSUER_ARG='""'
+    ASSET_ARG="Native"
 else
-    ISSUER_ARG="$ASSET_ISSUER"
+    ASSET_ARG="{\"Token\":[\"$ASSET_CODE\",\"$ASSET_ISSUER\"]}"
 fi
 
 stellar contract invoke \
@@ -160,8 +174,7 @@ stellar contract invoke \
     -- record_payment \
     --invoice_id "$INVOICE_ID" \
     --payer "$PAYER" \
-    --asset_code "$ASSET_CODE" \
-    --asset_issuer "$ISSUER_ARG" \
+    --asset "$ASSET_ARG" \
     --amount "$AMOUNT" \
     --settlement_ref "$SETTLEMENT_REF"
 

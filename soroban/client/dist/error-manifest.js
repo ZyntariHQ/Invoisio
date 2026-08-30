@@ -73,7 +73,7 @@ exports.CONTRACT_ERROR_MANIFEST = [
     {
         code: 7,
         name: 'InvalidAsset',
-        meaning: 'asset_code was empty, or a non-XLM asset was supplied without an asset_issuer; every payment must identify the asset unambiguously.',
+        meaning: 'token code was empty, exceeded 12 characters, or was the reserved code "XLM" on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values, so a malformed issuer cannot reach this error.',
     },
     {
         code: 8,
@@ -98,7 +98,7 @@ exports.CONTRACT_ERROR_MANIFEST = [
     {
         code: 12,
         name: 'ContractPaused',
-        meaning: 'The contract is paused and cannot perform the requested operation.',
+        meaning: 'The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.',
     },
     {
         code: 13,
@@ -139,6 +139,21 @@ exports.CONTRACT_ERROR_MANIFEST = [
         code: 20,
         name: 'SettlementRefAlreadyUsed',
         meaning: 'The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.',
+    },
+    {
+        code: 21,
+        name: 'MustBePausedForUpgrade',
+        meaning: 'upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.',
+    },
+    {
+        code: 22,
+        name: 'LegacyPaymentMigrationBatchTooLarge',
+        meaning: 'migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.',
+    },
+    {
+        code: 23,
+        name: 'IssuerMigrationIncomplete',
+        meaning: 'upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again. Stay paused until storage_schema_version is current.',
     },
 ];
 /**

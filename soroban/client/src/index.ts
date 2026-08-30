@@ -1,6 +1,13 @@
 export { SorobanInvoiceClient } from './soroban-invoice-client';
 
-export { parseContractError } from './codec';
+export {
+  assertCanonicalIdentifier,
+  encodeAsset,
+  isCanonicalIdentifier,
+  MAX_INVOICE_ID_LEN,
+  MAX_SETTLEMENT_REF_LEN,
+  parseContractError,
+} from './codec';
 
 export {
   EVENT_SCHEMA_VERSION,
@@ -9,14 +16,21 @@ export {
 } from './events';
 
 export type {
+  AdminTransferCancelledEvent,
   AdminTransferAcceptedEvent,
   AdminTransferProposedEvent,
+  AllowlistIndexBackfilledEvent,
   AssetAllowlistedEvent,
   AssetRevokedEvent,
   ContractPausedEvent,
   DecodedSorobanEvent,
+  ContractUpgradedEvent,
+  HistoryIndexRebuiltEvent,
   InvoicePaymentRecordedEvent,
+  LegacyPaymentsMigratedEvent,
+  IssuersMigratedEvent,
   NativeAllowChangedEvent,
+  SettlementRefsMigratedEvent,
   SorobanEventInput,
   StorageSchemaUpgradedEvent,
   UnknownSorobanEvent,
@@ -34,6 +48,9 @@ export type {
   PaymentHistoryPage,
   PaymentRecord,
   RecordPaymentParams,
+  SettlementRefEntry,
+  SettlementRefIndexStatus,
+  SettlementRefPage,
   SorobanInvoiceClientConfig,
   TransactionResult,
 } from './types';

@@ -1,3 +1,5 @@
+import { UNSCOPED_MERCHANT_CONTEXT } from "./merchant-context.service";
+
 type PrismaQueryParams = {
   model?: string;
   action: string;
@@ -8,40 +10,74 @@ type LoggerLike = {
   error: (message: string) => void;
 };
 
-const TENANT_SCOPED_MODELS = new Set(["Invoice", "User"]);
+const TENANT_SCOPED_MODELS = new Set([
+  "ActivityEvent",
+  "Customer",
+  "Invoice",
+  "InvoiceEngagementEvent",
+  "Merchant",
+  "MerchantActivationChecklist",
+  "Payment",
+  "PaymentReview",
+  "ProcessedEvent",
+  "PushNotification",
+  "RecurringInvoiceRun",
+  "RecurringSchedule",
+  "User",
+  "WebhookDeadLetter",
+  "WebhookDelivery",
+]);
 
 export function applyMerchantScope(
   params: PrismaQueryParams,
-  merchantId: string | undefined,
+  merchantId: string | typeof UNSCOPED_MERCHANT_CONTEXT | undefined,
   logger: LoggerLike,
 ) {
-  if (!merchantId || !params.model || !TENANT_SCOPED_MODELS.has(params.model)) {
+  if (!params.model || !TENANT_SCOPED_MODELS.has(params.model)) {
     return params;
   }
 
+  if (merchantId === UNSCOPED_MERCHANT_CONTEXT) {
+    return params;
+  }
+
+  if (!merchantId) {
+    logger.error(
+      `[TenantScope] ${params.model}.${params.action} executed without a merchant context`,
+    );
+    return params;
+  }
+
+  const isMerchantRoot = params.model === "Merchant";
+  const tenantKey = isMerchantRoot ? "id" : "merchantId";
+
   const args = (params.args ??= {});
-  const hasMerchantFilter = hasMerchantFilterInWhere(args.where);
+  const hasMerchantFilter = hasMerchantFilterInWhere(args.where, tenantKey);
   const requiresWhereFilterCheck = shouldCheckWhere(params.action);
   const allowsAutoWhereScoping = canAutoScopeWhere(params.action);
 
-  if (params.action === "create" && args.data) {
+  if (params.action === "create" && args.data && !isMerchantRoot) {
     args.data = {
       ...args.data,
-      merchantId: args.data.merchantId ?? merchantId,
+      [tenantKey]: args.data[tenantKey] ?? merchantId,
     };
   }
 
-  if (params.action === "createMany" && Array.isArray(args.data)) {
+  if (
+    params.action === "createMany" &&
+    Array.isArray(args.data) &&
+    !isMerchantRoot
+  ) {
     args.data = args.data.map((record: Record<string, unknown>) => ({
       ...record,
-      merchantId: record.merchantId ?? merchantId,
+      [tenantKey]: record[tenantKey] ?? merchantId,
     }));
   }
 
-  if (params.action === "upsert" && args.create) {
+  if (params.action === "upsert" && args.create && !isMerchantRoot) {
     args.create = {
       ...args.create,
-      merchantId: args.create.merchantId ?? merchantId,
+      [tenantKey]: args.create[tenantKey] ?? merchantId,
     };
   }
 
@@ -51,7 +87,7 @@ export function applyMerchantScope(
     );
 
     if (allowsAutoWhereScoping) {
-      args.where = withMerchantFilter(args.where, merchantId);
+      args.where = withMerchantFilter(args.where, merchantId, tenantKey);
     }
   }
 
@@ -86,31 +122,35 @@ function canAutoScopeWhere(action: string): boolean {
   ].includes(action);
 }
 
-function withMerchantFilter(where: unknown, merchantId: string) {
+function withMerchantFilter(
+  where: unknown,
+  merchantId: string,
+  tenantKey: string,
+) {
   if (!where || typeof where !== "object") {
-    return { merchantId };
+    return { [tenantKey]: merchantId };
   }
 
   return {
-    AND: [where, { merchantId }],
+    AND: [where, { [tenantKey]: merchantId }],
   };
 }
 
-function hasMerchantFilterInWhere(where: unknown): boolean {
+function hasMerchantFilterInWhere(where: unknown, tenantKey: string): boolean {
   if (!where || typeof where !== "object") {
     return false;
   }
 
   const w = where as Record<string, unknown>;
-  if (Object.prototype.hasOwnProperty.call(w, "merchantId")) {
+  if (Object.prototype.hasOwnProperty.call(w, tenantKey)) {
     return true;
   }
 
   const and = w.AND;
   if (
     (Array.isArray(and) &&
-      and.some((entry) => hasMerchantFilterInWhere(entry))) ||
-    hasMerchantFilterInWhere(and)
+      and.some((entry) => hasMerchantFilterInWhere(entry, tenantKey))) ||
+    hasMerchantFilterInWhere(and, tenantKey)
   ) {
     return true;
   }
@@ -118,8 +158,8 @@ function hasMerchantFilterInWhere(where: unknown): boolean {
   const or = w.OR;
   if (
     (Array.isArray(or) &&
-      or.some((entry) => hasMerchantFilterInWhere(entry))) ||
-    hasMerchantFilterInWhere(or)
+      or.some((entry) => hasMerchantFilterInWhere(entry, tenantKey))) ||
+    hasMerchantFilterInWhere(or, tenantKey)
   ) {
     return true;
   }
@@ -127,8 +167,8 @@ function hasMerchantFilterInWhere(where: unknown): boolean {
   const not = w.NOT;
   if (
     (Array.isArray(not) &&
-      not.some((entry) => hasMerchantFilterInWhere(entry))) ||
-    hasMerchantFilterInWhere(not)
+      not.some((entry) => hasMerchantFilterInWhere(entry, tenantKey))) ||
+    hasMerchantFilterInWhere(not, tenantKey)
   ) {
     return true;
   }

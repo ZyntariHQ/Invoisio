@@ -62,10 +62,11 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "string": "XLM"
-                },
-                {
-                  "string": ""
+                  "vec": [
+                    {
+                      "symbol": "Native"
+                    }
+                  ]
                 },
                 {
                   "i128": "100"
@@ -194,6 +195,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -213,7 +222,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-native-idempotent-true"
+                      "string": "04e61980e4afeb94541e1753eb05a4723230be661a59f1a1f924f088f1c3da61"
                     }
                   },
                   {
@@ -301,6 +310,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "asset_decimals"
+                    },
+                    "val": {
+                      "u32": 7
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "invoice_id"
                     },
                     "val": {
@@ -320,7 +337,7 @@
                       "symbol": "settlement_ref"
                     },
                     "val": {
-                      "string": "settle-native-idempotent-true"
+                      "string": "04e61980e4afeb94541e1753eb05a4723230be661a59f1a1f924f088f1c3da61"
                     }
                   },
                   {
@@ -352,12 +369,58 @@
                     "symbol": "SettlementRef"
                   },
                   {
-                    "string": "settle-native-idempotent-true"
+                    "string": "04e61980e4afeb94541e1753eb05a4723230be661a59f1a1f924f088f1c3da61"
                   }
                 ]
               },
               "durability": "persistent",
-              "val": "void"
+              "val": {
+                "string": "inv-native-idempotent-true"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 518400
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "vec": [
+                  {
+                    "symbol": "SettlementRefLog"
+                  },
+                  {
+                    "u32": 0
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "map": [
+                  {
+                    "key": {
+                      "symbol": "invoice_id"
+                    },
+                    "val": {
+                      "string": "inv-native-idempotent-true"
+                    }
+                  },
+                  {
+                    "key": {
+                      "symbol": "settlement_ref"
+                    },
+                    "val": {
+                      "string": "04e61980e4afeb94541e1753eb05a4723230be661a59f1a1f924f088f1c3da61"
+                    }
+                  }
+                ]
+              }
             }
           },
           "ext": "v0"
@@ -426,7 +489,7 @@
                               "symbol": "storage_schema_version"
                             },
                             "val": {
-                              "u32": 1
+                              "u32": 6
                             }
                           }
                         ]
@@ -449,6 +512,18 @@
                         "vec": [
                           {
                             "symbol": "PaymentHistoryCount"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 1
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "SettlementRefCount"
                           }
                         ]
                       },

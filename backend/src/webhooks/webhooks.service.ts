@@ -3,6 +3,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
   UnprocessableEntityException,
 } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
@@ -28,12 +29,22 @@ export interface DeadLetterListQuery {
   limit?: number;
 }
 
+export interface MerchantDeliveryHistoryQuery {
+  limit?: number;
+  cursor?: string;
+}
+
+export interface MerchantDeadLetterQuery {
+  status?: DeadLetterStatus;
+  limit?: number;
+}
+
 const MAX_DELIVERY_ATTEMPTS = 5;
 const DEFAULT_DEAD_LETTER_LIMIT = 50;
 const MAX_DEAD_LETTER_LIMIT = 100;
 
 @Injectable()
-export class WebhooksService {
+export class WebhooksService implements OnModuleDestroy {
   private readonly logger = new Logger(WebhooksService.name);
   private isProcessing = false;
 
@@ -368,6 +379,162 @@ export class WebhooksService {
     }
   }
 
+  // ── Merchant-scoped delivery history ─────────────────────────────────────
+
+  /**
+   * List webhook delivery history for a specific merchant.
+   *
+   * Only deliveries whose related invoice belongs to the requesting merchant
+   * are returned, preventing cross-merchant data leakage.
+   */
+  async listMerchantDeliveries(
+    merchantId: string,
+    query: MerchantDeliveryHistoryQuery = {},
+  ) {
+    const take = this.normalizeDeadLetterLimit(query.limit);
+
+    return this.prisma.webhookDelivery.findMany({
+      where: {
+        invoice: { merchantId },
+      },
+      take,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        invoiceId: true,
+        url: true,
+        status: true,
+        attempts: true,
+        lastAttemptAt: true,
+        nextAttemptAt: true,
+        createdAt: true,
+        updatedAt: true,
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * List dead-letter webhooks scoped to the given merchant.
+   *
+   * WebhookDeadLetter rows carry a direct `merchantId` column so the WHERE
+   * clause is a single equality check — no JOIN needed, no cross-merchant
+   * rows can leak through.
+   */
+  async listMerchantDeadLetters(
+    merchantId: string,
+    query: MerchantDeadLetterQuery = {},
+  ) {
+    const take = this.normalizeDeadLetterLimit(query.limit);
+
+    return this.prisma.webhookDeadLetter.findMany({
+      where: {
+        merchantId,
+        ...(query.status ? { status: query.status } : {}),
+      },
+      take,
+      orderBy: [{ exhaustedAt: "desc" }, { createdAt: "desc" }],
+      include: {
+        invoice: {
+          select: {
+            id: true,
+            invoiceNumber: true,
+            status: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Retry a dead-letter webhook, enforcing that it belongs to the requesting
+   * merchant.
+   *
+   * Throws ForbiddenException if the dead letter is owned by a different
+   * merchant — this is the ownership check that prevents cross-merchant retry
+   * actions.
+   */
+  async retryMerchantDeadLetter(deadLetterId: string, merchantId: string) {
+    const deadLetter = await this.prisma.webhookDeadLetter.findUnique({
+      where: { id: deadLetterId },
+    });
+
+    if (!deadLetter) {
+      throw new NotFoundException("Dead-letter webhook not found.");
+    }
+
+    if (deadLetter.merchantId !== merchantId) {
+      // Return the same 404 shape so we do not confirm the existence of
+      // another merchant's records.
+      throw new NotFoundException("Dead-letter webhook not found.");
+    }
+
+    if (deadLetter.status === "recovered") {
+      throw new BadRequestException(
+        "Dead-letter webhook has already been recovered.",
+      );
+    }
+
+    const existingPendingRetry = await this.prisma.webhookDelivery.findFirst({
+      where: {
+        deadLetterId,
+        status: "pending",
+      },
+      select: { id: true },
+    });
+
+    if (existingPendingRetry) {
+      throw new BadRequestException(
+        "Dead-letter webhook is already queued for retry.",
+      );
+    }
+
+    const queuedAt = new Date();
+    const delivery = await this.prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        const createdDelivery = await tx.webhookDelivery.create({
+          data: {
+            invoiceId: deadLetter.invoiceId,
+            userId: deadLetter.userId,
+            deadLetterId: deadLetter.id,
+            url: deadLetter.url,
+            payload: this.toPrismaJsonValue(deadLetter.payload),
+            status: "pending",
+            attempts: 0,
+            nextAttemptAt: queuedAt,
+          },
+        });
+
+        await tx.webhookDeadLetter.update({
+          where: { id: deadLetterId },
+          data: {
+            status: "requeued",
+            manualRetryCount: { increment: 1 },
+            lastRetriedAt: queuedAt,
+            recoveredAt: null,
+          },
+        });
+
+        return createdDelivery;
+      },
+    );
+
+    return {
+      deadLetterId: deadLetter.id,
+      deliveryId: delivery.id,
+      status: "requeued" as DeadLetterStatus,
+    };
+  }
+
+  // ── Admin dead-letter tooling ─────────────────────────────────────────────
+
   async listDeadLetters(query: DeadLetterListQuery = {}) {
     const take = this.normalizeDeadLetterLimit(query.limit);
 
@@ -608,5 +775,21 @@ export class WebhooksService {
     }
 
     return value as Prisma.InputJsonValue;
+  }
+
+  /**
+   * Cleanup on shutdown - stop processing and release locks
+   */
+  async onModuleDestroy() {
+    console.log("[WebhooksService] Shutting down...");
+
+    // Clear any pending timeouts
+    if (this.isProcessing) {
+      this.isProcessing = false;
+    }
+
+    this.isProcessing = false;
+
+    console.log("[WebhooksService] Shutdown complete");
   }
 }

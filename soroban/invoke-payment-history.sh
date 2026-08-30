@@ -10,10 +10,19 @@
 #
 # Environment variables:
 #   STELLAR_NETWORK   - Network to use (default: testnet)
+#   STELLAR_IDENTITY  - Identity to sign with (default: invoisio-admin)
 #   CONTRACT_ID       - Override contract ID (default: read from .contract-id file)
 #
 # Example:
 #   ./invoke-payment-history.sh 0 25
+#
+# NOTE (issue #512): payment_history is admin-gated — it enumerates every
+# payment on the platform, which is exactly the bulk disclosure this
+# contract's privacy guarantee exists to prevent for anyone but the admin.
+# STELLAR_IDENTITY must be the current contract admin's identity; this
+# script derives its address and passes it as the admin argument, signing
+# the call as that identity. The old invoke-payments-by-payer.sh was removed
+# entirely along with the payments_by_payer() method it called (issue #512).
 
 set -e
 
@@ -51,21 +60,25 @@ else
     exit 1
 fi
 
+ADMIN_ADDRESS=$(stellar keys address "$IDENTITY")
+
 echo "========================================="
-echo "Retrieving Payment History"
+echo "Retrieving Payment History (admin-gated)"
 echo "========================================="
 echo "Contract ID: $CONTRACT_ID"
+echo "Admin:       $IDENTITY ($ADMIN_ADDRESS)"
 echo "Cursor:      $CURSOR"
 echo "Limit:       $LIMIT"
 echo "Network:     $NETWORK"
 echo ""
 
-# Invoke payment_history
+# Invoke payment_history(admin, cursor, limit)
 stellar contract invoke \
     --id "$CONTRACT_ID" \
     --source "$IDENTITY" \
     --network "$NETWORK" \
     -- payment_history \
+    --admin "$ADMIN_ADDRESS" \
     --cursor "$CURSOR" \
     --limit "$LIMIT"
 

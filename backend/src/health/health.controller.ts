@@ -1,3 +1,4 @@
+import { Public } from "../auth/guard/auth.guard";
 import { Controller, Get, HttpCode, HttpStatus, Res } from "@nestjs/common";
 import type { Response } from "express";
 import { HealthService, HealthReport } from "./health.service";
@@ -10,6 +11,7 @@ import { HealthService, HealthReport } from "./health.service";
  * - GET /ready   — readiness probe that checks Postgres, Horizon, and Soroban RPC.
  *                  Returns 200 when all dependencies are healthy, 503 otherwise.
  */
+@Public()
 @Controller("health")
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}
@@ -18,6 +20,7 @@ export class HealthController {
    * Liveness probe — confirms the process is running.
    * No dependency checks; safe to call frequently.
    */
+  @Public()
   @Get()
   @HttpCode(HttpStatus.OK)
   checkLiveness() {
@@ -29,6 +32,7 @@ export class HealthController {
    * Returns structured per-service status.
    * HTTP 200 when all dependencies are healthy, HTTP 503 when any are down.
    */
+  @Public()
   @Get("ready")
   async checkReadiness(@Res() res: Response) {
     const report: HealthReport = await this.healthService.checkReadiness();

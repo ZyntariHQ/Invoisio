@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Text, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, Text, View } from "react-native";
 import type { InvoiceLiveStatus } from "../hooks/use-invoice-live";
 
 const STATUS_META: Record<
@@ -44,6 +44,7 @@ export function InvoiceLiveStatusBadge({
 }) {
   const [now, setNow] = useState(() => Date.now());
   const meta = STATUS_META[status];
+  const prevStatusRef = useRef(status);
 
   useEffect(() => {
     if (updatedAt === undefined) return;
@@ -55,8 +56,29 @@ export function InvoiceLiveStatusBadge({
     };
   }, [updatedAt]);
 
+  // Announce meaningful status transitions (e.g. connection lost) to
+  // screen readers instead of relying on colour alone.
+  useEffect(() => {
+    if (prevStatusRef.current !== status) {
+      prevStatusRef.current = status;
+      AccessibilityInfo.announceForAccessibility(meta.label);
+    }
+  }, [status, meta.label]);
+
+  const liveText =
+    meta.label +
+    (updatedAt !== undefined
+      ? ` · Updated ${formatRelativeTime(updatedAt, now)}`
+      : "");
+
   return (
-    <View className="flex-row items-center gap-2">
+    <View
+      accessible
+      accessibilityRole="text"
+      accessibilityLabel={liveText}
+      accessibilityLiveRegion="polite"
+      className="flex-row items-center gap-2"
+    >
       <View
         className="h-2 w-2 rounded-full"
         style={{ backgroundColor: meta.dot }}
@@ -65,10 +87,7 @@ export function InvoiceLiveStatusBadge({
         className={meta.text}
         style={{ fontFamily: "SpaceGrotesk_500Medium", fontSize: 12 }}
       >
-        {meta.label}
-        {updatedAt !== undefined
-          ? ` · Updated ${formatRelativeTime(updatedAt, now)}`
-          : ""}
+        {liveText}
       </Text>
     </View>
   );

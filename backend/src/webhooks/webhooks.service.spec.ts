@@ -597,4 +597,163 @@ describe("WebhooksService", () => {
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
   });
+
+  // ── Merchant-scoped delivery history ──────────────────────────────────────
+
+  describe("listMerchantDeliveries", () => {
+    it("returns deliveries filtered by the merchant's invoices", async () => {
+      const expected = [{ id: "del-1", invoiceId: "inv-1", status: "success" }];
+      mockPrismaService.webhookDelivery.findMany.mockResolvedValue(
+        expected as any,
+      );
+
+      const result = await service.listMerchantDeliveries("merchant-1");
+
+      expect(result).toBe(expected);
+      expect(mockPrismaService.webhookDelivery.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { invoice: { merchantId: "merchant-1" } },
+        }),
+      );
+    });
+
+    it("applies cursor and limit when provided", async () => {
+      mockPrismaService.webhookDelivery.findMany.mockResolvedValue([] as any);
+
+      await service.listMerchantDeliveries("merchant-1", {
+        cursor: "cursor-id-123",
+        limit: 10,
+      });
+
+      expect(mockPrismaService.webhookDelivery.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          take: 10,
+          cursor: { id: "cursor-id-123" },
+          skip: 1,
+        }),
+      );
+    });
+
+    it("does not expose raw payload in the response", async () => {
+      mockPrismaService.webhookDelivery.findMany.mockResolvedValue([] as any);
+
+      await service.listMerchantDeliveries("merchant-2");
+
+      const call = mockPrismaService.webhookDelivery.findMany.mock.calls[0][0];
+      // Payload is NOT included in select — only safe fields
+      expect(call.select?.payload).toBeUndefined();
+    });
+  });
+
+  describe("listMerchantDeadLetters", () => {
+    it("returns dead letters scoped to the merchant", async () => {
+      const expected = [{ id: "dlq-m1", merchantId: "merchant-A" }];
+      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue(
+        expected as any,
+      );
+
+      const result = await service.listMerchantDeadLetters("merchant-A");
+
+      expect(result).toBe(expected);
+      expect(mockPrismaService.webhookDeadLetter.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ merchantId: "merchant-A" }),
+        }),
+      );
+    });
+
+    it("applies an optional status filter", async () => {
+      mockPrismaService.webhookDeadLetter.findMany.mockResolvedValue([] as any);
+
+      await service.listMerchantDeadLetters("merchant-B", {
+        status: "pending_retry" as any,
+      });
+
+      expect(mockPrismaService.webhookDeadLetter.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { merchantId: "merchant-B", status: "pending_retry" },
+        }),
+      );
+    });
+  });
+
+  describe("retryMerchantDeadLetter", () => {
+    it("successfully re-queues a dead letter owned by the merchant", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-own",
+        merchantId: "merchant-C",
+        invoiceId: "inv-c",
+        userId: "user-c",
+        url: "https://example.com/webhook",
+        payload: { status: "paid" },
+        status: "pending_retry",
+      } as any);
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue(
+        null as any,
+      );
+      mockTransactionClient.webhookDelivery.create.mockResolvedValue({
+        id: "del-new",
+      } as any);
+
+      const result = await service.retryMerchantDeadLetter(
+        "dlq-own",
+        "merchant-C",
+      );
+
+      expect(result).toEqual({
+        deadLetterId: "dlq-own",
+        deliveryId: "del-new",
+        status: "requeued",
+      });
+    });
+
+    it("returns 404 when the dead letter belongs to a different merchant (ownership denial)", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-other",
+        merchantId: "merchant-OTHER",
+        status: "pending_retry",
+      } as any);
+
+      await expect(
+        service.retryMerchantDeadLetter("dlq-other", "merchant-MINE"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("returns 404 when the dead letter does not exist", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue(
+        null as any,
+      );
+
+      await expect(
+        service.retryMerchantDeadLetter("nonexistent", "merchant-X"),
+      ).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it("rejects a retry when the dead letter is already recovered", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-rec",
+        merchantId: "merchant-D",
+        status: "recovered",
+      } as any);
+
+      await expect(
+        service.retryMerchantDeadLetter("dlq-rec", "merchant-D"),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it("rejects a retry when a pending retry already exists", async () => {
+      mockPrismaService.webhookDeadLetter.findUnique.mockResolvedValue({
+        id: "dlq-pending",
+        merchantId: "merchant-E",
+        status: "pending_retry",
+      } as any);
+      mockPrismaService.webhookDelivery.findFirst.mockResolvedValue({
+        id: "del-already",
+      } as any);
+
+      await expect(
+        service.retryMerchantDeadLetter("dlq-pending", "merchant-E"),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
 });

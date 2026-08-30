@@ -41,7 +41,7 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
 }, {
     readonly code: 7;
     readonly name: "InvalidAsset";
-    readonly meaning: "asset_code was empty, or a non-XLM asset was supplied without an asset_issuer; every payment must identify the asset unambiguously.";
+    readonly meaning: "token code was empty, exceeded 12 characters, or was the reserved code \"XLM\" on Asset::Token; native XLM must use Asset::Native. Token issuers are Address values, so a malformed issuer cannot reach this error.";
 }, {
     readonly code: 8;
     readonly name: "AssetNotAllowed";
@@ -61,7 +61,7 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
 }, {
     readonly code: 12;
     readonly name: "ContractPaused";
-    readonly meaning: "The contract is paused and cannot perform the requested operation.";
+    readonly meaning: "The contract is paused (emergency-stop containment window). Returned by record_payment, propose_admin, accept_admin, cancel_admin_transfer, allow_asset, revoke_asset, and set_allow_native. Does NOT block set_paused (unpausing), upgrade, upgrade_storage, rebuild_history_index, or any read method — see setPaused() JSDoc for the full scope table.";
 }, {
     readonly code: 13;
     readonly name: "InvalidSettlementRef";
@@ -94,6 +94,18 @@ export declare const CONTRACT_ERROR_MANIFEST: readonly [{
     readonly code: 20;
     readonly name: "SettlementRefAlreadyUsed";
     readonly meaning: "The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments.";
+}, {
+    readonly code: 21;
+    readonly name: "MustBePausedForUpgrade";
+    readonly meaning: "upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window.";
+}, {
+    readonly code: 22;
+    readonly name: "LegacyPaymentMigrationBatchTooLarge";
+    readonly meaning: "migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls.";
+}, {
+    readonly code: 23;
+    readonly name: "IssuerMigrationIncomplete";
+    readonly meaning: "upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again. Stay paused until storage_schema_version is current.";
 }];
 /** Union of every known contract error name (excludes the `Unknown` fallback). */
 export type ContractErrorName = (typeof CONTRACT_ERROR_MANIFEST)[number]['name'];

@@ -18,3 +18,13 @@ soroban-sdk = { workspace = true, features = ["alloc"] }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["alloc", "testutils"] }
+
+[features]
+# Enables the end-to-end upgrade integration test (see src/test.rs,
+# `upgrade_wasm_integration`), which imports this crate's own compiled WASM
+# via `contractimport!` as the "new" code for `env.deployer()`. That macro
+# resolves its file path at compile time, so this is off by default —
+# `cargo test` must work without a WASM prebuilt — and must be run
+# explicitly after building:
+#   ./build.sh && cargo test -p invoice-payment --features upgrade-fixture-test
+upgrade-fixture-test = []

@@ -17,7 +17,7 @@ import { ImportRowError, ImportSummaryDto } from "./dto/import-result.dto";
 import { StellarService } from "../stellar/stellar.service";
 import { SorobanService } from "../soroban/soroban.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { Prisma, InvoiceStatus } from "@prisma/client";
+import { PaymentReview, Prisma, InvoiceStatus } from "@prisma/client";
 import { WebhooksService } from "../webhooks/webhooks.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { InvoiceEventsService } from "../realtime/invoice-events.service";
@@ -307,9 +307,9 @@ export class InvoicesService implements OnModuleInit {
       clientName: dto.clientName,
       clientEmail: dto.clientEmail,
       description: dto.description || null,
-      amount: dto.amount as any,
-      amountPaid: 0 as any,
-      amountDue: dto.amount as any,
+      amount: new Prisma.Decimal(dto.amount),
+      amountPaid: new Prisma.Decimal(0),
+      amountDue: new Prisma.Decimal(dto.amount),
       assetCode: dto.asset_code.toUpperCase(),
       assetIssuer: dto.asset_issuer ?? undefined,
       memo: this.generateMemoId(),
@@ -370,13 +370,13 @@ export class InvoicesService implements OnModuleInit {
       description: ActivityFeedService.formatDescription("invoice_created", {
         invoiceNumber: created.invoiceNumber,
         clientName: created.clientName,
-        amount: Number(created.amount).toFixed(2),
+        amount: String(created.amount),
         assetCode: created.assetCode,
       }),
       metadata: {
         invoiceNumber: created.invoiceNumber,
         clientName: created.clientName,
-        amount: Number(created.amount),
+        amount: String(created.amount),
         assetCode: created.assetCode,
       },
     });
@@ -625,12 +625,12 @@ export class InvoicesService implements OnModuleInit {
       type: activityType,
       description: ActivityFeedService.formatDescription(activityType, {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount).toFixed(2),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       }),
       metadata: {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
         previousStatus: status === "overdue" ? "pending" : undefined,
       },
@@ -677,12 +677,12 @@ export class InvoicesService implements OnModuleInit {
       type: "invoice_paid",
       description: ActivityFeedService.formatDescription("invoice_paid", {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount).toFixed(2),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       }),
       metadata: {
         invoiceNumber: updated.invoiceNumber,
-        amount: Number(updated.amount),
+        amount: String(updated.amount),
         assetCode: updated.assetCode,
       },
     });
@@ -764,17 +764,36 @@ export class InvoicesService implements OnModuleInit {
   }
 
   /**
+   * Invoice states considered safe for the public, unauthenticated payer
+   * view. Deliberately an allowlist rather than a denylist of `draft`:
+   * `cancelled` is excluded too (an invoice a merchant voided should not
+   * still be payable/viewable via a leaked link), and any future status
+   * added to `InvoiceStatus` is rejected by default unless explicitly
+   * added here, rather than silently becoming publicly readable.
+   */
+  private static readonly PUBLIC_SAFE_INVOICE_STATUSES: InvoiceStatus[] = [
+    "pending",
+    "partially_paid",
+    "paid",
+    "overdue",
+  ];
+
+  /**
    * Find invoice by ID for public payer view (no auth required)
-   * Returns only payer-safe fields with merchant branding
+   * Returns only payer-safe fields with merchant branding for invoices in
+   * a {@link InvoicesService.PUBLIC_SAFE_INVOICE_STATUSES}. A draft,
+   * cancelled, or otherwise non-public invoice resolves to `null` — same
+   * as an unknown ID — so this endpoint never distinguishes "exists but
+   * not shareable yet" from "doesn't exist".
    * @param id - Invoice UUID
-   * @returns Public invoice data or null if not found
+   * @returns Public invoice data or null if not found or not publicly readable
    */
   async findPublicInvoice(id: string): Promise<{
     id: string;
     invoiceNumber?: string;
     merchantName: string;
     description?: string;
-    amount: number;
+    amount: string;
     asset_code: string;
     asset_issuer?: string;
     memo: string;
@@ -794,7 +813,12 @@ export class InvoicesService implements OnModuleInit {
       },
     });
 
-    if (!invoice) return null;
+    if (
+      !invoice ||
+      !InvoicesService.PUBLIC_SAFE_INVOICE_STATUSES.includes(invoice.status)
+    ) {
+      return null;
+    }
 
     const normalized = this.normalizeInvoice(invoice);
 
@@ -803,7 +827,7 @@ export class InvoicesService implements OnModuleInit {
       invoiceNumber: normalized.invoiceNumber ?? undefined,
       merchantName: invoice.merchant?.name || "Merchant",
       description: normalized.description ?? undefined,
-      amount: normalized.amount as number,
+      amount: normalized.amount,
       asset_code: normalized.asset_code ?? "",
       asset_issuer: normalized.asset_issuer ?? undefined,
       memo: normalized.memo ?? "",
@@ -822,6 +846,280 @@ export class InvoicesService implements OnModuleInit {
     };
   }
 
+  async applyHorizonPayment(payment: {
+    txHash: string;
+    memo: string;
+    payer?: string;
+    asset_code?: string;
+    asset_issuer?: string;
+    amount?: string | number;
+    pagingToken?: string;
+  }): Promise<{ invoice: Invoice | null; review?: PaymentReview | null }> {
+    return this.applyObservedPayment({
+      source: "horizon",
+      txHash: payment.txHash,
+      contractId: "horizon",
+      ledger: 0,
+      invoiceRef: payment.memo,
+      payer: payment.payer,
+      assetCode: payment.asset_code ?? "XLM",
+      assetIssuer: payment.asset_issuer ?? "",
+      amount: payment.amount ?? 0,
+      originalMemo: payment.memo,
+      metadata: {
+        horizon: {
+          txHash: payment.txHash,
+          pagingToken: payment.pagingToken ?? null,
+          memo: payment.memo,
+          payer: payment.payer ?? null,
+          asset_code: payment.asset_code ?? "XLM",
+          asset_issuer: payment.asset_issuer ?? null,
+          amount: payment.amount ?? null,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }
+
+  private async applyObservedPayment(params: {
+    source: "horizon" | "soroban";
+    txHash: string;
+    contractId: string;
+    ledger?: number;
+    invoiceRef: string;
+    payer?: string;
+    assetCode?: string;
+    assetIssuer?: string;
+    amount: string | number;
+    originalMemo?: string;
+    metadata: Record<string, unknown>;
+  }): Promise<{ invoice: Invoice | null; review?: PaymentReview | null }> {
+    const existing =
+      params.source === "horizon"
+        ? await this.prisma.invoice.findFirst({
+            where: { memo: params.invoiceRef },
+          })
+        : await this.prisma.invoice.findUnique({
+            where: { id: params.invoiceRef },
+          });
+
+    if (!existing || existing.status === "cancelled") {
+      const review = await this.createPaymentReviewOnce({
+        txHash: params.txHash,
+        contractId: params.contractId,
+        amount: new Prisma.Decimal(params.amount || 0),
+        assetCode: params.assetCode,
+        assetIssuer: params.assetIssuer,
+        payer: params.payer,
+        originalMemo: params.originalMemo ?? params.invoiceRef,
+        issueType: "unmatched",
+        status: "pending",
+      });
+      if (review) {
+        await this.notificationsService.notifyPaymentReviewFlagged(review);
+      }
+      return { invoice: null, review };
+    }
+
+    const alreadyProcessed = await this.prisma.processedEvent.findUnique({
+      where: {
+        txHash_invoiceId_contractId: {
+          txHash: params.txHash,
+          invoiceId: existing.id,
+          contractId: params.contractId,
+        },
+      },
+    });
+    if (alreadyProcessed) {
+      this.logger.warn(
+        `Skipped replayed ${params.source} payment: invoiceId=${existing.id} txHash=${params.txHash} - already processed at ${alreadyProcessed.processedAt.toISOString()}`,
+      );
+      return { invoice: this.normalizeInvoice(existing) };
+    }
+
+    const paymentAmount = new Prisma.Decimal(params.amount || 0);
+    const observedAssetCode = this.normalizeAssetCode(params.assetCode);
+    const observedAssetIssuer = this.normalizeAssetIssuer(params.assetIssuer);
+    const expectedAssetCode = this.normalizeAssetCode(existing.assetCode);
+    const expectedAssetIssuer = this.normalizeAssetIssuer(existing.assetIssuer);
+    const assetMatches =
+      observedAssetCode === expectedAssetCode &&
+      (expectedAssetCode === "XLM" ||
+        observedAssetIssuer === expectedAssetIssuer);
+
+    if (!assetMatches) {
+      const review = await this.createPaymentReviewOnce({
+        txHash: params.txHash,
+        contractId: params.contractId,
+        amount: paymentAmount,
+        assetCode: observedAssetCode,
+        assetIssuer: observedAssetIssuer || null,
+        payer: params.payer,
+        originalMemo: params.originalMemo ?? params.invoiceRef,
+        issueType: "asset_mismatch",
+        status: "pending",
+        merchantId: existing.merchantId,
+        invoiceId: existing.id,
+      });
+      await this.recordReconciliationDecision({
+        txHash: params.txHash,
+        invoiceId: existing.id,
+        contractId: params.contractId,
+        ledger: params.ledger,
+        status: "skipped",
+        errorMessage: `asset_mismatch expected=${expectedAssetCode}:${expectedAssetIssuer} observed=${observedAssetCode}:${observedAssetIssuer}`,
+      });
+      if (review) {
+        await this.notificationsService.notifyPaymentReviewFlagged(review);
+      }
+      return { invoice: this.normalizeInvoice(existing), review };
+    }
+
+    if (existing.status === "paid") {
+      const review = await this.createPaymentReviewOnce({
+        txHash: params.txHash,
+        contractId: params.contractId,
+        amount: paymentAmount,
+        assetCode: observedAssetCode,
+        assetIssuer: observedAssetIssuer || null,
+        payer: params.payer,
+        originalMemo: params.originalMemo ?? params.invoiceRef,
+        issueType: "overpaid",
+        status: "pending",
+        merchantId: existing.merchantId,
+        invoiceId: existing.id,
+      });
+      await this.recordReconciliationDecision({
+        txHash: params.txHash,
+        invoiceId: existing.id,
+        contractId: params.contractId,
+        ledger: params.ledger,
+        status: "skipped",
+        errorMessage: "invoice_already_paid",
+      });
+      if (review) {
+        await this.notificationsService.notifyPaymentReviewFlagged(review);
+      }
+      return { invoice: this.normalizeInvoice(existing), review };
+    }
+
+    const currentPaid = new Prisma.Decimal(existing.amountPaid || 0);
+    const newAmountPaid = currentPaid.plus(paymentAmount);
+    const currentAmount = new Prisma.Decimal(existing.amount);
+    const rawDiff = currentAmount.minus(newAmountPaid);
+    const newAmountDue = rawDiff.isNegative() ? new Prisma.Decimal(0) : rawDiff;
+    const isPaid = newAmountDue.isZero();
+    const newStatus = isPaid ? "paid" : "partially_paid";
+    const issueType =
+      isPaid && newAmountPaid.greaterThan(currentAmount)
+        ? "overpaid"
+        : newAmountDue.greaterThan(0)
+          ? "underpaid"
+          : null;
+
+    let updated;
+    try {
+      updated = await this.prisma.invoice.update({
+        where: { id: existing.id },
+        data: {
+          status: newStatus as any,
+          txHash: newStatus === "paid" ? params.txHash : existing.txHash,
+          amountPaid: newAmountPaid,
+          amountDue: newAmountDue,
+          payments: {
+            create: {
+              amount: paymentAmount,
+              txHash: params.txHash,
+            },
+          },
+          metadata: {
+            ...((existing.metadata as any) ?? {}),
+            ...params.metadata,
+          },
+          statusHistory: {
+            create: {
+              status: newStatus as any,
+            },
+          },
+        },
+        include: {
+          statusHistory: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code === "P2002") {
+        this.logger.warn(
+          `Skipped replayed ${params.source} payment: invoiceId=${existing.id} txHash=${params.txHash} - duplicate Payment.txHash detected`,
+        );
+        return { invoice: this.normalizeInvoice(existing) };
+      }
+      throw err;
+    }
+
+    let review: PaymentReview | null = null;
+    if (issueType) {
+      review = await this.createPaymentReviewOnce({
+        txHash: params.txHash,
+        contractId: params.contractId,
+        amount: paymentAmount,
+        assetCode: observedAssetCode,
+        assetIssuer: observedAssetIssuer || null,
+        payer: params.payer,
+        originalMemo: params.originalMemo ?? params.invoiceRef,
+        issueType,
+        status: "pending",
+        merchantId: existing.merchantId,
+        invoiceId: existing.id,
+      });
+    }
+
+    await this.recordReconciliationDecision({
+      txHash: params.txHash,
+      invoiceId: existing.id,
+      contractId: params.contractId,
+      ledger: params.ledger,
+      status: "success",
+    });
+
+    await this.webhooksService.enqueueWebhook(
+      existing.id,
+      newStatus as any,
+      newStatus === "paid" ? params.txHash : existing.txHash,
+      existing.merchantId,
+    );
+    if (newStatus === "paid") {
+      await this.notificationsService.notifyInvoicePaid(updated);
+    }
+    if (review) {
+      await this.notificationsService.notifyPaymentReviewFlagged(review);
+    }
+    this.emitStatusChange(updated);
+    return { invoice: this.normalizeInvoice(updated), review };
+  }
+
+  private async createPaymentReviewOnce(
+    data: Prisma.PaymentReviewUncheckedCreateInput,
+  ): Promise<PaymentReview | null> {
+    try {
+      return await this.prisma.paymentReview.create({ data });
+    } catch (err) {
+      if ((err as { code?: string }).code === "P2002") {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  private normalizeAssetCode(value?: string | null): string {
+    return (value || "XLM").trim().toUpperCase();
+  }
+
+  private normalizeAssetIssuer(value?: string | null): string {
+    return (value || "").trim();
+  }
+
   async applySorobanPaymentEvent(evt: {
     eventId: string;
     contractId?: string;
@@ -838,173 +1136,32 @@ export class InvoicesService implements OnModuleInit {
     const txHash = `soroban:${evt.eventId}`;
     const contractId = evt.contractId ?? "unknown";
 
-    const existing = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
-    });
-    if (!existing) {
-      try {
-        await this.prisma.paymentReview.create({
-          data: {
-            txHash,
-            contractId,
-            amount: Number(evt.amount || 0),
-            assetCode: evt.asset_code,
-            assetIssuer: evt.asset_issuer,
-            payer: evt.payer,
-            originalMemo: evt.invoice_id,
-            issueType: "unmatched",
-            status: "pending",
-          },
-        });
-      } catch (err) {
-        if ((err as { code?: string }).code !== "P2002") {
-          throw err;
-        }
-      }
-      return null;
-    }
-
-    // Replay guard: this exact (txHash, invoice, contract) combination was
-    // already applied — most likely a redelivered/replayed RPC event.
-    // Skip without touching amountPaid/Payment rows again.
-    const alreadyProcessed = await this.prisma.processedEvent.findUnique({
-      where: {
-        txHash_invoiceId_contractId: { txHash, invoiceId, contractId },
+    const reconciled = await this.applyObservedPayment({
+      source: "soroban",
+      txHash,
+      contractId,
+      ledger: evt.ledger,
+      invoiceRef: invoiceId,
+      payer: evt.payer,
+      assetCode: evt.asset_code,
+      assetIssuer: evt.asset_issuer,
+      amount: evt.amount ?? 0,
+      originalMemo: evt.invoice_id,
+      metadata: {
+        soroban: {
+          lastEventId: evt.eventId,
+          contractId: evt.contractId ?? null,
+          ledger: evt.ledger ?? null,
+          invoice_id: evt.invoice_id,
+          payer: evt.payer ?? null,
+          asset_code: evt.asset_code ?? null,
+          asset_issuer: evt.asset_issuer ?? null,
+          amount: evt.amount ?? null,
+          updatedAt: new Date().toISOString(),
+        },
       },
     });
-    if (alreadyProcessed) {
-      this.logger.warn(
-        `Skipped replayed Soroban payment event: invoiceId=${invoiceId} eventId=${evt.eventId} txHash=${txHash} — already processed at ${alreadyProcessed.processedAt.toISOString()}`,
-      );
-      return this.normalizeInvoice(existing);
-    }
-
-    const sorobanMeta = {
-      lastEventId: evt.eventId,
-      contractId: evt.contractId ?? null,
-      ledger: evt.ledger ?? null,
-      invoice_id: evt.invoice_id,
-      payer: evt.payer ?? null,
-      asset_code: evt.asset_code ?? null,
-      asset_issuer: evt.asset_issuer ?? null,
-      amount: evt.amount ?? null,
-      updatedAt: new Date().toISOString(),
-    };
-
-    if (existing.status !== "paid") {
-      const paymentAmount = Number(evt.amount || 0);
-      const currentPaid = Number(existing.amountPaid || 0);
-      const newAmountPaid = currentPaid + paymentAmount;
-      const currentAmount = Number(existing.amount);
-      const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
-      const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
-      const issueType =
-        newAmountDue === 0 && newAmountPaid > currentAmount
-          ? "overpaid"
-          : newAmountDue > 0
-            ? "underpaid"
-            : null;
-
-      let updated;
-      try {
-        const updateData: any = {
-          status: newStatus as any,
-          txHash: newStatus === "paid" ? txHash : existing.txHash,
-          amountPaid: newAmountPaid,
-          amountDue: newAmountDue,
-          payments: {
-            create: {
-              amount: paymentAmount,
-              txHash,
-            },
-          },
-          metadata: {
-            ...((existing.metadata as any) ?? {}),
-            soroban: sorobanMeta,
-          },
-          statusHistory: {
-            create: {
-              status: newStatus as any,
-            },
-          },
-        };
-
-        if (issueType) {
-          updateData.paymentReviews = {
-            create: {
-              txHash,
-              contractId,
-              amount: paymentAmount,
-              assetCode: evt.asset_code,
-              assetIssuer: evt.asset_issuer,
-              payer: evt.payer,
-              originalMemo: evt.invoice_id,
-              issueType,
-              status: "pending",
-              merchantId: existing.merchantId,
-            },
-          };
-        }
-
-        updated = await this.prisma.invoice.update({
-          where: { id: invoiceId },
-          data: updateData,
-          include: {
-            statusHistory: {
-              orderBy: { createdAt: "asc" },
-            },
-          },
-        });
-      } catch (err) {
-        // Defense-in-depth: a concurrent call recorded this txHash first.
-        // The unique constraint on Payment.txHash caught a replay we
-        // didn't already know about — treat it as a skipped replay.
-        if ((err as { code?: string }).code === "P2002") {
-          this.logger.warn(
-            `Skipped replayed Soroban payment event: invoiceId=${invoiceId} eventId=${evt.eventId} txHash=${txHash} — duplicate Payment.txHash detected`,
-          );
-          return this.normalizeInvoice(existing);
-        }
-        throw err;
-      }
-
-      await this.recordReconciliationDecision({
-        txHash,
-        invoiceId,
-        contractId,
-        ledger: evt.ledger,
-        status: "success",
-      });
-
-      if (newStatus === "paid") {
-        await this.notificationsService.notifyInvoicePaid(updated);
-      }
-      this.emitStatusChange(updated);
-      return this.normalizeInvoice(updated);
-    } else {
-      const updated = await this.prisma.invoice.update({
-        where: { id: invoiceId },
-        data: {
-          metadata: {
-            ...((existing.metadata as any) ?? {}),
-            soroban: sorobanMeta,
-          },
-        },
-        include: {
-          statusHistory: {
-            orderBy: { createdAt: "asc" },
-          },
-        },
-      });
-      await this.recordReconciliationDecision({
-        txHash,
-        invoiceId,
-        contractId,
-        ledger: evt.ledger,
-        status: "success",
-      });
-      return this.normalizeInvoice(updated);
-    }
+    return reconciled.invoice;
   }
 
   /**
@@ -1091,12 +1248,14 @@ export class InvoicesService implements OnModuleInit {
       };
     }
 
-    const paymentAmount = Number(amount || 0);
-    const currentPaid = Number((invoice as any).amountPaid || 0);
-    const newAmountPaid = currentPaid + paymentAmount;
-    const currentAmount = Number(invoice.amount);
-    const newAmountDue = Math.max(0, currentAmount - newAmountPaid);
-    const newStatus = newAmountDue <= 0 ? "paid" : "partially_paid";
+    const paymentAmount = new Prisma.Decimal(amount || 0);
+    const currentPaid = new Prisma.Decimal((invoice as any).amountPaid || 0);
+    const newAmountPaid = currentPaid.plus(paymentAmount);
+    const currentAmount = new Prisma.Decimal(invoice.amount);
+    const rawDiff = currentAmount.minus(newAmountPaid);
+    const newAmountDue = rawDiff.isNegative() ? new Prisma.Decimal(0) : rawDiff;
+    const isPaid = newAmountDue.isZero();
+    const newStatus = isPaid ? "paid" : "partially_paid";
 
     let txHash = "pending_full_payment";
     let ledger = 0;
@@ -1109,28 +1268,49 @@ export class InvoicesService implements OnModuleInit {
 
       if (!alreadyOnChain) {
         // Step 3 — write to Soroban (admin-gated, requires ADMIN_SECRET_KEY).
-        // For the contract, we can just pass the total amount that was paid.
+        // For the contract, pass the total amount paid in integer stroops (1 unit = 10^7 stroops).
+        const stroopAmount = newAmountPaid
+          .times(10_000_000)
+          .toFixed(0, Prisma.Decimal.ROUND_HALF_UP);
         const result = await this.sorobanService.recordInvoicePayment({
           invoiceId,
           payer,
           assetCode,
           assetIssuer,
-          amount: newAmountPaid.toString(),
+          amount: stroopAmount,
           settlementRef,
         });
-        txHash = result.hash;
-        ledger = result.ledger;
-        this.logger.log(
-          `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
-        );
+        if (result) {
+          txHash = result.hash;
+          ledger = result.ledger;
+          this.logger.log(
+            `Invoice ${invoiceId} recorded on-chain — hash: ${txHash}, ledger: ${ledger}`,
+          );
+        } else {
+          // Soroban is dormant (missing keys or contract id). Keep the
+          // existing "pending_full_payment" defaults and log so the gap
+          // is visible in observability without blocking the DB update.
+          this.logger.warn(
+            `Invoice ${invoiceId} — Soroban disabled, skipping on-chain anchor`,
+          );
+        }
       } else {
         this.logger.log(
           `Invoice ${invoiceId} already on-chain — skipping Soroban write`,
         );
         // Retrieve confirmed details for the return value.
         const record = await this.sorobanService.getInvoicePayment(invoiceId);
-        txHash = `on-chain@ledger`;
-        ledger = Number(record.timestamp);
+        if (record) {
+          txHash = `on-chain@ledger`;
+          ledger = Number(record.timestamp);
+        } else {
+          // Race / drift: hasInvoicePayment said true but getInvoicePayment
+          // returned null. Either Soroban just went dormant or the record
+          // is genuinely missing on-chain. Keep defaults and warn loudly.
+          this.logger.warn(
+            `Invoice ${invoiceId} flagged as on-chain but getInvoicePayment returned null`,
+          );
+        }
       }
     }
 
@@ -1316,40 +1496,24 @@ export class InvoicesService implements OnModuleInit {
     }
   }
 
-  /** Normalize invoice before returning to callers (convert Decimal/string amounts to number and add destination address) */
+  /** Normalize invoice before returning to callers (convert Decimal/string amounts to exact decimal strings and add destination address) */
   private normalizeInvoice(inv: any): Invoice {
-    const amount = inv?.amount;
-    let numericAmount: number | string = amount;
-    try {
-      if (
-        amount &&
-        typeof amount === "object" &&
-        typeof amount.toNumber === "function"
-      ) {
-        numericAmount = amount.toNumber();
-      } else {
-        numericAmount = Number(amount);
-      }
-    } catch {
-      numericAmount = Number(String(amount));
-    }
-
     return {
       ...inv,
-      amount: numericAmount,
-      amountPaid: this.toNumber(inv.amountPaid),
-      amountDue: this.toNumber(inv.amountDue),
-      asset_code: inv.assetCode,
-      asset: inv.assetCode,
-      asset_issuer: inv.assetIssuer === null ? undefined : inv.assetIssuer,
-      memo_type: inv.memoType,
-      tx_hash: inv.txHash,
+      amount: this.toDecimalString(inv?.amount) ?? "0",
+      amountPaid: this.toDecimalString(inv?.amountPaid),
+      amountDue: this.toDecimalString(inv?.amountDue),
+      asset_code: inv?.assetCode,
+      asset: inv?.assetCode,
+      asset_issuer: inv?.assetIssuer === null ? undefined : inv?.assetIssuer,
+      memo_type: inv?.memoType,
+      tx_hash: inv?.txHash,
       destination_address:
-        inv.destinationAddress || this.stellarService.getMerchantPublicKey(),
-      payments: Array.isArray(inv.payments)
+        inv?.destinationAddress || this.stellarService.getMerchantPublicKey(),
+      payments: Array.isArray(inv?.payments)
         ? inv.payments.map((payment: any) => ({
             id: payment.id,
-            amount: this.toNumber(payment.amount),
+            amount: this.toDecimalString(payment.amount),
             txHash: payment.txHash,
             createdAt: payment.createdAt,
           }))
@@ -1357,17 +1521,24 @@ export class InvoicesService implements OnModuleInit {
     };
   }
 
-  /** Coerce a Prisma Decimal (or plain value) into a number for JSON output */
-  private toNumber(value: unknown): number | undefined {
+  /**
+   * Coerce a Prisma Decimal (or plain value) into a string for JSON output,
+   * normalising to 7 decimal places to match the Decimal(18, 7) schema and
+   * Stellar's stroop precision.  Trailing zeros are preserved so that API
+   * consumers always see a consistent format.
+   */
+  private toDecimalString(value: unknown): string | undefined {
     if (value === undefined || value === null) return undefined;
-    if (
-      typeof value === "object" &&
-      typeof (value as { toNumber?: unknown }).toNumber === "function"
-    ) {
-      return (value as { toNumber: () => number }).toNumber();
+    try {
+      const dec =
+        value instanceof Prisma.Decimal
+          ? value
+          : new Prisma.Decimal(value as any);
+      return dec.toFixed(7);
+    } catch {
+      // eslint-disable-next-line @typescript-eslint/no-base-to-string
+      return String(value);
     }
-    const parsed = Number(value);
-    return Number.isNaN(parsed) ? undefined : parsed;
   }
 
   /**
@@ -1558,6 +1729,11 @@ export class InvoicesService implements OnModuleInit {
           dueDate: new Date("2026-02-10T23:59:59Z"),
         },
       ],
+    });
+  }
+  async findByInvoiceId(invoiceId: string): Promise<any> {
+    return this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
     });
   }
 }

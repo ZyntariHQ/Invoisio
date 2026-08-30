@@ -1,54 +1,92 @@
 import { Linking } from "react-native";
+import type { DeepLinkType } from "./deep-links";
+import { ID_LINK_TYPES } from "./deep-links";
 
 /**
- * Generate a deep link URL for the app
+ * Generate an app-scheme deep link URL (invoisio://…).
+ *
+ * See `./deep-links.ts` → ROUTE CONTRACT for the full routing table.
+ * This module intentionally re-uses the exported `DeepLinkType` so that
+ * link generation and link parsing cannot drift out of sync.
+ *
+ * @param type  One of the supported DeepLinkType route segments.
+ * @param id    Required when `type` is in `ID_LINK_TYPES` (invoice/payment/receipt).
+ * @param params Optional query-string parameters forwarded to the destination.
  */
 export function generateDeepLink(
-  type: "invoice" | "payment" | "receipt" | "dashboard" | "create-invoice",
+  type: DeepLinkType,
   id?: string,
-  params?: Record<string, string>
+  params?: Record<string, string>,
 ): string {
+  if (ID_LINK_TYPES.has(type) && !id) {
+    throw new Error(`generateDeepLink: "${type}" requires an id`);
+  }
+  if (!ID_LINK_TYPES.has(type) && id) {
+    throw new Error(`generateDeepLink: "${type}" does not accept an id`);
+  }
+
   let url = `invoisio://${type}`;
-  
+
   if (id) {
     url += `/${id}`;
   }
-  
+
   if (params) {
     const queryString = Object.entries(params)
-      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .map(
+        ([key, value]) =>
+          `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+      )
       .join("&");
     if (queryString) {
       url += `?${queryString}`;
     }
   }
-  
+
   return url;
 }
 
 /**
- * Generate a web URL for the app (for universal links)
+ * Generate a universal / web URL (https://invoisio.com/…).
+ *
+ * Mirrors `generateDeepLink` but produces the web-domain equivalent that
+ * Android intent filters and iOS associated domains will route back into
+ * the installed app. See `./deep-links.ts` → ROUTE CONTRACT.
+ *
+ * @param type  One of the supported DeepLinkType route segments.
+ * @param id    Required when `type` is in `ID_LINK_TYPES` (invoice/payment/receipt).
+ * @param params Optional query-string parameters forwarded to the destination.
  */
 export function generateWebUrl(
-  type: "invoice" | "payment" | "receipt" | "dashboard" | "create-invoice",
+  type: DeepLinkType,
   id?: string,
-  params?: Record<string, string>
+  params?: Record<string, string>,
 ): string {
+  if (ID_LINK_TYPES.has(type) && !id) {
+    throw new Error(`generateWebUrl: "${type}" requires an id`);
+  }
+  if (!ID_LINK_TYPES.has(type) && id) {
+    throw new Error(`generateWebUrl: "${type}" does not accept an id`);
+  }
+
   let url = `https://invoisio.com/${type}`;
-  
+
   if (id) {
     url += `/${id}`;
   }
-  
+
   if (params) {
     const queryString = Object.entries(params)
-      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .map(
+        ([key, value]) =>
+          `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+      )
       .join("&");
     if (queryString) {
       url += `?${queryString}`;
     }
   }
-  
+
   return url;
 }
 

@@ -30,11 +30,14 @@ export class Invoice {
 
   description?: string | null;
 
-  amount: string | number;
+  /** Amount as an exact decimal string (e.g. "1250.5000000") — never a float */
+  amount: string;
 
-  amountPaid?: string | number;
+  /** Cumulative amount paid, exact decimal string */
+  amountPaid?: string;
 
-  amountDue?: string | number;
+  /** Remaining amount due, exact decimal string */
+  amountDue?: string;
 
   asset_code: string;
 

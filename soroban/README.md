@@ -24,6 +24,7 @@ soroban/
 │   ── Read-only operational inspection ──
 ├── invoke-inspect-config.sh        # [READ-ONLY] Inspect full contract config (human-readable)
 ├── invoke-inspect-allowlist.sh     # [READ-ONLY] Inspect allowlist policy and settings
+├── invoke-list-allowlist.sh        # [READ-ONLY] Page through allowlisted (code, issuer) pairs
 ├── invoke-is-paused.sh             # [READ-ONLY] Check if contract is currently paused
 └── contracts/
     └── invoice-payment/            # ← Main Invoisio contract
@@ -225,8 +226,7 @@ version metadata, and current allowlist policy:
     "storage_schema_version": 1
   },
   "allowlist_mode": {
-    "native_allowed": false,
-    "requires_token_allowlist": true
+    "native_allowed": false
   }
 }
 ```
@@ -297,6 +297,26 @@ rename it `manifests/futurenet.toml`, update the `[network]` block, and run:
 STELLAR_NETWORK=futurenet ./deploy.sh
 ```
 
+### `./invoke-upgrade.sh` and `./invoke-upgrade-storage.sh`
+
+Upgrade an already-deployed contract's WASM in place, without changing its
+contract ID. Full procedure, ordering rationale, and rollback expectations:
+[`docs/upgrade-runbook.md`](docs/upgrade-runbook.md).
+
+```bash
+# Always dry-run first — prints the plan without touching the network.
+./invoke-upgrade.sh target/wasm32v1-none/release/invoice_payment.wasm 1.1.0 --dry-run
+
+./invoke-pause.sh
+./invoke-upgrade.sh target/wasm32v1-none/release/invoice_payment.wasm 1.1.0
+./invoke-upgrade-storage.sh
+./invoke-inspect-config.sh   # verify before unpausing
+./invoke-unpause.sh
+```
+
+`invoke-upgrade.sh` refuses to run (dry-run or not) unless the contract is
+already paused — `upgrade()` enforces this on-chain.
+
 ### `./invoke-record-payment.sh`
 
 Records an invoice payment on-chain.
@@ -347,8 +367,12 @@ Returns a stable JSON snapshot with:
 - `initialized` — whether `initialize(admin)` has been called
 - `version.contract_version` — packed semver for the state-writing contract build
 - `version.storage_schema_version` — storage layout version
-- `allowlist_mode.native_allowed` — whether native XLM is accepted
-- `allowlist_mode.requires_token_allowlist` — whether issued assets must be explicitly allowlisted
+- `allowlist_mode.native_allowed` — whether native XLM is accepted. There is
+  no `requires_token_allowlist` field: every non-native asset always
+  requires allowlisting in this contract, so a field for it would only ever
+  report a constant, never real state (issue #464). Use
+  `./invoke-list-allowlist.sh` / `allowlist_count()` to inspect the actual
+  allowlist instead of inferring policy from `config()`.
 
 ### `./invoke-has-payment.sh`
 
@@ -433,7 +457,7 @@ Storage Schema Version: 1
 
 ### `./invoke-inspect-allowlist.sh`
 
-Displays the allowlist policy — whether native XLM is accepted and whether Stellar tokens must be explicitly allowlisted — with actionable next-step guidance.
+Displays the native-XLM allowlist policy, with actionable next-step guidance. For the actual list of allowlisted tokens, use `./invoke-list-allowlist.sh` instead (issue #464).
 
 **Usage:**
 ```bash
@@ -450,8 +474,7 @@ STELLAR_NETWORK=mainnet ./invoke-inspect-allowlist.sh
 
 **What it shows:**
 - Native XLM permission status with guidance to enable/disable
-- Token allowlist mode (`requires_token_allowlist`)
-- Pointers to `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
+- Pointers to `invoke-list-allowlist.sh` / `invoke-allow-asset.sh` / `invoke-revoke-asset.sh` for follow-up actions
 
 **Example output:**
 ```
@@ -465,14 +488,36 @@ Allowlist Configuration Status:
 -----------------------------------------
 ❌ Native XLM: Denied
    (To enable, run ./invoke-set-allow-native.sh true)
-🔒 Token Allowlist: Enabled (requires_token_allowlist=true)
-   (Stellar tokens must be explicitly allowlisted before record_payment accepts them)
 
 Operations Guidance:
-  - To list all configured assets, run: ./invoke-list-assets.sh
+  - To list every allowlisted token, run: ./invoke-list-allowlist.sh
   - To allow a token, run:            ./invoke-allow-asset.sh <code> <issuer>
   - To revoke a token, run:           ./invoke-revoke-asset.sh <code> <issuer>
 ```
+
+---
+
+### `./invoke-list-allowlist.sh`
+
+Retrieves a bounded, cursor-paginated page of the currently-allowlisted `(code, issuer)` pairs, so operators can enumerate and audit the allowlist without already knowing which pairs to ask about (issue #464).
+
+**Usage:**
+```bash
+./invoke-list-allowlist.sh [cursor] [limit]
+
+# First page, default limit (25)
+./invoke-list-allowlist.sh
+
+# Next page
+./invoke-list-allowlist.sh 25
+```
+
+**Environment variables:**
+- `STELLAR_NETWORK` — `testnet` | `mainnet` (default: `testnet`)
+- `STELLAR_IDENTITY` — Key name for simulation source (default: `invoisio-admin`)
+- `CONTRACT_ID` — Override contract ID (default: read from `.contract-id`)
+
+A revoked (or, on a legacy pre-schema-V4 deployment, not-yet-backfilled) slot is skipped rather than treated as the end of the list — keep paging from `next_cursor` until `has_more` is `false`. For a single O(1) count instead of paging through everything, invoke `allowlist_count` directly.
 
 ---
 
@@ -535,7 +580,8 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | **Two-step admin handoff** | `propose_admin` (current admin) + `accept_admin` (proposed admin) — no single transaction can change the admin, so a lost/compromised key can never hand off alone |
 | **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
 | **Persistent storage** | Records survive ledger archival windows |
-| **Soroban events** | Full `PaymentRecord` in each event; subscribers don't need to poll state |
+| **Minimized events** | Only `schema_version` + `invoice_id` in each event (issue #512); a subscriber that needs the full record must already know `invoice_id` and call `get_payment` |
+| **Privacy-by-default reads** | Bulk/volume reads (`payment_history`, `payment_count`, `settlement_ref_history`, `settlement_ref_index_status`, `history_index_status`) are admin-gated; `settlement_ref` is stored as a SHA-256 commitment, not plaintext (issue #512) — see `contracts/invoice-payment/README.md`'s "Disclosure guarantee / threat model" section |
 
 #### Admin transfer flow
 
@@ -564,12 +610,58 @@ The contract uses a practical hybrid strategy:
 1. **Semver for contract code** (`CONTRACT_VERSION`).
 2. **Explicit on-chain schema metadata** (`ContractMeta { contract_version, storage_schema_version }`).
 3. **Versioned storage keys** for records (`PaymentV1(invoice_id)`), while retaining **legacy read support** (`Payment(invoice_id)`).
+4. **An in-place code upgrade entrypoint** (`upgrade()`), so a deployment isn't frozen at its original WASM forever.
 
 #### Why this pattern
 
 - **Major breaking changes** (new required fields, behavioral changes): deploy a **new contract address**.
-- **Backward-compatible updates** (bug fixes, additive methods): code can be upgraded in place, and metadata tracks state/schema.
+- **Backward-compatible updates** (bug fixes, additive methods): code is upgraded in place via `upgrade()`, and metadata tracks state/schema.
 - **Legacy safety**: reads still accept old keys and lazily migrate them to the current key namespace.
+
+#### In-place code upgrades
+
+`upgrade(admin, new_wasm_hash, new_contract_version)` calls
+`env.deployer().update_current_contract_wasm(...)` to swap the WASM running
+at the deployed contract address, admin-gated and requiring the contract to
+already be paused (`ContractError::MustBePausedForUpgrade` otherwise — the
+contract enforces this on-chain, it's not just a documented convention). It
+emits a `ContractUpgraded` event with the previous and new packed version so
+off-chain indexers can detect the transition.
+
+`upgrade()` and `upgrade_storage()` are two separate calls in two separate
+transactions: `upgrade()` swaps the code (taking effect starting with the
+*next* invocation — Soroban doesn't retroactively change the call that's
+currently running), and `upgrade_storage()` is that next invocation, running
+under the new code to migrate on-chain storage to the new
+`STORAGE_SCHEMA_VERSION` if one was introduced.
+
+**Full procedure, ordering rationale, and rollback expectations:
+[`docs/upgrade-runbook.md`](docs/upgrade-runbook.md).** Ops tooling:
+`./invoke-upgrade.sh` (supports `--dry-run`) and `./invoke-upgrade-storage.sh`,
+alongside the existing `./invoke-pause.sh` / `./invoke-unpause.sh`.
+
+#### Permanence for existing deployments (issue #512)
+
+An upgrade changes contract *behavior* going forward — it cannot un-publish
+data already on-chain. On a deployment that recorded payments before
+upgrading to the issue #512 privacy fix:
+
+- Every pre-upgrade `invoice_payment_recorded` event already carries the
+  full legacy payload (payer, asset, amount, plaintext settlement_ref) and
+  stays permanently retrievable from Horizon/RPC event history.
+- Every pre-upgrade `PaymentRecord.settlement_ref` was stored as
+  **plaintext**; the settlement-reference migrations backfill a
+  commitment-keyed lookup index from it, but do **not** rewrite that
+  original field — `get_payment` on an old record still returns the
+  original plaintext value.
+- Anything already read via the now-removed `payments_by_payer` or the
+  now-admin-gated bulk reads before an operator upgrades was, and remains,
+  exposed to whoever read it.
+
+Treat any such deployment as having its full payment history, payer
+identities, and settlement references already exposed. The fix protects
+only payments recorded **after** the upgrade. Full detail:
+[`contracts/invoice-payment/README.md`](contracts/invoice-payment/README.md#permanence-for-existing-deployments).
 
 #### Event compatibility policy
 
@@ -611,19 +703,29 @@ Contract v1 (C1) live
 | Method | Auth | Description |
 |--------|------|-------------|
 | `initialize(admin)` | — | One-time setup; registers the admin address. |
-| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `settlement_ref` is a non-empty hash/reference ID (≤ 128 chars) for backend deduplication. |
-| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty id), `PaymentNotFound` (no record). |
+| `record_payment(invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref)` | admin | Persist record + emit event. `invoice_id` (≤ 64 chars) and `settlement_ref` (non-empty, ≤ 128 chars) must both be in **canonical form** — lowercase letters, digits, and hyphens only; non-canonical input is rejected, not normalised, since both fields back byte-exact idempotency guards. |
+| `get_payment(invoice_id) → PaymentRecord` | — | Return stored record. Errors: `InvalidInvoiceId` (empty, too long, or non-canonical id), `PaymentNotFound` (no record). Pure read — falls back to a pre-schema-versioning legacy key for an unmigrated record, but never writes it (issue #508); use `migrate_legacy_payments` to actually migrate one. |
 | `has_payment(invoice_id) → bool` | — | Returns `true` if a payment exists; `false` if invoice_id is empty or no record. |
-| `payment_count() → u32` | — | Total payments recorded. |
-| `payment_history(cursor, limit) → PaymentHistoryPage` | — | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. |
+| `payment_count(admin) → u32` | admin | Total payments recorded. **Admin-gated** (issue #512): raw payment volume is bulk platform-activity data, not tied to an identifier the caller already knows. |
+| `payment_history(admin, cursor, limit) → PaymentHistoryPage` | admin | Return a bounded, cursor-friendly page of payment history. `limit` is capped on-chain. Missing index slots are skipped and counted in `gaps_skipped` rather than stalling pagination. **Admin-gated** (issue #512): bulk enumeration of every payment is exactly the disclosure this contract's privacy guarantee exists to prevent for anyone but the admin. `payments_by_payer` was removed entirely for the same reason — it served no documented product need and was the sharpest disclosure (issue #512). |
+| `settlement_ref_owner(settlement_ref) → invoice_id \| null` | — | Resolve a settlement reference to the invoice that consumed it; `null` when unused. `settlement_ref` here is the **plaintext** the caller already possesses — it's hashed internally to the commitment actually used as the storage key (issue #512), so this method can't be used to discover a reference the caller doesn't already have. Disambiguates a `SettlementRefAlreadyUsed` rejection: same invoice_id means a benign retry, a different one means a genuine conflict (issue #495). |
+| `settlement_ref_history(admin, cursor, limit) → SettlementRefPage` | admin | Return a bounded, cursor-friendly page of the settlement-reference index in write order, for audit/reconciliation. Same gap-skipping and pagination conventions as `payment_history`. Each entry's `settlement_ref` is a SHA-256 commitment, not the plaintext (issue #512). **Admin-gated.** |
+| `settlement_ref_index_status(admin) → (settlement_ref_count, payment_count, is_consistent)` | admin | O(1) consistency summary: `is_consistent` is `false` when some payment has no recorded settlement-reference mapping (e.g. empty legacy `settlement_ref`, or a duplicate migration deliberately left unresolved). **Admin-gated** (issue #512): a volume summary, like `payment_count`. |
+| `allow_asset(code, issuer)` | admin | Add `(code, issuer)` to the allowlist. `code` is held to the same rule `record_payment` enforces: non-empty and ≤ 12 characters. Idempotent — re-allowing an already-allowed pair is a no-op. |
+| `revoke_asset(code, issuer)` | admin | Remove `(code, issuer)` from the allowlist. Revoking a pair that was never allowlisted is a safe no-op, but unlike a real revoke it does **not** emit `AssetRevoked` — the two are distinguishable by event emission alone (issue #464). |
+| `allowed_assets(cursor, limit) → AllowlistPage` | — | Return a bounded, cursor-friendly page of currently-allowlisted `(code, issuer)` pairs, so callers can enumerate the allowlist without already knowing which pairs to ask about. Same gap-skipping and pagination conventions as `payment_history`; a hole here is a normal outcome of `revoke_asset`, not only a sign of corruption (issue #464). |
+| `allowlist_count() → u32` | — | O(1) count of currently-allowlisted pairs — decrements on `revoke_asset`, unlike the enumeration log's write-order length. Matches the number of entries `allowed_assets` returns across a full scan (issue #464). |
 | `contract_version() → u32` | — | Current WASM code version (packed semver). |
 | `version_info() → ContractMeta` | — | On-chain state metadata (`contract_version`, `storage_schema_version`). |
 | `admin() → Address` | — | Current admin. |
 | `pending_admin() → Address | null` | — | Address proposed as next admin via `propose_admin`, or `null` when no transfer is in flight. |
 | `propose_admin(new_admin)` | admin | Step 1 of two-step admin handoff: propose the next admin (current admin signs). |
 | `accept_admin(caller)` | proposed_admin | Step 2 of two-step admin handoff: the proposed address accepts and becomes admin. |
+| `upgrade(admin, new_wasm_hash, new_contract_version)` | admin | Swap the deployed WASM in place (`env.deployer().update_current_contract_wasm`). Requires the contract to already be paused. See [`docs/upgrade-runbook.md`](docs/upgrade-runbook.md). |
+| `migrate_legacy_payments(admin, invoice_ids) → (migrated, already_current, not_found)` | admin | Migrate a caller-supplied, bounded batch (≤ `MAX_LEGACY_MIGRATION_BATCH`, 20) of legacy `Payment(invoice_id)` keys to `PaymentV1`, removing each legacy entry as it migrates so a record never sits under two keys. The caller supplies the batch because a legacy record predates the on-chain index other migrations use to discover records — there's no way to enumerate them on-chain. Idempotent per id; safely resumable across calls (issue #508). |
+| `history_index_status(admin) → (history_count, payment_count, is_consistent)` | admin | O(1) diagnostic comparing the two counters. **Admin-gated** (issue #512): a volume summary, like `payment_count`. |
 
-`payment_history(cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded.
+`payment_history(admin, cursor, limit)` pages the append-only indexed history maintained by the contract, and the contract caps `limit` on-chain so the read remains bounded. See "Disclosure guarantee / threat model" in `contracts/invoice-payment/README.md` for which reads are admin-gated and why.
 
 ### Contract error codes
 
@@ -636,21 +738,23 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 3 | PaymentAlreadyRecorded | `record_payment()` was called with an `invoice_id` already recorded. |
 | 4 | PaymentNotFound | `get_payment()` was called for an `invoice_id` that has no record. |
 | 5 | InvalidAmount | `amount` was zero or negative; payments must be strictly positive. |
-| 6 | InvalidInvoiceId | `invoice_id` was empty or otherwise invalid. |
+| 6 | InvalidInvoiceId | `invoice_id` was empty, exceeded 64 chars, or was not in canonical form (lowercase letters, digits, hyphens only). |
 | 7 | InvalidAsset | `asset_code` empty, or non-XLM asset without `asset_issuer`; or invalid allowlist args. |
 | 8 | AssetNotAllowed | The asset (code, issuer) is not in the admin-controlled allowlist. |
 | 9 | Unauthorized | The caller is not authorized to perform the operation. |
 | 10 | StorageSchemaTooNew | `upgrade_storage()` called on a deployment whose `storage_schema_version` is newer than this WASM knows about. |
 | 11 | StorageSchemaTooOld | `upgrade_storage()` called but the schema is already at or beyond the version this WASM implements. |
 | 12 | ContractPaused | The contract is paused and cannot perform the requested operation. |
-| 13 | InvalidSettlementRef | `settlement_ref` was empty or exceeded the maximum allowed length. |
+| 13 | InvalidSettlementRef | `settlement_ref` was empty, exceeded 128 chars, or was not in canonical form (lowercase letters, digits, hyphens only). |
 | 14 | NoPendingAdmin | `accept_admin()` was called but no admin transfer proposal is pending. |
 | 15 | PendingAdminExists | `propose_admin()` was called while an admin transfer proposal is already pending. |
 | 16 | InvalidProposedAdmin | `propose_admin()` was called with the current admin (or another invalid address). |
 | 17 | HistoryIndexRebuildFailed | `rebuild_history_index()` failed to rebuild the payment history index; check storage consistency. |
 | 18 | MigrationRequired | `rebuild_history_index()` was called on a deployment whose storage schema is not yet current; run `upgrade_storage()` first. |
 | 19 | HistoryIndexIncomplete | The payment history index is incomplete and must be rebuilt via `rebuild_history_index()`. |
-| 20 | SettlementRefAlreadyUsed | The settlement reference has already been used for a different invoice; each settlement reference must be globally unique across all payments. |
+| 20 | SettlementRefAlreadyUsed | The settlement reference is already recorded. Ambiguous on its own — call `settlement_ref_owner()` to tell a benign retry (same invoice) from a genuine conflict (different invoice) apart (issue #495). |
+| 21 | MustBePausedForUpgrade | `upgrade()` was called while the contract is not paused; the contract must stay paused for the whole `upgrade()` → `upgrade_storage()` window. |
+| 22 | LegacyPaymentMigrationBatchTooLarge | `migrate_legacy_payments()` was called with more invoice_ids than `MAX_LEGACY_MIGRATION_BATCH` (20) in one call; split the batch across multiple calls. |
 
 #### Typed error manifest (off-chain reference)
 
@@ -736,12 +840,13 @@ tests) when the client's understanding of the ABI is what's stale.
 
 ```rust
 pub struct PaymentRecord {
-    pub invoice_id:    String,   // e.g. "invoisio-abc123"
+    pub invoice_id:    String,   // e.g. "invoisio-abc123"; canonical, ≤ 64 chars
     pub payer:         Address,  // Stellar account that paid
     pub asset:         Asset,    // Native XLM or Token(code, issuer)
     pub amount:        i128,     // stroops for XLM; token-specific decimals
     pub timestamp:     u64,      // ledger Unix timestamp at recording time
-    pub settlement_ref: String,  // normalised settlement reference (≤ 128 chars)
+    pub settlement_ref: String,  // SHA-256 commitment of the settlement reference passed to
+                                  // record_payment — not the plaintext itself (issue #512)
 }
 
 pub enum Asset {
@@ -754,16 +859,18 @@ pub enum Asset {
 
 ### Emitted events
 
-Every `record_payment` call publishes a flattened event payload so off-chain indexers and backends can parse it reliably:
+Every `record_payment` call publishes a minimized event payload (issue #512) — just enough to signal that a payment was recorded, not what it contains:
 
 ```
 Topics : (Symbol "invoice_payment_recorded")
-Data   : InvoicePaymentRecorded { schema_version, invoice_id, payer, asset_code, asset_issuer, amount, settlement_ref }
+Data   : InvoicePaymentRecorded { schema_version, invoice_id }
 ```
+
+Before issue #512 this event carried the full payment record (`payer`, `asset_code`, `asset_issuer`, `amount`, `settlement_ref`). That completely bypassed every read-method access-control decision in the contract: anyone streaming `getEvents` could reconstruct the entire payment ledger regardless of which read methods were permissionless. The event now only tells a consumer *that* `invoice_id` was recorded — a consumer that needs the full record must already know `invoice_id` and call `get_payment(invoice_id)` (unauthenticated, gated only on already knowing the id).
 
 Note: The `tx_hash` is not directly inside the payload, but is automatically included by Horizon in the event envelope when fetching via RPC.
 
-The leading `schema_version` field (currently `1`, see `EVENT_SCHEMA_VERSION` in `events.rs`) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
+The leading `schema_version` field (currently `2`, see `EVENT_SCHEMA_VERSION` in `events.rs` — bumped from `1` for the issue #512 payload shrink) lets off-chain indexers detect the event payload shape and stay forward-compatible. Consumers should read `schema_version` first and branch on it; when the payload changes in a breaking way the version is bumped (and, per the event compatibility policy above, a new event name may also be introduced).
 
 Subscribe and decode via CLI:
 ```sh
@@ -982,7 +1089,11 @@ const result = await client.recordPayment({
   assetCode: 'USDC',
   assetIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
   amount: 1_500_000_000n,
-  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference
+  settlementRef: 'sha256-abcdef...', // required: normalised settlement reference the
+                                      // backend generated. The contract stores a SHA-256
+                                      // COMMITMENT of this value on-chain, not the string
+                                      // itself (issue #512) — the backend that generated
+                                      // it can still dedupe/verify by hashing its own copy.
 });
 console.log(`Confirmed — hash: ${result.hash}, ledger: ${result.ledger}`);
 
@@ -1014,6 +1125,20 @@ try {
   }
 }
 
+// Enumerate and audit the allowlist without already knowing which pairs to
+// ask about (issue #464):
+const allowlistCount = await client.getAllowlistCount();
+let cursor = 0;
+while (true) {
+  const page = await client.getAllowedAssets(cursor, 25);
+  for (const { code, issuer } of page.records) {
+    console.log(`allowed: ${code} / ${issuer}`);
+  }
+  if (!page.hasMore) break;
+  cursor = page.nextCursor;
+}
+console.log(`Total allowlisted assets: ${allowlistCount}`);
+
 // ── Read (permissionless) ────────────────────────────────────────────────────
 const config = await client.getConfig();
 console.log(config.initialized, config.admin, config.allowlistMode.nativeAllowed);
@@ -1022,9 +1147,18 @@ const exists = await client.hasPayment('invoisio-abc123');
 if (exists) {
   const record = await client.getPayment('invoisio-abc123');
   console.log(record.invoiceId, record.amount, record.timestamp);
+  // record.settlementRef is a SHA-256 commitment, not the plaintext (issue #512).
 }
 
-const total = await client.getPaymentCount();
+// ── Read (admin-gated bulk/volume reads — issue #512) ────────────────────────
+// payment_count/payment_history/settlement_ref_history/settlement_ref_index_status
+// all enumerate or summarize activity across the whole contract, so they're
+// gated to the admin — pass the admin's PUBLIC key (adminPublicKey). No secret
+// key is required for the read itself; Soroban treats the transaction's own
+// source account as implicitly authorising its own require_auth() check during
+// simulation.
+const ADMIN_PUBLIC_KEY = process.env.MERCHANT_PUBLIC_KEY!; // the contract admin's G... address
+const total = await client.getPaymentCount(ADMIN_PUBLIC_KEY);
 console.log(`Total payments on-chain: ${total}`);
 ```
 

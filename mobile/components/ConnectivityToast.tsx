@@ -1,5 +1,11 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, Text, StyleSheet, Platform } from "react-native";
+import {
+  Animated,
+  Text,
+  StyleSheet,
+  Platform,
+  AccessibilityInfo,
+} from "react-native";
 import { useConnectivity } from "../hooks/use-connectivity";
 
 export function ConnectivityToast() {
@@ -31,12 +37,40 @@ export function ConnectivityToast() {
     return "";
   };
 
+  const getAnnouncement = () => {
+    if (isOffline) return "You are offline";
+    if (isDegraded) return "Network is unstable";
+    return "";
+  };
+
+  // Announce connectivity loss instead of relying on colour alone. The
+  // announcement text is computed inline so every referenced value is
+  // covered by the deps list; wasHidden guards against duplicates.
+  const wasHidden = useRef(true);
+  useEffect(() => {
+    const shouldShow = isOffline || isDegraded;
+    if (shouldShow && wasHidden.current) {
+      wasHidden.current = false;
+      AccessibilityInfo.announceForAccessibility(
+        isOffline ? "You are offline" : "Network is unstable",
+      );
+    } else if (!shouldShow) {
+      wasHidden.current = true;
+    }
+  }, [isOffline, isDegraded]);
+
   const backgroundColor = isOffline ? "#DC2626" : "#F59E0B";
 
   if (!isOffline && !isDegraded) return null;
 
   return (
-    <Animated.View style={[styles.container, { backgroundColor, transform: [{ translateY }] }]}>
+    <Animated.View
+      accessible
+      accessibilityRole="alert"
+      accessibilityLabel={getAnnouncement()}
+      accessibilityLiveRegion="assertive"
+      style={[styles.container, { backgroundColor, transform: [{ translateY }] }]}
+    >
       <Text style={styles.text}>{getMessage()}</Text>
     </Animated.View>
   );
