@@ -66,6 +66,7 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.19.0",
     "redis": "^5.11.0",
+    "ipaddr.js": "^2.5.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "throttle": "^1.0.3",
