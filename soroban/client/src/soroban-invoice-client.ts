@@ -41,6 +41,7 @@ import {
   MAX_INVOICE_ID_LEN,
   MAX_LEGACY_MIGRATION_BATCH,
   MAX_SETTLEMENT_REF_LEN,
+  MAX_TTL_EXTEND_BATCH,
   parseContractError,
 } from './codec';
 
@@ -547,6 +548,46 @@ export class SorobanInvoiceClient {
     return this.submitWrite(tx);
   }
 
+  /**
+   * Extend persistent storage TTL across a bounded range of payment history records,
+   * write logs, and settlement references.
+   *
+   * @param cursor - zero-based history slot to start from (default 0)
+   * @param limit - maximum slots to process (default 20, capped at {@link MAX_TTL_EXTEND_BATCH})
+   *
+   * The **contract admin** keypair must be provided via `signerSecretKey`.
+   *
+   * @throws {Error} if `limit` exceeds {@link MAX_TTL_EXTEND_BATCH}
+   * @throws {SorobanContractError} on contract-level rejection (e.g. `Unauthorized`)
+   */
+  async extendHistoryTtl(cursor = 0, limit = MAX_TTL_EXTEND_BATCH): Promise<TransactionResult> {
+    this.requireSigner();
+    if (limit > MAX_TTL_EXTEND_BATCH) {
+      throw new Error(
+        `limit must be at most ${MAX_TTL_EXTEND_BATCH}, got ${limit}`,
+      );
+    }
+    const account = await this.server.getAccount(this.keypair!.publicKey());
+    const caller = this.keypair!.publicKey();
+
+    const tx = new TransactionBuilder(account, {
+      fee: BASE_FEE,
+      networkPassphrase: this.config.networkPassphrase,
+    })
+      .addOperation(
+        this.contract.call(
+          'extend_history_ttl',
+          encodeAddress(caller),
+          encodeU32(cursor),
+          encodeU32(limit),
+        ),
+      )
+      .setTimeout(TX_TIMEOUT_SECONDS)
+      .build();
+
+    return this.submitWrite(tx);
+  }
+
   // ─── Read operations (permissionless) ──────────────────────────────────────
 
   /**
@@ -585,7 +626,9 @@ export class SorobanInvoiceClient {
   /**
    * Fetch the full `PaymentRecord` for an invoice.
    *
-   * @throws {SorobanContractError} with code `PaymentNotFound` if not recorded
+   * @throws {SorobanContractError} with code `PaymentArchived` if the record exists on-chain
+   *   in the write log but has expired due to TTL policy (restorable via RestoreFootprint)
+   * @throws {SorobanContractError} with code `PaymentNotFound` if never recorded
    */
   async getPayment(invoiceId: string): Promise<PaymentRecord> {
     const retval = await this.simulateView('get_payment', encodeString(invoiceId));

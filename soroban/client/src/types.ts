@@ -89,6 +89,24 @@ export interface PaymentHistoryPage {
   readonly records: PaymentRecord[];
   readonly nextCursor: number;
   readonly hasMore: boolean;
+  /**
+   * Number of index slots in this page's range that represent unindexed
+   * corruption gaps (where neither PaymentHistory nor PaymentLog hold an entry).
+   */
+  readonly gapsSkipped: number;
+  /**
+   * Number of index slots in this page's range that hold a valid entry in
+   * PaymentLog but whose persistent PaymentHistory record has expired and
+   * been archived due to TTL expiration.
+   */
+  readonly archivedSkipped: number;
+}
+
+/** Result of extending TTL across a bounded range of history records. */
+export interface ExtendHistoryTtlResult {
+  readonly extendedCount: number;
+  readonly nextCursor: number;
+  readonly hasMore: boolean;
 }
 
 /**

@@ -579,9 +579,9 @@ event**, giving the Invoisio backend two independent reconciliation paths:
 | **Admin-gated writes** | Only the backend service account (`admin`) may call `record_payment` |
 | **Two-step admin handoff** | `propose_admin` (current admin) + `accept_admin` (proposed admin) — no single transaction can change the admin, so a lost/compromised key can never hand off alone |
 | **One record per `invoice_id`** | Idempotent; prevents double-counting in reconciliation |
-| **Persistent storage** | Records survive ledger archival windows |
+| **Tiered storage retention** | Instance storage is permanent; persistent storage has a 90-day retention window with bulk extension (`extend_history_ttl`) and archival restoration |
 | **Minimized events** | Only `schema_version` + `invoice_id` in each event (issue #512); a subscriber that needs the full record must already know `invoice_id` and call `get_payment` |
-| **Privacy-by-default reads** | Bulk/volume reads (`payment_history`, `payment_count`, `settlement_ref_history`, `settlement_ref_index_status`, `history_index_status`) are admin-gated; `settlement_ref` is stored as a SHA-256 commitment, not plaintext (issue #512) — see `contracts/invoice-payment/README.md`'s "Disclosure guarantee / threat model" section |
+| **Privacy-by-default reads** | Bulk/volume reads (`payment_history`, `payment_count`, `settlement_ref_history`, `settlement_ref_index_status`, `history_index_status`, `extend_history_ttl`) are admin-gated; `settlement_ref` is stored as a SHA-256 commitment, not plaintext (issue #512) — see `contracts/invoice-payment/README.md`'s "Disclosure guarantee / threat model" section |
 
 #### Admin transfer flow
 
@@ -755,6 +755,15 @@ The contract uses `#[contracterror]`; these codes are returned as `ScError::Cont
 | 20 | SettlementRefAlreadyUsed | The settlement reference is already recorded. Ambiguous on its own — call `settlement_ref_owner()` to tell a benign retry (same invoice) from a genuine conflict (different invoice) apart (issue #495). |
 | 21 | MustBePausedForUpgrade | `upgrade()` was called while the contract is not paused; the contract must stay paused for the whole `upgrade()` → `upgrade_storage()` window. |
 | 22 | LegacyPaymentMigrationBatchTooLarge | `migrate_legacy_payments()` was called with more invoice_ids than `MAX_LEGACY_MIGRATION_BATCH` (20) in one call; split the batch across multiple calls. |
+| 23 | IssuerMigrationIncomplete | `upgrade_storage()` rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call `upgrade_storage()` again while paused. |
+| 24 | PaymentArchived | `get_payment()` called for an `invoice_id` that exists in the write log but has expired due to TTL policy. The record can be restored via a Stellar `RestoreFootprint` operation. |
+
+#### Retention and Archival Management
+
+The contract implements a 3-tier retention policy:
+1. **Hot Tier (Instance Storage):** Contract config and sequence counters are permanent and refreshed on every read/write.
+2. **Active Rent Tier (Persistent Storage):** Payment records and history slots are extended to `BUMP_TTL` (~90 days / 1,555,200 ledgers) upon access. Administrators perform bulk sweeps via `extend_history_ttl` (`./invoke-extend-history-ttl.sh`).
+3. **Cold Archival Tier (Network Archival):** Expired records return `PaymentArchived` (code 24) rather than `PaymentNotFound` (code 4), and are restorable on demand via `./invoke-restore-record.sh` without re-anchoring or index corruption. See [`docs/retention-and-restore.md`](docs/retention-and-restore.md) for full details.
 
 #### Typed error manifest (off-chain reference)
 

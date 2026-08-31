@@ -177,6 +177,12 @@ export const CONTRACT_ERROR_MANIFEST = [
     meaning:
       'upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again. Stay paused until storage_schema_version is current.',
   },
+  {
+    code: 24,
+    name: 'PaymentArchived',
+    meaning:
+      'get_payment() was called for an invoice_id that exists in the on-chain write log but whose persistent record has expired and been archived due to TTL expiration. It can be restored via a RestoreFootprint operation before reading.',
+  },
 ] as const satisfies readonly ContractErrorManifestEntry[];
 
 /** Union of every known contract error name (excludes the `Unknown` fallback). */

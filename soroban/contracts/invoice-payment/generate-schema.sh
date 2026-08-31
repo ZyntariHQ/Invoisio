@@ -66,6 +66,7 @@ declare -A ERROR_DESC=(
   [MustBePausedForUpgrade]="upgrade() was called while the contract is not paused; the contract must stay paused for the whole upgrade() -> upgrade_storage() window."
   [LegacyPaymentMigrationBatchTooLarge]="migrate_legacy_payments() was called with more invoice_ids than MAX_LEGACY_MIGRATION_BATCH in one call; split the batch across multiple calls."
   [IssuerMigrationIncomplete]="upgrade_storage() rewrote a bounded batch of Token issuers from String to Address and has more payment-log slots left; call upgrade_storage() again while paused."
+  [PaymentArchived]="get_payment() called for an invoice_id that exists in the write log but has expired due to TTL policy."
 )
 
 # "Name = code," lines inside the ContractError enum, in declaration order.
@@ -127,6 +128,7 @@ declare -A METHOD_AUTH=(
   [is_paused]="none"
   [rebuild_history_index]="admin"
   [history_index_status]="admin"
+  [extend_history_ttl]="admin"
   [migrate_legacy_payments]="admin"
 )
 declare -A METHOD_DESC=(
@@ -159,6 +161,7 @@ declare -A METHOD_DESC=(
   [is_paused]="Return true if the contract is currently paused."
   [rebuild_history_index]="Rebuild the payment history index from existing records after a corruption or incomplete migration."
   [history_index_status]="Admin-gated (issue #512): return (history_count, payment_count, is_consistent) diagnostic status for the history index."
+  [extend_history_ttl]="Admin-gated: extend persistent storage TTL across a bounded range of payment history records, write logs, and settlement references."
   [migrate_legacy_payments]="Migrate a caller-supplied, bounded batch of legacy Payment(invoice_id) keys to PaymentV1, removing each legacy entry as it migrates. Returns (migrated, already_current, not_found)."
 )
 

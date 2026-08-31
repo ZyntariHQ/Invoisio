@@ -67,6 +67,12 @@ export const MAX_SETTLEMENT_REF_LEN = 128;
  */
 export const MAX_LEGACY_MIGRATION_BATCH = 20;
 
+/**
+ * Maximum number of payment records/history slots extended in one
+ * `extendHistoryTtl` call. Mirrors `storage::MAX_TTL_EXTEND_BATCH`.
+ */
+export const MAX_TTL_EXTEND_BATCH = 20;
+
 const CANONICAL_IDENTIFIER_PATTERN = /^[a-z0-9-]+$/;
 
 /**
@@ -243,6 +249,8 @@ export function decodePaymentHistoryPage(scVal: xdr.ScVal): PaymentHistoryPage {
     records: records.map((record) => decodePaymentRecordFromNative(record)),
     nextCursor: Number(raw['next_cursor']),
     hasMore: Boolean(raw['has_more']),
+    gapsSkipped: Number(raw['gaps_skipped'] ?? 0),
+    archivedSkipped: Number(raw['archived_skipped'] ?? 0),
   };
 }
 

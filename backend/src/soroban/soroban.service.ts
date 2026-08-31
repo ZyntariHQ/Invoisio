@@ -139,7 +139,13 @@ export class SorobanService implements OnModuleInit {
     try {
       const result = await this.client.getPayment(invoiceId);
       return !!result;
-    } catch {
+    } catch (error: any) {
+      if (error?.code === "PaymentArchived" || error?.numericCode === 24) {
+        this.logger.log(
+          `Invoice ${invoiceId} is recorded on-chain but archived due to TTL expiration`,
+        );
+        return true;
+      }
       return false;
     }
   }
@@ -150,7 +156,12 @@ export class SorobanService implements OnModuleInit {
     }
     try {
       return await this.client.getPayment(invoiceId);
-    } catch {
+    } catch (error: any) {
+      if (error?.code === "PaymentArchived" || error?.numericCode === 24) {
+        this.logger.warn(
+          `Invoice ${invoiceId} payment record is archived on-chain and needs restoration before reading`,
+        );
+      }
       return null;
     }
   }

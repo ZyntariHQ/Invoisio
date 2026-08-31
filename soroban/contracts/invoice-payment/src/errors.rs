@@ -146,4 +146,11 @@ pub enum ContractError {
     /// from `IssuerMigrationCursor` (issue #480). The contract must stay
     /// paused until `version_info().storage_schema_version` reads current.
     IssuerMigrationIncomplete = 23,
+
+    /// `get_payment()` was called for an `invoice_id` that was recorded on-chain
+    /// in the write log, but whose persistent payment record has expired and been
+    /// archived by the network due to TTL expiration. The record can be restored
+    /// using a Soroban RestoreFootprint operation before reading it again.
+    PaymentArchived = 24,
 }
+

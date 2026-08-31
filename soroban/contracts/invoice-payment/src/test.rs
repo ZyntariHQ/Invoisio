@@ -324,8 +324,8 @@ fn test_payment_history_skips_missing_slot_mid_page() {
         );
     }
 
-    // Corrupt slot 2 only, leaving the count untouched — a hole in the
-    // middle of an otherwise-dense index, e.g. from an expired TTL entry.
+    // When slot 2 PaymentHistory is removed but PaymentLog remains (simulating archival),
+    // it is reported in archived_skipped rather than gaps_skipped.
     env.as_contract(&client.address, || {
         env.storage()
             .persistent()
@@ -334,7 +334,8 @@ fn test_payment_history_skips_missing_slot_mid_page() {
 
     let page = client.payment_history(&_admin, &0u32, &10u32);
     assert_eq!(page.records.len(), 4);
-    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.archived_skipped, 1);
+    assert_eq!(page.gaps_skipped, 0);
     assert_eq!(page.next_cursor, 5);
     assert!(!page.has_more);
     let returned_ids: alloc::vec::Vec<_> = page.records.iter().map(|r| r.invoice_id).collect();
@@ -404,7 +405,13 @@ fn test_payment_history_missing_slot_does_not_deadlock_pagination_loop() {
     }
 
     assert_eq!(total_records, 5);
-    assert_eq!(total_gaps, 1);
+    // Slot 0 was removed but PaymentLog entry exists — classified as archived_skipped, not gaps_skipped.
+    assert_eq!(total_gaps, 0);
+    let mut total_archived = 0u32;
+    // Re-run a single full page to collect archived_skipped count.
+    let full_page = client.payment_history(&_admin, &0u32, &10u32);
+    total_archived += full_page.archived_skipped;
+    assert_eq!(total_archived, 1);
     assert_eq!(cursor, 6);
 }
 
@@ -436,13 +443,17 @@ fn test_payment_history_has_no_gaps_after_rebuild() {
     });
 
     let corrupted = client.payment_history(&admin, &0u32, &10u32);
-    assert_eq!(corrupted.gaps_skipped, 1);
+    assert_eq!(corrupted.archived_skipped, 1);
+    assert_eq!(corrupted.gaps_skipped, 0);
     assert_eq!(corrupted.records.len(), 3);
 
+    // After rebuild: rebuild re-writes PaymentHistory(1) from the existing PaymentV1 record,
+    // so the slot is restored and archived_skipped drops to 0, records.len() is 4.
     client.rebuild_history_index(&admin);
 
     let rebuilt = client.payment_history(&admin, &0u32, &10u32);
     assert_eq!(rebuilt.gaps_skipped, 0);
+    assert_eq!(rebuilt.archived_skipped, 0);
     assert_eq!(rebuilt.records.len(), 4);
     assert!(!rebuilt.has_more);
 }
@@ -6560,3 +6571,249 @@ fn test_migrate_schema_v5_to_v6_rewrites_string_issuers() {
     );
     assert!(client.has_payment(&String::from_str(&env, "inv-post-migrate")));
 }
+
+// ─── TTL Archival, Retention & Extension Tests ──────────────────────────────
+
+#[test]
+fn test_archived_payment_distinguished_from_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, _admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    let invoice_id = String::from_str(&env, "invoisio-archived-01");
+    client.record_payment(
+        &invoice_id,
+        &payer,
+        &Asset::Native,
+        &10_000_000i128,
+        &String::from_str(&env, "settle-archived-01"),
+    );
+
+    // Verify readable while live
+    assert!(client.get_payment(&invoice_id).amount == 10_000_000i128);
+
+    // Simulate TTL archival of persistent record: PaymentV1 key removed/expired,
+    // while PaymentLog remains in instance/history write log
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentV1(invoice_id.clone()));
+    });
+
+    // An archived record returns PaymentArchived (code 24), NOT PaymentNotFound (code 4)
+    let archived_result = client.try_get_payment(&invoice_id);
+    assert_eq!(archived_result, Err(Ok(ContractError::PaymentArchived)));
+
+    // A never-recorded invoice returns PaymentNotFound (code 4)
+    let never_recorded = String::from_str(&env, "invoisio-never-recorded");
+    let not_found_result = client.try_get_payment(&never_recorded);
+    assert_eq!(not_found_result, Err(Ok(ContractError::PaymentNotFound)));
+}
+
+#[test]
+fn test_payment_history_distinguishes_archived_from_corrupted_slots() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..4u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-distinguish-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &Asset::Native,
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-distinguish-{idx:02}")),
+        );
+    }
+
+    // Slot 1: Archived record (PaymentHistory removed, PaymentLog exists)
+    // Slot 2: Corrupted gap (both PaymentHistory and PaymentLog removed)
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(1));
+
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(2));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentLog(2));
+    });
+
+    let page = client.payment_history(&admin, &0u32, &10u32);
+    // Slots 0 and 3 are live
+    assert_eq!(page.records.len(), 2);
+    // Slot 1 counted as archived
+    assert_eq!(page.archived_skipped, 1);
+    // Slot 2 counted as unindexed/corrupted gap
+    assert_eq!(page.gaps_skipped, 1);
+    assert_eq!(page.next_cursor, 4);
+    assert!(!page.has_more);
+}
+
+#[test]
+fn test_extend_history_ttl_admin_auth_and_batching() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..5u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-extend-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &Asset::Native,
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-extend-{idx:02}")),
+        );
+    }
+
+    // Unauthorized caller rejected
+    let attacker = Address::generate(&env);
+    let unauth_result = client.try_extend_history_ttl(&attacker, &0u32, &2u32);
+    assert_eq!(unauth_result, Err(Ok(ContractError::Unauthorized)));
+
+    // Batch 1: indices 0..2
+    let (extended_1, next_1, has_more_1) = client.extend_history_ttl(&admin, &0u32, &2u32);
+    assert_eq!(extended_1, 2);
+    assert_eq!(next_1, 2);
+    assert!(has_more_1);
+
+    // Batch 2: indices 2..4
+    let (extended_2, next_2, has_more_2) = client.extend_history_ttl(&admin, &next_1, &2u32);
+    assert_eq!(extended_2, 2);
+    assert_eq!(next_2, 4);
+    assert!(has_more_2);
+
+    // Batch 3: index 4..5 (final item)
+    let (extended_3, next_3, has_more_3) = client.extend_history_ttl(&admin, &next_2, &2u32);
+    assert_eq!(extended_3, 1);
+    assert_eq!(next_3, 5);
+    assert!(!has_more_3);
+}
+
+#[test]
+fn test_extend_history_ttl_succeeds_while_paused() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+    record_xlm(&env, &client, "invoisio-paused-extend", &payer, 10_000_000);
+
+    // Pause the contract
+    client.set_paused(&admin, &true);
+    assert!(client.is_paused());
+
+    // extend_history_ttl is exempt from pause and succeeds
+    let (extended, next_cursor, has_more) = client.extend_history_ttl(&admin, &0u32, &10u32);
+    assert_eq!(extended, 1);
+    assert_eq!(next_cursor, 1);
+    assert!(!has_more);
+}
+
+#[test]
+fn test_history_index_status_remains_consistent_on_archival() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-status-arch-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &Asset::Native,
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-status-arch-{idx:02}")),
+        );
+    }
+
+    // Both counters are 3, status is consistent
+    assert_eq!(client.history_index_status(&admin), (3, 3, true));
+
+    // Simulate archival of persistent history record 0 and 1
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(0));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(1));
+    });
+
+    // Archival of persistent entries does not corrupt the index metadata:
+    // status remains consistent (3, 3, true) without false alarms
+    let (hist_count, pay_count, is_consistent) = client.history_index_status(&admin);
+    assert_eq!(hist_count, 3);
+    assert_eq!(pay_count, 3);
+    assert!(is_consistent);
+}
+
+#[test]
+fn test_rebuild_history_index_with_archived_records_preserves_count_and_mapping() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin) = setup(&env);
+
+    let payer = Address::generate(&env);
+    client.set_allow_native(&true);
+
+    for idx in 0..3u32 {
+        let invoice_id = String::from_str(&env, &format!("invoisio-rebuild-arch-{idx:02}"));
+        client.record_payment(
+            &invoice_id,
+            &payer,
+            &Asset::Native,
+            &((idx as i128 + 1) * 10_000_000i128),
+            &String::from_str(&env, &format!("settle-rebuild-arch-{idx:02}")),
+        );
+    }
+
+    // Archive record 0 (PaymentV1 and PaymentHistory removed, PaymentLog preserved)
+    let inv_0 = String::from_str(&env, "invoisio-rebuild-arch-00");
+    env.as_contract(&client.address, || {
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentV1(inv_0));
+        env.storage()
+            .persistent()
+            .remove(&DataKey::PaymentHistory(0));
+        // Simulate counter desync
+        env.storage()
+            .instance()
+            .set(&DataKey::PaymentHistoryCount, &1u32);
+    });
+
+    assert_eq!(client.history_index_status(&admin), (1, 3, false));
+
+    // Rebuild index
+    client.rebuild_history_index(&admin);
+
+    // Index count is restored to 3, matching PaymentCount
+    assert_eq!(client.history_index_status(&admin), (3, 3, true));
+
+    // Page reads show live records 1 and 2, with slot 0 properly recognized as archived
+    let page = client.payment_history(&admin, &0u32, &10u32);
+    assert_eq!(page.records.len(), 2);
+    assert_eq!(page.archived_skipped, 1);
+    assert_eq!(page.gaps_skipped, 0);
+    assert_eq!(page.records.get(0).unwrap().invoice_id, String::from_str(&env, "invoisio-rebuild-arch-01"));
+    assert_eq!(page.records.get(1).unwrap().invoice_id, String::from_str(&env, "invoisio-rebuild-arch-02"));
+}
+

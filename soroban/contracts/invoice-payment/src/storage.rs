@@ -3,83 +3,64 @@ use crate::events;
 use soroban_sdk::{contracttype, Address, Env, String, TryFromVal, Val, Vec};
 
 // ============================================================================
-// TTL Policy
+// Retention and TTL Policy
 // ============================================================================
 //
-// The contract uses two TTL thresholds:
-// - MIN_TTL = 17,280 ledgers (~1 day)  - extend when remaining TTL falls below this
-// - BUMP_TTL = 518,400 ledgers (~30 days) - target TTL after extension
+// The contract implements a tiered retention policy separating what must be
+// permanently retrievable on-chain from what may be archived and reconstructed
+// or restored on demand:
 //
-// TTL Extension Strategy:
+// 1. HOT TIER (Instance Storage — Permanently Online):
+//    - Contract configuration (Admin, PendingAdmin, ContractMeta, Paused state,
+//      AllowNative policy) and running sequence counters (PaymentCount,
+//      PaymentHistoryCount, SettlementRefCount, AllowListCount, AllowListLogCount).
+//    - Instance storage is extended on EVERY read and write. As long as any
+//      part of the contract is invoked, instance storage never expires.
 //
-// 1. WRITE operations (any state mutation):
-//    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after writing
-//    - This applies to: set_admin, set_pending_admin, set_contract_meta,
-//      set_native_allowed, set_paused, bump_count, bump_history_count
+// 2. ACTIVE RENT TIER (Persistent Storage — Quarterly Retention Window):
+//    - Payment records (PaymentV1), history index slots (PaymentHistory),
+//      write-order payment logs (PaymentLog), settlement commitments
+//      (SettlementRef, SettlementRefLog), and allowlist entries (AllowListV6,
+//      AllowListLog, AllowListIndexV6).
+//    - Extended to BUMP_TTL (1,555,200 ledgers ≈ 90 days) on access.
+//    - Active retention is maintained across unaccessed records via the
+//      admin-gated `extend_history_ttl` bulk entrypoint, which extends TTLs
+//      across bounded batches of records without requiring individual reads.
 //
-// 2. CRITICAL READ operations (instance storage that must survive):
-//    - Always call `extend_ttl(MIN_TTL, BUMP_TTL)` after reading
-//    - This applies to: get_admin, get_pending_admin_opt, get_pending_admin,
-//      has_admin, has_pending_admin, is_native_allowed, is_paused,
-//      get_count, get_history_count, get_contract_config, get_contract_meta,
-//      get_storage_schema_version, get_state_contract_version,
-//      is_schema_compatible, is_history_index_consistent,
-//      get_missing_history_count, get_payment_count
+// 3. COLD ARCHIVAL TIER (Expired Persistent Storage — Restorable):
+//    - Persistent records not accessed or extended within the retention window
+//      are archived by the Stellar network.
+//    - Archival is NOT corruption: the contract read paths distinguish
+//      archived records (returning ContractError::PaymentArchived) from records
+//      that were never recorded (ContractError::PaymentNotFound).
+//    - PaymentHistoryPage distinguishes archived slots (archived_skipped) from
+//      unindexed corruption gaps (gaps_skipped).
+//    - Archived persistent entries remain restorable via Stellar's native
+//      RestoreFootprint operation (see soroban/docs/retention-and-restore.md)
+//      and reconstructible off-chain via Soroban events (`invoice_payment_recorded`).
 //
-// 3. PERSISTENT READ operations (payment records, history, allowlist):
-//    - TTL is extended on read via individual get/read functions
-//    - This applies to: get_payment, get_history_record, is_asset_allowed
-//
-// Rationale:
-// - Instance storage contains critical contract configuration (admin, pause state,
-//   allowlist policy, counters) that must remain available for as long as the
-//   contract is actively used.
-// - Permissionless views (config, admin, pending_admin, is_paused, payment_count,
-//   history_count) are frequently called by off-chain tooling and should keep
-//   instance storage alive without requiring admin intervention.
-// - Persistent storage records are bumped on read/write to prevent archival
-//   while still being accessed.
-//
-// Idempotency:
-// - `extend_ttl` is idempotent - calling it multiple times is safe
-// - The contract maintains a "bump on access" pattern that naturally keeps
-//   actively-used storage alive
-//
-// Maintenance:
-// - If adding a new instance storage read, ALWAYS add `extend_ttl` after the read
-// - If adding a new instance storage write, ALWAYS add `extend_ttl` after the write
-//
-// TTL bumps vs. data writes — reads and simulation (issue #508):
-// - `extend_ttl` only pushes out a ledger entry's rent-paid live-until
-//   ledger; it never touches the entry's stored VALUE. It is technically
-//   part of a transaction's read-write footprint (Soroban tracks TTL on the
-//   same key), but it never creates, duplicates, or deletes a record — a
-//   fundamentally different, much lighter operation than a real `.set()` or
-//   `.remove()`.
-// - Every permissionless read in this contract extends TTL on a hit and
-//   nothing more. `simulateTransaction` (the RPC read path, `invoke-*.sh`,
-//   etc.) computes and returns this footprint automatically and correctly —
-//   it is expected and does not make a read "fail" or require a real
-//   submitted transaction; this is the normal, documented Soroban pattern
-//   for "bump on access" storage.
-// - What genuinely breaks read-only usage is a read that also mutates
-//   *data* — e.g. `get_payment`'s legacy-key fallback used to copy the
-//   record into the versioned key on every hit (issue #508). That has been
-//   removed: `get_payment`/`has_payment` are pure reads (TTL bump only); the
-//   copy-and-clean-up-the-legacy-key step now only happens through the
-//   explicit, admin-gated `migrate_legacy_payment_key` /
-//   `migration::migrate_legacy_payments`.
-// - See the "Access control model" doc on `InvoicePaymentContract` in
-//   `lib.rs` for the per-method footprint guarantee.
+// Ledger Rent Economics:
+// - At ~5-second ledger close times:
+//   MIN_TTL  = 120 960 ledgers ≈ 7 days   (extend when remaining TTL falls below this)
+//   BUMP_TTL = 1 555 200 ledgers ≈ 90 days (target TTL after extension)
+// - Bumping to 90 days costs ~0.0001 XLM per small entry on Stellar mainnet,
+//   keeping on-chain payment retention predictable and economical while
+//   allowing quarterly batch sweeps.
 // ============================================================================
 
 // TTL budget
 // At ~5-second ledger close times:
-//   MIN_TTL  = 17 280 ledgers ≈ 1 day   (extend when remaining TTL falls below this)
-//   BUMP_TTL = 518 400 ledgers ≈ 30 days (target TTL after extension)
+//   MIN_TTL  = 120 960 ledgers ≈ 7 days   (extend when remaining TTL falls below this)
+//   BUMP_TTL = 1 555 200 ledgers ≈ 90 days (target TTL after extension)
 
-pub(crate) const MIN_TTL: u32 = 17_280;
-pub(crate) const BUMP_TTL: u32 = 518_400;
+pub(crate) const MIN_TTL: u32 = 120_960;
+pub(crate) const BUMP_TTL: u32 = 1_555_200;
+
+/// Maximum number of payment records/history slots extended in one
+/// `extend_history_ttl` invocation. Keeps footprint and CPU well within
+/// network limits.
+pub const MAX_TTL_EXTEND_BATCH: u32 = 20;
+
 
 // Versioning
 
@@ -632,12 +613,17 @@ pub struct PaymentHistoryPage {
     pub next_cursor: u32,
     /// True when more entries are available after `next_cursor`.
     pub has_more: bool,
-    /// Number of history-index slots in `[cursor, next_cursor)` that were
-    /// expected to hold a record but did not (e.g. a corrupted or
-    /// partially-rebuilt index). Always `0` for a healthy index. Off-chain
-    /// tooling can use this to detect index corruption without inferring it
-    /// from record counts.
+    /// Number of history-index slots in `[cursor, next_cursor)` that represent
+    /// unindexed corruption gaps (where neither `PaymentHistory` nor `PaymentLog`
+    /// hold an entry). Always `0` for a healthy index. Off-chain tooling can use
+    /// this to detect index corruption and trigger `rebuild_history_index`.
     pub gaps_skipped: u32,
+    /// Number of history-index slots in `[cursor, next_cursor)` that hold a valid
+    /// recorded entry in `PaymentLog` but whose persistent `PaymentHistory` record
+    /// has expired and been archived by the network due to TTL policy. This is a
+    /// normal lifecycle state for older records. Off-chain tooling should use
+    /// `extend_history_ttl` or `RestoreFootprint`, NOT `rebuild_history_index`.
+    pub archived_skipped: u32,
 }
 
 /// A single settlement-reference → invoice_id mapping, as recorded by
@@ -884,6 +870,22 @@ fn payment_history_key(index: u32) -> DataKey {
     DataKey::PaymentHistory(index)
 }
 
+/// Read a [`PaymentRecord`] directly from the `PaymentV1` key, bypassing the
+/// archival-sentinel logic in [`get_payment`]. Used by migration to restore a
+/// `PaymentHistory` slot without triggering `PaymentArchived`.
+pub fn read_payment_value_v1(env: &Env, invoice_id: &String) -> Option<PaymentRecord> {
+    let key = payment_key_v1(invoice_id);
+    read_payment_value(env, &key)
+}
+
+/// Read a [`PaymentRecord`] directly from the legacy `Payment` key, bypassing
+/// the archival-sentinel logic in [`get_payment`]. Used by migration to restore
+/// a `PaymentHistory` slot without triggering `PaymentArchived`.
+pub fn read_payment_value_legacy(env: &Env, invoice_id: &String) -> Option<PaymentRecord> {
+    let key = payment_key_legacy(invoice_id);
+    read_payment_value(env, &key)
+}
+
 /// Return `true` if a [`PaymentRecord`] exists for `invoice_id`.
 /// Extends persistent storage TTL if record exists.
 pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
@@ -904,6 +906,22 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
     false
 }
 
+/// Check if an invoice_id was recorded in the write-order payment log.
+///
+/// Used to distinguish archived records (recorded in log, but persistent
+/// record expired) from records that were never recorded.
+pub fn is_invoice_in_log(env: &Env, invoice_id: &String) -> bool {
+    let count = get_count(env);
+    for i in 0..count {
+        if let Some(entry) = get_payment_log_entry(env, i) {
+            if &entry == invoice_id {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Read a stored [`PaymentRecord`]. Extends persistent storage TTL on
 /// whichever key (`PaymentV1` or the legacy `Payment` key) actually holds the
 /// record.
@@ -919,7 +937,9 @@ pub fn has_payment(env: &Env, invoice_id: &String) -> bool {
 /// `lib.rs`. Before this fix, this function performed that copy itself on
 /// every legacy hit and never removed the old key — see issue #508.
 ///
-/// Returns [`ContractError::PaymentNotFound`] if nothing has been recorded for
+/// Returns [`ContractError::PaymentArchived`] if the invoice was recorded on-chain
+/// in the payment log but its persistent record has expired and been archived.
+/// Returns [`ContractError::PaymentNotFound`] if nothing was ever recorded for
 /// `invoice_id`.
 pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, ContractError> {
     let v1_key = payment_key_v1(invoice_id);
@@ -936,14 +956,19 @@ pub fn get_payment(env: &Env, invoice_id: &String) -> Result<PaymentRecord, Cont
     // until an admin explicitly migrates it.
     let legacy_key = payment_key_legacy(invoice_id);
     let legacy_record = read_payment_value(env, &legacy_key);
-    match legacy_record {
-        Some(record) => {
-            env.storage()
-                .persistent()
-                .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
-            Ok(record)
-        },
-        None => Err(ContractError::PaymentNotFound),
+    if let Some(record) = legacy_record {
+        env.storage()
+            .persistent()
+            .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+        return Ok(record);
+    }
+
+    // Distinguish archived from absent: if recorded in the write log, it was
+    // anchored on-chain and has expired (restorable). Otherwise it was never recorded.
+    if is_invoice_in_log(env, invoice_id) {
+        Err(ContractError::PaymentArchived)
+    } else {
+        Err(ContractError::PaymentNotFound)
     }
 }
 
@@ -1059,8 +1084,10 @@ fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
 
 /// Read a bounded page of history starting at `cursor`.
 ///
-/// A missing slot (a hole left by a corrupted or partially-rebuilt index)
-/// is skipped rather than treated as the end of the index: `index` always
+/// Distinguishes between archived records (which hold a valid log entry in
+/// `PaymentLog` but whose `PaymentHistory` record expired) and unindexed/corrupted
+/// gaps (missing from both history and log). Gaps and archived slots are
+/// skipped rather than treated as the end of the index: `index` always
 /// advances by at least one slot per iteration, so `next_cursor` can never
 /// repeat a `cursor` the caller already passed in, and `has_more` reflects
 /// whether any slot at or after `next_cursor` remains to be scanned — never
@@ -1068,7 +1095,7 @@ fn get_history_record(env: &Env, index: u32) -> Option<PaymentRecord> {
 /// until it collects `capped_limit` records or exhausts the index, so a
 /// sparse index still fills pages as densely as the data allows.
 ///
-/// Extends instance TTL for history count and persistent TTL for records.
+/// Extends instance TTL for history count and persistent TTL for records read.
 pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHistoryPage {
     let total = get_history_count(env);
     let capped_limit = core::cmp::min(limit, MAX_PAYMENT_HISTORY_PAGE_SIZE);
@@ -1078,6 +1105,7 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
     let mut index = start;
     let mut collected: u32 = 0;
     let mut gaps_skipped: u32 = 0;
+    let mut archived_skipped: u32 = 0;
 
     while index < total && collected < capped_limit {
         match get_history_record(env, index) {
@@ -1085,7 +1113,13 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
                 records.push_back(record);
                 collected += 1;
             },
-            None => gaps_skipped += 1,
+            None => {
+                if get_payment_log_entry(env, index).is_some() {
+                    archived_skipped += 1;
+                } else {
+                    gaps_skipped += 1;
+                }
+            },
         }
         index += 1;
     }
@@ -1095,7 +1129,79 @@ pub fn get_payment_history_page(env: &Env, cursor: u32, limit: u32) -> PaymentHi
         next_cursor: index,
         has_more: index < total,
         gaps_skipped,
+        archived_skipped,
     }
+}
+
+/// Extend persistent TTL for a bounded range of payment history slots,
+/// associated payment records, payment logs, and settlement references.
+///
+/// Returns `(extended_count, next_cursor, has_more)`.
+pub fn extend_history_ttl_range(env: &Env, cursor: u32, limit: u32) -> (u32, u32, bool) {
+    let total = get_history_count(env);
+    let capped_limit = core::cmp::min(limit, MAX_TTL_EXTEND_BATCH);
+    let start = core::cmp::min(cursor, total);
+
+    let mut index = start;
+    let mut extended_count: u32 = 0;
+
+    while index < total && extended_count < capped_limit {
+        let history_key = payment_history_key(index);
+        if env.storage().persistent().has(&history_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&history_key, MIN_TTL, BUMP_TTL);
+        }
+
+        let log_key = payment_log_key(index);
+        if let Some(invoice_id) = env.storage().persistent().get::<_, String>(&log_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&log_key, MIN_TTL, BUMP_TTL);
+
+            let v1_key = payment_key_v1(&invoice_id);
+            if env.storage().persistent().has(&v1_key) {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&v1_key, MIN_TTL, BUMP_TTL);
+            }
+
+            let legacy_key = payment_key_legacy(&invoice_id);
+            if env.storage().persistent().has(&legacy_key) {
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&legacy_key, MIN_TTL, BUMP_TTL);
+            }
+
+            // Also extend settlement reference if found on the record
+            if let Some(record) = read_payment_value(env, &v1_key)
+                .or_else(|| read_payment_value(env, &legacy_key))
+            {
+                let s_key = DataKey::SettlementRef(record.settlement_ref);
+                if env.storage().persistent().has(&s_key) {
+                    env.storage()
+                        .persistent()
+                        .extend_ttl(&s_key, MIN_TTL, BUMP_TTL);
+                }
+            }
+        }
+
+        let s_log_key = settlement_ref_log_key(index);
+        if env.storage().persistent().has(&s_log_key) {
+            env.storage()
+                .persistent()
+                .extend_ttl(&s_log_key, MIN_TTL, BUMP_TTL);
+        }
+
+        extended_count += 1;
+        index += 1;
+    }
+
+    // Keep instance storage alive
+    env.storage().instance().extend_ttl(MIN_TTL, BUMP_TTL);
+
+    let has_more = index < total;
+    (extended_count, index, has_more)
 }
 
 // ─── Payment Counter Helpers (Instance Storage) ─────────────────────────────
