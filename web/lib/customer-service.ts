@@ -4,6 +4,7 @@ export interface Customer {
   id: string;
   merchantId: string;
   name: string;
+  phone: string | null;
   email: string | null;
   notes: string | null;
   createdAt: string;
@@ -12,6 +13,7 @@ export interface Customer {
 
 export interface CreateCustomerPayload {
   name: string;
+  phone?: string;
   email?: string;
   notes?: string;
 }
@@ -27,6 +29,7 @@ export interface CustomerRecentInvoice {
 export interface CustomerSummary {
   id: string;
   name: string;
+  phone: string | null;
   email: string | null;
   notes: string | null;
   invoiceCount: number;

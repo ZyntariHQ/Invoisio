@@ -15,14 +15,25 @@ import {
   X,
   Plus,
   RefreshCw,
+  Phone,
+  Check,
 } from "lucide-react";
 import { RequireAuth } from "@/components/require-auth";
 import { WalletAuthControls } from "@/components/wallet-auth-controls";
 import { CustomerService, Customer, CreateCustomerPayload } from "@/lib/customer-service";
 import { extractApiErrorMessage } from "@/lib/api-client";
+import {
+  validateCustomerForm,
+  hasErrors,
+  getVisibleErrors,
+  initialCustomerFormTouched,
+  type CustomerFormTouched,
+} from "@/lib/validate-customer-form";
+import { useToast } from "@/hooks/use-toast";
 
 function CustomersContent() {
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
@@ -33,9 +44,11 @@ function CustomersContent() {
 
   // Form states
   const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [touched, setTouched] = useState<CustomerFormTouched>(initialCustomerFormTouched);
 
   // Delete state
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -64,13 +77,16 @@ function CustomersContent() {
   // Create customer mutation
   const createMutation = useMutation({
     mutationFn: (payload: CreateCustomerPayload) => CustomerService.create(payload),
-    onSuccess: () => {
+    onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setIsAddModalOpen(false);
       resetForm();
+      toast.success("Customer added", `${created.name} has been added to your directory.`);
     },
     onError: (err) => {
-      setFormError(extractApiErrorMessage(err));
+      const msg = extractApiErrorMessage(err);
+      setFormError(msg);
+      toast.error("Failed to add customer", msg);
     },
   });
 
@@ -78,35 +94,42 @@ function CustomersContent() {
   const updateMutation = useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateCustomerPayload> }) =>
       CustomerService.update(id, payload),
-    onSuccess: () => {
+    onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setIsEditModalOpen(false);
       resetForm();
+      toast.success("Profile updated", `${updated.name}'s profile has been saved.`);
     },
     onError: (err) => {
-      setFormError(extractApiErrorMessage(err));
+      const msg = extractApiErrorMessage(err);
+      setFormError(msg);
+      toast.error("Failed to update customer", msg);
     },
   });
 
   // Delete customer mutation
   const deleteMutation = useMutation({
     mutationFn: (id: string) => CustomerService.remove(id),
-    onSuccess: () => {
+    onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       setDeletingId(null);
+      toast.success("Customer removed", "The customer profile has been deleted.");
     },
     onError: (err) => {
-      alert(`Failed to delete customer: ${extractApiErrorMessage(err)}`);
+      const msg = extractApiErrorMessage(err);
+      toast.error("Failed to delete customer", msg);
       setDeletingId(null);
     },
   });
 
   const resetForm = () => {
     setName("");
+    setPhone("");
     setEmail("");
     setNotes("");
     setFormError(null);
     setSelectedCustomer(null);
+    setTouched(initialCustomerFormTouched);
   };
 
   const handleOpenAddModal = () => {
@@ -118,16 +141,32 @@ function CustomersContent() {
     resetForm();
     setSelectedCustomer(customer);
     setName(customer.name);
+    setPhone(customer.phone || "");
     setEmail(customer.email || "");
     setNotes(customer.notes || "");
     setIsEditModalOpen(true);
   };
 
+  const validationErrors = validateCustomerForm({
+    name,
+    phone: phone || undefined,
+    email: email || undefined,
+    notes: notes || undefined,
+  });
+  const visibleErrors = getVisibleErrors(validationErrors, touched);
+  const isFormValid = !hasErrors(validationErrors) && name.trim().length > 0;
+
+  const markAllTouched = () => {
+    setTouched({ name: true, phone: true, email: true, notes: true });
+  };
+
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    markAllTouched();
+    if (!isFormValid) return;
     createMutation.mutate({
       name: name.trim(),
+      phone: phone.trim() || undefined,
       email: email.trim() || undefined,
       notes: notes.trim() || undefined,
     });
@@ -135,11 +174,14 @@ function CustomersContent() {
 
   const handleEditSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustomer || !name.trim()) return;
+    if (!selectedCustomer) return;
+    markAllTouched();
+    if (!isFormValid) return;
     updateMutation.mutate({
       id: selectedCustomer.id,
       payload: {
         name: name.trim(),
+        phone: phone.trim() || undefined,
         email: email.trim() || undefined,
         notes: notes.trim() || undefined,
       },
@@ -213,7 +255,7 @@ function CustomersContent() {
             </div>
             <input
               type="text"
-              placeholder="Search customers by name or email..."
+              placeholder="Search customers by name, email, or phone..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="block w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-gray-400"
@@ -315,14 +357,23 @@ function CustomersContent() {
                         <div className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors">
                           <Link href={`/customers/${customer.id}`}>{customer.name}</Link>
                         </div>
-                        {customer.email ? (
-                          <div className="flex items-center gap-1 mt-1 text-xs text-gray-500">
-                            <Mail className="h-3.5 w-3.5 text-gray-400" />
-                            {customer.email}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-400 italic">No email saved</span>
-                        )}
+                        <div className="flex flex-col mt-1 gap-0.5">
+                          {customer.email ? (
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <Mail className="h-3.5 w-3.5 text-gray-400" />
+                              {customer.email}
+                            </div>
+                          ) : null}
+                          {customer.phone ? (
+                            <div className="flex items-center gap-1 text-xs text-gray-500">
+                              <Phone className="h-3.5 w-3.5 text-gray-400" />
+                              {customer.phone}
+                            </div>
+                          ) : null}
+                          {!customer.email && !customer.phone ? (
+                            <span className="text-xs text-gray-400 italic">No contact info saved</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-6 py-4 max-w-xs">
                         {customer.notes ? (
@@ -409,7 +460,7 @@ function CustomersContent() {
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="space-y-4">
+            <form onSubmit={handleAddSubmit} className="space-y-4" noValidate>
               <div>
                 <label htmlFor="add-name" className="block text-sm font-medium text-gray-700">
                   Client Name <span className="text-rose-500">*</span>
@@ -417,40 +468,99 @@ function CustomersContent() {
                 <input
                   id="add-name"
                   type="text"
-                  required
                   placeholder="e.g. John Doe, Acme Corp"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  onBlur={() => setTouched({ ...touched, name: true })}
+                  aria-invalid={Boolean(visibleErrors.name)}
+                  aria-describedby={visibleErrors.name ? "add-name-error" : undefined}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
                 />
+                {visibleErrors.name ? (
+                  <p id="add-name-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                    {visibleErrors.name}
+                  </p>
+                ) : null}
               </div>
 
-              <div>
-                <label htmlFor="add-email" className="block text-sm font-medium text-gray-700">
-                  Email Address
-                </label>
-                <input
-                  id="add-email"
-                  type="email"
-                  placeholder="e.g. john@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="add-phone" className="block text-sm font-medium text-gray-700">
+                    Phone
+                    <span className="font-normal text-gray-400 ml-1">(optional)</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <Phone className="pointer-events-none absolute inset-y-0 left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      id="add-phone"
+                      type="tel"
+                      placeholder="+1 (555) 123-4567"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      onBlur={() => setTouched({ ...touched, phone: true })}
+                      aria-invalid={Boolean(visibleErrors.phone)}
+                      aria-describedby={visibleErrors.phone ? "add-phone-error" : undefined}
+                      className="block w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                    />
+                  </div>
+                  {visibleErrors.phone ? (
+                    <p id="add-phone-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                      {visibleErrors.phone}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label htmlFor="add-email" className="block text-sm font-medium text-gray-700">
+                    Email Address
+                    <span className="font-normal text-gray-400 ml-1">(optional)</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <Mail className="pointer-events-none absolute inset-y-0 left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      id="add-email"
+                      type="email"
+                      placeholder="e.g. john@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => setTouched({ ...touched, email: true })}
+                      aria-invalid={Boolean(visibleErrors.email)}
+                      aria-describedby={visibleErrors.email ? "add-email-error" : undefined}
+                      className="block w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                    />
+                  </div>
+                  {visibleErrors.email ? (
+                    <p id="add-email-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                      {visibleErrors.email}
+                    </p>
+                  ) : null}
+                </div>
               </div>
 
               <div>
                 <label htmlFor="add-notes" className="block text-sm font-medium text-gray-700">
                   Internal Notes
+                  <span className="font-normal text-gray-400 ml-1">(optional)</span>
                 </label>
-                <textarea
-                  id="add-notes"
-                  rows={3}
-                  placeholder="Describe payment preferences, billing terms, etc..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <div className="relative mt-1">
+                  <FileText className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <textarea
+                    id="add-notes"
+                    rows={3}
+                    placeholder="Describe payment preferences, billing terms, etc..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onBlur={() => setTouched({ ...touched, notes: true })}
+                    aria-invalid={Boolean(visibleErrors.notes)}
+                    aria-describedby={visibleErrors.notes ? "add-notes-error" : undefined}
+                    className="block w-full resize-none rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                  />
+                </div>
+                {visibleErrors.notes ? (
+                  <p id="add-notes-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                    {visibleErrors.notes}
+                  </p>
+                ) : null}
               </div>
 
               {formError && (
@@ -463,16 +573,27 @@ function CustomersContent() {
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition-colors"
+                  disabled={createMutation.isPending}
+                  className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-60 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={createMutation.isPending || !name.trim()}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  disabled={createMutation.isPending || !isFormValid}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400 transition-colors"
                 >
-                  {createMutation.isPending ? "Saving..." : "Save Customer"}
+                  {createMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>Save Customer</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
@@ -499,7 +620,7 @@ function CustomersContent() {
               </button>
             </div>
 
-            <form onSubmit={handleEditSubmit} className="space-y-4">
+            <form onSubmit={handleEditSubmit} className="space-y-4" noValidate>
               <div>
                 <label htmlFor="edit-name" className="block text-sm font-medium text-gray-700">
                   Client Name <span className="text-rose-500">*</span>
@@ -507,40 +628,99 @@ function CustomersContent() {
                 <input
                   id="edit-name"
                   type="text"
-                  required
                   placeholder="e.g. John Doe, Acme Corp"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  onBlur={() => setTouched({ ...touched, name: true })}
+                  aria-invalid={Boolean(visibleErrors.name)}
+                  aria-describedby={visibleErrors.name ? "edit-name-error" : undefined}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
                 />
+                {visibleErrors.name ? (
+                  <p id="edit-name-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                    {visibleErrors.name}
+                  </p>
+                ) : null}
               </div>
 
-              <div>
-                <label htmlFor="edit-email" className="block text-sm font-medium text-gray-700">
-                  Email Address
-                </label>
-                <input
-                  id="edit-email"
-                  type="email"
-                  placeholder="e.g. john@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <label htmlFor="edit-phone" className="block text-sm font-medium text-gray-700">
+                    Phone
+                    <span className="font-normal text-gray-400 ml-1">(optional)</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <Phone className="pointer-events-none absolute inset-y-0 left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      id="edit-phone"
+                      type="tel"
+                      placeholder="+1 (555) 123-4567"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      onBlur={() => setTouched({ ...touched, phone: true })}
+                      aria-invalid={Boolean(visibleErrors.phone)}
+                      aria-describedby={visibleErrors.phone ? "edit-phone-error" : undefined}
+                      className="block w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                    />
+                  </div>
+                  {visibleErrors.phone ? (
+                    <p id="edit-phone-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                      {visibleErrors.phone}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div>
+                  <label htmlFor="edit-email" className="block text-sm font-medium text-gray-700">
+                    Email Address
+                    <span className="font-normal text-gray-400 ml-1">(optional)</span>
+                  </label>
+                  <div className="relative mt-1">
+                    <Mail className="pointer-events-none absolute inset-y-0 left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                    <input
+                      id="edit-email"
+                      type="email"
+                      placeholder="e.g. john@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => setTouched({ ...touched, email: true })}
+                      aria-invalid={Boolean(visibleErrors.email)}
+                      aria-describedby={visibleErrors.email ? "edit-email-error" : undefined}
+                      className="block w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                    />
+                  </div>
+                  {visibleErrors.email ? (
+                    <p id="edit-email-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                      {visibleErrors.email}
+                    </p>
+                  ) : null}
+                </div>
               </div>
 
               <div>
                 <label htmlFor="edit-notes" className="block text-sm font-medium text-gray-700">
                   Internal Notes
+                  <span className="font-normal text-gray-400 ml-1">(optional)</span>
                 </label>
-                <textarea
-                  id="edit-notes"
-                  rows={3}
-                  placeholder="Describe payment preferences, billing terms, etc..."
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <div className="relative mt-1">
+                  <FileText className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <textarea
+                    id="edit-notes"
+                    rows={3}
+                    placeholder="Describe payment preferences, billing terms, etc..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    onBlur={() => setTouched({ ...touched, notes: true })}
+                    aria-invalid={Boolean(visibleErrors.notes)}
+                    aria-describedby={visibleErrors.notes ? "edit-notes-error" : undefined}
+                    className="block w-full resize-none rounded-lg border border-gray-300 bg-white pl-9 pr-3.5 py-2 text-sm text-gray-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 aria-invalid:border-rose-400 aria-invalid:ring-rose-200"
+                  />
+                </div>
+                {visibleErrors.notes ? (
+                  <p id="edit-notes-error" className="mt-1 text-xs font-medium text-rose-600" role="alert">
+                    {visibleErrors.notes}
+                  </p>
+                ) : null}
               </div>
 
               {formError && (
@@ -553,16 +733,27 @@ function CustomersContent() {
                 <button
                   type="button"
                   onClick={() => setIsEditModalOpen(false)}
-                  className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200 transition-colors"
+                  disabled={updateMutation.isPending}
+                  className="rounded-lg bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-200 disabled:opacity-60 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={updateMutation.isPending || !name.trim()}
-                  className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  disabled={updateMutation.isPending || !isFormValid}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-400 transition-colors"
                 >
-                  {updateMutation.isPending ? "Saving..." : "Save Changes"}
+                  {updateMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="h-4 w-4" />
+                      <span>Save Changes</span>
+                    </>
+                  )}
                 </button>
               </div>
             </form>
