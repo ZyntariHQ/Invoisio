@@ -4,9 +4,12 @@
   "description": "Soroban invoice-payment contract client helper library for Invoisio",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist", "src"],
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "node init && tsc",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
     "example:record": "ts-node -r dotenv/config examples/record-payment.ts",

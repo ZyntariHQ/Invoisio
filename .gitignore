@@ -9,11 +9,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Environment files
-.env
-.env.*
 
 # Editor/IDE
-.vscode/
 .idea/
 
 # OS files
@@ -54,3 +51,4 @@ issue-list*.json
 created-issues*.json
 .trae_issue_list.jsonsoroban/events.json
 soroban/events.txt
+config.bat
